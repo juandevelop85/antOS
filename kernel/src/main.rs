@@ -1,11 +1,19 @@
 // syso - kernel x86_64
 //
-// Fase 1: dejar de estar ciegos. El puerto serie nos da un println! propio,
-// y con él un informe de arranque y un panic que se explica.
+// Fase 2: la máquina deja de ejecutar una línea recta y empieza a reaccionar.
+// GDT y TSS, tabla de interrupciones, el PIC remapeado, y los dos primeros
+// manejadores de hardware: temporizador y teclado.
 
 #![no_std]
 #![no_main]
+// La razón concreta por la que este proyecto usa nightly: sin esta convención
+// de llamada habría que escribir a mano el prólogo y el epílogo de cada
+// manejador de interrupción en ensamblador.
+#![feature(abi_x86_interrupt)]
 
+mod gdt;
+mod interrupts;
+mod port;
 mod serial;
 mod sync;
 
@@ -34,7 +42,27 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     println!();
-    println!("arranque completo · la CPU queda detenida");
+    println!("interrupciones");
+
+    // El orden importa: la IDT necesita el selector de código de NUESTRA GDT,
+    // y el manejador de doble fallo necesita que el TSS ya esté cargado.
+    gdt::init();
+    println!("  gdt          cargada, con pila propia para el doble fallo");
+
+    interrupts::init();
+    println!("  idt          cargada, 8 vectores atendidos");
+
+    // Prueba de que una excepción puede manejarse y CONTINUAR: `int3` salta
+    // al manejador de breakpoint, que imprime y retorna aquí mismo.
+    unsafe { core::arch::asm!("int3", options(nomem, nostack)) };
+    println!("  breakpoint   manejado y ejecución reanudada");
+
+    interrupts::init_pic();
+    interrupts::enable();
+    println!("  pic          remapeado a 32.. · temporizador y teclado activos");
+
+    println!();
+    println!("el kernel queda a la espera de interrupciones");
     halt_loop()
 }
 
@@ -133,11 +161,11 @@ fn paint_gradient(buffer: &mut [u8], info: FrameBufferInfo) {
     }
 }
 
-/// Detiene la CPU de forma permanente.
+/// Duerme la CPU entre interrupciones.
 ///
-/// `hlt` la duerme hasta la siguiente interrupción; el bucle la vuelve a
-/// dormir si alguna la despierta. Un `loop {}` a secas también "funcionaría",
-/// pero dejaría un núcleo al 100% girando en vacío.
+/// En la Fase 1 esto era un final. Ahora ya no: `hlt` despierta con cada
+/// interrupción, se atiende el manejador, y se vuelve a dormir. La máquina
+/// está viva sin quemar un núcleo girando en vacío.
 fn halt_loop() -> ! {
     loop {
         // SAFETY: hlt no toca memoria; solo detiene la CPU hasta una IRQ.

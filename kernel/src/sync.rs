@@ -44,6 +44,19 @@ impl<T> SpinLock<T> {
     }
 
     pub fn lock(&self) -> SpinGuard<'_, T> {
+        // EL ARREGLO ANUNCIADO EN LA FASE 1.
+        //
+        // Sin esto, una interrupción que salte mientras sostenemos el cerrojo
+        // y cuyo manejador intente tomarlo cuelga la máquina para siempre: el
+        // manejador gira esperando, y el código interrumpido —el único que
+        // puede liberarlo— no volverá a ejecutarse nunca.
+        //
+        // Apagar las interrupciones ANTES de intentar entrar hace imposible
+        // esa situación. Apagarlas después de entrar no serviría: la ventana
+        // entre una cosa y otra es justo donde ocurre el fallo.
+        let restore_interrupts = interrupts_enabled();
+        disable_interrupts();
+
         while self
             .locked
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -56,7 +69,7 @@ impl<T> SpinLock<T> {
                 core::hint::spin_loop();
             }
         }
-        SpinGuard { lock: self }
+        SpinGuard { lock: self, restore_interrupts }
     }
 }
 
@@ -66,6 +79,9 @@ impl<T> SpinLock<T> {
 /// olvidarse de liberar, porque liberar no es algo que tú llames.
 pub struct SpinGuard<'a, T> {
     lock: &'a SpinLock<T>,
+    /// Si al entrar las interrupciones estaban activas, hay que volver a
+    /// activarlas al salir — y solo entonces.
+    restore_interrupts: bool,
 }
 
 impl<T> Deref for SpinGuard<'_, T> {
@@ -90,16 +106,65 @@ impl<T> Drop for SpinGuard<'_, T> {
         // siguiente que entre. Sin esto, el procesador podría reordenar
         // nuestras escrituras por detrás de la liberación del cerrojo.
         self.lock.locked.store(false, Ordering::Release);
+
+        // Reactivar DESPUÉS de soltar. Al revés dejaría una ventana en la que
+        // una interrupción encontraría el cerrojo todavía tomado.
+        if self.restore_interrupts {
+            enable_interrupts();
+        }
     }
 }
 
-// ADVERTENCIA para la Fase 2, cuando existan las interrupciones:
-//
-// Este cerrojo se bloquea a sí mismo si una interrupción salta mientras lo
-// tenemos tomado y su manejador intenta tomarlo también. El manejador gira
-// esperando a que se libere; el código interrumpido no puede continuar para
-// liberarlo. La máquina se queda ahí para siempre.
-//
-// La solución habitual es deshabilitar interrupciones mientras se sostiene el
-// cerrojo. Lo dejamos anotado aquí porque el bug aparecerá en cuanto tengamos
-// un manejador de teclado que quiera imprimir.
+/// El bit 9 de RFLAGS (IF) dice si la CPU atiende interrupciones.
+fn interrupts_enabled() -> bool {
+    let flags: u64;
+    // SAFETY: solo lee el registro de banderas a través de la pila.
+    unsafe {
+        core::arch::asm!("pushfq", "pop {}", out(reg) flags, options(preserves_flags));
+    }
+    flags & (1 << 9) != 0
+}
+
+fn disable_interrupts() {
+    // SAFETY: `cli` solo baja IF. No preserves_flags, precisamente porque
+    // modificar las banderas es lo único que hace.
+    unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
+}
+
+fn enable_interrupts() {
+    // SAFETY: `sti` sube IF. Solo se llama para restaurar un estado previo.
+    unsafe { core::arch::asm!("sti", options(nomem, nostack)) };
+}
+
+/// Estado global que solo se toca durante la inicialización.
+///
+/// La GDT y la IDT tienen que vivir para siempre —la CPU guarda punteros a
+/// ellas— y se escriben una sola vez, antes de que existan interrupciones o
+/// segundos núcleos. Un cerrojo ahí sería peso muerto; `static mut`, la
+/// trampa de siempre. Esto es el término medio: sin cerrojo, pero con el
+/// `unsafe` visible en cada acceso para que la promesa quede escrita.
+pub struct InitOnly<T> {
+    value: UnsafeCell<T>,
+}
+
+/// Igual que arriba: la promesa es que solo se toca durante el arranque.
+unsafe impl<T: Send> Sync for InitOnly<T> {}
+
+impl<T> InitOnly<T> {
+    pub const fn new(value: T) -> Self {
+        InitOnly { value: UnsafeCell::new(value) }
+    }
+
+    /// # Safety
+    /// Solo durante la inicialización, y solo desde un sitio a la vez.
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn get_mut(&self) -> &'static mut T {
+        unsafe { &mut *self.value.get() }
+    }
+
+    /// # Safety
+    /// El valor debe estar ya inicializado y no volver a mutarse.
+    pub unsafe fn get(&self) -> &'static T {
+        unsafe { &*self.value.get() }
+    }
+}

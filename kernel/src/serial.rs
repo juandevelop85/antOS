@@ -9,13 +9,11 @@
 //! redirige a la terminal con `-serial stdio`, así que un `println!` aquí sale
 //! en tu shell.
 //!
-//! ## Por qué esto necesita ensamblador
-//!
 //! El framebuffer de la Fase 0 era memoria: escribías un byte y aparecía un
-//! píxel. El UART no. x86 tiene un **espacio de direcciones de E/S separado**,
-//! con sus propios 65536 puertos, al que no se llega con punteros. Solo con
-//! las instrucciones `in` y `out`. No hay forma de expresar eso en Rust.
+//! píxel. El UART no: vive en el espacio de E/S, y se le habla con `in` y
+//! `out` (ver [`crate::port`]).
 
+use crate::port::{inb, outb};
 use crate::sync::SpinLock;
 use core::fmt::{self, Write};
 
@@ -103,30 +101,6 @@ impl Write for SerialPort {
         }
         Ok(())
     }
-}
-
-/// # Safety
-/// Escribe en un puerto de E/S: el efecto depende del hardware que haya ahí.
-unsafe fn outb(port: u16, value: u8) {
-    core::arch::asm!(
-        "out dx, al",
-        in("dx") port,
-        in("al") value,
-        options(nomem, nostack, preserves_flags)
-    );
-}
-
-/// # Safety
-/// Leer un puerto puede tener efectos secundarios en el dispositivo.
-unsafe fn inb(port: u16) -> u8 {
-    let value: u8;
-    core::arch::asm!(
-        "in al, dx",
-        in("dx") port,
-        out("al") value,
-        options(nomem, nostack, preserves_flags)
-    );
-    value
 }
 
 /// SAFETY del `unsafe`: COM1 está en 0x3F8 en cualquier PC.
