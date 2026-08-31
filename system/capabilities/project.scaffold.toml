@@ -6,7 +6,7 @@ language = { type = "enum", of = ["rust", "typescript", "python"] }
 name = { type = "slug", max = 64 }
 
 [effects]
-writes = ["$WORKSPACE/{name}"]
+writes = ["$WORKSPACE/{name}/"]
 
 [policy]
 tier = "confirm"

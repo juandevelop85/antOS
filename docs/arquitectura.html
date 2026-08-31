@@ -345,7 +345,7 @@
 
 <span class="cm"># Lo que hace posible calcular el radio de impacto en la etapa 03.</span>
 <span class="cm">[effects]</span>
-<span class="ky">writes</span>   = [<span class="st">"$WORKSPACE/{name}"</span>]
+<span class="ky">writes</span>   = [<span class="st">"$WORKSPACE/{name}/"</span>]  <span class="cm"># la barra final: es un directorio</span>
 <span class="ky">reads</span>    = [<span class="st">"$TEMPLATES"</span>]
 <span class="ky">network</span>  = [<span class="st">"crates.io"</span>, <span class="st">"registry.npmjs.org"</span>]
 <span class="ky">packages</span> = <span class="st">"declare"</span>   <span class="cm"># propone un diff, no instala a lo bruto</span>
@@ -451,9 +451,10 @@
           <div class="ms-head"><div class="ms-t">Aislamiento de verdad</div><span class="ms-state hecho">hecho</span></div>
           <div class="ms-d">La ejecución se muda a un proceso aparte confinado por el kernel, con una
             política derivada directamente de los efectos declarados. En macOS la aplica Seatbelt sobre
-            escrituras y red; las instantáneas pasan a ser clones copy-on-write de APFS. El modelo de
-            efectos aguantó el contacto, pero no ileso: destapó que <code>fs.write</code> creaba
-            directorios que nunca había declarado.</div>
+            escrituras y red; en Linux lo hace Landlock, que además confina lecturas. Las instantáneas
+            pasan a ser clones copy-on-write de APFS. El modelo de efectos aguantó el contacto, pero
+            no ileso: destapó que <code>fs.write</code> creaba directorios que nunca había declarado,
+            y obligó a que los manifiestos distingan fichero de directorio.</div>
           <div class="ms-proof"><b>Prueba:</b> <code>syso doctor</code> ataca su propio recinto — escribir
             fuera de lo declarado lo deniega el kernel, no una comprobación nuestra.</div>
         </div>
@@ -503,12 +504,13 @@
           calibra con uso real.</p>
       </div>
       <div class="risk">
-        <h4>El recinto todavía depende de la plataforma</h4>
-        <p>Seatbelt confina escrituras y red, pero no lecturas: un perfil que las deniegue por defecto
-          pelea con el enlazador dinámico de macOS y mata el proceso al arrancar. Y Seatbelt lleva
-          años deprecado. El destino real es Linux, donde un espacio de nombres de montaje resuelve
-          la lectura sin esfuerzo — simplemente no montas lo que no debe verse — pero ese motor
-          todavía no está escrito.</p>
+        <h4>Las dos plataformas no garantizan lo mismo</h4>
+        <p>En Linux, Landlock confina escrituras, lecturas y TCP: el espacio personal del usuario y
+          sus credenciales son ilegibles para una capacidad. En macOS las lecturas quedan fuera —un
+          perfil que las deniegue por defecto pelea con el enlazador dinámico y mata el proceso al
+          arrancar— y Seatbelt lleva años deprecado. Así que el equipo desarrolla con garantías
+          más flojas que las del destino, que es la dirección menos mala pero conviene no olvidarla.
+          Landlock, además, solo cubre TCP: UDP y los sockets unix se le escapan.</p>
       </div>
       <div class="risk">
         <h4>Nix puede ser demasiado</h4>

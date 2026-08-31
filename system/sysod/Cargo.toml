@@ -17,3 +17,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 # HTTP directo con la Messages API. ureq es bloqueante y sin runtime async:
 # suficiente para un CLI y una dependencia mucho más ligera que reqwest.
 ureq = { version = "3", features = ["json"] }
+
+# Solo en Linux: los syscalls de Landlock se invocan a mano para controlar
+# exactamente las estructuras que cruzan la frontera del kernel.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

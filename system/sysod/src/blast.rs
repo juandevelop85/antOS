@@ -19,6 +19,12 @@ pub struct Blast {
     /// Rutas que se salen del espacio de trabajo. Nunca deberían existir,
     /// y que existan es exactamente lo que hay que detectar aquí.
     pub escapes: BTreeSet<PathBuf>,
+    /// De las rutas escritas, cuáles son directorios. Se declara con una
+    /// barra final en el manifiesto en vez de adivinarse: hay recintos que
+    /// necesitan que el directorio exista para poder ponerle una regla, y
+    /// deducirlo del nombre sería exactamente el tipo de suposición que este
+    /// diseño trata de eliminar.
+    pub dirs: BTreeSet<PathBuf>,
     pub declared_tier: Tier,
     pub irreversible: bool,
 }
@@ -26,6 +32,8 @@ pub struct Blast {
 impl Blast {
     pub fn compute(plan: &Plan, catalog: &Catalog, workspace: &Path) -> Result<Self> {
         let mut b = Blast { declared_tier: Tier::Auto, ..Default::default() };
+
+        let mut dirs = BTreeSet::new();
 
         for step in &plan.steps {
             let cap = catalog.get(&step.capability)?;
@@ -42,9 +50,12 @@ impl Blast {
                 (&cap.effects.deletes, &mut b.deletes),
             ] {
                 for tpl in templates {
-                    let resolved = resolve(tpl, step, workspace);
+                    let (resolved, is_dir) = resolve(tpl, step, workspace);
                     if !resolved.starts_with(workspace) {
                         b.escapes.insert(resolved.clone());
+                    }
+                    if is_dir {
+                        dirs.insert(resolved.clone());
                     }
                     bucket.insert(resolved);
                 }
@@ -58,7 +69,12 @@ impl Blast {
         //
         // Sigue estando acotado: solo directorios inexistentes, solo dentro
         // del espacio de trabajo, y solo en la rama de una ruta ya declarada.
-        b.writes = with_missing_ancestors(&b.writes, workspace);
+        let ancestors = missing_ancestors(&b.writes, workspace);
+        // Un ancestro que falta siempre es un directorio: por definición
+        // cuelga algo de él.
+        dirs.extend(ancestors.iter().cloned());
+        b.writes.extend(ancestors);
+        b.dirs = dirs.intersection(&b.writes).cloned().collect();
         Ok(b)
     }
 
@@ -114,8 +130,8 @@ impl Blast {
     }
 }
 
-fn with_missing_ancestors(paths: &BTreeSet<PathBuf>, workspace: &Path) -> BTreeSet<PathBuf> {
-    let mut out = paths.clone();
+fn missing_ancestors(paths: &BTreeSet<PathBuf>, workspace: &Path) -> BTreeSet<PathBuf> {
+    let mut out = BTreeSet::new();
     for path in paths {
         let mut cursor = path.parent();
         while let Some(dir) = cursor {
@@ -137,11 +153,15 @@ fn join(set: &BTreeSet<String>) -> String {
 
 /// Expande una plantilla de efecto (`$WORKSPACE/{name}`) con los argumentos
 /// del paso y la normaliza contra el espacio de trabajo.
-fn resolve(tpl: &str, step: &Step, workspace: &Path) -> PathBuf {
+///
+/// Devuelve además si la plantilla la declaró como directorio, que es lo que
+/// significa la barra final.
+fn resolve(tpl: &str, step: &Step, workspace: &Path) -> (PathBuf, bool) {
     let expanded = expand(tpl, &step.args, workspace);
-    let p = PathBuf::from(expanded);
+    let is_dir = expanded.ends_with('/');
+    let p = PathBuf::from(expanded.trim_end_matches('/'));
     let absolute = if p.is_absolute() { p } else { workspace.join(p) };
-    normalize(&absolute)
+    (normalize(&absolute), is_dir)
 }
 
 pub fn expand(tpl: &str, args: &BTreeMap<String, String>, workspace: &Path) -> String {
@@ -245,8 +265,24 @@ mod tests {
 
         assert!(blast.writes.contains(&ws.join("uno")), "el ancestro que falta debe declararse");
         assert!(blast.writes.contains(&ws.join("uno/dos")));
+        assert!(blast.dirs.contains(&ws.join("uno")), "un ancestro siempre es directorio");
+        assert!(!blast.dirs.contains(&ws.join("uno/dos/fichero.txt")), "la hoja no lo es");
         assert!(!blast.writes.contains(&ws), "el espacio de trabajo ya existe: no se declara");
         assert!(blast.escapes.is_empty(), "los ancestros siguen dentro del espacio de trabajo");
+    }
+
+    #[test]
+    fn la_barra_final_declara_un_directorio() {
+        let ws = PathBuf::from("/tmp/espacio");
+        let mut catalog = catalogo_sin_restricciones();
+        let cap = catalog.caps.get_mut("t.leer").unwrap();
+        cap.effects.reads.clear();
+        cap.effects.writes = vec!["{path}/".into()];
+
+        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws).unwrap();
+        assert!(blast.dirs.contains(&ws.join("proyecto")));
+        assert!(!blast.dirs.iter().any(|d| d.to_string_lossy().ends_with('/')),
+                "la barra es una marca, no parte de la ruta");
     }
 
     #[test]

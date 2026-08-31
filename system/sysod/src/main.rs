@@ -391,6 +391,8 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
     // Política de prueba: solo se declara el espacio de trabajo, sin red.
     let solo_workspace = sandbox::Policy {
         writes: vec![ctx.workspace.clone()],
+        reads: vec![],
+        dirs: vec![ctx.workspace.clone()],
         network: false,
     };
 
@@ -436,9 +438,33 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         marca(false, "escritura dentro de lo declarado: BLOQUEADA (el recinto es demasiado estrecho)");
     }
 
-    // 3) red. Se prueba en los dos sentidos para no confundir «bloqueada»
+    // 3) leer fuera de lo declarado. Es la garantía que separa a Landlock de
+    //    Seatbelt, así que se pregunta al motor qué promete antes de juzgar.
+    let secreto = ctx.state.join("doctor-secreto.txt");
+    std::fs::write(&secreto, "credencial de mentira")?;
+    let lectura = sandbox::run(
+        &*jail,
+        &[exec::Change::Read { path: secreto.clone() }],
+        &solo_workspace,
+    );
+    let _ = std::fs::remove_file(&secreto);
+
+    match (jail.confines_reads(), lectura.is_err()) {
+        (true, true) => marca(true, "lectura fuera de lo declarado: la deniega el kernel"),
+        (true, false) => {
+            fallos += 1;
+            marca(false, "lectura fuera de lo declarado: SE COMPLETÓ");
+        }
+        (false, _) => println!(
+            "  {} {}",
+            paint("·", YELLOW),
+            paint("lectura fuera de lo declarado: este motor no confina lecturas", DIM)
+        ),
+    }
+
+    // 4) red. Se prueba en los dos sentidos para no confundir «bloqueada»
     //    con «esta máquina no tiene internet».
-    let con_red = sandbox::Policy { writes: vec![], network: true };
+    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true };
     let alcanzable_declarando = sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
     let alcanzable_sin_declarar = sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
 

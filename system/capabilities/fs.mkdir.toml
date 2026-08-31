@@ -7,7 +7,7 @@ summary = "Crea un directorio en el espacio de trabajo"
 path = { type = "path", within = "$WORKSPACE" }
 
 [effects]
-writes = ["{path}"]
+writes = ["{path}/"]
 
 [policy]
 tier = "confirm"

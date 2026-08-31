@@ -46,21 +46,48 @@ target/debug/syso doctor    # ataca su propio recinto y comprueba que aguanta
 
 | Plataforma | Motor | Garantiza |
 |---|---|---|
-| macOS | Seatbelt (`sandbox-exec`) | escrituras y red, por el kernel |
-| Linux | — | sin escribir todavía; el destino son espacios de nombres |
+| Linux | Landlock (ABI ≥ 1) | escrituras, **lecturas** y TCP, por el kernel |
+| macOS | Seatbelt (`sandbox-exec`) | escrituras y TCP; las lecturas no |
 | otras | ninguno | nada, y lo dice en cada ejecución |
 
-Las lecturas **no** están confinadas en macOS: un perfil `(deny default)` pelea
-con el enlazador dinámico y mata el proceso al arrancar. Con la red denegada,
-una lectura no declarada no puede salir a ningún sitio, pero la garantía real
-llegará con el motor de Linux.
+Cada plataforma se encierra a su manera: en macOS el padre envuelve al hijo con
+`sandbox-exec`; en Linux el hijo se encierra a sí mismo con Landlock leyendo la
+política del entorno.
+
+Las lecturas solo se confinan en Linux. En macOS un perfil `(deny default)`
+pelea con el enlazador dinámico y mata el proceso al arrancar; con la red
+denegada, una lectura no declarada no puede salir a ningún sitio, pero la
+garantía de verdad solo la da Landlock.
+
+Verificarlo en Linux, desde macOS:
+
+```bash
+./system/verificar-linux.sh    # requiere podman con una máquina arrancada
+```
+
+## Una barra final significa "directorio"
+
+```toml
+[effects]
+writes = ["$WORKSPACE/{name}/"]   # directorio: la capacidad escribe todo el árbol
+writes = ["{path}"]               # fichero
+```
+
+No es cosmético. Landlock engancha sus reglas a un descriptor, así que la ruta
+tiene que existir antes de encerrarse: syso crea de antemano los directorios
+declarados. Deducirlo del nombre —¿tiene extensión?— sería exactamente el tipo
+de suposición que este diseño existe para eliminar.
 
 ## Estado
 
-Verificado ejecutándolo, con el planificador local: plan, diff, niveles de
-permiso, denegación por defecto, instantánea, ejecución confinada, bitácora y
-`undo`. Siete pruebas cubren la derivación del nivel, la contención y la
-generación de la política del recinto.
+Verificado ejecutándolo en **las dos plataformas**, con el planificador local:
+plan, diff, niveles de permiso, denegación por defecto, instantánea, ejecución
+confinada, bitácora y `undo`. Ocho pruebas en macOS y nueve en Linux cubren la
+derivación del nivel, la contención y la generación de la política del recinto.
+
+En Linux, con un kernel 7.1: `doctor` pasa sus cuatro comprobaciones, y el
+ejecutor confinado recibe `EACCES` al intentar leer una clave privada que sin
+confinar sí lee.
 
 Las instantáneas usan `clonefile(2)` de APFS — clones copy-on-write, con caída
 a copia byte a byte si el sistema de ficheros no lo permite. Cada entrada
@@ -70,5 +97,7 @@ Sin verificar todavía:
 
 - **El planificador con Claude** compila, pero nunca ha hecho una petición
   real: no hubo credenciales durante el desarrollo.
-- **Las lecturas no están confinadas**, y `sandbox-exec` lleva años deprecado.
-- **No hay motor de Linux**, que es el destino real del producto.
+- **Las lecturas no están confinadas en macOS**, y `sandbox-exec` lleva años
+  deprecado. En Linux sí lo están.
+- **Landlock solo cubre TCP**: UDP y los sockets unix quedan fuera de su
+  alcance, así que la denegación de red no es total.
