@@ -21,7 +21,20 @@ impl Planner for LocalPlanner {
 
     fn plan(&self, intent: &str, _catalog: &Catalog) -> Result<Vec<Step>> {
         let lower = intent.to_lowercase();
-        let words: Vec<String> = lower.split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '-' && c != '_').to_string()).collect();
+        // El punto se conserva porque forma parte de nombres de fichero
+        // (`main.rs`), pero un punto FINAL es puntuación de frase. Sin
+        // quitarlo, dictar "crea un proyecto llamado demo." crea un
+        // directorio que se llama literalmente `demo.`.
+        let words: Vec<String> = lower
+            .split_whitespace()
+            .map(|w| {
+                w.trim_matches(|c: char| {
+                    !c.is_alphanumeric() && c != '.' && c != '/' && c != '-' && c != '_'
+                })
+                .trim_end_matches('.')
+                .to_string()
+            })
+            .collect();
 
         if lower.contains("proyecto") && (lower.contains("cre") || lower.contains("nuev")) {
             let language = if lower.contains("typescript") || lower.contains(" ts ") {

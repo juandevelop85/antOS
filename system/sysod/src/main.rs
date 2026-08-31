@@ -15,6 +15,7 @@ mod planner;
 mod preview;
 mod sandbox;
 mod snapshot;
+mod voz;
 
 use anyhow::{bail, Result};
 use blast::Blast;
@@ -79,6 +80,7 @@ fn run() -> Result<()> {
     match rest[0].as_str() {
         "caps" => cmd_caps(&catalog, &ctx),
         "doctor" => cmd_doctor(&ctx),
+        "escucha" => cmd_escuchar(&ctx, &catalog, &rest[1..], &opts),
         "log" => cmd_log(&ctx),
         "undo" => cmd_undo(&ctx),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
@@ -297,6 +299,81 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
         }
     }
     Ok(())
+}
+
+// --------------------------------------------------------------------- voz
+
+/// Escuchar es capturar y transcribir. A partir de ahí, el recorrido es
+/// exactamente el mismo que si lo hubieras tecleado — incluidos el diff y la
+/// confirmación. La voz no salta ningún control: hablar es más cómodo, no
+/// más privilegiado.
+fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> Result<()> {
+    let voz = voz::Voz::discover()?;
+
+    let segundos = args
+        .iter()
+        .position(|a| a == "--segundos")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(5);
+    let desde = args
+        .iter()
+        .position(|a| a == "--desde")
+        .and_then(|i| args.get(i + 1));
+
+    println!();
+    println!("{}", paint("syso · escucha", BOLD));
+    println!(
+        "  {}",
+        paint(&format!("modelo local: {}", voz.modelo().display()), DIM)
+    );
+
+    let captura = ctx.state.join("captura.wav");
+    match desde {
+        Some(fichero) => {
+            voz.normalizar(std::path::Path::new(fichero), &captura)?;
+            println!("  {}", paint(&format!("desde el fichero {fichero}"), DIM));
+        }
+        None => {
+            println!(
+                "  {}",
+                paint(&format!("grabando {segundos} s · habla ahora"), BOLD)
+            );
+            voz.grabar(segundos, &captura)?;
+        }
+    }
+
+    let intencion = voz.transcribir(&captura, &vocabulario(catalog))?;
+    let _ = std::fs::remove_file(&captura);
+
+    println!(
+        "  {} {}",
+        paint("he entendido:", DIM),
+        paint(&format!("«{intencion}»"), BOLD)
+    );
+
+    // Y desde aquí, todo igual que si lo hubieras escrito.
+    cmd_intent(ctx, catalog, &intencion, opts)
+}
+
+/// Construye la frase con la que se ceba el transcriptor.
+///
+/// Sale del catálogo, no de una lista escrita a mano: si mañana aparece una
+/// capacidad que acepta un lenguaje nuevo, el transcriptor lo aprende solo.
+fn vocabulario(catalog: &Catalog) -> String {
+    let mut opciones: std::collections::BTreeSet<&str> = Default::default();
+    for cap in catalog.caps.values() {
+        for spec in cap.params.values() {
+            opciones.extend(spec.of.iter().map(String::as_str));
+        }
+    }
+
+    format!(
+        "Órdenes para syso. Crear un proyecto {}. \
+         Declarar una dependencia en un proyecto. \
+         Leer, escribir o borrar un fichero del espacio de trabajo.",
+        opciones.into_iter().collect::<Vec<_>>().join(", ")
+    )
 }
 
 // ------------------------------------------------------------------ deshacer
@@ -604,6 +681,7 @@ fn help() {
 syso — el sistema hace lo que le pides, y puedes deshacerlo
 
   syso \"<intención>\"        planifica, enseña el diff y ejecuta
+  syso escucha               lo mismo, dictado por voz (transcripción local)
   syso caps                  catálogo de capacidades y su nivel
   syso log                   bitácora de lo que ha pasado
   syso undo                  revierte el último plan ejecutado
@@ -615,6 +693,8 @@ opciones
   -p, --planificador <local|claude>
   -s, --si                   no preguntar confirmación
   -n, --seco                 planificar y previsualizar sin ejecutar
+      --segundos <N>         escucha: cuánto grabar (por defecto 5)
+      --desde <fichero>      escucha: transcribir un audio en vez del micrófono
 
 entorno
   SYSO_WORKSPACE   espacio de trabajo (por defecto ./workspace)

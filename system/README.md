@@ -33,6 +33,29 @@ target/debug/syso "borra demo"                # ahora sí
 Por defecto usa `claude` si hay clave y `local` si no; la salida siempre dice cuál corrió.
 Forzar uno: `--planificador local|claude`.
 
+## Voz
+
+```bash
+./system/instalar-voz.sh          # whisper-cpp + ffmpeg + modelo local
+target/debug/syso escucha         # graba 5 s del micrófono
+target/debug/syso escucha --desde grabacion.aiff
+```
+
+El audio no sale de la máquina: transcribe Whisper en local. Y **la voz no
+salta ningún control** — tras transcribir sigue el mismo recorrido que una
+orden tecleada, con su diff y su confirmación.
+
+Probarlo sin micrófono, sintetizando la frase:
+
+```bash
+say -v Monica -o /tmp/orden.aiff "crea un proyecto python llamado servidor"
+target/debug/syso escucha --desde /tmp/orden.aiff
+```
+
+El transcriptor se ceba con el vocabulario del catálogo (`--prompt`), que sale
+de los valores enumerados de los manifiestos: si mañana una capacidad acepta un
+lenguaje nuevo, el transcriptor lo aprende solo.
+
 ## El recinto
 
 La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el
@@ -101,3 +124,10 @@ Sin verificar todavía:
   deprecado. En Linux sí lo están.
 - **Landlock solo cubre TCP**: UDP y los sockets unix quedan fuera de su
   alcance, así que la denegación de red no es total.
+- **La captura por micrófono no está probada**: necesita que macOS conceda
+  permiso al terminal, y eso lo autoriza una persona. Verificado el camino
+  completo con audio sintetizado, que ejercita todo menos `ffmpeg -f
+  avfoundation`.
+- **Los términos técnicos en español se transcriben mal.** «rust» sale como
+  «rastre» con el modelo `base` y como «rastriamado» con `small`; el tamaño
+  del modelo no lo arregla. Las frases sin anglicismos salen perfectas.

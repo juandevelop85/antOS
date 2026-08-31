@@ -462,10 +462,14 @@
       <div class="ms">
         <div class="ms-id">M3</div>
         <div>
-          <div class="ms-head"><div class="ms-t">Voz</div><span class="ms-state pendiente">pendiente</span></div>
-          <div class="ms-d">Transcripción local con pulsar-para-hablar. Va después del aislamiento
-            porque la voz solo es aceptable cuando equivocarse ya es barato.</div>
-          <div class="ms-proof"><b>Prueba:</b> del habla al diff en pantalla, sin tocar el teclado.</div>
+          <div class="ms-head"><div class="ms-t">Voz</div><span class="ms-state hecho">hecho</span></div>
+          <div class="ms-d">Transcripción local con Whisper: el audio no sale de la máquina. El
+            catálogo de capacidades ceba al transcriptor con su propio vocabulario, así que las
+            palabras que el sistema entiende son también las que oye mejor. Tras transcribir, el
+            recorrido es idéntico al de una orden tecleada — hablar es más cómodo, no más
+            privilegiado.</div>
+          <div class="ms-proof"><b>Prueba:</b> del habla al diff en pantalla y de vuelta con
+            <code>undo</code>, sin tocar el teclado.</div>
         </div>
       </div>
       <div class="ms">
@@ -496,6 +500,14 @@
         <p>Cinco capacidades se escriben en una tarde. Doscientas, que es lo que hace falta para
           cubrir el día de un desarrollador, son un proyecto entero. Que terceros puedan aportar
           capacidades deja de ser un lujo y pasa a ser estructural.</p>
+      </div>
+      <div class="risk">
+        <h4>Dictar términos técnicos es el punto débil</h4>
+        <p>Un modelo de español no espera oír «rust», «npm» o «async»: son palabras raras en su
+          idioma y las sustituye por otras que suenan parecido. Cebarlo con el vocabulario del
+          catálogo ayuda, pero no lo resuelve. Y el fallo es traicionero porque no se parece a un
+          error: produce una frase perfectamente plausible que significa otra cosa. Es el argumento
+          más fuerte a favor de que la voz nunca salte el diff.</p>
       </div>
       <div class="risk">
         <h4>La confirmación se degrada con el uso</h4>
