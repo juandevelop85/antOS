@@ -1,0 +1,3 @@
+cargo:rustc-env=USER_BINARY=/Users/juandevelop/Develop/syso/kernel/target/x86_64-unknown-none/debug/build/kernel/92166eb0ccc44283/out/user-target/x86_64-unknown-none/debug/hola
+cargo:rerun-if-changed=/Users/juandevelop/Develop/syso/kernel/../user/src/main.rs
+cargo:rerun-if-changed=/Users/juandevelop/Develop/syso/kernel/../user/Cargo.toml

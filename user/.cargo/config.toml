@@ -1,0 +1,6 @@
+[build]
+target = "x86_64-unknown-none"
+
+# Sin esto el enlazador coloca el programa en la dirección 0, que es justo
+# donde debe estar el puntero nulo para que desreferenciarlo falle.
+rustflags = ["-C", "link-arg=--image-base=0x400000"]

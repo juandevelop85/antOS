@@ -117,6 +117,26 @@ pub fn enable() {
 
 // ------------------------------------------------------------- excepciones
 
+/// Los dos bits bajos del selector de código apilado son el nivel de
+/// privilegio desde el que saltó la excepción. Un 3 significa espacio de
+/// usuario, y eso lo cambia todo: no es un error del sistema, es un programa
+/// que se ha portado mal. Se le mata y la vida sigue.
+fn from_user(frame: &InterruptStackFrame) -> bool {
+    frame.code_segment & 3 == 3
+}
+
+/// Termina el programa de usuario culpable, o entra en panic si el culpable
+/// era el propio kernel.
+fn fault(frame: &InterruptStackFrame, description: core::fmt::Arguments) -> ! {
+    if from_user(frame) {
+        println!();
+        println!("  ✋ el programa de usuario ha fallado: {description}");
+        println!("     lo mata el kernel · el sistema sigue en pie");
+        crate::userspace::return_to_kernel(0xdead);
+    }
+    panic!("{description}");
+}
+
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
     // Este manejador RETORNA, y ahí está la gracia: la ejecución sigue en la
     // instrucción siguiente como si nada hubiera pasado. Es la base de
@@ -125,17 +145,20 @@ extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn divide_error(frame: InterruptStackFrame) {
-    panic!("división por cero en {:#x}", frame.instruction_pointer);
+    fault(&frame, format_args!("división por cero en {:#x}", frame.instruction_pointer));
 }
 
 extern "x86-interrupt" fn invalid_opcode(frame: InterruptStackFrame) {
-    panic!("instrucción inválida en {:#x}", frame.instruction_pointer);
+    fault(&frame, format_args!("instrucción inválida en {:#x}", frame.instruction_pointer));
 }
 
 extern "x86-interrupt" fn general_protection(frame: InterruptStackFrame, error_code: u64) {
-    panic!(
-        "fallo de protección general en {:#x} (código {error_code:#x})",
-        frame.instruction_pointer
+    fault(
+        &frame,
+        format_args!(
+            "fallo de protección general en {:#x} (código {error_code:#x})",
+            frame.instruction_pointer
+        ),
     );
 }
 
@@ -146,9 +169,13 @@ extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: u64
     // SAFETY: leer CR2 no tiene efectos secundarios.
     unsafe { core::arch::asm!("mov {}, cr2", out(reg) address, options(nomem, nostack)) };
 
-    panic!(
-        "fallo de página al acceder a {address:#x} desde {:#x} (código {error_code:#b})",
-        frame.instruction_pointer
+    fault(
+        &frame,
+        format_args!(
+            "intentó tocar {address:#x} desde {:#x} · lo paró la MMU, no una \
+             comprobación del kernel (código {error_code:#b})",
+            frame.instruction_pointer
+        ),
     );
 }
 

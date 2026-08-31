@@ -29,12 +29,39 @@ pub const CODE_SELECTOR: u16 = 8; // índice 1
 const DATA_SELECTOR: u16 = 16; // índice 2
 const TSS_SELECTOR: u16 = 24; // índice 3
 
+/// Segmentos de anillo 3. Los dos bits bajos del selector son el RPL: un 3
+/// dice «esto lo usa código sin privilegios».
+///
+/// Su posición en la GDT no es libre. `sysret` calcula los selectores de
+/// vuelta sumando a una base fija: SS = base+8, CS = base+16. Con la base en
+/// 0x20, los datos de usuario tienen que estar en 0x28 y el código en 0x30.
+pub const SYSRET_BASE: u16 = 0x20;
+pub const USER_DATA_SELECTOR: u16 = 0x28 | 3;
+pub const USER_CODE_SELECTOR: u16 = 0x30 | 3;
+
+/// Si alguien reordena la GDT, esto no compila.
+///
+/// Sin esta comprobación el error sería silencioso y brutal: `sysret`
+/// devolvería el control a anillo 3 con selectores que apuntan a otra cosa —
+/// posiblemente al segmento de código del kernel, con lo que el «programa de
+/// usuario» correría con todos los privilegios.
+const _: () = {
+    assert!(USER_DATA_SELECTOR == (SYSRET_BASE + 8) | 3);
+    assert!(USER_CODE_SELECTOR == (SYSRET_BASE + 16) | 3);
+};
+
 /// Segmento de código de 64 bits, anillo 0.
 /// Presente, tipo código ejecutable, bit L (long mode) activo.
 const CODE_SEGMENT: u64 = 0x00AF_9B00_0000_FFFF;
 /// Segmento de datos. En modo largo la CPU casi lo ignora, pero algunas
 /// instrucciones siguen exigiendo que SS sea un descriptor válido.
 const DATA_SEGMENT: u64 = 0x00CF_9300_0000_FFFF;
+
+// Los mismos, con DPL 3 en vez de 0. Es literalmente el único cambio: dos
+// bits del byte de tipo separan «puede hacer cualquier cosa» de «no puede
+// tocar nada».
+const USER_DATA_SEGMENT: u64 = 0x00CF_F300_0000_FFFF;
+const USER_CODE_SEGMENT: u64 = 0x00AF_FB00_0000_FFFF;
 
 const STACK_SIZE: usize = 4096 * 5;
 
@@ -43,6 +70,25 @@ const STACK_SIZE: usize = 4096 * 5;
 struct Stack([u8; STACK_SIZE]);
 
 static DOUBLE_FAULT_STACK: InitOnly<Stack> = InitOnly::new(Stack([0; STACK_SIZE]));
+
+/// Donde aterriza una interrupción que llega estando en anillo 3. Sin esto,
+/// la CPU seguiría usando la pila del usuario para ejecutar código del
+/// kernel — que es exactamente el agujero que el anillo 3 viene a cerrar.
+static PRIVILEGE_STACK: InitOnly<Stack> = InitOnly::new(Stack([0; STACK_SIZE]));
+
+/// `syscall` NO cambia de pila: es su diferencia con una interrupción, y lo
+/// que la hace rápida. El cambio lo hace el kernel a mano, hacia aquí.
+static SYSCALL_STACK: InitOnly<Stack> = InitOnly::new(Stack([0; STACK_SIZE]));
+
+fn stack_top(stack: &Stack) -> u64 {
+    stack as *const Stack as u64 + STACK_SIZE as u64
+}
+
+/// # Safety
+/// Solo válido después de `init()`.
+pub fn syscall_stack_top() -> u64 {
+    unsafe { stack_top(SYSCALL_STACK.get()) }
+}
 
 /// El TSS de 64 bits: ya no guarda registros de una tarea, solo punteros de
 /// pila. `packed(4)` porque el formato del hardware no está alineado a 8.
@@ -71,9 +117,9 @@ static TSS: InitOnly<Tss> = InitOnly::new(Tss {
     iomap_base: 0,
 });
 
-/// Nulo, código, datos, y el TSS — que ocupa DOS huecos, porque un descriptor
-/// de sistema en modo largo mide 16 bytes en vez de 8.
-static GDT: InitOnly<[u64; 5]> = InitOnly::new([0; 5]);
+/// Nulo, código, datos, el TSS —que ocupa DOS huecos, porque un descriptor de
+/// sistema en modo largo mide 16 bytes— y los dos de usuario.
+static GDT: InitOnly<[u64; 7]> = InitOnly::new([0; 7]);
 
 /// Lo que esperan `lgdt` y `lidt`: dos bytes de límite seguidos de ocho de
 /// dirección. `packed(2)` para que no se cuele relleno entre los dos campos.
@@ -91,8 +137,11 @@ pub fn init() {
         let tss = TSS.get_mut();
 
         // La pila crece hacia abajo, así que a la CPU se le da el final.
-        let stack = DOUBLE_FAULT_STACK.get() as *const Stack as u64;
-        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] = stack + STACK_SIZE as u64;
+        tss.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
+            stack_top(DOUBLE_FAULT_STACK.get());
+
+        // RSP0: la pila a la que salta la CPU al pasar de anillo 3 a anillo 0.
+        tss.privilege_stack_table[0] = stack_top(PRIVILEGE_STACK.get());
 
         // Apuntar el mapa de permisos de E/S más allá del propio TSS es la
         // forma canónica de decir «no hay mapa»: todo puerto queda prohibido
@@ -106,6 +155,8 @@ pub fn init() {
         let (low, high) = tss_descriptor(tss as *const Tss as u64);
         gdt[3] = low;
         gdt[4] = high;
+        gdt[5] = USER_DATA_SEGMENT;
+        gdt[6] = USER_CODE_SEGMENT;
 
         load(gdt);
     }
@@ -130,7 +181,7 @@ fn tss_descriptor(base: u64) -> (u64, u64) {
 /// # Safety
 /// `gdt` debe contener descriptores válidos y vivir para siempre: la CPU se
 /// queda con un puntero a esta memoria.
-unsafe fn load(gdt: &'static [u64; 5]) {
+unsafe fn load(gdt: &'static [u64; 7]) {
     let pointer = DescriptorTablePointer {
         limit: (core::mem::size_of_val(gdt) - 1) as u16,
         base: gdt.as_ptr() as u64,

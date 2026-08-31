@@ -1,7 +1,8 @@
 // syso - kernel x86_64
 //
-// Fase 4: multitarea cooperativa. Un ejecutor de async/await propio, y los
-// manejadores de interrupción reducidos a despertar tareas en vez de trabajar.
+// Fase 5: espacio de usuario. Anillo 3, llamadas al sistema con syscall/sysret
+// y un ELF cargado en tiempo de ejecución — código que NO PUEDE tocar el
+// kernel, y la MMU encargándose de que así sea.
 
 #![no_std]
 #![no_main]
@@ -15,6 +16,7 @@
 extern crate alloc;
 
 mod allocator;
+mod elf;
 mod gdt;
 mod interrupts;
 mod memory;
@@ -22,6 +24,7 @@ mod port;
 mod serial;
 mod sync;
 mod task;
+mod userspace;
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -119,6 +122,36 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     heap_demo();
     reuse_test();
+
+    println!();
+    println!("espacio de usuario");
+
+    userspace::init();
+    println!("  syscall      habilitado · el anillo 3 ya tiene por dónde entrar");
+
+    // El programa va incrustado en el binario del kernel. En un sistema con
+    // disco lo leería un cargador; mientras no lo haya, viaja dentro.
+    let image = include_bytes!(env!("USER_BINARY"));
+    println!("  programa     ELF de {} KiB incrustado", image.len() / 1024);
+
+    // SAFETY: el ELF lo hemos compilado nosotros en el mismo repositorio.
+    let entry = unsafe { elf::load(image, &mut mapper, &mut frames) }
+        .expect("no pude cargar el programa de usuario");
+    // SAFETY: el rango de pila no lo usa nadie más.
+    let user_stack = unsafe { userspace::map_user_stack(&mut mapper, &mut frames) }
+        .expect("no pude mapear la pila de usuario");
+    println!("  cargado      entrada {entry:#x} · pila {user_stack:#x}");
+
+    println!();
+    println!("  ─── ejecución limpia ───");
+    // SAFETY: entrada y pila están mapeadas con el bit de usuario.
+    let code = unsafe { userspace::enter(entry, user_stack, 0) };
+    println!("  el programa terminó con código {code}");
+
+    println!();
+    println!("  ─── ahora intenta leer el kernel ───");
+    let code = unsafe { userspace::enter(entry, user_stack, 1) };
+    println!("  el kernel recuperó el control · código {code:#x}");
 
     println!();
     println!("multitarea cooperativa");

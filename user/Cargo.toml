@@ -1,0 +1,14 @@
+# Workspace propio: se compila a un ELF de espacio de usuario independiente,
+# que el kernel carga en tiempo de ejecución.
+[workspace]
+
+[package]
+name = "hola"
+version = "0.1.0"
+edition = "2021"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

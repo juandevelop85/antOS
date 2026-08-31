@@ -37,6 +37,10 @@ pub const PAGE_SIZE: u64 = 4096;
 // Banderas de una entrada de tabla de páginas.
 pub const PRESENT: u64 = 1 << 0;
 pub const WRITABLE: u64 = 1 << 1;
+/// Sin este bit, el anillo 3 no puede ni mirar la página. Es lo único que
+/// separa la memoria del kernel de la del usuario — y lo comprueba la MMU en
+/// cada acceso, no nosotros.
+pub const USER: u64 = 1 << 2;
 /// En los niveles 2 y 3 significa «aquí acaba el recorrido»: la entrada apunta
 /// directamente a una página de 2 MiB o 1 GiB en vez de a otra tabla.
 const HUGE: u64 = 1 << 7;
@@ -135,12 +139,21 @@ impl Mapper {
                         0,
                         PAGE_SIZE as usize,
                     );
-                    *entry = new_table | PRESENT | WRITABLE;
+                    // Los permisos se acumulan a la baja: la CPU exige el
+                    // bit de usuario en TODOS los niveles del camino, así que
+                    // hay que propagarlo hacia arriba.
+                    *entry = new_table | PRESENT | WRITABLE | (flags & USER);
                 }
                 table = new_table;
             } else if value & HUGE != 0 {
                 return Err("la ruta atraviesa una página enorme");
             } else {
+                // Una tabla intermedia que ya existía puede haberse creado sin
+                // el bit de usuario. Abrirlo aquí no da acceso a nada por sí
+                // solo: la entrada final sigue mandando.
+                if flags & USER != 0 && value & USER == 0 {
+                    unsafe { *entry = value | USER };
+                }
                 table = value & ADDRESS_MASK;
             }
         }
