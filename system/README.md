@@ -33,18 +33,42 @@ target/debug/syso "borra demo"                # ahora sí
 Por defecto usa `claude` si hay clave y `local` si no; la salida siempre dice cuál corrió.
 Forzar uno: `--planificador local|claude`.
 
-## Estado de M1
+## El recinto
 
-Verificado de punta a punta con el planificador local: plan, diff, niveles de
-permiso, denegación por defecto, instantánea, ejecución, bitácora y `undo`.
-Tres pruebas cubren la derivación del nivel y la contención.
+La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el
+kernel, con una política derivada de los efectos declarados. Esa separación es
+necesaria — el confinamiento afecta al proceso entero, así que si el broker
+ejecutara los cambios él mismo no podría escribir su propia bitácora.
+
+```bash
+target/debug/syso doctor    # ataca su propio recinto y comprueba que aguanta
+```
+
+| Plataforma | Motor | Garantiza |
+|---|---|---|
+| macOS | Seatbelt (`sandbox-exec`) | escrituras y red, por el kernel |
+| Linux | — | sin escribir todavía; el destino son espacios de nombres |
+| otras | ninguno | nada, y lo dice en cada ejecución |
+
+Las lecturas **no** están confinadas en macOS: un perfil `(deny default)` pelea
+con el enlazador dinámico y mata el proceso al arrancar. Con la red denegada,
+una lectura no declarada no puede salir a ningún sitio, pero la garantía real
+llegará con el motor de Linux.
+
+## Estado
+
+Verificado ejecutándolo, con el planificador local: plan, diff, niveles de
+permiso, denegación por defecto, instantánea, ejecución confinada, bitácora y
+`undo`. Siete pruebas cubren la derivación del nivel, la contención y la
+generación de la política del recinto.
+
+Las instantáneas usan `clonefile(2)` de APFS — clones copy-on-write, con caída
+a copia byte a byte si el sistema de ficheros no lo permite. Cada entrada
+registra cuál de las dos vías se usó.
 
 Sin verificar todavía:
 
 - **El planificador con Claude** compila, pero nunca ha hecho una petición
   real: no hubo credenciales durante el desarrollo.
-- **El aislamiento es validación de rutas, no un recinto de verdad.** Una
-  capacidad se comprueba contra el espacio de trabajo, pero nada le impide
-  físicamente salirse. Eso es M2 (espacios de nombres).
-- **Las instantáneas son copias de ficheros.** Correcto para efectos acotados,
-  pero no escala. M2 lo sustituye por instantáneas del sistema de ficheros.
+- **Las lecturas no están confinadas**, y `sandbox-exec` lleva años deprecado.
+- **No hay motor de Linux**, que es el destino real del producto.

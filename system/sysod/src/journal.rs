@@ -32,6 +32,10 @@ pub struct Record {
     pub detail: Option<String>,
     #[serde(default)]
     pub snapshot: Option<String>,
+    /// Qué recinto confinó la ejecución. Sin esto, la bitácora no puede
+    /// responder a «¿esto corrió confinado o no?».
+    #[serde(default)]
+    pub sandbox: String,
     /// Se marca al revertir, para que `undo` no deshaga dos veces lo mismo.
     #[serde(default)]
     pub reverted: bool,

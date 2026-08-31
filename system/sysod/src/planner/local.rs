@@ -62,6 +62,7 @@ impl Planner for LocalPlanner {
             let path = after(&words, &["en", "fichero", "archivo"])
                 .ok_or_else(|| anyhow::anyhow!("no veo en qué fichero escribir"))?;
             let content = intent.split_once(':').map(|(_, c)| c.trim().to_string()).unwrap_or_default();
+
             return Ok(vec![step("fs.write", &[("path", &path), ("content", &content)])]);
         }
 

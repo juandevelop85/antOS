@@ -1,8 +1,13 @@
 //! Instantáneas: lo que hace posible deshacer.
 //!
-//! En M1 una instantánea es una copia de las rutas afectadas. Es correcto
-//! para efectos acotados a ficheros y no necesita nada del sistema, pero no
-//! escala: M2 lo sustituye por instantáneas reales del sistema de ficheros.
+//! M1 las hacía copiando byte a byte. M2 usa `clonefile(2)` de APFS: clones
+//! copy-on-write que comparten bloques con el original hasta que uno de los
+//! dos cambia. Es la misma idea que darían btrfs o ZFS en el destino Linux —
+//! coste casi nulo en espacio y en tiempo, sin importar el tamaño del árbol.
+//!
+//! Si el clon no es posible (otro sistema de ficheros, otro volumen), se cae
+//! a la copia de siempre. Fotografiar SIEMPRE tiene que funcionar: es lo
+//! único que respalda el «deshacer».
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -14,6 +19,10 @@ pub struct Entry {
     /// Si no existía, deshacer significa borrarla, no restaurarla.
     pub existed: bool,
     pub stored: Option<PathBuf>,
+    /// "clon" o "copia": queda registrado para poder decir la verdad sobre
+    /// lo que respalda cada instantánea.
+    #[serde(default)]
+    pub method: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,11 +39,21 @@ pub fn take(id: &str, paths: &[PathBuf], snapshots_dir: &Path) -> Result<Snapsho
     for (i, original) in paths.iter().enumerate() {
         if original.exists() {
             let stored = dir.join(format!("{i:03}"));
-            copy_tree(original, &stored)
+            let method = capture(original, &stored)
                 .with_context(|| format!("fotografiando {}", original.display()))?;
-            entries.push(Entry { original: original.clone(), existed: true, stored: Some(stored) });
+            entries.push(Entry {
+                original: original.clone(),
+                existed: true,
+                stored: Some(stored),
+                method,
+            });
         } else {
-            entries.push(Entry { original: original.clone(), existed: false, stored: None });
+            entries.push(Entry {
+                original: original.clone(),
+                existed: false,
+                stored: None,
+                method: "inexistente".into(),
+            });
         }
     }
 
@@ -59,7 +78,7 @@ pub fn restore(snap: &Snapshot) -> Result<Vec<String>> {
                 if let Some(parent) = entry.original.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                copy_tree(stored, &entry.original)?;
+                capture(stored, &entry.original)?;
                 done.push(format!("restaurado  {}", entry.original.display()));
             }
             _ => {
@@ -78,6 +97,42 @@ fn remove_any(p: &Path) -> Result<()> {
         std::fs::remove_file(p)?;
     }
     Ok(())
+}
+
+/// Clona si el sistema de ficheros lo permite; si no, copia.
+/// Devuelve cuál de las dos vías se usó.
+fn capture(from: &Path, to: &Path) -> Result<String> {
+    if clone_tree(from, to) {
+        return Ok("clon".into());
+    }
+    copy_tree(from, to)?;
+    Ok("copia".into())
+}
+
+/// `clonefile(2)`: clon copy-on-write, recursivo si el origen es un
+/// directorio. Exige que el destino NO exista.
+#[cfg(target_os = "macos")]
+fn clone_tree(from: &Path, to: &Path) -> bool {
+    use std::ffi::{c_char, c_int, c_uint, CString};
+    use std::os::unix::ffi::OsStrExt;
+
+    extern "C" {
+        fn clonefile(src: *const c_char, dst: *const c_char, flags: c_uint) -> c_int;
+    }
+
+    let (Ok(src), Ok(dst)) = (
+        CString::new(from.as_os_str().as_bytes()),
+        CString::new(to.as_os_str().as_bytes()),
+    ) else {
+        return false;
+    };
+    // SAFETY: ambos punteros vienen de CString vivas durante la llamada.
+    unsafe { clonefile(src.as_ptr(), dst.as_ptr(), 0) == 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn clone_tree(_from: &Path, _to: &Path) -> bool {
+    false
 }
 
 fn copy_tree(from: &Path, to: &Path) -> Result<()> {

@@ -187,7 +187,14 @@
         grid-template-columns: 4.5rem 1fr; gap: 1.2rem; align-items: start; }
   .ms-id { font-family: var(--f-mono); font-weight: 600; font-size: 0.85rem; color: var(--accent);
            letter-spacing: 0.06em; padding-top: 0.15rem; }
+  .ms-head { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }
   .ms-t { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.012em; }
+  .ms-state {
+    font-family: var(--f-mono); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 0.24em 0.5em; border-radius: 3px; white-space: nowrap;
+  }
+  .ms-state.hecho { color: var(--tier-auto); background: var(--tier-auto-bg); }
+  .ms-state.pendiente { color: var(--muted); background: var(--surface-alt); border: 1px solid var(--rule-soft); }
   .ms-d { font-size: 0.92rem; color: var(--ink-soft); margin-top: 0.25rem; line-height: 1.55; }
   .ms-proof { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; }
   .ms-proof b { color: var(--ink-soft); font-weight: 500; }
@@ -431,7 +438,7 @@
       <div class="ms">
         <div class="ms-id">M1</div>
         <div>
-          <div class="ms-t">El bucle, en tu Mac</div>
+          <div class="ms-head"><div class="ms-t">El bucle, en tu Mac</div><span class="ms-state hecho">hecho</span></div>
           <div class="ms-d"><code>sysod</code> en Rust con cinco capacidades reales, entrada de texto,
             y el recorrido completo: plan, confirmación, ejecución, bitácora, deshacer. Sin VM, sin voz,
             sin distribución. Solo la mecánica central.</div>
@@ -441,17 +448,20 @@
       <div class="ms">
         <div class="ms-id">M2</div>
         <div>
-          <div class="ms-t">Aislamiento de verdad</div>
-          <div class="ms-d">Ejecución en espacios de nombres con solo lo concedido, e instantáneas
-            reales. Aquí es donde se comprueba si el modelo de efectos declarados aguanta el contacto
-            con capacidades que no son de juguete.</div>
-          <div class="ms-proof"><b>Prueba:</b> una capacidad malintencionada no consigue salir de su recinto.</div>
+          <div class="ms-head"><div class="ms-t">Aislamiento de verdad</div><span class="ms-state hecho">hecho</span></div>
+          <div class="ms-d">La ejecución se muda a un proceso aparte confinado por el kernel, con una
+            política derivada directamente de los efectos declarados. En macOS la aplica Seatbelt sobre
+            escrituras y red; las instantáneas pasan a ser clones copy-on-write de APFS. El modelo de
+            efectos aguantó el contacto, pero no ileso: destapó que <code>fs.write</code> creaba
+            directorios que nunca había declarado.</div>
+          <div class="ms-proof"><b>Prueba:</b> <code>syso doctor</code> ataca su propio recinto — escribir
+            fuera de lo declarado lo deniega el kernel, no una comprobación nuestra.</div>
         </div>
       </div>
       <div class="ms">
         <div class="ms-id">M3</div>
         <div>
-          <div class="ms-t">Voz</div>
+          <div class="ms-head"><div class="ms-t">Voz</div><span class="ms-state pendiente">pendiente</span></div>
           <div class="ms-d">Transcripción local con pulsar-para-hablar. Va después del aislamiento
             porque la voz solo es aceptable cuando equivocarse ya es barato.</div>
           <div class="ms-proof"><b>Prueba:</b> del habla al diff en pantalla, sin tocar el teclado.</div>
@@ -460,7 +470,7 @@
       <div class="ms">
         <div class="ms-id">M4</div>
         <div>
-          <div class="ms-t">Arranca como sistema</div>
+          <div class="ms-head"><div class="ms-t">Arranca como sistema</div><span class="ms-state pendiente">pendiente</span></div>
           <div class="ms-d">Imagen NixOS con <code>sysod</code> como servicio de primer nivel y las
             capacidades gobernando la configuración del sistema. A partir de aquí syso deja de ser
             un programa y pasa a ser el sistema.</div>
@@ -491,6 +501,14 @@
         <p>Si syso pregunta demasiado, la gente aprueba sin leer y todo el modelo de seguridad se
           vuelve decorativo. El nivel automático tiene que ser generoso de verdad, y eso solo se
           calibra con uso real.</p>
+      </div>
+      <div class="risk">
+        <h4>El recinto todavía depende de la plataforma</h4>
+        <p>Seatbelt confina escrituras y red, pero no lecturas: un perfil que las deniegue por defecto
+          pelea con el enlazador dinámico de macOS y mata el proceso al arrancar. Y Seatbelt lleva
+          años deprecado. El destino real es Linux, donde un espacio de nombres de montaje resuelve
+          la lectura sin esfuerzo — simplemente no montas lo que no debe verse — pero ese motor
+          todavía no está escrito.</p>
       </div>
       <div class="risk">
         <h4>Nix puede ser demasiado</h4>

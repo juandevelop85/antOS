@@ -18,6 +18,9 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::Read { path } => {
                 out.push(Line::Info(format!("lee       {}", ctx.display(path))));
             }
+            Change::Mkdir { path } => {
+                out.push(Line::Info(format!("crea dir  {}", ctx.display(path))));
+            }
             Change::Delete { path } => {
                 let detail = if path.is_dir() {
                     format!(" ({} elementos)", count_entries(path))

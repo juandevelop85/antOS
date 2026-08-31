@@ -1,0 +1,14 @@
+name = "fs.mkdir"
+summary = "Crea un directorio en el espacio de trabajo"
+
+# Existe porque crear un directorio ES un efecto, y los efectos se declaran.
+# Antes fs.write lo hacía por su cuenta sin decirlo: el recinto lo destapó.
+[params]
+path = { type = "path", within = "$WORKSPACE" }
+
+[effects]
+writes = ["{path}"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

@@ -50,6 +50,15 @@ impl Blast {
                 }
             }
         }
+
+        // Escribir en una ruta implica crear los directorios que le faltan.
+        // No es una excepción concedida a nadie: es lo que «escribir aquí»
+        // significa de verdad, y se hace explícito para que aparezca en el
+        // radio de impacto, se fotografíe y el recinto lo permita.
+        //
+        // Sigue estando acotado: solo directorios inexistentes, solo dentro
+        // del espacio de trabajo, y solo en la rama de una ruta ya declarada.
+        b.writes = with_missing_ancestors(&b.writes, workspace);
         Ok(b)
     }
 
@@ -103,6 +112,23 @@ impl Blast {
     pub fn paths_to_snapshot(&self) -> Vec<PathBuf> {
         self.writes.union(&self.deletes).cloned().collect()
     }
+}
+
+fn with_missing_ancestors(paths: &BTreeSet<PathBuf>, workspace: &Path) -> BTreeSet<PathBuf> {
+    let mut out = paths.clone();
+    for path in paths {
+        let mut cursor = path.parent();
+        while let Some(dir) = cursor {
+            // Al llegar al espacio de trabajo, o a un directorio que ya
+            // existe, no hay nada más que crear.
+            if dir == workspace || !dir.starts_with(workspace) || dir.exists() {
+                break;
+            }
+            out.insert(dir.to_path_buf());
+            cursor = dir.parent();
+        }
+    }
+    out
 }
 
 fn join(set: &BTreeSet<String>) -> String {
@@ -203,6 +229,24 @@ mod tests {
 
         assert!(blast.escapes.is_empty());
         assert_eq!(blast.required_tier().0, Tier::Auto, "solo leer dentro del espacio no requiere permiso");
+    }
+
+    #[test]
+    fn escribir_hondo_declara_los_directorios_que_hay_que_crear() {
+        let ws = std::env::temp_dir().join("syso-prueba-ancestros");
+        let _ = std::fs::create_dir_all(&ws);
+
+        let mut catalog = catalogo_sin_restricciones();
+        let cap = catalog.caps.get_mut("t.leer").unwrap();
+        cap.effects.reads.clear();
+        cap.effects.writes = vec!["{path}".into()];
+
+        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws).unwrap();
+
+        assert!(blast.writes.contains(&ws.join("uno")), "el ancestro que falta debe declararse");
+        assert!(blast.writes.contains(&ws.join("uno/dos")));
+        assert!(!blast.writes.contains(&ws), "el espacio de trabajo ya existe: no se declara");
+        assert!(blast.escapes.is_empty(), "los ancestros siguen dentro del espacio de trabajo");
     }
 
     #[test]

@@ -13,6 +13,7 @@ mod journal;
 mod plan;
 mod planner;
 mod preview;
+mod sandbox;
 mod snapshot;
 
 use anyhow::{bail, Result};
@@ -41,6 +42,15 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    // El ejecutor confinado se atiende antes que nada. Corre DENTRO del
+    // recinto, así que no puede crear directorios de estado ni leer el
+    // catálogo: solo aplica la lista de cambios que le llega por stdin.
+    match std::env::args().nth(1).unwrap_or_default().as_str() {
+        sandbox::EXEC_SUBCOMMAND => return sandbox::execute_from_stdin(),
+        sandbox::NET_SUBCOMMAND => return sandbox::probe_network_from_inside(),
+        _ => {}
+    }
+
     let mut opts = Opts::default();
     let mut rest: Vec<String> = Vec::new();
     let mut argv = std::env::args().skip(1);
@@ -68,6 +78,7 @@ fn run() -> Result<()> {
 
     match rest[0].as_str() {
         "caps" => cmd_caps(&catalog, &ctx),
+        "doctor" => cmd_doctor(&ctx),
         "log" => cmd_log(&ctx),
         "undo" => cmd_undo(&ctx),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
@@ -160,6 +171,14 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
         paint(&format!("— {}", reasons.join("; ")), DIM)
     );
 
+    let jail = sandbox::for_host();
+    let recinto_color = if jail.name() == "ninguno" { RED } else { GREEN };
+    println!(
+        "  recinto   {} {}",
+        paint(jail.name(), recinto_color),
+        paint(&format!("— {}", jail.guarantees()), DIM)
+    );
+
     // 04 · política
     let mut record = Record {
         id: plan.id.clone(),
@@ -172,6 +191,7 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
         outcome: Outcome::Cancelado,
         detail: None,
         snapshot: None,
+        sandbox: jail.name().to_string(),
         reverted: false,
     };
 
@@ -235,7 +255,10 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
     };
     record.snapshot = snap.as_ref().map(|s| s.id.clone());
 
-    match exec::apply(&changes) {
+    // La ejecución ocurre en otro proceso, dentro del recinto. Lo que el
+    // recinto permite sale del radio de impacto: exactamente lo declarado.
+    let policy = sandbox::Policy::from_blast(&radius);
+    match sandbox::run(&*jail, &changes, &policy) {
         Ok(outputs) => {
             record.outcome = Outcome::Ejecutado;
             journal::append(&ctx.journal_path(), &record)?;
@@ -261,11 +284,16 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
             record.detail = Some(e.to_string());
             journal::append(&ctx.journal_path(), &record)?;
 
+            let pista = if e.to_string().contains("os error 1") {
+                "\n  El recinto lo impidió: la capacidad intentó tocar algo que no había\n  declarado en sus efectos. Corrige el manifiesto o compón el plan con una\n  capacidad que sí lo declare."
+            } else {
+                ""
+            };
             if let Some(snap) = &snap {
                 snapshot::restore(snap)?;
-                bail!("falló a mitad y se revirtió al estado anterior: {e}");
+                bail!("falló a mitad y se revirtió al estado anterior: {e}{pista}");
             }
-            bail!("falló: {e}");
+            bail!("falló: {e}{pista}");
         }
     }
     Ok(())
@@ -305,6 +333,7 @@ fn cmd_undo(ctx: &Ctx) -> Result<()> {
         reasons: vec![format!("revierte la instantánea {snap_id}")],
         outcome: Outcome::Revertido,
         detail: None,
+        sandbox: "broker".into(),
         snapshot: Some(snap_id),
         reverted: false,
     };
@@ -342,6 +371,102 @@ fn cmd_caps(catalog: &Catalog, ctx: &Ctx) -> Result<()> {
     }
     println!();
     Ok(())
+}
+
+/// Comprueba que el recinto es real, atacándolo.
+///
+/// No basta con generar una política y confiar: `doctor` intenta de verdad
+/// escribir fuera de lo declarado y salir a la red, y solo da por buena la
+/// garantía si el kernel lo impide.
+fn cmd_doctor(ctx: &Ctx) -> Result<()> {
+    let jail = sandbox::for_host();
+    println!();
+    println!("{}", paint("recinto de ejecución", BOLD));
+    println!("  motor     {}", jail.name());
+    println!("  garantiza {}", paint(jail.guarantees(), DIM));
+    println!();
+
+    let mut fallos = 0;
+
+    // Política de prueba: solo se declara el espacio de trabajo, sin red.
+    let solo_workspace = sandbox::Policy {
+        writes: vec![ctx.workspace.clone()],
+        network: false,
+    };
+
+    // 1) escribir fuera de lo declarado
+    let fuga = ctx.state.join("doctor-fuga.txt");
+    let _ = std::fs::remove_file(&fuga);
+    let intento = sandbox::run(
+        &*jail,
+        &[exec::Change::Write {
+            path: fuga.clone(),
+            content: "esto no debería existir".into(),
+        }],
+        &solo_workspace,
+    );
+    let quedo_escrito = fuga.exists();
+    let _ = std::fs::remove_file(&fuga);
+
+    if intento.is_err() && !quedo_escrito {
+        marca(true, "escritura fuera de lo declarado: la deniega el kernel");
+    } else {
+        fallos += 1;
+        marca(false, "escritura fuera de lo declarado: SE COMPLETÓ");
+    }
+
+    // 2) escribir dentro de lo declarado debe seguir funcionando: un recinto
+    //    que lo bloquea todo no es seguro, es inútil.
+    let dentro = ctx.workspace.join(".doctor-prueba");
+    let _ = std::fs::remove_file(&dentro);
+    let permitido = sandbox::run(
+        &*jail,
+        &[exec::Change::Write {
+            path: dentro.clone(),
+            content: "ok".into(),
+        }],
+        &solo_workspace,
+    );
+    let creado = dentro.exists();
+    let _ = std::fs::remove_file(&dentro);
+    if permitido.is_ok() && creado {
+        marca(true, "escritura dentro de lo declarado: permitida");
+    } else {
+        fallos += 1;
+        marca(false, "escritura dentro de lo declarado: BLOQUEADA (el recinto es demasiado estrecho)");
+    }
+
+    // 3) red. Se prueba en los dos sentidos para no confundir «bloqueada»
+    //    con «esta máquina no tiene internet».
+    let con_red = sandbox::Policy { writes: vec![], network: true };
+    let alcanzable_declarando = sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
+    let alcanzable_sin_declarar = sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
+
+    match (alcanzable_declarando, alcanzable_sin_declarar) {
+        (true, false) => marca(true, "red: alcanzable al declararla, bloqueada si no"),
+        (true, true) => {
+            fallos += 1;
+            marca(false, "red: alcanzable SIN declararla");
+        }
+        (false, _) => println!(
+            "  {} {}",
+            paint("?", YELLOW),
+            paint("red: no concluyente — esta máquina no llega a internet", DIM)
+        ),
+    }
+
+    println!();
+    if fallos == 0 {
+        println!("{}", paint("✓ el recinto se comporta como dice", GREEN));
+        Ok(())
+    } else {
+        bail!("{fallos} comprobación(es) del recinto han fallado")
+    }
+}
+
+fn marca(ok: bool, texto: &str) {
+    let (simbolo, color) = if ok { ("✓", GREEN) } else { ("✗", RED) };
+    println!("  {} {texto}", paint(simbolo, color));
 }
 
 fn cmd_log(ctx: &Ctx) -> Result<()> {
@@ -456,6 +581,7 @@ syso — el sistema hace lo que le pides, y puedes deshacerlo
   syso caps                  catálogo de capacidades y su nivel
   syso log                   bitácora de lo que ha pasado
   syso undo                  revierte el último plan ejecutado
+  syso doctor                comprueba que el recinto es real, atacándolo
   syso grant <cap> [--minutos N]
   syso revoke <cap>
 

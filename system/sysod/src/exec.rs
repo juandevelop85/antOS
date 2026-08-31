@@ -9,14 +9,18 @@ use crate::blast::expand;
 use crate::capability::Capability;
 use crate::ctx::Ctx;
 use crate::plan::Step;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+/// Serializable porque cruza la frontera de proceso: el broker decide los
+/// cambios, el ejecutor confinado los aplica.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "tipo", rename_all = "lowercase")]
 pub enum Change {
     Write { path: PathBuf, content: String },
+    Mkdir { path: PathBuf },
     Delete { path: PathBuf },
     Read { path: PathBuf },
 }
@@ -32,6 +36,8 @@ pub fn changes_for(step: &Step, cap: &Capability, ctx: &Ctx) -> Result<Vec<Chang
         }]),
 
         "fs.delete" => Ok(vec![Change::Delete { path: abs(ctx, &a["path"]) }]),
+
+        "fs.mkdir" => Ok(vec![Change::Mkdir { path: abs(ctx, &a["path"]) }]),
 
         "project.scaffold" => {
             let root = ctx.workspace.join(&a["name"]);
@@ -62,9 +68,15 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
         match change {
             Change::Write { path, content } => {
                 if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("creando el directorio {}", parent.display()))?;
                 }
-                std::fs::write(path, content)?;
+                std::fs::write(path, content)
+                    .with_context(|| format!("escribiendo {}", path.display()))?;
+            }
+            Change::Mkdir { path } => {
+                std::fs::create_dir_all(path)
+                    .with_context(|| format!("creando el directorio {}", path.display()))?;
             }
             Change::Delete { path } => {
                 if path.is_dir() {
