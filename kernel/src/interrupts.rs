@@ -23,7 +23,6 @@ use crate::gdt::{self, DescriptorTablePointer};
 use crate::port::{inb, io_wait, outb};
 use crate::println;
 use crate::sync::InitOnly;
-use core::sync::atomic::{AtomicU64, Ordering};
 
 /// El marco que la CPU apila antes de saltar al manejador. El orden es del
 /// hardware, no nuestro.
@@ -226,40 +225,22 @@ unsafe fn end_of_interrupt(vector: u8) {
     }
 }
 
-static TICKS: AtomicU64 = AtomicU64::new(0);
+// Desde la Fase 4 los manejadores no trabajan: solo apuntan el dato y
+// despiertan a la tarea que lo esperaba. Mientras un manejador corre, el
+// resto del sistema está parado, así que cuanto menos haga, mejor.
 
 extern "x86-interrupt" fn timer(_frame: InterruptStackFrame) {
-    let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
-
-    // El PIT arranca a ~18.2 Hz, así que esto es aproximadamente un segundo.
-    // Imprimir en cada tick ahogaría el puerto serie.
-    if tick % 18 == 0 {
-        println!("  temporizador · {} s ({tick} ticks)", tick / 18);
-    }
+    crate::task::timer::tick();
 
     // SAFETY: estamos dentro del manejador de esta misma interrupción.
     unsafe { end_of_interrupt(TIMER_VECTOR) };
 }
 
-/// Tabla del "scancode set 1", indexada por el código que manda el teclado.
-/// Un 0 significa que esa tecla no produce carácter (shift, control...).
-const SCANCODE_SET1: &[u8] =
-    b"\0\x1b1234567890-=\x08\tqwertyuiop[]\n\0asdfghjkl;'`\0\\zxcvbnm,./\0*\0 ";
-
 extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {
-    // SAFETY: 0x60 es el puerto de datos del controlador de teclado.
+    // SAFETY: 0x60 es el puerto de datos del controlador de teclado. Hay que
+    // leerlo SIEMPRE: si no se vacía, el controlador no manda más scancodes.
     let scancode = unsafe { inb(0x60) };
-
-    // El bit 7 marca que la tecla se ha SOLTADO. Sin filtrarlo, cada pulsación
-    // se vería dos veces.
-    if scancode & 0x80 == 0 {
-        match SCANCODE_SET1.get(scancode as usize) {
-            Some(&c) if c.is_ascii_graphic() || c == b' ' => {
-                println!("  teclado · {scancode:#04x} → '{}'", c as char)
-            }
-            _ => println!("  teclado · {scancode:#04x} (sin carácter)"),
-        }
-    }
+    crate::task::keyboard::add_scancode(scancode);
 
     // SAFETY: estamos dentro del manejador de esta misma interrupción.
     unsafe { end_of_interrupt(KEYBOARD_VECTOR) };

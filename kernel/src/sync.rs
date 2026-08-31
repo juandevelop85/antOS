@@ -116,7 +116,7 @@ impl<T> Drop for SpinGuard<'_, T> {
 }
 
 /// El bit 9 de RFLAGS (IF) dice si la CPU atiende interrupciones.
-fn interrupts_enabled() -> bool {
+pub(crate) fn interrupts_enabled() -> bool {
     let flags: u64;
     // SAFETY: solo lee el registro de banderas a través de la pila.
     unsafe {
@@ -125,13 +125,13 @@ fn interrupts_enabled() -> bool {
     flags & (1 << 9) != 0
 }
 
-fn disable_interrupts() {
+pub(crate) fn disable_interrupts() {
     // SAFETY: `cli` solo baja IF. No preserves_flags, precisamente porque
     // modificar las banderas es lo único que hace.
     unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
 }
 
-fn enable_interrupts() {
+pub(crate) fn enable_interrupts() {
     // SAFETY: `sti` sube IF. Solo se llama para restaurar un estado previo.
     unsafe { core::arch::asm!("sti", options(nomem, nostack)) };
 }

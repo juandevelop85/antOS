@@ -1,8 +1,7 @@
 // syso - kernel x86_64
 //
-// Fase 3: memoria virtual y heap. Paginación de 4 niveles, un asignador de
-// marcos sobre el mapa del bootloader, y encima un asignador global — el
-// momento en que Box, Vec y String empiezan a existir dentro de syso.
+// Fase 4: multitarea cooperativa. Un ejecutor de async/await propio, y los
+// manejadores de interrupción reducidos a despertar tareas en vez de trabajar.
 
 #![no_std]
 #![no_main]
@@ -22,6 +21,7 @@ mod memory;
 mod port;
 mod serial;
 mod sync;
+mod task;
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -29,6 +29,7 @@ use alloc::vec::Vec;
 use bootloader_api::config::{BootloaderConfig, Mapping};
 use bootloader_api::info::{FrameBufferInfo, MemoryRegionKind, MemoryRegions, PixelFormat};
 use bootloader_api::{entry_point, BootInfo};
+use task::Task;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
@@ -120,8 +121,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     reuse_test();
 
     println!();
-    println!("el kernel queda a la espera de interrupciones");
-    halt_loop()
+    println!("multitarea cooperativa");
+
+    let mut executor = task::executor::Executor::new();
+    executor.spawn(Task::new(example_task()));
+    executor.spawn(Task::new(heartbeat_task()));
+    executor.spawn(Task::new(task::keyboard::keyboard_task()));
+    println!("  3 tareas encoladas · el ejecutor toma el control");
+    println!();
+
+    // No vuelve: a partir de aquí el kernel es su bucle de eventos.
+    executor.run()
 }
 
 fn report_memory(boot_info: &BootInfo) {
@@ -255,6 +265,26 @@ fn reuse_test() {
 
     core::hint::black_box(&ancla);
     println!("  5000 ciclos completados sin agotar el heap");
+}
+
+async fn suma(a: u32, b: u32) -> u32 {
+    a + b
+}
+
+/// La tarea más tonta posible, solo para ver que una `async fn` que espera a
+/// otra funciona igual que en cualquier programa de Rust.
+async fn example_task() {
+    println!("  tarea ejemplo · 40 + 2 = {}", suma(40, 2).await);
+}
+
+/// Late cinco veces y termina. Sirve para ver dos cosas: que una tarea puede
+/// dormir sin bloquear a las demás, y que al acabar el ejecutor la retira.
+async fn heartbeat_task() {
+    for beat in 1..=5u32 {
+        task::timer::sleep(task::timer::TICKS_PER_SECOND).await;
+        println!("  latido {beat} · tick {}", task::timer::ticks());
+    }
+    println!("  la tarea de latido ha terminado · el ejecutor la retira");
 }
 
 /// Duerme la CPU entre interrupciones.
