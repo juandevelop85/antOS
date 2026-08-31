@@ -22,3 +22,9 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[features]
+default = []
+# Cambia el asignador global por el de puntero, para reproducir su defecto:
+#   cargo build --features bump
+bump = []

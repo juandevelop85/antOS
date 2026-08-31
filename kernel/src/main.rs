@@ -1,8 +1,8 @@
 // syso - kernel x86_64
 //
-// Fase 2: la máquina deja de ejecutar una línea recta y empieza a reaccionar.
-// GDT y TSS, tabla de interrupciones, el PIC remapeado, y los dos primeros
-// manejadores de hardware: temporizador y teclado.
+// Fase 3: memoria virtual y heap. Paginación de 4 niveles, un asignador de
+// marcos sobre el mapa del bootloader, y encima un asignador global — el
+// momento en que Box, Vec y String empiezan a existir dentro de syso.
 
 #![no_std]
 #![no_main]
@@ -11,18 +11,41 @@
 // manejador de interrupción en ensamblador.
 #![feature(abi_x86_interrupt)]
 
+// El crate `alloc` trae Box, Vec, String y compañía. No forma parte de core,
+// pero tampoco necesita sistema operativo: solo un #[global_allocator].
+extern crate alloc;
+
+mod allocator;
 mod gdt;
 mod interrupts;
+mod memory;
 mod port;
 mod serial;
 mod sync;
 
-use bootloader_api::info::{FrameBufferInfo, MemoryRegionKind, PixelFormat};
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
+use bootloader_api::config::{BootloaderConfig, Mapping};
+use bootloader_api::info::{FrameBufferInfo, MemoryRegionKind, MemoryRegions, PixelFormat};
 use bootloader_api::{entry_point, BootInfo};
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
-entry_point!(kernel_main);
+/// Le pide al bootloader que mapee TODA la memoria física en un rango virtual
+/// contiguo antes de saltar aquí.
+///
+/// Sin esto no hay forma de leer una tabla de páginas: sus entradas guardan
+/// direcciones físicas, y la CPU con paginación activa solo entiende
+/// virtuales. Es el `physical_memory_offset` que las fases 1 y 2 llevaban
+/// reportando como «sin mapear».
+const CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config
+};
+
+entry_point!(kernel_main, config = &CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::SERIAL.lock().init();
@@ -60,6 +83,41 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     interrupts::init_pic();
     interrupts::enable();
     println!("  pic          remapeado a 32.. · temporizador y teclado activos");
+
+    println!();
+    println!("memoria virtual");
+
+    let physical_offset = boot_info
+        .physical_memory_offset
+        .into_option()
+        .expect("el bootloader debía mapear la memoria física");
+    let regions: &'static MemoryRegions = &boot_info.memory_regions;
+
+    // SAFETY: el offset lo ha puesto el propio bootloader, y las regiones que
+    // marca como utilizables lo son.
+    let mut mapper = unsafe { memory::Mapper::new(physical_offset) };
+    let mut frames = unsafe { memory::FrameAllocator::new(regions) };
+    println!("  física       mapeada en {physical_offset:#x}");
+
+    // Traducir una dirección real, para ver el mecanismo en funcionamiento en
+    // vez de creérselo.
+    let en_la_pila = 0u64;
+    let virtual_address = &en_la_pila as *const u64 as u64;
+    match mapper.translate(virtual_address) {
+        Some(physical) => {
+            println!("  traducción   {virtual_address:#x} → física {physical:#x}")
+        }
+        None => println!("  traducción   {virtual_address:#x} no está mapeada (?)"),
+    }
+
+    unsafe { memory::init_heap(&mut mapper, &mut frames) }.expect("no pude mapear el heap");
+    // SAFETY: el rango acaba de mapearse y nadie más lo usa.
+    unsafe { allocator::init(memory::HEAP_START as usize, memory::HEAP_SIZE) };
+    println!("  asignador    {}", allocator::name());
+    println!("  marcos       {} entregados", frames.frames_handed_out());
+
+    heap_demo();
+    reuse_test();
 
     println!();
     println!("el kernel queda a la espera de interrupciones");
@@ -161,6 +219,44 @@ fn paint_gradient(buffer: &mut [u8], info: FrameBufferInfo) {
     }
 }
 
+fn heap_demo() {
+    println!();
+    println!("el heap funciona");
+
+    let boxed = Box::new(42u64);
+    let numbers: Vec<u64> = (1..=100).collect();
+    let total: u64 = numbers.iter().sum();
+    let text = String::from("Box, Vec y String ya existen dentro de syso");
+
+    println!("  box          {boxed}");
+    println!("  vec          {} elementos, suma {total}", numbers.len());
+    println!("  string       «{text}»");
+    println!("  heap usado   {} B", allocator::used());
+}
+
+/// Mantiene viva UNA asignación mientras hace y deshace muchas otras.
+///
+/// Es exactamente el patrón que el asignador de puntero no sobrevive: su
+/// `dealloc` solo recupera memoria cuando NADA queda vivo, así que el ancla
+/// basta para que no se recupere nunca un solo byte.
+fn reuse_test() {
+    println!();
+    println!("prueba de reutilización · 5000 ciclos con un ancla viva");
+
+    let ancla = Box::new(0u64);
+
+    for cycle in 1..=5000u32 {
+        let bloque: Vec<u64> = (0..32).collect();
+        core::hint::black_box(&bloque);
+        if cycle % 1000 == 0 {
+            println!("  ciclo {cycle:>4}   heap usado {} B", allocator::used());
+        }
+    }
+
+    core::hint::black_box(&ancla);
+    println!("  5000 ciclos completados sin agotar el heap");
+}
+
 /// Duerme la CPU entre interrupciones.
 ///
 /// En la Fase 1 esto era un final. Ahora ya no: `hlt` despierta con cada
@@ -177,6 +273,14 @@ fn halt_loop() -> ! {
 /// ahora dice qué pasó y dónde, que es la mitad del trabajo de depurar.
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+    // Callar las interrupciones antes de nada. Se vio en la Fase 3: tras un
+    // panic el temporizador seguía latiendo tan tranquilo, escribiendo por
+    // encima del informe del fallo. Un kernel que ha entrado en panic no
+    // tiene por qué seguir atendiendo hardware.
+    //
+    // SAFETY: `cli` solo baja IF, y a partir de aquí no se vuelve.
+    unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
+
     // Sin cerrojo a propósito: si el panic ocurrió imprimiendo, el cerrojo
     // está tomado y esperarlo nos dejaría colgados justo cuando más falta
     // hace ver el mensaje.
