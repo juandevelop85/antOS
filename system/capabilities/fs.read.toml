@@ -1,0 +1,12 @@
+name = "fs.read"
+summary = "Lee el contenido de un fichero del espacio de trabajo"
+
+[params]
+path = { type = "path", within = "$WORKSPACE" }
+
+[effects]
+reads = ["{path}"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

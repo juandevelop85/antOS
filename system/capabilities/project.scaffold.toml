@@ -1,0 +1,13 @@
+name = "project.scaffold"
+summary = "Crea un proyecto nuevo con su estructura inicial"
+
+[params]
+language = { type = "enum", of = ["rust", "typescript", "python"] }
+name = { type = "slug", max = 64 }
+
+[effects]
+writes = ["$WORKSPACE/{name}"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

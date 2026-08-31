@@ -1,0 +1,13 @@
+name = "fs.write"
+summary = "Escribe o reemplaza un fichero del espacio de trabajo"
+
+[params]
+path = { type = "path", within = "$WORKSPACE" }
+content = { type = "text", max = 65536 }
+
+[effects]
+writes = ["{path}"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

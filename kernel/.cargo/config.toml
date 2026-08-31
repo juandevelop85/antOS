@@ -1,0 +1,4 @@
+# Con esto, un `cargo build` dentro de kernel/ ya sale cruzado al target
+# bare-metal sin tener que acordarse de --target.
+[build]
+target = "x86_64-unknown-none"

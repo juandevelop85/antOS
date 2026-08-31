@@ -1,0 +1,14 @@
+name = "fs.delete"
+summary = "Borra una ruta del espacio de trabajo"
+
+[params]
+path = { type = "path", within = "$WORKSPACE" }
+
+# El nivel es "grant" aunque sea reversible por instantánea: el nivel mide
+# cuánto daño puede hacer la acción, no si sabemos deshacerla.
+[effects]
+deletes = ["{path}"]
+
+[policy]
+tier = "grant"
+reversible = "snapshot"

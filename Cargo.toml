@@ -1,14 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "builder"]
+members = ["builder", "system/sysod"]
 
-# Los perfiles solo se pueden declarar en la raíz del workspace.
-#
-# panic = "abort" es obligatorio en el kernel: el "unwinding" de Rust
-# necesita libunwind y tablas de excepciones que aquí no existen. Sin SO
-# debajo, un panic no puede desenrollar la pila: solo puede parar la máquina.
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
+# kernel/ tiene su propio workspace: se compila para bare metal, no para el host.
+exclude = ["kernel"]

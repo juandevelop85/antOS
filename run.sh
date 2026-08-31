@@ -3,10 +3,10 @@
 set -euo pipefail
 
 PROFILE_DIR="debug"
-KERNEL="target/x86_64-unknown-none/${PROFILE_DIR}/kernel"
+KERNEL="kernel/target/x86_64-unknown-none/${PROFILE_DIR}/kernel"
 
 echo ">> compilando el kernel para x86_64-unknown-none"
-cargo build -p kernel --target x86_64-unknown-none
+(cd kernel && cargo build)
 
 echo ">> generando imagen de disco"
 cargo run -q -p builder -- "$KERNEL" > /dev/null
@@ -18,7 +18,7 @@ QEMU_ARGS=(
   -serial stdio
 )
 
-QEMU_ARGS+=(-drive "format=raw,file=target/x86_64-unknown-none/${PROFILE_DIR}/syso-bios.img")
+QEMU_ARGS+=(-drive "format=raw,file=kernel/target/x86_64-unknown-none/${PROFILE_DIR}/syso-bios.img")
 
 echo ">> arrancando QEMU (BIOS)"
 exec qemu-system-x86_64 "${QEMU_ARGS[@]}"

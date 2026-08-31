@@ -1,3 +1,8 @@
+# El kernel es su propio workspace, separado de la Vía A a propósito:
+# se compila para x86_64-unknown-none, mientras que sysod y builder se
+# compilan para el host. Mezclarlos obligaría a pasar --target en todo.
+[workspace]
+
 [package]
 name = "kernel"
 version = "0.1.0"
@@ -8,3 +13,12 @@ edition = "2021"
 # (mapa de memoria, framebuffer, dirección física base...) y la macro
 # entry_point!. Es no_std, así que se puede compilar para bare metal.
 bootloader_api = "0.11"
+
+# panic = "abort" es obligatorio: el "unwinding" de Rust necesita libunwind
+# y tablas de excepciones que aquí no existen. Sin SO debajo, un panic no
+# puede desenrollar la pila: solo puede parar la máquina.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

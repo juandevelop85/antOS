@@ -1,0 +1,14 @@
+name = "pkg.declare"
+summary = "Declara una dependencia del proyecto. No la instala: escribe la declaración."
+
+[params]
+project = { type = "slug", max = 64 }
+package = { type = "slug", max = 128 }
+version = { type = "string", max = 32, optional = true, default = "*" }
+
+[effects]
+writes = ["$WORKSPACE/{project}/syso.packages.toml"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"
