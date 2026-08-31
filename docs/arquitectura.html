@@ -1,0 +1,510 @@
+<title>Arquitectura de syso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;600&display=swap">
+
+<style>
+  :root {
+    --ground:      #E7EBEF;
+    --surface:     #FBFCFD;
+    --surface-alt: #F1F4F7;
+    --ink:         #16202B;
+    --ink-soft:    #3C4C5C;
+    --muted:       #66788A;
+    --rule:        #C9D4DE;
+    --rule-soft:   #DDE4EB;
+    --accent:      #2B4C74;
+    --tier-auto:   #1B6B58;
+    --tier-confirm:#9C6410;
+    --tier-grant:  #A03B26;
+    --tier-auto-bg:    #DCEDE7;
+    --tier-confirm-bg: #F6E9D2;
+    --tier-grant-bg:   #F6DDD6;
+
+    --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0F151C;
+      --surface:     #18212B;
+      --surface-alt: #1E2833;
+      --ink:         #DEE6EE;
+      --ink-soft:    #B4C2CF;
+      --muted:       #8195A7;
+      --rule:        #2C3944;
+      --rule-soft:   #232F3A;
+      --accent:      #85AEDF;
+      --tier-auto:   #56BCA0;
+      --tier-confirm:#DBA451;
+      --tier-grant:  #E4785F;
+      --tier-auto-bg:    #16302B;
+      --tier-confirm-bg: #33280F;
+      --tier-grant-bg:   #35201A;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0F151C;
+    --surface:     #18212B;
+    --surface-alt: #1E2833;
+    --ink:         #DEE6EE;
+    --ink-soft:    #B4C2CF;
+    --muted:       #8195A7;
+    --rule:        #2C3944;
+    --rule-soft:   #232F3A;
+    --accent:      #85AEDF;
+    --tier-auto:   #56BCA0;
+    --tier-confirm:#DBA451;
+    --tier-grant:  #E4785F;
+    --tier-auto-bg:    #16302B;
+    --tier-confirm-bg: #33280F;
+    --tier-grant-bg:   #35201A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16.5px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 1.5rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .col  { max-width: 68ch; }
+
+  /* ---------- cabecera ---------- */
+  .masthead {
+    display: flex; flex-direction: column; gap: 1.4rem;
+    padding: 5rem 0 2.5rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--f-mono); font-size: 0.72rem; font-weight: 500;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+  }
+  h1 {
+    font-family: var(--f-display); font-weight: 800;
+    font-size: clamp(2.6rem, 7vw, 4.4rem); line-height: 0.98;
+    letter-spacing: -0.03em; margin: 0; text-wrap: balance;
+  }
+  .thesis {
+    font-size: clamp(1.1rem, 2.4vw, 1.4rem); line-height: 1.45;
+    color: var(--ink-soft); max-width: 34ch; font-weight: 450; margin: 0;
+  }
+  .thesis strong { color: var(--ink); font-weight: 600; }
+
+  .tracks { display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            background: var(--rule); border: 1px solid var(--rule); margin-top: 1rem; }
+  .track { background: var(--surface); padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .track .k { font-family: var(--f-mono); font-size: 0.7rem; letter-spacing: 0.14em;
+              text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .track .t { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .track .d { font-size: 0.88rem; color: var(--muted); line-height: 1.5; }
+
+  /* ---------- secciones ---------- */
+  section { padding-top: 4rem; }
+  h2 {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: clamp(1.6rem, 3.4vw, 2.1rem); letter-spacing: -0.022em;
+    line-height: 1.15; margin: 0 0 0.4rem; text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--f-display); font-weight: 600; font-size: 1.08rem;
+    letter-spacing: -0.008em; margin: 2rem 0 0.3rem;
+  }
+  .lede { color: var(--muted); font-size: 1rem; margin: 0 0 1.8rem; max-width: 60ch; }
+  p { margin: 0 0 1.1rem; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  code {
+    font-family: var(--f-mono); font-size: 0.86em;
+    background: var(--surface-alt); border: 1px solid var(--rule-soft);
+    padding: 0.08em 0.36em; border-radius: 3px;
+  }
+  strong { font-weight: 600; }
+
+  /* ---------- pipeline ---------- */
+  .pipeline { display: flex; flex-direction: column; gap: 0; margin: 2rem 0 1rem; }
+  .stage {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1.1rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    padding: 1.1rem 1.3rem;
+  }
+  .stage + .stage { border-top: none; }
+  .stage-n {
+    font-family: var(--f-mono); font-size: 1.35rem; font-weight: 600;
+    color: var(--accent); line-height: 1.1; font-variant-numeric: tabular-nums;
+  }
+  .stage-t { font-family: var(--f-display); font-weight: 700; font-size: 1.02rem; letter-spacing: -0.01em; }
+  .stage-d { font-size: 0.92rem; color: var(--ink-soft); line-height: 1.55; margin-top: 0.15rem; }
+  .stage-d em { color: var(--muted); font-style: normal; }
+
+  /* ---------- niveles de permiso ---------- */
+  .tiers { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); margin: 1.8rem 0; }
+  .tier { background: var(--surface); border: 1px solid var(--rule); padding: 1.2rem 1.25rem;
+          display: flex; flex-direction: column; gap: 0.5rem; }
+  .tier-badge {
+    align-self: flex-start; font-family: var(--f-mono); font-size: 0.68rem; font-weight: 600;
+    letter-spacing: 0.12em; text-transform: uppercase; padding: 0.28em 0.6em; border-radius: 3px;
+  }
+  .tier-auto    .tier-badge { color: var(--tier-auto);    background: var(--tier-auto-bg); }
+  .tier-confirm .tier-badge { color: var(--tier-confirm); background: var(--tier-confirm-bg); }
+  .tier-grant   .tier-badge { color: var(--tier-grant);   background: var(--tier-grant-bg); }
+  .tier-auto    { border-top: 3px solid var(--tier-auto); }
+  .tier-confirm { border-top: 3px solid var(--tier-confirm); }
+  .tier-grant   { border-top: 3px solid var(--tier-grant); }
+  .tier h4 { font-family: var(--f-display); font-weight: 700; font-size: 1rem; margin: 0; letter-spacing: -0.01em; }
+  .tier p { font-size: 0.9rem; color: var(--ink-soft); margin: 0; line-height: 1.5; }
+  .tier .ex { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); margin-top: auto; padding-top: 0.5rem; }
+
+  /* ---------- specimen de código ---------- */
+  .specimen { margin: 1.8rem 0; border: 1px solid var(--rule); background: var(--surface); }
+  .specimen-h {
+    font-family: var(--f-mono); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--muted); padding: 0.7rem 1.1rem; border-bottom: 1px solid var(--rule-soft);
+    background: var(--surface-alt);
+  }
+  .specimen pre { margin: 0; padding: 1.2rem; overflow-x: auto; }
+  .specimen code {
+    background: none; border: none; padding: 0; font-size: 0.83rem; line-height: 1.7;
+    color: var(--ink-soft); display: block; white-space: pre;
+  }
+  .cm { color: var(--muted); }
+  .ky { color: var(--accent); font-weight: 500; }
+  .st { color: var(--tier-auto); }
+
+  /* ---------- hoja de ruta ---------- */
+  .milestones { display: flex; flex-direction: column; gap: 1px; background: var(--rule);
+                border: 1px solid var(--rule); margin: 1.8rem 0; }
+  .ms { background: var(--surface); padding: 1.3rem; display: grid;
+        grid-template-columns: 4.5rem 1fr; gap: 1.2rem; align-items: start; }
+  .ms-id { font-family: var(--f-mono); font-weight: 600; font-size: 0.85rem; color: var(--accent);
+           letter-spacing: 0.06em; padding-top: 0.15rem; }
+  .ms-t { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: -0.012em; }
+  .ms-d { font-size: 0.92rem; color: var(--ink-soft); margin-top: 0.25rem; line-height: 1.55; }
+  .ms-proof { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); margin-top: 0.6rem; }
+  .ms-proof b { color: var(--ink-soft); font-weight: 500; }
+
+  /* ---------- riesgos ---------- */
+  .risks { display: flex; flex-direction: column; gap: 1.5rem; margin: 1.8rem 0; }
+  .risk { border-left: 3px solid var(--rule); padding-left: 1.2rem; }
+  .risk h4 { font-family: var(--f-display); font-weight: 700; font-size: 1rem; margin: 0 0 0.3rem; letter-spacing: -0.01em; }
+  .risk p { font-size: 0.94rem; color: var(--ink-soft); margin: 0; }
+
+  .out { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); margin: 1.5rem 0; }
+  .out div { background: var(--surface-alt); border: 1px dashed var(--rule); padding: 0.9rem 1rem;
+             font-size: 0.9rem; color: var(--muted); }
+  .out b { color: var(--ink-soft); font-weight: 600; display: block; font-family: var(--f-display); margin-bottom: 0.2rem; }
+
+  footer { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+           font-family: var(--f-mono); font-size: 0.76rem; color: var(--muted);
+           display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+
+  @media (max-width: 560px) {
+    .stage { grid-template-columns: 2.2rem 1fr; gap: 0.8rem; }
+    .ms { grid-template-columns: 1fr; gap: 0.3rem; }
+    body { padding: 0 1.1rem 4rem; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Documento de arquitectura · 31 agosto 2026</div>
+    <h1>syso</h1>
+    <p class="thesis">Un sistema operativo donde la intención del desarrollador se convierte en
+      capacidades <strong>tipadas, aisladas y reversibles</strong> — no en comandos de shell a ciegas.</p>
+
+    <div class="tracks">
+      <div class="track">
+        <div class="k">Vía A · producto</div>
+        <div class="t">Capa de sistema sobre Linux</div>
+        <div class="d">Donde vive la diferenciación: intención → capacidad → ejecución auditada.</div>
+      </div>
+      <div class="track">
+        <div class="k">Vía B · aprendizaje</div>
+        <div class="t">Kernel x86_64 bare-metal</div>
+        <div class="d">Fase 0 lista. No es el sustrato del producto: es lo que evita diseñarlo con ingenuidad.</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="col">
+    <h2>Por qué esto es un SO y no una aplicación</h2>
+    <p class="lede">Tres cosas que solo funcionan si están en la capa de sistema.</p>
+
+    <h3>El modelo de permisos de Unix es el equivocado para agentes</h3>
+    <p>Un proceso lanzado por ti puede hacer todo lo que tú puedes hacer: leer tus llaves SSH,
+      vaciar tu carpeta personal. Eso se llama <em>autoridad ambiental</em>, y es tolerable porque
+      el que decide eres tú. Cuando el que decide es un modelo, deja de serlo. syso ejecuta cada
+      acción con un permiso explícito, acotado y revocable.</p>
+
+    <h3>«Deshaz lo que acabas de hacer» tiene que ser una primitiva</h3>
+    <p>Si la IA muta tu máquina, necesitas rollback fiable del estado — ficheros, paquetes,
+      configuración — no un «lo intento». Eso vive en el sistema de ficheros y en el gestor de
+      paquetes, no en una ventana de chat.</p>
+
+    <h3>El sistema debe ser introspectable con tipos, no con texto</h3>
+    <p>Hoy un agente ejecuta un comando y parsea su salida en lenguaje natural, adivinando.
+      syso expone cada servicio como una capacidad con esquema declarado. Eso elimina de raíz
+      buena parte de los fallos de los agentes actuales.</p>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>El recorrido de una intención</h2>
+      <p class="lede">Es una secuencia real: cada etapa solo puede empezar cuando la anterior ha
+        producido su resultado. El modelo únicamente participa en la etapa 2.</p>
+    </div>
+
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-n">01</div>
+        <div>
+          <div class="stage-t">Captura</div>
+          <div class="stage-d">Voz o texto. La voz pasa por transcripción local y se convierte en la
+            misma cadena que habrías escrito. <em>La voz no es una arquitectura distinta: es otra entrada.</em></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">02</div>
+        <div>
+          <div class="stage-t">Planificación</div>
+          <div class="stage-d">El modelo recibe el catálogo de capacidades como herramientas tipadas y
+            devuelve un plan: una lista ordenada de invocaciones con sus argumentos.
+            <em>Nunca devuelve una línea de shell.</em></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">03</div>
+        <div>
+          <div class="stage-t">Cálculo del radio de impacto</div>
+          <div class="stage-d">Como cada capacidad declara sus efectos por adelantado, syso sabe qué
+            va a tocar el plan <em>antes</em> de ejecutar nada: qué rutas, qué red, qué es reversible.
+            Esta etapa es la que hace posibles las dos siguientes.</div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">04</div>
+        <div>
+          <div class="stage-t">Política y confirmación</div>
+          <div class="stage-d">El radio de impacto determina el nivel de permiso. Lo automático corre;
+            lo demás se presenta como un diff revisable de una tecla.</div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">05</div>
+        <div>
+          <div class="stage-t">Instantánea y ejecución</div>
+          <div class="stage-d">Snapshot del estado afectado, y ejecución en un espacio de nombres que
+            solo contiene lo concedido. Si una capacidad intenta salirse, falla: no hay nada ahí fuera que tocar.</div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">06</div>
+        <div>
+          <div class="stage-t">Registro y reversión</div>
+          <div class="stage-d">Bitácora append-only: qué se pidió, qué plan salió, con qué permiso,
+            qué cambió. Mientras la instantánea viva, <code>syso undo</code> lo revierte entero.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Capacidades declaradas</h2>
+      <p class="lede">El corazón del sistema. Una capacidad no es una función: es un contrato que
+        declara qué recibe, qué toca y si se puede deshacer. Es a la vez la herramienta que ve el
+        modelo, la unidad de permiso y la entrada de la bitácora.</p>
+    </div>
+
+    <div class="specimen">
+      <div class="specimen-h">capabilities/project.scaffold.toml</div>
+      <pre><code><span class="ky">name</span> = <span class="st">"project.scaffold"</span>
+<span class="ky">summary</span> = <span class="st">"Crea un proyecto nuevo con su toolchain"</span>
+
+<span class="cm">[params]</span>
+<span class="ky">language</span> = { type = <span class="st">"enum"</span>, of = [<span class="st">"rust"</span>, <span class="st">"typescript"</span>, <span class="st">"python"</span>] }
+<span class="ky">name</span>     = { type = <span class="st">"slug"</span>, max = 64 }
+<span class="ky">path</span>     = { type = <span class="st">"path"</span>, within = <span class="st">"$WORKSPACE"</span> }
+
+<span class="cm"># Lo que hace posible calcular el radio de impacto en la etapa 03.</span>
+<span class="cm">[effects]</span>
+<span class="ky">writes</span>   = [<span class="st">"$WORKSPACE/{name}"</span>]
+<span class="ky">reads</span>    = [<span class="st">"$TEMPLATES"</span>]
+<span class="ky">network</span>  = [<span class="st">"crates.io"</span>, <span class="st">"registry.npmjs.org"</span>]
+<span class="ky">packages</span> = <span class="st">"declare"</span>   <span class="cm"># propone un diff, no instala a lo bruto</span>
+
+<span class="cm">[policy]</span>
+<span class="ky">tier</span>       = <span class="st">"confirm"</span>
+<span class="ky">reversible</span> = <span class="st">"snapshot"</span></code></pre>
+    </div>
+
+    <div class="col">
+      <p>El campo <code>packages = "declare"</code> es deliberado y marca el estilo de todo el
+        sistema: una capacidad no ejecuta una instalación, <strong>propone un cambio en la
+        declaración del sistema</strong>. Lo que apruebas es un diff, y revertirlo es volver a la
+        declaración anterior.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Tres niveles de permiso</h2>
+      <p class="lede">No los elige el modelo. Los deriva syso del radio de impacto calculado en la
+        etapa 03, y por eso no se pueden negociar con una frase persuasiva.</p>
+    </div>
+
+    <div class="tiers">
+      <div class="tier tier-auto">
+        <span class="tier-badge">Automático</span>
+        <h4>Corre sin preguntar</h4>
+        <p>Solo lectura, o escritura reversible dentro del proyecto activo. Sin red saliente.
+          Preguntar aquí sería ruido que enseña a aprobar sin mirar.</p>
+        <div class="ex">leer ficheros · ejecutar tests · formatear</div>
+      </div>
+      <div class="tier tier-confirm">
+        <span class="tier-badge">Confirmación</span>
+        <h4>Diff primero, una tecla</h4>
+        <p>Muta el estado del sistema o sale a la red. Ves exactamente qué va a cambiar antes de
+          que pase, y queda cubierto por una instantánea.</p>
+        <div class="ex">instalar toolchain · abrir puerto · crear proyecto</div>
+      </div>
+      <div class="tier tier-grant">
+        <span class="tier-badge">Concesión</span>
+        <h4>Denegado por defecto</h4>
+        <p>Credenciales, rutas fuera del espacio de trabajo, borrado irreversible, publicar hacia
+          fuera. Requiere una concesión explícita, acotada y con caducidad.</p>
+        <div class="ex">leer secretos · desplegar · git push · shell libre</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <p><code>shell.exec</code> existe, pero vive en el nivel de concesión y con caducidad. Es la
+        válvula de escape para lo que aún no está modelado como capacidad — y cada vez que se usa,
+        la bitácora lo señala como deuda: algo que debería ser una capacidad propia y todavía no lo es.</p>
+    </div>
+  </section>
+
+  <section class="col">
+    <h2>Por qué una base declarativa</h2>
+    <p class="lede">La decisión de infraestructura con más consecuencias del proyecto.</p>
+    <p>Si el estado del sistema es un fichero declarativo en lugar de el resultado acumulado de
+      años de comandos, tres problemas difíciles desaparecen a la vez: la IA propone
+      <strong>un diff revisable</strong> en vez de efectos invisibles; deshacer es volver a la
+      generación anterior, no reconstruir a mano; y dos máquinas con el mismo fichero son
+      idénticas, así que un plan que funcionó en la tuya funciona en la mía.</p>
+    <p>Por eso la base es <strong>NixOS</strong>. El coste es real — Nix tiene una curva dura y una
+      evaluación lenta — pero comprar «rollback transaccional de todo el sistema» ya resuelto vale
+      más que ese coste. La alternativa, base inmutable con instantáneas de btrfs, queda anotada
+      por si la curva resulta insoportable en la práctica.</p>
+  </section>
+
+  <section class="col">
+    <h2>Lo que syso no va a ser</h2>
+    <p class="lede">Decidido ahora para no discutirlo cada mes.</p>
+    <div class="out">
+      <div><b>Un escritorio</b>Ni compositor propio, ni gestor de ventanas, ni suite gráfica.</div>
+      <div><b>Un kernel nuevo</b>La Vía B es aprendizaje y no bloquea nada de esto.</div>
+      <div><b>Un asistente que teclea por ti</b>El modelo no maneja tu shell: emite planes tipados.</div>
+      <div><b>Para todo el mundo</b>El usuario es un desarrollador en su máquina de trabajo.</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Hoja de ruta</h2>
+      <p class="lede">Cada hito se valida antes de empezar el siguiente, y cada uno se puede
+        enseñar funcionando. El arranque como sistema operativo llega tarde a propósito: el bucle
+        hay que probarlo antes de empaquetarlo.</p>
+    </div>
+
+    <div class="milestones">
+      <div class="ms">
+        <div class="ms-id">M1</div>
+        <div>
+          <div class="ms-t">El bucle, en tu Mac</div>
+          <div class="ms-d"><code>sysod</code> en Rust con cinco capacidades reales, entrada de texto,
+            y el recorrido completo: plan, confirmación, ejecución, bitácora, deshacer. Sin VM, sin voz,
+            sin distribución. Solo la mecánica central.</div>
+          <div class="ms-proof"><b>Prueba:</b> pides un proyecto, ves el diff, lo apruebas, lo deshaces.</div>
+        </div>
+      </div>
+      <div class="ms">
+        <div class="ms-id">M2</div>
+        <div>
+          <div class="ms-t">Aislamiento de verdad</div>
+          <div class="ms-d">Ejecución en espacios de nombres con solo lo concedido, e instantáneas
+            reales. Aquí es donde se comprueba si el modelo de efectos declarados aguanta el contacto
+            con capacidades que no son de juguete.</div>
+          <div class="ms-proof"><b>Prueba:</b> una capacidad malintencionada no consigue salir de su recinto.</div>
+        </div>
+      </div>
+      <div class="ms">
+        <div class="ms-id">M3</div>
+        <div>
+          <div class="ms-t">Voz</div>
+          <div class="ms-d">Transcripción local con pulsar-para-hablar. Va después del aislamiento
+            porque la voz solo es aceptable cuando equivocarse ya es barato.</div>
+          <div class="ms-proof"><b>Prueba:</b> del habla al diff en pantalla, sin tocar el teclado.</div>
+        </div>
+      </div>
+      <div class="ms">
+        <div class="ms-id">M4</div>
+        <div>
+          <div class="ms-t">Arranca como sistema</div>
+          <div class="ms-d">Imagen NixOS con <code>sysod</code> como servicio de primer nivel y las
+            capacidades gobernando la configuración del sistema. A partir de aquí syso deja de ser
+            un programa y pasa a ser el sistema.</div>
+          <div class="ms-proof"><b>Prueba:</b> arranca en una VM y te instala su propio entorno hablándole.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="col">
+    <h2>Preguntas todavía abiertas</h2>
+    <p class="lede">Anotadas porque fingir que están resueltas es como se hunden estos proyectos.</p>
+    <div class="risks">
+      <div class="risk">
+        <h4>Un SO que depende de una API remota</h4>
+        <p>Si sin conexión no hace nada, la palabra «operativo» queda grande. Hay que decidir dónde
+          está la línea: qué debe seguir funcionando sin red, y si a medio plazo el planificador
+          admite un modelo local para las intenciones frecuentes.</p>
+      </div>
+      <div class="risk">
+        <h4>El catálogo de capacidades es el trabajo real</h4>
+        <p>Cinco capacidades se escriben en una tarde. Doscientas, que es lo que hace falta para
+          cubrir el día de un desarrollador, son un proyecto entero. Que terceros puedan aportar
+          capacidades deja de ser un lujo y pasa a ser estructural.</p>
+      </div>
+      <div class="risk">
+        <h4>La confirmación se degrada con el uso</h4>
+        <p>Si syso pregunta demasiado, la gente aprueba sin leer y todo el modelo de seguridad se
+          vuelve decorativo. El nivel automático tiene que ser generoso de verdad, y eso solo se
+          calibra con uso real.</p>
+      </div>
+      <div class="risk">
+        <h4>Nix puede ser demasiado</h4>
+        <p>La base declarativa resuelve el rollback, pero su curva de aprendizaje podría comerse
+          meses. Es reversible: si duele, se cambia por base inmutable con btrfs sin tocar el diseño
+          de capacidades.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>syso · documento de arquitectura</span>
+    <span>Vía A: capa de sistema · Vía B: kernel bare-metal</span>
+    <span>Revisión 1 — 31 agosto 2026</span>
+  </footer>
+
+</div>

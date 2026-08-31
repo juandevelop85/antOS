@@ -1,0 +1,15 @@
+[package]
+name = "builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Este crate SÍ es un programa normal de macOS: no forma parte del kernel.
+# Su trabajo es coger el ELF del kernel y envolverlo en una imagen de disco
+# arrancable, añadiendo el bootloader real (los stages de 16/32/64 bits).
+# default-features = false + features = ["bios"] desactiva la rama UEFI.
+# Motivo: en el nightly actual, la crate `uefi` que arrastra bootloader 0.11.17
+# no enlaza (`undefined symbol: wcslen`, el intrínseco ya no lo aporta
+# compiler_builtins). Es un desajuste upstream, no nuestro. Volveremos al
+# arranque UEFI más adelante, cuando se resuelva o con Limine.
+bootloader = { version = "0.11", default-features = false, features = ["bios"] }

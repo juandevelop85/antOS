@@ -1,0 +1,11 @@
+# Fija el toolchain para todo el proyecto: quien clone el repo obtiene
+# exactamente lo mismo sin tener que acordarse de `+nightly`.
+#
+# Necesitamos nightly aunque el target x86_64-unknown-none sea tier 2 estable,
+# porque más adelante usaremos features que solo existen en nightly:
+#   - abi_x86_interrupt  -> extern "x86-interrupt", imprescindible para la IDT
+#   - build-std          -> si algún día necesitamos recompilar core/alloc
+[toolchain]
+channel = "nightly"
+components = ["rust-src", "llvm-tools", "rustfmt", "clippy"]
+targets = ["x86_64-unknown-none"]

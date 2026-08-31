@@ -1,0 +1,10 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Define el contrato entre el bootloader y nosotros: la estructura BootInfo
+# (mapa de memoria, framebuffer, dirección física base...) y la macro
+# entry_point!. Es no_std, así que se puede compilar para bare metal.
+bootloader_api = "0.11"
