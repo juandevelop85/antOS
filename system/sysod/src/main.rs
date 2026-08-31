@@ -131,7 +131,7 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
     }
 
     // 03 · radio de impacto, calculado ANTES de ejecutar nada
-    let radius = Blast::compute(&plan, catalog, &ctx.workspace)?;
+    let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config)?;
     let (tier, reasons) = radius.required_tier();
 
     let mut changes = Vec::new();
@@ -163,6 +163,15 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
             let lista = rutas.iter().map(|p| ctx.display(p)).collect::<Vec<_>>().join(", ");
             println!("  {etiqueta}  {}", ellipsis(&lista, 68));
         }
+    }
+    if !radius.system.is_empty() {
+        let lista = radius
+            .system
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("  {}  {}", paint("SISTEMA ", RED), ellipsis(&lista, 68));
     }
     if !radius.network.is_empty() {
         println!("  red       {}", radius.network.iter().cloned().collect::<Vec<_>>().join(", "));

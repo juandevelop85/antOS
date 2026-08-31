@@ -1,0 +1,15 @@
+name = "system.declare"
+summary = "Declara un paquete en la configuración del sistema. No lo instala: escribe la declaración."
+
+[params]
+package = { type = "slug", max = 128 }
+
+# La única capacidad que toca algo fuera del espacio de trabajo. No es una
+# fuga: $SYSTEM_CONFIG es una raíz declarada, con nombre. Pero cambia la
+# máquina entera, así que el nivel es "concesión" por definición.
+[effects]
+writes = ["$SYSTEM_CONFIG/syso-paquetes.nix"]
+
+[policy]
+tier = "grant"
+reversible = "snapshot"

@@ -19,6 +19,8 @@ pub struct Blast {
     /// Rutas que se salen del espacio de trabajo. Nunca deberían existir,
     /// y que existan es exactamente lo que hay que detectar aquí.
     pub escapes: BTreeSet<PathBuf>,
+    /// Rutas dentro de la configuración declarativa del sistema.
+    pub system: BTreeSet<PathBuf>,
     /// De las rutas escritas, cuáles son directorios. Se declara con una
     /// barra final en el manifiesto en vez de adivinarse: hay recintos que
     /// necesitan que el directorio exista para poder ponerle una regla, y
@@ -30,7 +32,12 @@ pub struct Blast {
 }
 
 impl Blast {
-    pub fn compute(plan: &Plan, catalog: &Catalog, workspace: &Path) -> Result<Self> {
+    pub fn compute(
+        plan: &Plan,
+        catalog: &Catalog,
+        workspace: &Path,
+        system_config: &Path,
+    ) -> Result<Self> {
         let mut b = Blast { declared_tier: Tier::Auto, ..Default::default() };
 
         let mut dirs = BTreeSet::new();
@@ -50,8 +57,10 @@ impl Blast {
                 (&cap.effects.deletes, &mut b.deletes),
             ] {
                 for tpl in templates {
-                    let (resolved, is_dir) = resolve(tpl, step, workspace);
-                    if !resolved.starts_with(workspace) {
+                    let (resolved, is_dir) = resolve(tpl, step, workspace, system_config);
+                    if resolved.starts_with(system_config) {
+                        b.system.insert(resolved.clone());
+                    } else if !resolved.starts_with(workspace) {
                         b.escapes.insert(resolved.clone());
                     }
                     if is_dir {
@@ -69,6 +78,16 @@ impl Blast {
         //
         // Sigue estando acotado: solo directorios inexistentes, solo dentro
         // del espacio de trabajo, y solo en la rama de una ruta ya declarada.
+        // Crear un fichero dentro de la configuración del sistema exige
+        // permiso sobre su directorio. Es el mismo razonamiento que los
+        // ancestros del espacio de trabajo, y por eso se declara igual.
+        for path in b.system.clone() {
+            if let Some(parent) = path.parent() {
+                b.writes.insert(parent.to_path_buf());
+                dirs.insert(parent.to_path_buf());
+            }
+        }
+
         let ancestors = missing_ancestors(&b.writes, workspace);
         // Un ancestro que falta siempre es un directorio: por definición
         // cuelga algo de él.
@@ -111,6 +130,12 @@ impl Blast {
                 self.escapes.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
             ));
             tier = Tier::Grant;
+        }
+        if !self.system.is_empty() {
+            if tier < Tier::Grant {
+                reasons.push("modifica la configuración del sistema".into());
+            }
+            tier = tier.max(Tier::Grant);
         }
         if self.irreversible && tier < Tier::Grant {
             reasons.push("hay pasos irreversibles".into());
@@ -156,12 +181,22 @@ fn join(set: &BTreeSet<String>) -> String {
 ///
 /// Devuelve además si la plantilla la declaró como directorio, que es lo que
 /// significa la barra final.
-fn resolve(tpl: &str, step: &Step, workspace: &Path) -> (PathBuf, bool) {
-    let expanded = expand(tpl, &step.args, workspace);
+fn resolve(tpl: &str, step: &Step, workspace: &Path, system_config: &Path) -> (PathBuf, bool) {
+    let expanded = expand_all(tpl, &step.args, workspace, system_config);
     let is_dir = expanded.ends_with('/');
     let p = PathBuf::from(expanded.trim_end_matches('/'));
     let absolute = if p.is_absolute() { p } else { workspace.join(p) };
     (normalize(&absolute), is_dir)
+}
+
+pub fn expand_all(
+    tpl: &str,
+    args: &BTreeMap<String, String>,
+    workspace: &Path,
+    system_config: &Path,
+) -> String {
+    let s = tpl.replace("$SYSTEM_CONFIG", &system_config.to_string_lossy());
+    expand(&s, args, workspace)
 }
 
 pub fn expand(tpl: &str, args: &BTreeMap<String, String>, workspace: &Path) -> String {
@@ -234,7 +269,7 @@ mod tests {
     #[test]
     fn detecta_la_fuga_aunque_el_parametro_no_este_restringido() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("../../etc/passwd"), &catalogo_sin_restricciones(), &ws).unwrap();
+        let blast = Blast::compute(&plan_leyendo("../../etc/passwd"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion")).unwrap();
 
         assert!(!blast.escapes.is_empty(), "una ruta fuera del espacio de trabajo debe registrarse como fuga");
         let (tier, reasons) = blast.required_tier();
@@ -245,7 +280,7 @@ mod tests {
     #[test]
     fn una_ruta_de_dentro_no_escala_el_nivel() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("proyecto/src/main.rs"), &catalogo_sin_restricciones(), &ws).unwrap();
+        let blast = Blast::compute(&plan_leyendo("proyecto/src/main.rs"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion")).unwrap();
 
         assert!(blast.escapes.is_empty());
         assert_eq!(blast.required_tier().0, Tier::Auto, "solo leer dentro del espacio no requiere permiso");
@@ -261,7 +296,7 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}".into()];
 
-        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws).unwrap();
+        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
 
         assert!(blast.writes.contains(&ws.join("uno")), "el ancestro que falta debe declararse");
         assert!(blast.writes.contains(&ws.join("uno/dos")));
@@ -272,6 +307,29 @@ mod tests {
     }
 
     #[test]
+    fn la_configuracion_del_sistema_no_es_una_fuga_pero_exige_concesion() {
+        let ws = PathBuf::from("/tmp/espacio");
+        let sistema = PathBuf::from("/tmp/configuracion");
+
+        let mut catalog = catalogo_sin_restricciones();
+        let cap = catalog.caps.get_mut("t.leer").unwrap();
+        cap.effects.reads.clear();
+        cap.effects.writes = vec!["/tmp/configuracion/paquetes.nix".into()];
+
+        let blast = Blast::compute(&plan_leyendo("da igual"), &catalog, &ws, &sistema).unwrap();
+
+        assert!(
+            blast.escapes.is_empty(),
+            "una raíz declarada no es una fuga aunque esté fuera del espacio de trabajo"
+        );
+        assert!(!blast.system.is_empty(), "debe reconocerse como ruta de sistema");
+
+        let (tier, reasons) = blast.required_tier();
+        assert_eq!(tier, Tier::Grant, "tocar el sistema siempre exige concesión");
+        assert!(reasons.iter().any(|r| r.contains("sistema")));
+    }
+
+    #[test]
     fn la_barra_final_declara_un_directorio() {
         let ws = PathBuf::from("/tmp/espacio");
         let mut catalog = catalogo_sin_restricciones();
@@ -279,7 +337,7 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}/".into()];
 
-        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws).unwrap();
+        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
         assert!(blast.dirs.contains(&ws.join("proyecto")));
         assert!(!blast.dirs.iter().any(|d| d.to_string_lossy().ends_with('/')),
                 "la barra es una marca, no parte de la ruta");
@@ -294,7 +352,7 @@ mod tests {
         cap.effects.writes = vec!["{path}".into()];
 
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("dentro.txt"), &catalog, &ws).unwrap();
+        let blast = Blast::compute(&plan_leyendo("dentro.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
 
         let (tier, reasons) = blast.required_tier();
         assert_eq!(tier, Tier::Confirm, "escribir exige confirmación aunque el manifiesto diga auto");

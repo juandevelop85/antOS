@@ -58,6 +58,14 @@ pub fn changes_for(step: &Step, cap: &Capability, ctx: &Ctx) -> Result<Vec<Chang
             }])
         }
 
+        "system.declare" => {
+            let path = ctx.system_config.join("syso-paquetes.nix");
+            Ok(vec![Change::Write {
+                content: declare_system_package(&path, &a["package"])?,
+                path,
+            }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -128,6 +136,61 @@ fn scaffold(language: &str, name: &str) -> Vec<(&'static str, String)> {
         ],
         _ => Vec::new(),
     }
+}
+
+const NIX_HEADER: &str = "\
+# Paquetes del sistema, declarados por syso.
+#
+# Esto NO instala nada: describe qué debe tener la máquina. Aplicarlo es un
+# paso aparte, explícito y tuyo:
+#
+#     sudo nixos-rebuild switch
+#
+# Editarlo a mano es correcto: syso respeta lo que encuentre aquí.
+{ pkgs, ... }:
+{
+  environment.systemPackages = with pkgs; [
+";
+
+const NIX_FOOTER: &str = "  ];\n}\n";
+
+/// Devuelve el fichero Nix COMPLETO tras añadir el paquete.
+///
+/// Se lee lo que hay y se vuelve a escribir entero, en vez de aplicar un
+/// parche. Es lo que permite fotografiarlo, previsualizarlo y revertirlo con
+/// el mismo código que cualquier otro fichero.
+fn declare_system_package(path: &PathBuf, package: &str) -> Result<String> {
+    let mut packages: BTreeMap<String, ()> = BTreeMap::new();
+
+    if path.exists() {
+        let existing = std::fs::read_to_string(path)?;
+        // Un análisis por líneas basta porque este fichero lo genera syso.
+        // Si alguien lo reescribe con Nix de verdad, lo peor que pasa es que
+        // no reconozcamos sus paquetes — y eso se ve en el diff antes de
+        // aprobar nada.
+        let mut inside = false;
+        for line in existing.lines() {
+            let trimmed = line.trim();
+            if trimmed.ends_with('[') {
+                inside = true;
+                continue;
+            }
+            if trimmed.starts_with(']') {
+                inside = false;
+                continue;
+            }
+            if inside && !trimmed.is_empty() && !trimmed.starts_with('#') {
+                packages.insert(trimmed.to_string(), ());
+            }
+        }
+    }
+    packages.insert(package.to_string(), ());
+
+    let cuerpo: String = packages
+        .keys()
+        .map(|name| format!("    {name}\n"))
+        .collect();
+    Ok(format!("{NIX_HEADER}{cuerpo}{NIX_FOOTER}"))
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

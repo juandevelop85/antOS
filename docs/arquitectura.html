@@ -475,11 +475,15 @@
       <div class="ms">
         <div class="ms-id">M4</div>
         <div>
-          <div class="ms-head"><div class="ms-t">Arranca como sistema</div><span class="ms-state pendiente">pendiente</span></div>
-          <div class="ms-d">Imagen NixOS con <code>sysod</code> como servicio de primer nivel y las
-            capacidades gobernando la configuración del sistema. A partir de aquí syso deja de ser
-            un programa y pasa a ser el sistema.</div>
-          <div class="ms-proof"><b>Prueba:</b> arranca en una VM y te instala su propio entorno hablándole.</div>
+          <div class="ms-head"><div class="ms-t">Arranca como sistema</div><span class="ms-state hecho">hecho</span></div>
+          <div class="ms-d">Un flake define la máquina entera como un valor: el paquete, un módulo
+            de NixOS que mete a syso en el sistema, y un servicio que al arrancar comprueba su propio
+            recinto antes de que nadie pueda pedirle nada. La configuración declarativa pasa a ser una
+            <strong>segunda raíz</strong> que las capacidades pueden tocar — no es una fuga, tiene
+            nombre, pero exige concesión siempre.</div>
+          <div class="ms-proof"><b>Prueba:</b> <code>syso «declara htop en el sistema»</code> produce un
+            diff de una línea en un fichero Nix, y la definición del sistema pasa a contener
+            <code>htop-3.5.3</code>.</div>
         </div>
       </div>
     </div>
@@ -500,6 +504,14 @@
         <p>Cinco capacidades se escriben en una tarde. Doscientas, que es lo que hace falta para
           cubrir el día de un desarrollador, son un proyecto entero. Que terceros puedan aportar
           capacidades deja de ser un lujo y pasa a ser estructural.</p>
+      </div>
+      <div class="risk">
+        <h4>syso declara, pero todavía no aplica</h4>
+        <p>Una capacidad escribe la declaración; convertirla en la máquina real sigue siendo un
+          <code>sudo nixos-rebuild switch</code> a mano. No es pereza: aplicar toca todo el sistema,
+          así que tendría que correr fuera del recinto — y una capacidad con permiso para salirse del
+          recinto es exactamente la puerta trasera que este diseño existe para no tener. Merece su
+          propio diseño, no un parche.</p>
       </div>
       <div class="risk">
         <h4>Dictar términos técnicos es el punto débil</h4>

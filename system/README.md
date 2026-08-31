@@ -33,6 +33,29 @@ target/debug/syso "borra demo"                # ahora sí
 Por defecto usa `claude` si hay clave y `local` si no; la salida siempre dice cuál corrió.
 Forzar uno: `--planificador local|claude`.
 
+## Arrancar como sistema
+
+`flake.nix` define la máquina entera como un valor: el paquete, un módulo de
+NixOS y un servicio que al arrancar ejecuta `syso doctor` — el sistema
+comprueba su propio recinto antes de que nadie pueda pedirle nada.
+
+```bash
+nix eval .#nixosConfigurations.syso.config.system.build.toplevel.drvPath
+```
+
+La configuración declarativa es la **segunda raíz** que syso reconoce. No es
+una fuga —tiene nombre, `$SYSTEM_CONFIG`— pero cualquier capacidad que la
+toque exige concesión, siempre, sin importar lo que diga su manifiesto:
+
+```bash
+target/debug/syso grant system.declare --minutos 10
+target/debug/syso "declara htop en el sistema"
+```
+
+El diff es de una línea en [`system/nixos/syso-paquetes.nix`](nixos/syso-paquetes.nix),
+que `configuracion.nix` importa. Aplicarlo sigue siendo tuyo y explícito:
+`sudo nixos-rebuild switch`.
+
 ## Voz
 
 ```bash
@@ -128,6 +151,11 @@ Sin verificar todavía:
   permiso al terminal, y eso lo autoriza una persona. Verificado el camino
   completo con audio sintetizado, que ejercita todo menos `ffmpeg -f
   avfoundation`.
+- **La imagen arrancable no se ha construido.** El sistema *evalúa* entero
+  —`nixos-system-syso-26.11...drv`— y sus piezas se han comprobado una a una,
+  pero construirlo son gigabytes de cierre y no se ha hecho aquí.
+- **syso declara pero no aplica.** `nixos-rebuild switch` sigue siendo manual:
+  aplicar toca todo el sistema y tendría que correr fuera del recinto.
 - **Los términos técnicos en español se transcriben mal.** «rust» sale como
   «rastre» con el modelo `base` y como «rastriamado» con `small`; el tamaño
   del modelo no lo arregla. Las frases sin anglicismos salen perfectas.

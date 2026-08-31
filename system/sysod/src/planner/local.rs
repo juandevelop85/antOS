@@ -49,6 +49,19 @@ impl Planner for LocalPlanner {
             return Ok(vec![step("project.scaffold", &[("language", language), ("name", &name)])]);
         }
 
+        // El sistema se comprueba ANTES que el proyecto: "declara htop en el
+        // sistema" y "declara serde en el proyecto demo" empiezan igual.
+        if lower.contains("sistema")
+            && (lower.contains("declar")
+                || lower.contains("paquete")
+                || lower.contains("instal")
+                || lower.contains("añad"))
+        {
+            let package = after(&words, &["declara", "instala", "añade", "paquete"])
+                .ok_or_else(|| anyhow::anyhow!("no veo qué paquete quieres declarar"))?;
+            return Ok(vec![step("system.declare", &[("package", &package)])]);
+        }
+
         if lower.contains("depend") || lower.contains("paquete") {
             let package = after(&words, &["dependencia", "dependencias", "paquete"])
                 .ok_or_else(|| anyhow::anyhow!("no veo qué paquete quieres declarar"))?;

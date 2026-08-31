@@ -10,6 +10,12 @@ pub struct Ctx {
     pub state: PathBuf,
     /// Directorio de manifiestos de capacidad.
     pub caps_dir: PathBuf,
+    /// La configuración declarativa del sistema.
+    ///
+    /// Es la SEGUNDA raíz que syso reconoce, y no es un espacio de trabajo
+    /// más: tocar aquí cambia la máquina entera. Por eso no cuenta como fuga
+    /// —está declarada, tiene nombre— pero siempre exige concesión.
+    pub system_config: PathBuf,
 }
 
 impl Ctx {
@@ -42,7 +48,20 @@ impl Ctx {
                 })?,
         };
 
-        Ok(Ctx { workspace, state, caps_dir })
+        let system_config = match std::env::var_os("SYSO_SYSTEM_CONFIG") {
+            Some(v) => PathBuf::from(v),
+            None => {
+                let nixos = PathBuf::from("/etc/nixos");
+                // Fuera de NixOS no hay configuración declarativa que
+                // gobernar, así que se usa un sustituto dentro del estado y
+                // se dice en pantalla. Fingir que hay una sería peor.
+                if nixos.is_dir() { nixos } else { state.join("etc-nixos") }
+            }
+        };
+        std::fs::create_dir_all(&system_config)?;
+        let system_config = system_config.canonicalize()?;
+
+        Ok(Ctx { workspace, state, caps_dir, system_config })
     }
 
     pub fn snapshots_dir(&self) -> PathBuf { self.state.join("snapshots") }
