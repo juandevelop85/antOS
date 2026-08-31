@@ -130,6 +130,7 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
 
     let exe = std::env::current_exe().context("no sé cuál es mi propio binario")?;
     let mut cmd = sandbox.command(&exe, policy, EXEC_SUBCOMMAND)?;
+    sin_secretos(&mut cmd);
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = cmd.spawn().context("no pude lanzar el ejecutor confinado")?;
@@ -160,12 +161,25 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
 /// Comprueba si el recinto deja salir a la red.
 pub fn probe_network(sandbox: &dyn Sandbox, policy: &Policy) -> Result<bool> {
     let exe = std::env::current_exe()?;
-    let out = sandbox
-        .command(&exe, policy, NET_SUBCOMMAND)?
+    let mut cmd = sandbox.command(&exe, policy, NET_SUBCOMMAND)?;
+    sin_secretos(&mut cmd);
+    let out = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()?;
     Ok(String::from_utf8_lossy(&out.stdout).trim() == "conectado")
+}
+
+/// Quita del entorno del hijo lo que no le hace falta para su trabajo.
+///
+/// El ejecutor confinado aplica cambios en ficheros: no tiene ningún motivo
+/// para llevar encima una credencial. Y el recinto le prohíbe salir a la red,
+/// pero una credencial filtrada no necesita red para hacer daño — basta con
+/// que acabe escrita en algún sitio.
+pub fn sin_secretos(cmd: &mut Command) {
+    for variable in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY_FILE"] {
+        cmd.env_remove(variable);
+    }
 }
 
 // -------------------------------------------------------------- el ejecutor

@@ -68,7 +68,9 @@ impl Voz {
             anyhow::anyhow!("no encuentro ffmpeg. Instálalo con:\n  brew install ffmpeg")
         })?;
 
-        let salida = Command::new(&ffmpeg)
+        let mut orden = Command::new(&ffmpeg);
+        crate::sandbox::sin_secretos(&mut orden);
+        let salida = orden
             .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
             // avfoundation es la capa de captura de macOS; ":default" toma la
             // entrada de audio predeterminada y ningún vídeo.
@@ -97,7 +99,9 @@ impl Voz {
         let ffmpeg = buscar_en_path(&["ffmpeg"])
             .ok_or_else(|| anyhow::anyhow!("no encuentro ffmpeg para convertir el audio"))?;
 
-        let salida = Command::new(&ffmpeg)
+        let mut orden = Command::new(&ffmpeg);
+        crate::sandbox::sin_secretos(&mut orden);
+        let salida = orden
             .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
             .arg(origen)
             .args(["-ar", SAMPLE_RATE, "-ac", "1", "-c:a", "pcm_s16le"])
@@ -123,7 +127,9 @@ impl Voz {
     /// sistema entiende cambia esa apuesta — y esas palabras las conoce el
     /// catálogo de capacidades, así que no hay que inventarlas.
     pub fn transcribir(&self, wav: &Path, vocabulario: &str) -> Result<String> {
-        let salida = Command::new(&self.whisper)
+        let mut orden = Command::new(&self.whisper);
+        crate::sandbox::sin_secretos(&mut orden);
+        let salida = orden
             .args(["-m"])
             .arg(&self.modelo)
             .args(["-f"])

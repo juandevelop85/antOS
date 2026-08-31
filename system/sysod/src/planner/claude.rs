@@ -13,9 +13,11 @@ use crate::plan::Step;
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL: &str = "claude-opus-5";
+pub const CLAVE_ENV: &str = "ANTHROPIC_API_KEY";
 
 pub struct ClaudePlanner {
     api_key: String,
@@ -24,15 +26,79 @@ pub struct ClaudePlanner {
 
 impl ClaudePlanner {
     pub fn from_env() -> Result<Self> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
-            anyhow!(
-                "falta ANTHROPIC_API_KEY.\n\
-                 Expórtala en el entorno, o usa el planificador local:\n\
-                 syso --planificador local \"…\""
-            )
-        })?;
+        let api_key = leer_clave()?;
         let model = std::env::var("SYSO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
         Ok(Self { api_key, model })
+    }
+}
+
+/// Dónde vive la clave por defecto.
+fn ruta_clave() -> PathBuf {
+    let base = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join(".config/syso/anthropic.key")
+}
+
+/// Lee la clave de un fichero, y solo como último recurso del entorno.
+///
+/// El orden importa. Una variable de entorno la hereda TODO proceso hijo, y
+/// este programa lanza varios: whisper, ffmpeg, y sobre todo el ejecutor
+/// confinado — que es precisamente el componente que el diseño entero trata
+/// como no fiable. Un fichero que solo lee el broker no viaja a ninguna parte.
+fn leer_clave() -> Result<String> {
+    let ruta = match std::env::var_os("ANTHROPIC_API_KEY_FILE") {
+        Some(p) => PathBuf::from(p),
+        None => ruta_clave(),
+    };
+
+    if ruta.exists() {
+        let clave = std::fs::read_to_string(&ruta)
+            .with_context(|| format!("no pude leer {}", ruta.display()))?;
+        avisar_si_es_legible_por_otros(&ruta);
+        let clave = clave.trim().to_string();
+        if !clave.is_empty() {
+            return Ok(clave);
+        }
+    }
+
+    // El entorno sigue funcionando por comodidad, pero se avisa.
+    if let Ok(clave) = std::env::var(CLAVE_ENV) {
+        if !clave.trim().is_empty() {
+            eprintln!(
+                "aviso: usando {CLAVE_ENV} del entorno. Todo proceso hijo la hereda; \n\
+                 es preferible {}",
+                ruta_clave().display()
+            );
+            return Ok(clave.trim().to_string());
+        }
+    }
+
+    bail!(
+        "no encuentro la clave de la API.\n\
+         Ponla en {} (solo lectura para ti):\n\
+         \n  mkdir -p ~/.config/syso && chmod 700 ~/.config/syso\n\
+         \n  read -rs CLAVE && printf '%s' \"$CLAVE\" > {} && unset CLAVE\n\
+         \n  chmod 600 {}\n\
+         \nO usa el planificador local, que no necesita clave:\n\
+         \n  syso --planificador local \"…\"",
+        ruta.display(),
+        ruta.display(),
+        ruta.display()
+    )
+}
+
+fn avisar_si_es_legible_por_otros(ruta: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if let Ok(meta) = std::fs::metadata(ruta) {
+        let modo = meta.permissions().mode() & 0o077;
+        if modo != 0 {
+            eprintln!(
+                "aviso: {} es legible por otros usuarios. Arréglalo con:\n  chmod 600 {}",
+                ruta.display(),
+                ruta.display()
+            );
+        }
     }
 }
 
