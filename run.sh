@@ -18,7 +18,7 @@ QEMU_ARGS=(
   -serial stdio
 )
 
-QEMU_ARGS+=(-drive "format=raw,file=kernel/target/x86_64-unknown-none/${PROFILE_DIR}/syso-bios.img")
+QEMU_ARGS+=(-drive "format=raw,file=kernel/target/x86_64-unknown-none/${PROFILE_DIR}/antos-bios.img")
 
 echo ">> arrancando QEMU (BIOS)"
 exec qemu-system-x86_64 "${QEMU_ARGS[@]}"

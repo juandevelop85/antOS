@@ -18,7 +18,7 @@ fn main() {
 
     // BIOS: arranque legacy. QEMU lo soporta sin firmware externo, así que
     // es el camino más corto para ver algo en pantalla.
-    let bios_image = out_dir.join("syso-bios.img");
+    let bios_image = out_dir.join("antos-bios.img");
     bootloader::BiosBoot::new(&kernel)
         .create_disk_image(&bios_image)
         .expect("no se pudo crear la imagen BIOS");

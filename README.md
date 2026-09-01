@@ -59,47 +59,231 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 
 ---
 
-## 🚀 Guía de Inicio Rápido
+## 🚀 Guía de Inicio y Puesta en Marcha
 
-### 1. Requisitos Previos
+### 1. Requisitos Previos y Herramientas
 
 * **Rust Toolchain:** `rustc` y `cargo` (1.75 o superior).
 * **Git:** 2.30 o superior.
+* **QEMU / Podman / Docker (Opcional para VM y Kernel):** `qemu-system-x86_64`, `podman` o `docker`.
 * **(Opcional para Claude):** Variable de entorno `ANTHROPIC_API_KEY` para planificación avanzada con LLM.
 * **(Opcional para Desktop Wayland):** `gtk4` y `gtk4-layer-shell`.
 
-### 2. Compilación y Suite de Pruebas
+### 2. Compilación del Workspace y Verificación
 
-Compila el workspace completo y verifica que todas las pruebas unitarias y de integración pasen en verde:
+Compila todos los crates del workspace y verifica la suite de pruebas (46+ pruebas automatizadas):
 
 ```bash
-# Compilar todos los crates del workspace
+# Compilar todo el workspace
 cargo build --workspace
 
-# Ejecutar la suite completa de pruebas (46+ tests)
+# Ejecutar la suite completa de pruebas unitarias y de integración
 cargo test --workspace
+```
+
+### 3. Configurar el Comando `antos` en tu Terminal
+
+Para usar el comando `antos` directamente desde cualquier directorio de tu sistema:
+
+```bash
+# Opción A: Instalar el binario directamente en tu PATH (~/.cargo/bin)
+cargo install --path system/antosd
+
+# Opción B: Crear un alias en tu shell (~/.zshrc o ~/.bashrc)
+alias antos="$(pwd)/target/debug/antos"
+```
+
+#### Variables de Entorno de antOS
+
+antOS autodescubre el contexto, pero puedes personalizar su comportamiento con variables de entorno:
+
+| Variable | Descripción | Valor por Defecto |
+| :--- | :--- | :--- |
+| `ANTOS_WORKSPACE` | Raíz del proyecto en el que opera antOS | Directorio actual (`pwd`) o raíz del repositorio Git |
+| `ANTOS_STATE` | Directorio de estado (bitácora, servicios, bóveda de secretos) | `.antos/` en el workspace o `~/.local/state/antos/` |
+| `ANTOS_CAPABILITIES` | Directorio con los manifiestos TOML de capacidades | `system/capabilities/` del repositorio |
+| `ANTHROPIC_API_KEY` | Clave de API de Anthropic para el planificador Claude | `~/.config/antos/anthropic.key` o vacía (usa planificador `local`) |
+
+---
+
+## 🕹️ Modos de Ejecutar e Iniciar antOS
+
+antOS está diseñado para probarse y ejecutarse en múltiples niveles según tu objetivo:
+
+```
+ ┌─────────────────────────────────────────────────────────────────────────────┐
+ │                       4 FORMAS DE INICIAR antOS                             │
+ ├─────────────────────────────────────────────────────────────────────────────┤
+ │ 1. CLI y Demonio Host (macOS / Linux): Ejecución directa en desarrollo      │
+ │ 2. Escritorio Wayland (antos-barra): Shell GTK4 con HUD y Tablero Kanban    │
+ │ 3. Contenedor Linux (Landlock Sandbox): Verificación de aislamiento kernel  │
+ │ 4. Máquina Virtual NixOS (QEMU): Sistema operativo completo con servicios   │
+ │ 5. Kernel Bare-Metal (QEMU): Núcleo no_std x86_64 arrancable desde BIOS     │
+ └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Modo 1: CLI Directo y Demonio Host (macOS / Linux)
+
+El modo principal para trabajar en tu día a día como desarrollador:
+
+```bash
+# Ejecutar un comando o intención directamente
+target/debug/antos "crea un proyecto rust llamado demo"
+
+# Iniciar el demonio en segundo plano escuchando en socket IPC (/tmp/antos.sock)
+target/debug/antos escucha
+```
+
+### Modo 2: Interfaz Gráfica de Escritorio Wayland (`antos-barra`)
+
+Lanza la superficie de escritorio nativa en Linux/Wayland:
+
+```bash
+# Lanzar la barra flotante de intenciones contextual
+cargo run -p antos-barra --bin antos-barra
+
+# Lanzar directamente el Centro de Misión y Tablero Kanban (Super + A)
+cargo run -p antos-barra --bin antos-barra -- --panel
+```
+
+### Modo 3: Verificación Confinada en Linux con Landlock (`verificar-linux.sh`)
+
+Permite validar las políticas de seguridad del kernel Linux (*Landlock LSM*) atacando el recinto desde un contenedor:
+
+```bash
+# Requiere Podman o Docker
+./system/verificar-linux.sh
+```
+
+Este script prueba automáticamente:
+* Compilación y pruebas de `antosd` en Linux.
+* Diagnóstico de `antos doctor` contra el recinto.
+* Bloqueo estricto de lectura a `/root/.ssh/id_rsa`.
+* Ciclo de vida completo: intención ➡️ diff ➡️ ejecución ➡️ undo.
+
+### Modo 4: Máquina Virtual antOS Completa en QEMU (`arrancar-vm.sh`)
+
+Construye una imagen NixOS con antOS integrado como demonio de sistema y la arranca en QEMU:
+
+```bash
+# Construye la VM y arranca QEMU (Ctrl-a x para salir)
+./system/arrancar-vm.sh
+```
+
+### Modo 5: Núcleo Bare-Metal x86_64 en QEMU (`run.sh`)
+
+Compila el kernel `no_std` en Rust, genera la imagen de disco con `builder` y la arranca en QEMU:
+
+```bash
+# Compilar kernel bare-metal y arrancar en QEMU
+./run.sh
 ```
 
 ---
 
-## 💻 Uso del CLI `antos`
+## 🛠️ Guía Práctica de 0 a 100: Cómo Usar `antos`
 
-El ejecutable principal se encuentra en `target/debug/antos` (o `cargo run --bin antos -- <comando>`).
+Sigue este recorrido interactivo para probar todas las capacidades del sistema:
 
-### 1. Intenciones en Lenguaje Natural
-
-Expresa lo que necesitas; antOS planifica la secuencia de capacidades, calcula el radio de impacto, muestra el diff y solicita confirmación:
-
+### Paso 1: Autodiagnóstico del Sistema (`doctor`)
+Verifica que el recinto sandbox del kernel esté activo y confinando lecturas/escrituras:
 ```bash
-# Crear un nuevo proyecto con toolchain y tests configurados
-antos "crea un proyecto rust llamado api-service"
-
-# Planificar y previsualizar en seco (dry-run) sin aplicar cambios
-antos -n "declara serde en el proyecto api-service"
-
-# Aprobar automáticamente la ejecución
-antos -s "escribe en fichero src/main.rs: fn main() { println!(\"Hola antOS\"); }"
+antos doctor
 ```
+
+### Paso 2: Explorar el Catálogo de Capacidades (`caps`)
+Lista todas las herramientas tipadas registradas en el sistema con sus niveles de riesgo (*Auto*, *Confirmación*, *Concesión*):
+```bash
+antos caps
+```
+
+### Paso 3: Planificar sin Ejecutar (`-n` o `--dry-run`)
+Observa el plan de ejecución y el radio de impacto antes de tocar el disco:
+```bash
+antos -n "crea un proyecto rust llamado api-service"
+```
+
+### Paso 4: Ejecutar una Intención con Confirmación
+```bash
+antos "crea un proyecto rust llamado api-service"
+```
+*antOS calculará el diff, presentará la previsualización interactiva y solicitará tu confirmación (`s/N`).*
+
+### Paso 5: Diagnóstico y Liberación de Puertos
+```bash
+# Ver puertos de desarrollo ocupados y PIDs asociados
+antos ports
+
+# Liberar un puerto específico ocupado
+antos "libera el puerto 3000"
+```
+
+### Paso 6: Aprovisionamiento de Servicios Locales Efímeros
+```bash
+# Levantar PostgreSQL local efímero
+antos service up postgres
+
+# Consultar servicios activos y variables inyectadas (.env)
+antos services
+
+# Detener el servicio cuando termines
+antos service down postgres
+```
+
+### Paso 7: Bóveda de Secretos y Concesiones Temporales (Zero Environmental Authority)
+```bash
+# Guardar un secreto de forma segura
+antos secret set GITHUB_TOKEN ghp_1122334455
+
+# Consultar la bóveda (aparecerá protegido con requerimiento de concesión)
+antos secrets
+
+# Intentar leerlo (bloqueado por Zero Environmental Authority)
+antos secret get GITHUB_TOKEN
+
+# Conceder acceso temporal con motivo de auditoría
+antos grant secret.GITHUB_TOKEN --minutos 10 --para "sincronizar releases"
+
+# Leer el secreto concedido
+antos secret get GITHUB_TOKEN
+
+# Revocar el acceso
+antos revoke secret.GITHUB_TOKEN
+```
+
+### Paso 8: Orquestación Multi-Agente antFlow y Tablero Kanban
+```bash
+# Ver el equipo de agentes especializados del sistema operativo
+antos agents
+
+# Despachar un ticket técnico al equipo (Arquitecto -> Coder -> QA -> Auditor) en worktree aislado
+antos agent run T1.1
+
+# Ver el estado del ciclo de vida del ticket
+antos agent status T1.1
+
+# Visualizar el tablero Kanban completo de tickets
+antos panel
+```
+
+### Paso 9: Consultar la Bitácora Transaccional (`log`)
+Revisa el historial inmutable de intenciones, planes y snapshots generados:
+```bash
+antos log
+```
+
+### Paso 10: Reversión Atómica Instantánea (`undo`)
+```bash
+# Revertir la última acción ejecutada
+antos undo
+
+# O revertir todos los cambios asociados a un ticket específico
+antos undo --ticket T1.1
+```
+
+---
+
+## 💻 Referencia Rápida de Comandos CLI `antos`
 
 ### 2. Git Semántico e Introspección
 
