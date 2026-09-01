@@ -10,6 +10,7 @@ mod ctx;
 mod exec;
 mod grants;
 pub mod git;
+pub mod spec;
 mod ipc;
 mod journal;
 mod plan;
@@ -86,6 +87,7 @@ fn run() -> Result<()> {
         "escucha" => cmd_escuchar(&ctx, &catalog, &rest[1..], &opts),
         "log" => cmd_log(&ctx),
         "undo" => cmd_undo(&ctx),
+        "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -488,6 +490,85 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
     }
 }
 
+// ------------------------------------------------------------------ tickets
+
+fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let engine = spec::SpecEngine::global();
+    if let Some(ticket_id) = args.first() {
+        let detalle = engine.obtener_ticket(&ctx.workspace, ticket_id)?;
+        match detalle {
+            Some(t) => {
+                println!(
+                    "{} {}  {}",
+                    paint(&t.id, BOLD),
+                    paint(&t.fase, DIM),
+                    t.estado.etiqueta()
+                );
+                println!("{}", paint(&t.titulo, BOLD));
+                println!();
+                println!("{}", paint("Descripción:", BOLD));
+                println!("  {}", t.descripcion);
+                if !t.alcance_tecnico.is_empty() {
+                    println!();
+                    println!("{}", paint("Alcance Técnico:", BOLD));
+                    for a in &t.alcance_tecnico {
+                        println!("  • {a}");
+                    }
+                }
+                if !t.criterios_aceptacion.is_empty() {
+                    println!();
+                    println!("{}", paint("Criterios de Aceptación:", BOLD));
+                    for c in &t.criterios_aceptacion {
+                        println!("  • {c}");
+                    }
+                }
+            }
+            None => {
+                println!("ticket '{ticket_id}' no encontrado en el espacio de trabajo.");
+            }
+        }
+    } else {
+        let tickets = engine.listar_tickets(&ctx.workspace)?;
+        if tickets.is_empty() {
+            println!("no se encontraron tickets en el espacio de trabajo.");
+            return Ok(());
+        }
+
+        println!("{}", paint("antOS · Catálogo y Hoja de Ruta de Tickets", BOLD));
+        println!();
+        println!(
+            "  {:<8} {:<8} {:<55} {}",
+            paint("FASE", DIM),
+            paint("ID", DIM),
+            paint("TÍTULO", DIM),
+            paint("ESTADO", DIM)
+        );
+        println!("  {}", "─".repeat(88));
+
+        let mut completados = 0;
+        for t in &tickets {
+            if t.estado == antos_protocolo::TicketStatus::Completado {
+                completados += 1;
+            }
+            println!(
+                "  {:<8} {:<8} {:<55} {}",
+                paint(&t.fase, DIM),
+                paint(&t.id, BOLD),
+                ellipsis(&t.titulo, 53),
+                t.estado.etiqueta()
+            );
+        }
+        println!("  {}", "─".repeat(88));
+        println!(
+            "  Total: {} tickets | {} completados | {} pendientes",
+            tickets.len(),
+            completados,
+            tickets.len() - completados
+        );
+    }
+    Ok(())
+}
+
 fn help() {
     println!(
         "\
@@ -495,6 +576,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
 
   antos \"<intención>\"       planifica, enseña el diff y ejecuta
   antos escucha              lo mismo, dictado por voz (transcripción local)
+  antos tickets [id]         catálogo de tickets y especificaciones
   antos caps                 catálogo de capacidades y su nivel
   antos log                  bitácora de lo que ha pasado
   antos undo                 revierte el último plan ejecutado

@@ -179,6 +179,26 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ListarTickets { workspace_path } => {
+            match crate::spec::SpecEngine::global().listar_tickets(Path::new(&workspace_path)) {
+                Ok(tickets) => {
+                    enviar(&mut escritura, &Evento::ListaTickets(tickets))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
+        Peticion::ObtenerTicket { workspace_path, ticket_id } => {
+            match crate::spec::SpecEngine::global().obtener_ticket(Path::new(&workspace_path), &ticket_id) {
+                Ok(detalle) => {
+                    enviar(&mut escritura, &Evento::DetalleTicket(detalle))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -234,6 +254,14 @@ pub fn intencion_remota(
             }
             Evento::NoEsRepoGit => {
                 pantalla.nota("no es un repositorio Git")?;
+            }
+            Evento::ListaTickets(tickets) => {
+                pantalla.nota(&format!("tickets disponibles: {}", tickets.len()))?;
+            }
+            Evento::DetalleTicket(detalle) => {
+                if let Some(t) = detalle {
+                    pantalla.nota(&format!("ticket {}: {}", t.id, t.titulo))?;
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

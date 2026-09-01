@@ -156,6 +156,52 @@ impl GitRepoStatus {
     }
 }
 
+// ------------------------------------------------ spec engine y tickets (T1.3)
+
+/// Estado de un ticket de especificación o desarrollo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TicketStatus {
+    Pendiente,
+    EnProgreso,
+    EnRevision,
+    Completado,
+}
+
+impl TicketStatus {
+    pub fn etiqueta(&self) -> &'static str {
+        match self {
+            TicketStatus::Pendiente => "⏳ Pendiente",
+            TicketStatus::EnProgreso => "🔄 En Progreso",
+            TicketStatus::EnRevision => "🔍 En Revisión",
+            TicketStatus::Completado => "✅ Completado",
+        }
+    }
+}
+
+/// Resumen de un ticket para listados y tableros Kanban.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketSummary {
+    pub id: String,
+    pub fase: String,
+    pub titulo: String,
+    pub estado: TicketStatus,
+    pub ruta_archivo: String,
+}
+
+/// Detalle completo de un ticket parseado desde Markdown.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketDetail {
+    pub id: String,
+    pub fase: String,
+    pub titulo: String,
+    pub estado: TicketStatus,
+    pub ruta_archivo: String,
+    pub descripcion: String,
+    pub alcance_tecnico: Vec<String>,
+    pub criterios_aceptacion: Vec<String>,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +217,15 @@ pub enum Peticion {
     ConsultarEstadoGit {
         workspace_path: String,
     },
+    /// Lista todos los tickets disponibles en el espacio de trabajo.
+    ListarTickets {
+        workspace_path: String,
+    },
+    /// Obtiene el detalle de un ticket específico en el espacio de trabajo.
+    ObtenerTicket {
+        workspace_path: String,
+        ticket_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +239,10 @@ pub enum Evento {
     EstadoGit(GitRepoStatus),
     /// Respuesta cuando el directorio consultado no es un repositorio Git válido.
     NoEsRepoGit,
+    /// Respuesta con el listado de tickets encontrados en el workspace.
+    ListaTickets(Vec<TicketSummary>),
+    /// Respuesta con el detalle de un ticket específico.
+    DetalleTicket(Option<TicketDetail>),
     Error(String),
 }
 
@@ -278,5 +337,41 @@ mod tests {
         let deserializado_nota: Evento =
             serde_json::from_str(&json_nota).expect("deserializar nota");
         assert_eq!(evento_nota, deserializado_nota);
+    }
+
+    #[test]
+    fn test_serializacion_tickets_protocolo() {
+        let ticket = TicketDetail {
+            id: "T1.3".into(),
+            fase: "Fase 1".into(),
+            titulo: "Indexador y parser de tickets".into(),
+            estado: TicketStatus::EnProgreso,
+            ruta_archivo: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
+            descripcion: "Construir indexador de tickets".into(),
+            alcance_tecnico: vec!["Parser markdown".into(), "Mensajes IPC".into()],
+            criterios_aceptacion: vec!["Comando antos tickets".into()],
+        };
+
+        let json = serde_json::to_string(&ticket).expect("serializar ticket");
+        let deserializado: TicketDetail = serde_json::from_str(&json).expect("deserializar ticket");
+        assert_eq!(ticket, deserializado);
+
+        let peticion_listar = Peticion::ListarTickets {
+            workspace_path: "/workspace".into(),
+        };
+        let json_peticion = serde_json::to_string(&peticion_listar).expect("serializar peticion listar");
+        let des_peticion: Peticion = serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
+        assert_eq!(peticion_listar, des_peticion);
+
+        let respuesta_lista = Evento::ListaTickets(vec![TicketSummary {
+            id: "T1.3".into(),
+            fase: "Fase 1".into(),
+            titulo: "Indexador y parser de tickets".into(),
+            estado: TicketStatus::EnProgreso,
+            ruta_archivo: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
+        }]);
+        let json_resp = serde_json::to_string(&respuesta_lista).expect("serializar lista tickets");
+        let des_resp: Evento = serde_json::from_str(&json_resp).expect("deserializar lista tickets");
+        assert_eq!(respuesta_lista, des_resp);
     }
 }
