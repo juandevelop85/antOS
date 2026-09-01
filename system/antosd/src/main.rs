@@ -32,7 +32,7 @@ use capability::{Catalog, Tier};
 use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
-use planner::{claude::ClaudePlanner, local::LocalPlanner, Planner};
+use planner::{claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner, Planner};
 use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW};
 
 #[derive(Default)]
@@ -97,6 +97,7 @@ fn run() -> Result<()> {
         "secrets" | "secret" => cmd_secrets(&ctx, &rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
+        "llm" | "models" | "model" => cmd_llm(&rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -682,14 +683,101 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
     match nombre {
         Some("local") => Ok(Box::new(LocalPlanner)),
         Some("claude") => Ok(Box::new(ClaudePlanner::from_env()?)),
-        Some(other) => bail!("planificador desconocido: {other} (usa «local» o «claude»)"),
-        // Sin elección explícita: Claude si hay clave, y si no el local.
-        // Siempre se imprime cuál se ha usado — nunca es una sorpresa.
-        None => match ClaudePlanner::from_env() {
-            Ok(p) => Ok(Box::new(p)),
-            Err(_) => Ok(Box::new(LocalPlanner)),
-        },
+        Some("ollama" | "local-llm" | "local_llm") => Ok(Box::new(OllamaPlanner::from_env()?)),
+        Some(other) => bail!("planificador desconocido: {other} (usa «local», «claude» u «ollama»)"),
+        // Jerarquía de 3 niveles con fallback automático transparente:
+        // 1. Claude si hay clave de API configurada.
+        // 2. Ollama local si está disponible en la máquina.
+        // 3. Planificador local determinista sin dependencias externas.
+        None => {
+            if let Ok(p) = ClaudePlanner::from_env() {
+                return Ok(Box::new(p));
+            }
+            if let Ok(o) = OllamaPlanner::from_env() {
+                if o.is_available() {
+                    return Ok(Box::new(o));
+                }
+            }
+            Ok(Box::new(LocalPlanner))
+        }
     }
+}
+
+// ------------------------------------------------------------------ llm
+
+fn cmd_llm(args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    let ollama = OllamaPlanner::from_env()?;
+
+    match sub {
+        "list" | "models" => {
+            if !ollama.is_available() {
+                println!(
+                    "\n{} No se pudo conectar con Ollama en {}\n  Asegúrate de que el servicio esté corriendo con: ollama serve\n",
+                    paint("✗ Ollama no responde:", RED),
+                    paint(&ollama.endpoint, BOLD)
+                );
+                return Ok(());
+            }
+
+            let models = ollama.list_models()?;
+            println!("\n{}", paint("antOS · Modelos LLM Locales Disponibles (Ollama)", BOLD));
+            println!("  Endpoint: {}", paint(&ollama.endpoint, GREEN));
+            println!("  Modelo Activo: {}\n", paint(&ollama.model, BOLD));
+
+            if models.is_empty() {
+                println!("  No hay modelos descargados en Ollama.");
+                println!("  Descarga uno con: ollama pull qwen2.5-coder o ollama pull deepseek-coder\n");
+            } else {
+                for m in models {
+                    let is_active = m.starts_with(&ollama.model) || ollama.model.starts_with(&m);
+                    let mark = if is_active { paint("●", GREEN) } else { paint("○", DIM) };
+                    let tag = if is_active { paint("(activo)", YELLOW) } else { "".to_string() };
+                    println!("  {mark} {:<30} {tag}", paint(&m, BOLD));
+                }
+                println!();
+            }
+        }
+        "status" | _ => {
+            println!("\n{}", paint("antOS · Estado de Motores de Inferencia LLM (T6.1)", BOLD));
+            
+            // 1. Proveedor Claude
+            let claude_status = match ClaudePlanner::from_env() {
+                Ok(_) => paint("● Conectado (Clave API detectada)", GREEN),
+                Err(_) => paint("○ No configurado (Sin ANTHROPIC_API_KEY)", DIM),
+            };
+            println!("  ● Claude API (Nube):");
+            println!("    Estado: {claude_status}");
+
+            // 2. Proveedor Ollama local
+            let is_ollama_up = ollama.is_available();
+            let ollama_status = if is_ollama_up {
+                paint("● Online (Local)", GREEN)
+            } else {
+                paint("○ Desconectado (Servidor no responde)", YELLOW)
+            };
+
+            println!("\n  ● Ollama / Local LLM (Offline):");
+            println!("    Endpoint: {}", paint(&ollama.endpoint, BOLD));
+            println!("    Modelo configurado: {}", paint(&ollama.model, BOLD));
+            println!("    Estado: {ollama_status}");
+
+            if is_ollama_up {
+                if let Ok(models) = ollama.list_models() {
+                    println!("    Modelos instalados: {}", paint(&format!("{} modelos", models.len()), GREEN));
+                }
+            } else {
+                println!("    Nota: Para arrancar Ollama ejecuta: ollama serve");
+            }
+
+            // 3. Fallback determinista
+            println!("\n  ● Planificador Determinista Local:");
+            println!("    Estado: {}", paint("● Siempre activo (Reglas locales deterministas)", GREEN));
+            println!();
+        }
+    }
+
+    Ok(())
 }
 
 // ------------------------------------------------------------------ tickets

@@ -1,0 +1,10 @@
+name = "llm.list"
+summary = "Lista los modelos descargados en la instancia local de Ollama"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

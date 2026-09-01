@@ -1,0 +1,10 @@
+name = "llm.status"
+summary = "Consulta el estado de los motores de inferencia LLM (Claude y Ollama local)"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

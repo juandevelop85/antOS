@@ -7,6 +7,7 @@
 
 pub mod claude;
 pub mod local;
+pub mod ollama;
 
 use crate::capability::Catalog;
 use crate::plan::Step;

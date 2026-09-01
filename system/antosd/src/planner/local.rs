@@ -363,7 +363,7 @@ impl Planner for LocalPlanner {
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
              Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis), secretos/concesiones y gestión de tickets/especificaciones.\n\
-             Para lenguaje libre usa: antos --planificador claude \"…\""
+             Para lenguaje libre usa: antos --planificador ollama \"…\" o antos --planificador claude \"…\""
         )
     }
 }
