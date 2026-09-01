@@ -45,6 +45,24 @@ nix build .#nixosConfigurations.syso-vm.config.system.build.vm
 ./result/bin/run-syso-vm
 ```
 
+Arrancada, el sistema comprueba su propio recinto antes de dar un login:
+
+```
+Starting syso · comprobar que el recinto es real...
+syso[577]: recinto de ejecución
+syso[577]:   ✓ escritura fuera de lo declarado: la deniega el kernel
+syso[577]:   ✓ escritura dentro de lo declarado: permitida
+syso[577]:   ✓ lectura fuera de lo declarado: la deniega el kernel
+syso[577]:   ? red: no concluyente — esta máquina no llega a internet
+syso[577]: ✓ el recinto se comporta como dice
+[  OK  ] Finished syso · comprobar que el recinto es real.
+```
+
+Ese «la deniega el kernel» en la lectura es **Landlock**, en el sistema para
+el que se escribió. La red sale como no concluyente porque la VM no tiene
+salida a internet: es la respuesta correcta de una prueba que se hace en los
+dos sentidos para no confundir «bloqueada» con «sin conexión».
+
 En Apple Silicon no hay virtualización anidada, así que un generador de
 imágenes de disco (`qcow-efi` y compañía) **no sirve**: monta una VM para
 ensamblar la imagen y necesita `/dev/kvm`. `system.build.vm` no: se construye
