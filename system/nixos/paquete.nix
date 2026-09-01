@@ -4,8 +4,26 @@ rustPlatform.buildRustPackage {
   pname = "sysod";
   version = "0.1.0";
 
-  # La raíz del repositorio: sysod vive en un workspace junto a `builder`.
-  src = ../..;
+  # Solo lo que de verdad influye en el binario.
+  #
+  # Antes esto era `src = ../..`, la raíz entera, y cualquier cambio en el
+  # repositorio —un README, el kernel de la Vía B— cambiaba el hash y obligaba
+  # a recompilar sysod. Con un conjunto explícito, editar documentación deja
+  # de costar una compilación.
+  #
+  # `builder` entra solo por su manifiesto: es miembro del workspace, así que
+  # cargo necesita poder leerlo aunque no se compile.
+  src = lib.fileset.toSource {
+    root = ../..;
+    fileset = lib.fileset.unions [
+      ../../Cargo.toml
+      ../../Cargo.lock
+      ../../system/sysod
+      ../../system/capabilities
+      ../../builder/Cargo.toml
+      ../../builder/src
+    ];
+  };
   cargoLock.lockFile = ../../Cargo.lock;
 
   # Solo sysod. `builder` no se construye aquí a propósito: su dependencia
