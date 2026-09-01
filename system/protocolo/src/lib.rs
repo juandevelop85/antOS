@@ -212,6 +212,128 @@ pub struct PortDiagnosticInfo {
     pub working_dir: Option<String>,
 }
 
+// ---------------------------------------------------------------- antFlow: multi-agente (T3.1)
+
+/// Rol especializado de un agente dentro del flujo antFlow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRole {
+    Arquitecto,
+    Coder,
+    QA,
+    Auditor,
+}
+
+impl AgentRole {
+    pub fn nombre(&self) -> &'static str {
+        match self {
+            AgentRole::Arquitecto => "Arquitecto",
+            AgentRole::Coder => "Coder",
+            AgentRole::QA => "QA / Tester",
+            AgentRole::Auditor => "Auditor de Seguridad",
+        }
+    }
+
+    pub fn descripcion(&self) -> &'static str {
+        match self {
+            AgentRole::Arquitecto => "Planificación técnica, descomposición de tickets y diseño de arquitectura.",
+            AgentRole::Coder => "Implementación modular de cambios y refactorización en el worktree.",
+            AgentRole::QA => "Generación y ejecución de pruebas automatizadas en sandbox.",
+            AgentRole::Auditor => "Revisión de diffs, seguridad, estilo y radio de impacto.",
+        }
+    }
+
+    pub fn prompt_sistema(&self) -> &'static str {
+        match self {
+            AgentRole::Arquitecto => {
+                "Eres el Agente Arquitecto de antOS. Tu objetivo es descomponer el ticket técnico \
+                 en pasos atómicos, validar dependencias y diseñar la arquitectura respetando \
+                 la separación estricta de crates y cero unwraps en producción."
+            }
+            AgentRole::Coder => {
+                "Eres el Agente Coder de antOS. Tu objetivo es implementar los cambios en los \
+                 ficheros dentro del worktree efímero asignado, manteniendo la robustez, \
+                 manejo idiomático de errores y las convenciones de código del proyecto."
+            }
+            AgentRole::QA => {
+                "Eres el Agente QA de antOS. Tu objetivo es compilar y ejecutar la suite de pruebas \
+                 en el recinto confinado (sandbox), detectando fallos o regresiones y reportando \
+                 los mensajes de error detallados para su corrección."
+            }
+            AgentRole::Auditor => {
+                "Eres el Agente Auditor de antOS. Tu objetivo es auditar el diff generado, \
+                 verificar que el radio de impacto no exceda los límites del proyecto y \
+                 asegurar que todo cumpla con los criterios de aceptación antes del merge."
+            }
+        }
+    }
+}
+
+/// Estado en la máquina de estados del ciclo de vida de una tarea en antFlow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlowState {
+    Pendiente,
+    Planificando,
+    Implementando,
+    VerificandoTests,
+    RevisionAuditor,
+    ListoParaAprobacion,
+    Fusionado,
+    Fallido,
+}
+
+impl FlowState {
+    pub fn etiqueta(&self) -> &'static str {
+        match self {
+            FlowState::Pendiente => "⏳ Pendiente",
+            FlowState::Planificando => "📐 Planificando (Arquitecto)",
+            FlowState::Implementando => "💻 Implementando (Coder)",
+            FlowState::VerificandoTests => "🧪 Verificando Tests (QA)",
+            FlowState::RevisionAuditor => "🛡️ Revisión (Auditor)",
+            FlowState::ListoParaAprobacion => "✨ Listo para Aprobación",
+            FlowState::Fusionado => "✅ Fusionado",
+            FlowState::Fallido => "❌ Fallido",
+        }
+    }
+
+    pub fn rol_activo(&self) -> Option<AgentRole> {
+        match self {
+            FlowState::Planificando => Some(AgentRole::Arquitecto),
+            FlowState::Implementando => Some(AgentRole::Coder),
+            FlowState::VerificandoTests => Some(AgentRole::QA),
+            FlowState::RevisionAuditor => Some(AgentRole::Auditor),
+            _ => None,
+        }
+    }
+}
+
+/// Registro de una transición de estado en el flujo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowTransition {
+    pub timestamp_segundos: u64,
+    pub estado_anterior: FlowState,
+    pub estado_nuevo: FlowState,
+    pub rol: Option<AgentRole>,
+    pub detalle: String,
+}
+
+/// Tarea activa o histórica gestionada por el orquestador antFlow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowTask {
+    pub id: String,
+    pub ticket_id: String,
+    pub estado: FlowState,
+    pub rol_actual: Option<AgentRole>,
+    pub worktree_path: Option<String>,
+    pub branch_name: Option<String>,
+    pub reintentos_qa: u32,
+    pub max_reintentos_qa: u32,
+    pub diff_preview: Option<String>,
+    pub resumen_auditoria: Option<String>,
+    pub historial: Vec<FlowTransition>,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +362,24 @@ pub enum Peticion {
     DiagnosticarPuertos {
         port: Option<u16>,
     },
+    /// Inicia el flujo multi-agente antFlow para un ticket.
+    IniciarFlow {
+        workspace_path: String,
+        ticket_id: String,
+    },
+    /// Consulta el estado de la tarea antFlow para un ticket.
+    ConsultarFlow {
+        ticket_id: String,
+    },
+    /// Lista todas las tareas de agentes activas.
+    ListarFlows {
+        workspace_path: String,
+    },
+    /// Aprueba o rechaza los cambios finales de una tarea en antFlow.
+    AprobarFlow {
+        ticket_id: String,
+        decision: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +399,18 @@ pub enum Evento {
     DetalleTicket(Option<TicketDetail>),
     /// Respuesta con el listado de puertos diagnosticados.
     EstadoPuertos(Vec<PortDiagnosticInfo>),
+    /// Estado detallado de una tarea de agentes antFlow.
+    EstadoFlow(Option<FlowTask>),
+    /// Listado de todas las tareas antFlow.
+    ListaFlows(Vec<FlowTask>),
+    /// Notificación de transición de estado en antFlow.
+    TransicionFlow {
+        ticket_id: String,
+        estado_anterior: FlowState,
+        estado_nuevo: FlowState,
+        rol: Option<AgentRole>,
+        detalle: String,
+    },
     Error(String),
 }
 
@@ -400,5 +552,29 @@ mod tests {
         let json_puerto = serde_json::to_string(&info_puerto).expect("serializar puerto");
         let des_puerto: PortDiagnosticInfo = serde_json::from_str(&json_puerto).expect("deserializar puerto");
         assert_eq!(info_puerto, des_puerto);
+
+        let task = FlowTask {
+            id: "flow-1".into(),
+            ticket_id: "T3.1".into(),
+            estado: FlowState::Planificando,
+            rol_actual: Some(AgentRole::Arquitecto),
+            worktree_path: Some("/state/worktrees/t3.1".into()),
+            branch_name: Some("agent/t3.1".into()),
+            reintentos_qa: 0,
+            max_reintentos_qa: 3,
+            diff_preview: Some("+ nuevo modulo flow".into()),
+            resumen_auditoria: Some("arquitectura aprobada".into()),
+            historial: vec![FlowTransition {
+                timestamp_segundos: 1700000000,
+                estado_anterior: FlowState::Pendiente,
+                estado_nuevo: FlowState::Planificando,
+                rol: Some(AgentRole::Arquitecto),
+                detalle: "asignando tarea al arquitecto".into(),
+            }],
+        };
+
+        let json_task = serde_json::to_string(&task).expect("serializar task");
+        let des_task: FlowTask = serde_json::from_str(&json_task).expect("deserializar task");
+        assert_eq!(task, des_task);
     }
 }

@@ -209,6 +209,38 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::IniciarFlow { workspace_path, ticket_id } => {
+            match crate::flow::FlowEngine::global().iniciar_tarea(
+                Path::new(&workspace_path),
+                &ctx.state,
+                &ticket_id,
+            ) {
+                Ok(task) => {
+                    enviar(&mut escritura, &Evento::EstadoFlow(Some(task)))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
+        Peticion::ConsultarFlow { ticket_id } => {
+            let task = crate::flow::FlowEngine::global().consultar_tarea(&ticket_id);
+            enviar(&mut escritura, &Evento::EstadoFlow(task))?;
+        }
+        Peticion::ListarFlows { .. } => {
+            let tasks = crate::flow::FlowEngine::global().listar_tareas();
+            enviar(&mut escritura, &Evento::ListaFlows(tasks))?;
+        }
+        Peticion::AprobarFlow { ticket_id, decision } => {
+            match crate::flow::FlowEngine::global().aprobar_tarea(&ticket_id, decision) {
+                Ok(task) => {
+                    enviar(&mut escritura, &Evento::EstadoFlow(Some(task)))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -275,6 +307,17 @@ pub fn intencion_remota(
             }
             Evento::EstadoPuertos(puertos) => {
                 pantalla.nota(&format!("puertos en escucha: {}", puertos.len()))?;
+            }
+            Evento::EstadoFlow(task) => {
+                if let Some(t) = task {
+                    pantalla.nota(&format!("antFlow {}: {}", t.ticket_id, t.estado.etiqueta()))?;
+                }
+            }
+            Evento::ListaFlows(tasks) => {
+                pantalla.nota(&format!("tareas antFlow activas: {}", tasks.len()))?;
+            }
+            Evento::TransicionFlow { ticket_id, estado_nuevo, detalle, .. } => {
+                pantalla.nota(&format!("[antFlow {ticket_id}] ➔ {}: {detalle}", estado_nuevo.etiqueta()))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

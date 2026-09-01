@@ -12,6 +12,7 @@ mod grants;
 pub mod git;
 pub mod net;
 pub mod spec;
+pub mod flow;
 mod ipc;
 mod journal;
 mod plan;
@@ -90,6 +91,7 @@ fn run() -> Result<()> {
         "undo" => cmd_undo(&ctx),
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
+        "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -618,6 +620,97 @@ fn cmd_ports(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
+    if args.is_empty() || args[0] == "list" || args[0] == "roles" {
+        println!("\n{}", paint("antOS · Roles de Agentes Especializados (antFlow)", BOLD));
+        let roles = [
+            antos_protocolo::AgentRole::Arquitecto,
+            antos_protocolo::AgentRole::Coder,
+            antos_protocolo::AgentRole::QA,
+            antos_protocolo::AgentRole::Auditor,
+        ];
+        for r in roles {
+            println!("\n  {} {}", paint("●", GREEN), paint(r.nombre(), BOLD));
+            println!("    {}", paint(r.descripcion(), DIM));
+            println!("    {}", paint(&format!("Directiva: {}", r.prompt_sistema()), DIM));
+        }
+        println!();
+        return Ok(());
+    }
+
+    match args[0].as_str() {
+        "run" => {
+            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id>"))?;
+            println!("\n{}", paint(&format!("antOS · Iniciando orquestación antFlow para {ticket_id}"), BOLD));
+            let engine = flow::FlowEngine::global();
+            let task = engine.iniciar_tarea(&ctx.workspace, &ctx.state, ticket_id)?;
+
+            println!("  Tarea ID:       {}", paint(&task.id, YELLOW));
+            println!("  Ticket:         {}", paint(&task.ticket_id, BOLD));
+            println!("  Estado Inicial: {}", task.estado.etiqueta());
+            if let Some(wt) = &task.worktree_path {
+                println!("  Worktree:       {}", paint(wt, DIM));
+            }
+            if let Some(br) = &task.branch_name {
+                println!("  Rama de Agente: {}", paint(br, GREEN));
+            }
+
+            println!("\n  {}", paint("Historial de Transiciones:", BOLD));
+            for t in &task.historial {
+                println!("    • [{}] {}", t.estado_nuevo.etiqueta(), t.detalle);
+            }
+            println!("\n  {} Tarea en cola de ejecución en segundo plano.\n", paint("✓", GREEN));
+        }
+        "status" => {
+            let ticket_id = args.get(1);
+            let engine = flow::FlowEngine::global();
+            if let Some(tid) = ticket_id {
+                if let Some(task) = engine.consultar_tarea(tid) {
+                    println!("\n{}", paint(&format!("antOS · Estado de Tarea antFlow [{}]", task.ticket_id), BOLD));
+                    println!("  Estado:     {}", task.estado.etiqueta());
+                    println!("  Rol Activo: {}", task.rol_actual.map(|r| r.nombre()).unwrap_or("Ninguno"));
+                    if let Some(wt) = &task.worktree_path {
+                        println!("  Worktree:   {}", paint(wt, DIM));
+                    }
+                    if let Some(br) = &task.branch_name {
+                        println!("  Rama:       {}", paint(br, GREEN));
+                    }
+                    if let Some(diff) = &task.diff_preview {
+                        println!("\n  Previsualización Diff:\n    {diff}");
+                    }
+                    println!("\n  Transiciones:");
+                    for h in &task.historial {
+                        println!("    • [{}] {}", h.estado_nuevo.etiqueta(), h.detalle);
+                    }
+                    println!();
+                } else {
+                    println!("\n  No hay tarea activa para el ticket «{tid}».\n");
+                }
+            } else {
+                let tasks = engine.listar_tareas();
+                println!("\n{}", paint("antOS · Tareas antFlow", BOLD));
+                if tasks.is_empty() {
+                    println!("  No hay tareas en curso.\n");
+                } else {
+                    for t in tasks {
+                        println!(
+                            "  • {:<8} {:<30} (reintentos QA: {})",
+                            paint(&t.ticket_id, BOLD),
+                            t.estado.etiqueta(),
+                            t.reintentos_qa
+                        );
+                    }
+                    println!();
+                }
+            }
+        }
+        _ => {
+            bail!("subcomando desconocido para agent. Usa: antos agent run <ticket_id> | antos agent status [ticket_id] | antos agents");
+        }
+    }
+    Ok(())
+}
+
 fn help() {
     println!(
         "\
@@ -626,6 +719,9 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos \"<intención>\"       planifica, enseña el diff y ejecuta
   antos escucha              lo mismo, dictado por voz (transcripción local)
   antos tickets [id]         catálogo de tickets y especificaciones
+  antos agent run <id>       ejecuta ticket con orquestación multi-agente
+  antos agent status [id]    consulta estado y traza de agentes
+  antos agents               lista los roles especializados y sus directivas
   antos ports [puerto]       diagnóstico de puertos de red y procesos
   antos caps                 catálogo de capacidades y su nivel
   antos log                  bitácora de lo que ha pasado
