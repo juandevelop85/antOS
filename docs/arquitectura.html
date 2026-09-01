@@ -518,8 +518,14 @@
         <p>Un modelo de español no espera oír «rust», «npm» o «async»: son palabras raras en su
           idioma y las sustituye por otras que suenan parecido. Cebarlo con el vocabulario del
           catálogo ayuda, pero no lo resuelve. Y el fallo es traicionero porque no se parece a un
-          error: produce una frase perfectamente plausible que significa otra cosa. Es el argumento
-          más fuerte a favor de que la voz nunca salte el diff.</p>
+          error: produce una frase perfectamente plausible que significa otra cosa.</p>
+        <p>Aparece un paliativo inesperado al juntar la voz con el planificador. Dictando
+          «pytest», la transcripción dio «pites»; el planificador lo entendió igualmente y
+          <strong>declaró su interpretación</strong> en la nota del plan: «he interpretado “pites”
+          como “pytest”; si te referías a otra cosa, dímelo». Que la corrección se anuncie en vez de
+          hacerse en silencio es lo que la separa de una adivinanza. Pero es un paliativo, no una
+          solución: el mismo mecanismo puede corregir hacia el sitio equivocado con la misma
+          seguridad. Sigue siendo el argumento más fuerte para que la voz nunca salte el diff.</p>
       </div>
       <div class="risk">
         <h4>La confirmación se degrada con el uso</h4>

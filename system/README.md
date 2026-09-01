@@ -159,3 +159,6 @@ Sin verificar todavía:
 - **Los términos técnicos en español se transcriben mal.** «rust» sale como
   «rastre» con el modelo `base` y como «rastriamado» con `small`; el tamaño
   del modelo no lo arregla. Las frases sin anglicismos salen perfectas.
+  Con el planificador de Claude el daño se amortigua —entendió «pites» como
+  «pytest» y lo dijo en la nota del plan— pero puede corregir hacia el sitio
+  equivocado con la misma seguridad. Lee el diff.
