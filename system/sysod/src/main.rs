@@ -640,26 +640,46 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match args[0].as_str() {
         "run" => {
-            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id>"))?;
-            println!("\n{}", paint(&format!("antOS · Iniciando orquestación antFlow para {ticket_id}"), BOLD));
+            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto]"))?;
+            let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+
+            println!("\n{}", paint(&format!("antOS · Orquestador antFlow para {ticket_id}"), BOLD));
             let engine = flow::FlowEngine::global();
-            let task = engine.iniciar_tarea(&ctx.workspace, &ctx.state, ticket_id)?;
+
+            let task = if auto {
+                println!("  {} Ejecutando pipeline automatizado de agentes...", paint("▶", GREEN));
+                engine.ejecutar_pipeline_worktree(&ctx.workspace, &ctx.state, ticket_id, &[])?
+            } else {
+                engine.iniciar_tarea(&ctx.workspace, &ctx.state, ticket_id)?
+            };
 
             println!("  Tarea ID:       {}", paint(&task.id, YELLOW));
             println!("  Ticket:         {}", paint(&task.ticket_id, BOLD));
-            println!("  Estado Inicial: {}", task.estado.etiqueta());
+            println!("  Estado:         {}", task.estado.etiqueta());
             if let Some(wt) = &task.worktree_path {
                 println!("  Worktree:       {}", paint(wt, DIM));
             }
             if let Some(br) = &task.branch_name {
                 println!("  Rama de Agente: {}", paint(br, GREEN));
             }
-
-            println!("\n  {}", paint("Historial de Transiciones:", BOLD));
-            for t in &task.historial {
-                println!("    • [{}] {}", t.estado_nuevo.etiqueta(), t.detalle);
+            if let Some(resumen) = &task.resumen_auditoria {
+                println!("  Auditoría:      {}", paint(resumen, GREEN));
             }
-            println!("\n  {} Tarea en cola de ejecución en segundo plano.\n", paint("✓", GREEN));
+
+            println!("\n  {}", paint("Historial de Transiciones de Agentes:", BOLD));
+            for t in &task.historial {
+                let rol_fmt = t.rol.map(|r| format!(" [{}]", r.nombre())).unwrap_or_default();
+                println!("    • {}{}: {}", paint(t.estado_nuevo.etiqueta(), BOLD), paint(&rol_fmt, DIM), t.detalle);
+            }
+
+            if let Some(diff) = &task.diff_preview {
+                if !diff.is_empty() {
+                    println!("\n  {}", paint("Previsualización de Diff Consolidado:", BOLD));
+                    println!("    {}", diff.replace('\n', "\n    "));
+                }
+            }
+
+            println!("\n  {} Tarea procesada correctamente.\n", paint("✓", GREEN));
         }
         "status" => {
             let ticket_id = args.get(1);
