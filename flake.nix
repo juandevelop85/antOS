@@ -12,6 +12,18 @@
     let
       sistemas = [ "aarch64-linux" "x86_64-linux" ];
       paraCada = f: nixpkgs.lib.genAttrs sistemas (s: f nixpkgs.legacyPackages.${s});
+
+      # Lo común a todas las variantes de la máquina.
+      base = [
+        ./system/nixos/configuracion.nix
+        self.nixosModules.default
+        { nixpkgs.overlays = [ (final: prev: { sysod = final.callPackage ./system/nixos/paquete.nix { }; }) ]; }
+      ];
+
+      maquina = extra: nixpkgs.lib.nixosSystem {
+        system = "aarch64-linux";
+        modules = base ++ extra;
+      };
     in
     {
       packages = paraCada (pkgs: {
@@ -24,13 +36,13 @@
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior
       # en vez de reconstruir a mano lo que había.
-      nixosConfigurations.syso = nixpkgs.lib.nixosSystem {
-        system = "aarch64-linux";
-        modules = [
-          ./system/nixos/configuracion.nix
-          self.nixosModules.default
-          { nixpkgs.overlays = [ (final: prev: { sysod = final.callPackage ./system/nixos/paquete.nix { }; }) ]; }
-        ];
-      };
+      nixosConfigurations.syso = maquina [ ./system/nixos/arranque.nix ];
+
+      # La misma máquina, arrancable en QEMU.
+      #
+      # `system.build.vm` se construye SIN necesitar una VM, que es lo que
+      # importa en Apple Silicon: aquí no hay virtualización anidada, y los
+      # generadores de imágenes de disco montan una VM para ensamblarse.
+      nixosConfigurations.syso-vm = maquina [ ./system/nixos/vm.nix ];
     };
 }

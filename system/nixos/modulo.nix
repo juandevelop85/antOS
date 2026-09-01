@@ -59,6 +59,11 @@ in
         Type = "oneshot";
         RemainAfterExit = true;
         ExecStart = "${lib.getExe cfg.package} doctor";
+        # A la consola, no solo al diario. Una comprobación de seguridad que
+        # solo se ve rebuscando en los registros es una comprobación que nadie
+        # mira: si el recinto no se comporta, tiene que salir en el arranque.
+        StandardOutput = "journal+console";
+        StandardError = "journal+console";
       };
     };
   };

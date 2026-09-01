@@ -14,13 +14,12 @@
 
   services.syso.enable = true;
 
-  boot.loader.grub.device = "/dev/vda";
-  fileSystems."/" = {
-    device = "/dev/vda1";
-    fsType = "ext4";
-  };
+  # La consola en el puerto serie: es lo que permite ver el arranque entero
+  # sin ventana gráfica, igual que hacemos con el kernel de la Vía B.
+  boot.kernelParams = [ "console=ttyAMA0,115200" ];
 
-  # Una máquina de desarrollo, no de producción.
+  # Sin contraseña y con sesión abierta: es una máquina de desarrollo para
+  # verla arrancar, no algo que dejar en una red.
   users.users.root.initialPassword = "syso";
   services.getty.autologinUser = "root";
   networking.hostName = "syso";

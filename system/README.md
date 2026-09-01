@@ -40,8 +40,16 @@ NixOS y un servicio que al arrancar ejecuta `syso doctor` — el sistema
 comprueba su propio recinto antes de que nadie pueda pedirle nada.
 
 ```bash
-nix eval .#nixosConfigurations.syso.config.system.build.toplevel.drvPath
+# La máquina, arrancable en QEMU
+nix build .#nixosConfigurations.syso-vm.config.system.build.vm
+./result/bin/run-syso-vm
 ```
+
+En Apple Silicon no hay virtualización anidada, así que un generador de
+imágenes de disco (`qcow-efi` y compañía) **no sirve**: monta una VM para
+ensamblar la imagen y necesita `/dev/kvm`. `system.build.vm` no: se construye
+como una derivación normal y el resultado es un guion que lanza QEMU montando
+el store. Por eso es la vía que funciona aquí.
 
 La configuración declarativa es la **segunda raíz** que syso reconoce. No es
 una fuga —tiene nombre, `$SYSTEM_CONFIG`— pero cualquier capacidad que la
@@ -177,9 +185,10 @@ Sin verificar todavía:
 - **La captura por micrófono está probada con voz real** y funciona. Elige
   el dispositivo con `--dispositivo N`: el predeterminado del sistema suele
   ser un dispositivo virtual de Teams o Zoom.
-- **La imagen arrancable no se ha construido.** El sistema *evalúa* entero
-  —`nixos-system-syso-26.11...drv`— y sus piezas se han comprobado una a una,
-  pero construirlo son gigabytes de cierre y no se ha hecho aquí.
+- **La imagen de DISCO (qcow2, raw) no se puede construir en esta máquina**:
+  esos formatos ensamblan la imagen dentro de una VM y Apple Silicon no da
+  virtualización anidada. En cualquier Linux con `/dev/kvm` sí. Lo que sí
+  funciona aquí es `system.build.vm`, que arranca la misma configuración.
 - **syso declara pero no aplica.** `nixos-rebuild switch` sigue siendo manual:
   aplicar toca todo el sistema y tendría que correr fuera del recinto.
 - **Los términos técnicos en español se transcriben mal.** «rust» sale como
