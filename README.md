@@ -122,28 +122,31 @@ antOS está diseñado para probarse y ejecutarse en múltiples niveles según tu
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Modo 1: CLI Directo y Demonio Host (macOS / Linux)
+### Modo 1: CLI y Centro de Control en Terminal (macOS / Linux)
 
-El modo principal para trabajar en tu día a día como desarrollador:
+El modo principal para trabajar en tu día a día en cualquier sistema (macOS o Linux):
 
 ```bash
 # Ejecutar un comando o intención directamente
-target/debug/antos "crea un proyecto rust llamado demo"
+cargo run --bin antos -- "crea un proyecto rust llamado demo"
+
+# Ver el Tablero Kanban y monitor de agentes directamente en la terminal (Super + A)
+cargo run --bin antos -- panel
 
 # Iniciar el demonio en segundo plano escuchando en socket IPC (/tmp/antos.sock)
-target/debug/antos escucha
+cargo run --bin antos -- escucha
 ```
 
-### Modo 2: Interfaz Gráfica de Escritorio Wayland (`antos-barra`)
+### Modo 2: Interfaz Gráfica de Escritorio Wayland (`antos-barra` en Linux)
 
-Lanza la superficie de escritorio nativa en Linux/Wayland:
+> **Nota para macOS:** `antos-barra` utiliza **GTK4 Layer Shell**, una biblioteca nativa de **Wayland (Linux)**. En macOS o terminal se utiliza `antos panel` (Modo 1). Para ejecutar la interfaz gráfica GTK4, se corre en Linux con Wayland o dentro de la máquina virtual de antOS (Modo 4):
 
 ```bash
-# Lanzar la barra flotante de intenciones contextual
-cargo run -p antos-barra --bin antos-barra
+# Desde un entorno Linux con GTK4 y Wayland (o dentro de la VM):
+cd system/barra && cargo run
 
-# Lanzar directamente el Centro de Misión y Tablero Kanban (Super + A)
-cargo run -p antos-barra --bin antos-barra -- --panel
+# Lanzar directamente el Centro de Misión y Tablero Kanban gráfico en Wayland:
+cd system/barra && cargo run -- --panel
 ```
 
 ### Modo 3: Verificación Confinada en Linux con Landlock (`verificar-linux.sh`)
