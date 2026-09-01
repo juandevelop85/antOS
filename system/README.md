@@ -136,6 +136,27 @@ esta máquina, no de suponer:
 El umbral está en −40 dB (`SYSO_UMBRAL_VOZ` lo cambia). Filtrar los marcadores
 `[BLANK_AUDIO]` no bastaba: la alucinación no viene marcada.
 
+## El demonio
+
+`sysod` se llamaba así desde el principio sin serlo. Ahora lo es:
+
+```bash
+target/debug/syso demonio          # escucha en .syso/syso.sock (0600)
+target/debug/syso "crea un proyecto rust llamado demo"
+```
+
+Si hay demonio, los comandos van por el socket; si no, se hacen en proceso.
+La salida es **idéntica byte a byte** porque ambos caminos usan el mismo
+recorrido (`sesion.rs`) y el mismo dibujado (`terminal.rs`). Forzar el modo
+local: `SYSO_SIN_DEMONIO=1`.
+
+Lo que un cliente puede decidir es exactamente una cosa: contestar sí o no a
+una propuesta. El nivel de permiso y las concesiones los decide el demonio,
+así que un cliente no puede fabricar un nivel más bajo ni saltarse la puerta.
+
+Es el requisito de cualquier escritorio: la interfaz gráfica será otro
+cliente del mismo demonio, no otra copia del recorrido.
+
 ## El recinto
 
 La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el

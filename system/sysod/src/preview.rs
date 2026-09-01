@@ -3,6 +3,9 @@
 use crate::ctx::Ctx;
 use crate::exec::Change;
 
+/// Serializable porque cruza hasta el cliente: el diff se calcula donde está
+/// el sistema de ficheros y se enseña donde esté la persona.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Line {
     Info(String),
     Add(String),

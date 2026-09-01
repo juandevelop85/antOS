@@ -9,24 +9,26 @@ mod capability;
 mod ctx;
 mod exec;
 mod grants;
+mod ipc;
 mod journal;
 mod plan;
 mod planner;
 mod preview;
+mod protocolo;
 mod sandbox;
+mod sesion;
 mod snapshot;
+mod terminal;
 mod voz;
 
 use anyhow::{bail, Result};
-use blast::Blast;
 use capability::{Catalog, Tier};
 use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
-use plan::{Plan, Step};
+use plan::Plan;
 use planner::{claude::ClaudePlanner, local::LocalPlanner, Planner};
-use preview::Line;
-use std::io::Write;
+use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW};
 
 #[derive(Default)]
 struct Opts {
@@ -79,6 +81,7 @@ fn run() -> Result<()> {
 
     match rest[0].as_str() {
         "caps" => cmd_caps(&catalog, &ctx),
+        "demonio" => ipc::servir(&ctx, &catalog),
         "doctor" => cmd_doctor(&ctx),
         "escucha" => cmd_escuchar(&ctx, &catalog, &rest[1..], &opts),
         "log" => cmd_log(&ctx),
@@ -92,233 +95,24 @@ fn run() -> Result<()> {
 // ---------------------------------------------------------------- intención
 
 fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result<()> {
-    // 01 · captura
-    let planner = pick_planner(opts)?;
-
-    println!();
-    println!("{}", paint("syso", BOLD));
-    println!("  {}", paint(&format!("«{intent}»"), DIM));
-    println!("  {}", paint(&format!("planificador: {}", planner.name()), DIM));
-
-    // 02 · planificación — la única etapa donde participa un modelo
-    let propuesta = planner.plan(intent, catalog)?;
-    if let Some(nota) = &propuesta.nota {
-        println!("  {}", paint(&format!("dice: {nota}"), DIM));
-    }
-
-    // Nada de lo que devuelve un planificador se considera de fiar.
-    let mut steps: Vec<Step> = Vec::new();
-    for mut step in propuesta.steps {
-        let cap = catalog.get(&step.capability)?;
-        catalog.validate(cap, &mut step.args)?;
-        steps.push(step);
-    }
-
-    let plan = Plan {
-        id: Plan::new_id(),
-        intent: intent.to_string(),
-        planner: planner.name().to_string(),
-        steps,
-    };
-
-    println!();
-    println!("{}", paint("plan", BOLD));
-    for (i, step) in plan.steps.iter().enumerate() {
-        let args = step
-            .args
-            .iter()
-            .map(|(k, v)| format!("{k}={}", ellipsis(v, 40)))
-            .collect::<Vec<_>>()
-            .join(" ");
-        println!("  {}. {}  {}", i + 1, step.capability, paint(&args, DIM));
-    }
-
-    // 03 · radio de impacto, calculado ANTES de ejecutar nada
-    let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config)?;
-    let (tier, reasons) = radius.required_tier();
-
-    // Los cambios se calculan EN ORDEN, y cada paso ve lo que los anteriores
-    // ya decidieron. Calcularlos todos contra el disco de partida hacía que
-    // dos pasos sobre el mismo fichero se pisaran.
-    let mut changes = Vec::new();
-    let mut pendiente = exec::Pendiente::default();
-    for step in &plan.steps {
-        let del_paso = exec::changes_for(step, catalog.get(&step.capability)?, ctx, &pendiente)?;
-        for cambio in &del_paso {
-            pendiente.aplicar(cambio);
-        }
-        changes.extend(del_paso);
-    }
-
-    println!();
-    println!("{}", paint("cambios", BOLD));
-    for line in preview::render(ctx, &changes) {
-        match line {
-            Line::Info(t) => println!("  {t}"),
-            Line::Add(t) => println!("  {}", paint(&format!("+{t}"), GREEN)),
-            Line::Del(t) => println!("  {}", paint(&format!("-{t}"), RED)),
-        }
-    }
-
-    // Los efectos DECLARADOS, que son de donde sale el nivel de permiso.
-    // No es lo mismo que la sección «cambios»: aquello es lo que se va a
-    // escribir, esto es el alcance que la capacidad se comprometió a tener.
-    println!();
-    println!("{}", paint("radio de impacto", BOLD));
-    for (etiqueta, rutas) in [
-        ("escribe ", &radius.writes),
-        ("borra   ", &radius.deletes),
-        ("lee     ", &radius.reads),
-    ] {
-        if !rutas.is_empty() {
-            let lista = rutas.iter().map(|p| ctx.display(p)).collect::<Vec<_>>().join(", ");
-            println!("  {etiqueta}  {}", ellipsis(&lista, 68));
-        }
-    }
-    if !radius.system.is_empty() {
-        let lista = radius
-            .system
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        println!("  {}  {}", paint("SISTEMA ", RED), ellipsis(&lista, 68));
-    }
-    if !radius.network.is_empty() {
-        println!("  red       {}", radius.network.iter().cloned().collect::<Vec<_>>().join(", "));
-    }
-    println!(
-        "  nivel     {} {}",
-        paint(tier.label(), tier_color(tier)),
-        paint(&format!("— {}", reasons.join("; ")), DIM)
-    );
-
-    let jail = sandbox::for_host();
-    let recinto_color = if jail.name() == "ninguno" { RED } else { GREEN };
-    println!(
-        "  recinto   {} {}",
-        paint(jail.name(), recinto_color),
-        paint(&format!("— {}", jail.guarantees()), DIM)
-    );
-
-    // 04 · política
-    let mut record = Record {
-        id: plan.id.clone(),
-        at: chrono::Local::now().to_rfc3339(),
-        intent: intent.to_string(),
-        planner: planner.name().to_string(),
-        plan: plan.clone(),
-        tier,
-        reasons,
-        outcome: Outcome::Cancelado,
-        detail: None,
-        snapshot: None,
-        sandbox: jail.name().to_string(),
-        reverted: false,
-    };
-
-    // Salirse del espacio de trabajo no se negocia con una confirmación.
-    if !radius.escapes.is_empty() {
-        record.outcome = Outcome::Denegado;
-        record.detail = Some("el plan sale del espacio de trabajo".into());
-        journal::append(&ctx.journal_path(), &record)?;
-        bail!(
-            "denegado: el plan toca rutas fuera del espacio de trabajo:\n  {}",
-            radius
-                .escapes
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join("\n  ")
+    // Si hay demonio, se le habla. Si no, se hace en proceso.
+    //
+    // El resultado es idéntico porque ambos caminos usan el MISMO recorrido y
+    // el MISMO dibujado: lo único que cambia es dónde corre cada mitad.
+    let forzar_local = std::env::var_os("SYSO_SIN_DEMONIO").is_some();
+    if !forzar_local && ipc::hay_demonio(ctx) {
+        return ipc::intencion_remota(
+            &ipc::ruta_socket(ctx),
+            intent,
+            opts.planner.as_deref(),
+            opts.dry_run,
+            opts.assume_yes,
         );
     }
 
-    if tier == Tier::Grant {
-        let grants = Grants::load(&ctx.grants_path())?;
-        let missing: Vec<String> = plan
-            .steps
-            .iter()
-            .map(|s| s.capability.clone())
-            .filter(|c| {
-                catalog.get(c).map(|k| k.policy.tier == Tier::Grant).unwrap_or(false)
-                    && !grants.is_granted(c)
-            })
-            .collect();
-        if !missing.is_empty() {
-            record.outcome = Outcome::Denegado;
-            record.detail = Some(format!("sin concesión para: {}", missing.join(", ")));
-            journal::append(&ctx.journal_path(), &record)?;
-            bail!(
-                "denegado por defecto: {} requiere concesión explícita.\n  Concédela con: syso grant {} --minutos 10",
-                missing.join(", "),
-                missing[0]
-            );
-        }
-    }
-
-    if opts.dry_run {
-        println!();
-        println!("{}", paint("· marcha en seco, no se ejecuta nada", DIM));
-        return Ok(());
-    }
-
-    if tier > Tier::Auto && !opts.assume_yes && !confirm()? {
-        journal::append(&ctx.journal_path(), &record)?;
-        println!("{}", paint("cancelado", DIM));
-        return Ok(());
-    }
-
-    // 05 · instantánea y ejecución
-    let to_snapshot = radius.paths_to_snapshot();
-    let snap = if to_snapshot.is_empty() {
-        None
-    } else {
-        Some(snapshot::take(&plan.id, &to_snapshot, &ctx.snapshots_dir())?)
-    };
-    record.snapshot = snap.as_ref().map(|s| s.id.clone());
-
-    // La ejecución ocurre en otro proceso, dentro del recinto. Lo que el
-    // recinto permite sale del radio de impacto: exactamente lo declarado.
-    let policy = sandbox::Policy::from_blast(&radius);
-    match sandbox::run(&*jail, &changes, &policy) {
-        Ok(outputs) => {
-            record.outcome = Outcome::Ejecutado;
-            journal::append(&ctx.journal_path(), &record)?;
-
-            for out in outputs.iter().filter(|o| !o.is_empty()) {
-                println!();
-                println!("{}", out.trim_end());
-            }
-            println!();
-            match &record.snapshot {
-                Some(id) => println!(
-                    "{} {}",
-                    paint("✓ ejecutado", GREEN),
-                    paint(&format!("· instantánea {id} · «syso undo» lo revierte"), DIM)
-                ),
-                None => println!("{}", paint("✓ ejecutado", GREEN)),
-            }
-        }
-        Err(e) => {
-            // Si la ejecución se rompe a medias, el estado queda inconsistente.
-            // La instantánea existe precisamente para este caso.
-            record.outcome = Outcome::Fallido;
-            record.detail = Some(e.to_string());
-            journal::append(&ctx.journal_path(), &record)?;
-
-            let pista = if e.to_string().contains("os error 1") {
-                "\n  El recinto lo impidió: la capacidad intentó tocar algo que no había\n  declarado en sus efectos. Corrige el manifiesto o compón el plan con una\n  capacidad que sí lo declare."
-            } else {
-                ""
-            };
-            if let Some(snap) = &snap {
-                snapshot::restore(snap)?;
-                bail!("falló a mitad y se revirtió al estado anterior: {e}{pista}");
-            }
-            bail!("falló: {e}{pista}");
-        }
-    }
-    Ok(())
+    let planificador = pick_planner_por_nombre(opts.planner.as_deref())?;
+    let mut terminal = terminal::Terminal::new(opts.assume_yes);
+    sesion::intencion(ctx, catalog, intent, &*planificador, opts.dry_run, &mut terminal)
 }
 
 // --------------------------------------------------------------------- voz
@@ -678,8 +472,8 @@ fn cmd_revoke(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ------------------------------------------------------------------ apoyo
 
-fn pick_planner(opts: &Opts) -> Result<Box<dyn Planner>> {
-    match opts.planner.as_deref() {
+pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
+    match nombre {
         Some("local") => Ok(Box::new(LocalPlanner)),
         Some("claude") => Ok(Box::new(ClaudePlanner::from_env()?)),
         Some(other) => bail!("planificador desconocido: {other} (usa «local» o «claude»)"),
@@ -689,26 +483,6 @@ fn pick_planner(opts: &Opts) -> Result<Box<dyn Planner>> {
             Ok(p) => Ok(Box::new(p)),
             Err(_) => Ok(Box::new(LocalPlanner)),
         },
-    }
-}
-
-fn confirm() -> Result<bool> {
-    print!("\n{} ", paint("¿ejecutar? [s/N]", BOLD));
-    std::io::stdout().flush()?;
-    let mut line = String::new();
-    if std::io::stdin().read_line(&mut line)? == 0 {
-        return Ok(false);
-    }
-    let answer = line.trim().to_lowercase();
-    Ok(matches!(answer.as_str(), "s" | "si" | "sí" | "y" | "yes"))
-}
-
-fn ellipsis(s: &str, max: usize) -> String {
-    let flat = s.replace('\n', "⏎");
-    if flat.chars().count() <= max {
-        flat
-    } else {
-        format!("{}…", flat.chars().take(max - 1).collect::<String>())
     }
 }
 
@@ -723,6 +497,7 @@ syso — el sistema hace lo que le pides, y puedes deshacerlo
   syso log                   bitácora de lo que ha pasado
   syso undo                  revierte el último plan ejecutado
   syso doctor                comprueba que el recinto es real, atacándolo
+  syso demonio               atiende peticiones por socket (lo que usará el escritorio)
   syso grant <cap> [--minutos N]
   syso revoke <cap>
 
@@ -740,27 +515,4 @@ entorno
   SYSO_STATE       instantáneas y bitácora (por defecto ./.syso)
   ANTHROPIC_API_KEY  activa el planificador con Claude"
     );
-}
-
-// -------------------------------------------------------------------- color
-
-const BOLD: &str = "1";
-const DIM: &str = "2";
-const RED: &str = "31";
-const GREEN: &str = "32";
-const YELLOW: &str = "33";
-
-fn tier_color(tier: Tier) -> &'static str {
-    match tier {
-        Tier::Auto => GREEN,
-        Tier::Confirm => YELLOW,
-        Tier::Grant => RED,
-    }
-}
-
-fn paint(text: &str, code: &str) -> String {
-    if std::env::var_os("NO_COLOR").is_some() {
-        return text.to_string();
-    }
-    format!("\x1b[{code}m{text}\x1b[0m")
 }
