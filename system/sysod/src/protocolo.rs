@@ -9,49 +9,8 @@
 //! ES esto. Un cliente gráfico recibirá exactamente lo mismo que el terminal
 //! imprime, y no habrá dos verdades que mantener sincronizadas.
 
-use crate::capability::Tier;
-use crate::plan::Plan;
-use crate::preview::Line;
-use serde::{Deserialize, Serialize};
 
-/// Lo que se le enseña a alguien antes de tocar nada.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Propuesta {
-    pub plan: Plan,
-    pub cambios: Vec<Line>,
-    pub radio: Radio,
-    pub nivel: Tier,
-    pub razones: Vec<String>,
-    pub recinto: Recinto,
-    /// Si es `true`, no se ejecutará pase lo que pase: solo se está mirando.
-    pub seco: bool,
-}
-
-/// Los efectos DECLARADOS, ya resueltos a texto.
-///
-/// Se resuelven aquí y no en el cliente a propósito: un cliente no debería
-/// necesitar acceso al sistema de ficheros para poder enseñar un plan.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Radio {
-    pub escribe: Vec<String>,
-    pub borra: Vec<String>,
-    pub lee: Vec<String>,
-    pub sistema: Vec<String>,
-    pub red: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Recinto {
-    pub motor: String,
-    pub garantiza: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Resultado {
-    pub ok: bool,
-    pub mensaje: String,
-    pub instantanea: Option<String>,
-}
+pub use syso_protocolo::{Propuesta, Radio, Recinto, Resultado};
 
 /// Con quién habla el recorrido.
 ///

@@ -1,0 +1,59 @@
+/* La paleta del proyecto, la misma de los documentos. */
+window.fondo {
+  background-color: rgba(15, 21, 28, 0.97);
+  color: #DEE6EE;
+  border-radius: 10px;
+}
+
+.marco { padding: 14px; }
+
+entry.intencion {
+  font-size: 17px;
+  padding: 10px 12px;
+  background: #18212B;
+  color: #DEE6EE;
+  border: 1px solid #2C3944;
+  border-radius: 6px;
+  caret-color: #85AEDF;
+}
+entry.intencion:focus { border-color: #85AEDF; }
+
+.etiqueta {
+  font-family: monospace;
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  color: #8195A7;
+}
+
+.paso { font-family: monospace; font-size: 12px; color: #B4C2CF; }
+.diff { font-family: monospace; font-size: 12px; }
+.diff.mas   { color: #56BCA0; }
+.diff.menos { color: #E4785F; }
+.diff.info  { color: #B4C2CF; }
+
+.radio { font-family: monospace; font-size: 11px; color: #8195A7; }
+
+/* El nivel tiñe el borde de la hoja entera: no es una etiqueta más, es el
+   marco dentro del que estás leyendo. */
+.hoja { border-left: 3px solid #2C3944; padding-left: 12px; }
+.hoja.auto    { border-left-color: #56BCA0; }
+.hoja.confirm { border-left-color: #DBA451; }
+.hoja.grant   { border-left-color: #E4785F; }
+
+.nivel { font-family: monospace; font-size: 11px; font-weight: bold; }
+.nivel.auto    { color: #56BCA0; }
+.nivel.confirm { color: #DBA451; }
+.nivel.grant   { color: #E4785F; }
+
+button.aprobar {
+  background: #1B3A5C; color: #DEE6EE; border: 1px solid #2B4C74;
+  padding: 8px 18px; border-radius: 6px; font-weight: bold;
+}
+button.aprobar:hover { background: #2B4C74; }
+button.descartar {
+  background: transparent; color: #8195A7; border: 1px solid #2C3944;
+  padding: 8px 18px; border-radius: 6px;
+}
+
+.error { color: #E4785F; font-size: 13px; }
+.ok    { color: #56BCA0; font-size: 13px; font-weight: bold; }

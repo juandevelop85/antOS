@@ -1,0 +1,9 @@
+[package]
+name = "syso-protocolo"
+version = "0.1.0"
+edition = "2021"
+
+# A propósito, casi sin dependencias: de este crate cuelgan el demonio y todos
+# sus clientes, así que cuanto menos arrastre, menos arrastran ellos.
+[dependencies]
+serde = { version = "1", features = ["derive"] }

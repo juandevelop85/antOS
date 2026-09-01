@@ -1,0 +1,19 @@
+# Workspace propio: GTK4 y layer-shell solo existen en Linux con Wayland, así
+# que este crate no puede formar parte del workspace que se compila en macOS.
+[workspace]
+
+[package]
+name = "syso-barra"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "syso-barra"
+path = "src/main.rs"
+
+[dependencies]
+# Los MISMOS tipos que habla el demonio, no una copia.
+syso-protocolo = { path = "../protocolo" }
+serde_json = "1"
+gtk4 = "0.11"
+gtk4-layer-shell = "0.8"

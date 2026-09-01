@@ -40,26 +40,7 @@ pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
 
 // ------------------------------------------------------------- el protocolo
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Peticion {
-    Intencion {
-        texto: String,
-        planificador: Option<String>,
-        seco: bool,
-    },
-    /// La respuesta a una propuesta. Es lo ÚNICO que un cliente decide.
-    Aprobacion(bool),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Evento {
-    Inicio { intencion: String, planificador: String },
-    Nota(String),
-    Propuesta(Box<Propuesta>),
-    Salida(String),
-    Resultado(Resultado),
-    Error(String),
-}
+pub use syso_protocolo::{Evento, Peticion};
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los

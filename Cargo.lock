@@ -845,6 +845,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "syso-protocolo"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "sysod"
 version = "0.1.0"
 dependencies = [
@@ -853,6 +860,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "syso-protocolo",
  "toml",
  "ureq",
 ]

@@ -9,33 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// El orden de las variantes ES la escala: Auto < Confirm < Grant.
-/// De ahí sale gratis el `max()` que decide el nivel de un plan entero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Tier {
-    Auto,
-    Confirm,
-    Grant,
-}
-
-/// El suelo de la escala. Que el valor por defecto sea el nivel MÁS
-/// permisivo es seguro precisamente porque la derivación solo sabe subir.
-impl Default for Tier {
-    fn default() -> Self {
-        Tier::Auto
-    }
-}
-
-impl Tier {
-    pub fn label(self) -> &'static str {
-        match self {
-            Tier::Auto => "automático",
-            Tier::Confirm => "confirmación",
-            Tier::Grant => "concesión",
-        }
-    }
-}
+pub use syso_protocolo::Tier;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

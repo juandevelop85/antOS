@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["builder", "system/sysod"]
+members = ["builder", "system/protocolo", "system/sysod"]
 
 # kernel/ tiene su propio workspace: se compila para bare metal, no para el host.
 exclude = ["kernel"]

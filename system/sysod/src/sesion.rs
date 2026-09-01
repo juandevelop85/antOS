@@ -11,7 +11,7 @@ use crate::capability::{Catalog, Tier};
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{self, Outcome, Record};
-use crate::plan::{Plan, Step};
+use crate::plan::{self, Plan, Step};
 use crate::planner::Planner;
 use crate::protocolo::{Interlocutor, Propuesta, Radio, Recinto, Resultado};
 use crate::{exec, preview, sandbox, snapshot};
@@ -42,7 +42,7 @@ pub fn intencion(
     }
 
     let plan = Plan {
-        id: Plan::new_id(),
+        id: plan::nuevo_id(),
         intent: texto.to_string(),
         planner: planificador.name().to_string(),
         steps,

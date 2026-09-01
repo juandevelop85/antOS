@@ -157,6 +157,29 @@ así que un cliente no puede fabricar un nivel más bajo ni saltarse la puerta.
 Es el requisito de cualquier escritorio: la interfaz gráfica será otro
 cliente del mismo demonio, no otra copia del recorrido.
 
+## La barra de intención
+
+La primera superficie del escritorio. GTK4 sobre `wlr-layer-shell`, hablando
+por el socket con el mismo demonio que atiende al terminal.
+
+```bash
+./system/compilar-barra.sh        # solo compila en Linux
+syso demonio &
+syso-barra
+```
+
+No es un lanzador de aplicaciones: escribes una intención y la superficie
+crece hasta convertirse en la hoja del diff. **El botón de aprobar vive
+debajo del diff**, así que para llegar a él hay que haberlo tenido delante —
+en el terminal escribes «s», pero en una GUI un clic es barato y el documento
+ya avisaba de que la confirmación se degrada con el uso. El nivel de permiso
+no es una etiqueta: tiñe el borde de la hoja dentro de la que lees.
+
+Escape cierra sin contestar, y el demonio lo trata como un no.
+
+Los tipos que viajan por el socket viven en `system/protocolo`, un crate que
+usan los dos lados. Un protocolo duplicado es un protocolo que diverge.
+
 ## El recinto
 
 La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el

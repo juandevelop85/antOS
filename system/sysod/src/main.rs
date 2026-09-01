@@ -26,7 +26,6 @@ use capability::{Catalog, Tier};
 use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
-use plan::Plan;
 use planner::{claude::ClaudePlanner, local::LocalPlanner, Planner};
 use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW};
 
@@ -232,7 +231,7 @@ fn cmd_undo(ctx: &Ctx) -> Result<()> {
 
     records[idx].reverted = true;
     let undone = Record {
-        id: Plan::new_id(),
+        id: plan::nuevo_id(),
         at: chrono::Local::now().to_rfc3339(),
         intent: format!("deshacer {}", records[idx].id),
         planner: "syso".into(),

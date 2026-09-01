@@ -31,6 +31,18 @@
         sysod = pkgs.callPackage ./system/nixos/paquete.nix { };
       });
 
+      # El entorno para compilar la barra de intención.
+      #
+      # Va aquí y no en un guion suelto porque `nix shell` solo pone binarios
+      # en el PATH: no prepara PKG_CONFIG_PATH, así que glib-2.0 no aparece.
+      # Un devShell sí ejecuta los ganchos de las dependencias.
+      devShells = paraCada (pkgs: {
+        barra = pkgs.mkShell {
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.rustc pkgs.cargo ];
+          buildInputs = [ pkgs.gtk4 pkgs.gtk4-layer-shell pkgs.wayland ];
+        };
+      });
+
       nixosModules.default = import ./system/nixos/modulo.nix;
 
       # La máquina entera, definida como un valor. Esto es lo que hace posible
