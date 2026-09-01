@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "antos-barra"
+version = "0.1.0"
+dependencies = [
+ "antos-protocolo",
+ "gtk4",
+ "gtk4-layer-shell",
+ "serde_json",
+]
+
+[[package]]
+name = "antos-protocolo"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -641,23 +658,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "syso-barra"
-version = "0.1.0"
-dependencies = [
- "gtk4",
- "gtk4-layer-shell",
- "serde_json",
- "syso-protocolo",
-]
-
-[[package]]
-name = "syso-protocolo"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]

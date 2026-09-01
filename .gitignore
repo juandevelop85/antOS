@@ -1,8 +1,10 @@
 # artefactos de compilación
-/target
+target/
+**/target/
 
-# estado en ejecución de sysod: instantáneas, bitácora, concesiones
+# estado en ejecución de antOS / sysod: instantáneas, bitácora, concesiones
 .syso/
+.antos/
 
 # espacio de trabajo de pruebas
 /workspace

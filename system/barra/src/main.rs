@@ -1,31 +1,13 @@
-//! La barra de intención: la primera superficie del escritorio de syso.
+//! antOS Wayland/GTK4 Layer Shell Intent Bar (T4.1).
 //!
-//! No es un lanzador de aplicaciones. Es el mismo recorrido de siempre —plan,
-//! diff, nivel de permiso, aprobación— con otra interfaz, hablando por el
-//! socket con el mismo demonio que atiende al terminal.
-//!
-//! ## Por qué layer-shell y no una ventana normal
-//!
-//! `wlr-layer-shell` permite dibujar superficies que forman parte del shell:
-//! flotan sobre todo, se anclan a un borde y pueden pedir el teclado. Es lo
-//! que separa «una ventana de una aplicación» de «una pieza del escritorio».
-//! Y no hace falta escribir un compositor para tenerlo.
-//!
-//! ## La decisión de diseño que más importa
-//!
-//! En el terminal escribes «s»; aquí es un clic, y los clics son baratos. El
-//! documento de arquitectura ya avisaba de que la confirmación se degrada con
-//! el uso, y una interfaz gráfica empeora ese riesgo.
-//!
-//! Por eso el diff NO es un diálogo que se cierra: es el contenido de la
-//! superficie. El botón de aprobar vive DEBAJO del diff, así que para llegar
-//! a él hay que haberlo tenido delante. Y el nivel de permiso no es una
-//! etiqueta más — tiñe el borde de la hoja entera dentro de la que lees.
+//! Provides the primary desktop interface for developer intentions, semantic git context,
+//! rich diff inspections, multi-agent antFlow state visualizations, and safety approvals.
 
+use antos_protocolo::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Peticion, Propuesta, Tier};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Application, ApplicationWindow, Box as Caja, Button, CssProvider, Entry, Label,
+    Align, Application, ApplicationWindow, Box as GtkBox, Button, CssProvider, Entry, Label,
     Orientation, PolicyType, ScrolledWindow,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -35,19 +17,19 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver};
-use antos_protocolo::{Evento, Line, Peticion, Propuesta, Tier};
 
-const ANCHO: i32 = 720;
+const BAR_WIDTH: i32 = 740;
 
-fn ruta_socket() -> PathBuf {
+/// Resolves the antOS daemon UNIX socket path.
+fn socket_path() -> PathBuf {
     if let Some(v) = std::env::var_os("ANTOS_SOCKET").or_else(|| std::env::var_os("SYSO_SOCKET")) {
         return PathBuf::from(v);
     }
-    let estado = std::env::var_os("ANTOS_STATE")
+    let state_dir = std::env::var_os("ANTOS_STATE")
         .or_else(|| std::env::var_os("SYSO_STATE"))
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".antos"));
-    estado.join("antos.sock")
+    state_dir.join("antos.sock")
 }
 
 fn main() {
@@ -56,141 +38,294 @@ fn main() {
         .build();
 
     app.connect_startup(|_| {
-        let proveedor = CssProvider::new();
-        // `load_from_string` existe solo con la característica v4_12 de la
-        // crate; activarla obligaría a recompilar gtk4 entero. `load_from_data`
-        // hace lo mismo y está disponible sin condiciones.
+        let provider = CssProvider::new();
         #[allow(deprecated)]
-        proveedor.load_from_data(include_str!("estilo.css"));
-        if let Some(pantalla) = Display::default() {
+        provider.load_from_data(include_str!("estilo.css"));
+        if let Some(display) = Display::default() {
             gtk4::style_context_add_provider_for_display(
-                &pantalla,
-                &proveedor,
+                &display,
+                &provider,
                 gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
             );
         }
     });
 
-    app.connect_activate(construir);
+    app.connect_activate(build_ui);
 
-    // Sin argumentos: los que reciba la barra son suyos, no de GTK.
     app.run_with_args::<&str>(&[]);
 }
 
-fn construir(app: &Application) {
-    let ventana = ApplicationWindow::builder()
+/// Constructs the Wayland Layer Shell window and widgets.
+fn build_ui(app: &Application) {
+    let window = ApplicationWindow::builder()
         .application(app)
-        .default_width(ANCHO)
+        .default_width(BAR_WIDTH)
         .build();
-    ventana.add_css_class("fondo");
+    window.add_css_class("fondo");
 
-    // Aquí es donde deja de ser una ventana y pasa a ser parte del escritorio.
-    ventana.init_layer_shell();
-    ventana.set_layer(Layer::Overlay);
-    // Exclusivo porque hay que poder escribir: una barra de intención que no
-    // recibe teclado no sirve para nada.
-    ventana.set_keyboard_mode(KeyboardMode::Exclusive);
-    ventana.set_anchor(Edge::Top, true);
-    ventana.set_margin(Edge::Top, 120);
+    // Initialize as a Wayland Layer Shell surface
+    window.init_layer_shell();
+    window.set_layer(Layer::Overlay);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
+    window.set_anchor(Edge::Top, true);
+    window.set_margin(Edge::Top, 110);
 
-    let marco = Caja::new(Orientation::Vertical, 12);
-    marco.add_css_class("marco");
-    ventana.set_child(Some(&marco));
+    let frame = GtkBox::new(Orientation::Vertical, 12);
+    frame.add_css_class("marco");
+    window.set_child(Some(&frame));
 
-    let entrada = Entry::builder()
-        .placeholder_text("¿qué quieres que haga?")
+    // Top status context bar (Git status + Planner selector + Dry run badge)
+    let header_bar = GtkBox::new(Orientation::Horizontal, 8);
+    header_bar.add_css_class("header-bar");
+    header_bar.set_hexpand(true);
+
+    let git_badge = make_label("🌿 checking git...", "badge");
+    git_badge.add_css_class("git-badge");
+    header_bar.append(&git_badge);
+
+    let planner_btn = Button::with_label("⚡ local");
+    planner_btn.add_css_class("badge-button");
+    header_bar.append(&planner_btn);
+
+    let dry_run_btn = Button::with_label("🛡️ live");
+    dry_run_btn.add_css_class("badge-button");
+    header_bar.append(&dry_run_btn);
+
+    frame.append(&header_bar);
+
+    // Main intent input entry
+    let input = Entry::builder()
+        .placeholder_text("¿Qué quieres que antOS haga? (ej. T4.2, libera 3000, crea rama auth)...")
         .build();
-    entrada.add_css_class("intencion");
-    marco.append(&entrada);
+    input.add_css_class("intencion");
+    frame.append(&input);
 
-    // Todo lo que el demonio conteste se dibuja aquí debajo.
-    let contenido = Caja::new(Orientation::Vertical, 10);
-    marco.append(&contenido);
+    // Quick suggestions pills
+    let suggestions_box = GtkBox::new(Orientation::Horizontal, 6);
+    suggestions_box.add_css_class("suggestions-box");
 
-    // Una intención por argumentos. Sirve para guionizar la barra, y es lo
-    // que permite verificarla sin nadie tecleando delante.
-    let inicial: Option<String> = {
-        let args: Vec<String> = std::env::args().collect();
-        args.iter()
-            .position(|a| a == "--intencion")
-            .and_then(|i| args.get(i + 1).cloned())
-    };
+    let suggestions = [
+        ("🚀 T4.2", "desarrolla ticket T4.2"),
+        ("🔍 ports", "diagnostica puertos"),
+        ("🌿 branch", "crea rama feature/auth"),
+        ("↩️ undo", "deshacer ultimo cambio"),
+    ];
 
-    let escritura: Rc<RefCell<Option<UnixStream>>> = Rc::new(RefCell::new(None));
+    for (pill_label, pill_query) in suggestions {
+        let pill = Button::with_label(pill_label);
+        pill.add_css_class("suggestion-pill");
+        let input_ref = input.clone();
+        let query_str = pill_query.to_string();
+        pill.connect_clicked(move |_| {
+            input_ref.set_text(&query_str);
+            input_ref.emit_activate();
+        });
+        suggestions_box.append(&pill);
+    }
+    frame.append(&suggestions_box);
 
+    // Dynamic response and proposals container
+    let content = GtkBox::new(Orientation::Vertical, 10);
+    frame.append(&content);
+
+    let stream_writer: Rc<RefCell<Option<UnixStream>>> = Rc::new(RefCell::new(None));
+    let current_planner: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    let dry_run_state: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+
+    // Toggle planner button click
     {
-        let contenido = contenido.clone();
-        let escritura = escritura.clone();
-        let entrada_ref = entrada.clone();
-        entrada.connect_activate(move |campo| {
-            let texto = campo.text().to_string();
-            if texto.trim().is_empty() {
-                return;
-            }
-            entrada_ref.set_sensitive(false);
-            vaciar(&contenido);
-
-            match arrancar_sesion(&texto) {
-                Ok((flujo, eventos)) => {
-                    *escritura.borrow_mut() = Some(flujo);
-                    dibujar_espera(&contenido);
-                    escuchar(eventos, contenido.clone(), escritura.clone(), entrada_ref.clone());
-                }
-                Err(e) => mostrar_error(&contenido, &format!("{e}")),
+        let planner_ref = current_planner.clone();
+        let btn_ref = planner_btn.clone();
+        planner_btn.connect_clicked(move |_| {
+            let mut p = planner_ref.borrow_mut();
+            if p.as_deref() == Some("claude") {
+                *p = None;
+                btn_ref.set_label("⚡ local");
+            } else {
+                *p = Some("claude".to_string());
+                btn_ref.set_label("🧠 claude");
             }
         });
     }
 
-    // Escape cierra sin contestar. El demonio lee el fin de la conexión y lo
-    // trata como un no: el silencio nunca es un sí.
-    let controlador = gtk4::EventControllerKey::new();
-    let ventana_ref = ventana.clone();
-    controlador.connect_key_pressed(move |_, tecla, _, _| {
-        if tecla == gtk4::gdk::Key::Escape {
-            ventana_ref.close();
+    // Toggle dry-run button click
+    {
+        let dry_ref = dry_run_state.clone();
+        let btn_ref = dry_run_btn.clone();
+        dry_run_btn.connect_clicked(move |_| {
+            let mut d = dry_ref.borrow_mut();
+            *d = !*d;
+            if *d {
+                btn_ref.set_label("🛡️ dry-run");
+                btn_ref.add_css_class("active");
+            } else {
+                btn_ref.set_label("🛡️ live");
+                btn_ref.remove_css_class("active");
+            }
+        });
+    }
+
+    // Query initial git status for header badge
+    query_git_status_async(git_badge.clone());
+
+    // Connect input activation
+    {
+        let content = content.clone();
+        let stream_writer = stream_writer.clone();
+        let input_ref = input.clone();
+        let planner_ref = current_planner.clone();
+        let dry_ref = dry_run_state.clone();
+
+        input.connect_activate(move |entry| {
+            let text = entry.text().to_string();
+            if text.trim().is_empty() {
+                return;
+            }
+            input_ref.set_sensitive(false);
+            empty_box(&content);
+
+            let selected_planner = planner_ref.borrow().clone();
+            let is_dry = *dry_ref.borrow();
+
+            match start_session(&text, selected_planner, is_dry) {
+                Ok((stream, events)) => {
+                    *stream_writer.borrow_mut() = Some(stream);
+                    render_waiting(&content);
+                    listen_events(events, content.clone(), stream_writer.clone(), input_ref.clone());
+                }
+                Err(err) => render_error(&content, &err),
+            }
+        });
+    }
+
+    // Escape key closes window without confirming
+    let key_controller = gtk4::EventControllerKey::new();
+    let window_ref = window.clone();
+    key_controller.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk4::gdk::Key::Escape {
+            window_ref.close();
             return gtk4::glib::Propagation::Stop;
         }
         gtk4::glib::Propagation::Proceed
     });
-    ventana.add_controller(controlador);
+    window.add_controller(key_controller);
 
-    ventana.present();
+    window.present();
 
-    if let Some(texto) = inicial {
-        entrada.set_text(&texto);
-        entrada.emit_activate();
+    // Check optional CLI intent argument e.g. --intencion "..."
+    let initial_intent: Option<String> = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter()
+            .position(|a| a == "--intencion" || a == "--intent")
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+
+    if let Some(text) = initial_intent {
+        input.set_text(&text);
+        input.emit_activate();
     }
 }
 
-/// Abre la conexión y deja un hilo leyendo eventos.
-fn arrancar_sesion(texto: &str) -> Result<(UnixStream, Receiver<Evento>), String> {
-    let ruta = ruta_socket();
-    let flujo = UnixStream::connect(&ruta)
-        .map_err(|e| format!("no hay demonio en {}: {e}\nArráncalo con: syso demonio", ruta.display()))?;
-
-    let mut escritura = flujo.try_clone().map_err(|e| e.to_string())?;
-    let peticion = Peticion::Intencion {
-        texto: texto.to_string(),
-        planificador: None,
-        seco: false,
-    };
-    writeln!(escritura, "{}", serde_json::to_string(&peticion).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
-    escritura.flush().map_err(|e| e.to_string())?;
-
-    // El socket se lee en un hilo aparte: bloquear el bucle de GTK dejaría la
-    // superficie congelada mientras el modelo piensa.
-    let (emisor, receptor) = channel();
-    let lectura = flujo.try_clone().map_err(|e| e.to_string())?;
+/// Asynchronously queries the active repository Git status.
+fn query_git_status_async(git_badge: Label) {
     std::thread::spawn(move || {
-        let mut buffer = BufReader::new(lectura);
+        let path = socket_path();
+        let Ok(mut stream) = UnixStream::connect(&path) else {
+            gtk4::glib::idle_add_local(move || {
+                git_badge.set_text("● offline");
+                git_badge.add_css_class("offline");
+                gtk4::glib::ControlFlow::Break
+            });
+            return;
+        };
+
+        let current_dir = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".into());
+
+        let req = Peticion::ConsultarEstadoGit {
+            workspace_path: current_dir,
+        };
+
+        if let Ok(json) = serde_json::to_string(&req) {
+            let _ = writeln!(stream, "{json}");
+            let _ = stream.flush();
+
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_ok() {
+                if let Ok(event) = serde_json::from_str::<Evento>(line.trim()) {
+                    if let Evento::EstadoGit(status) = event {
+                        gtk4::glib::idle_add_local(move || {
+                            update_git_badge(&git_badge, &status);
+                            gtk4::glib::ControlFlow::Break
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+
+        gtk4::glib::idle_add_local(move || {
+            git_badge.set_text("🌿 antOS");
+            gtk4::glib::ControlFlow::Break
+        });
+    });
+}
+
+fn update_git_badge(badge: &Label, status: &GitRepoStatus) {
+    let branch = status.rama.as_deref().unwrap_or("HEAD");
+    let dirty_count = status.modificados.len() + status.sin_seguimiento.len();
+    if status.limpio {
+        badge.set_text(&format!("🌿 {branch} ✓"));
+        badge.add_css_class("clean");
+    } else {
+        badge.set_text(&format!("🌿 {branch} *{dirty_count}"));
+        badge.add_css_class("dirty");
+    }
+}
+
+/// Connects to the daemon socket and starts the reader thread.
+fn start_session(
+    text: &str,
+    planner: Option<String>,
+    dry_run: bool,
+) -> Result<(UnixStream, Receiver<Evento>), String> {
+    let path = socket_path();
+    let stream = UnixStream::connect(&path).map_err(|e| {
+        format!(
+            "no hay demonio antOS en {}: {e}\nArráncalo en otra terminal con: antos demonio",
+            path.display()
+        )
+    })?;
+
+    let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
+    let request = Peticion::Intencion {
+        texto: text.to_string(),
+        planificador: planner,
+        seco: dry_run,
+    };
+
+    writeln!(
+        writer,
+        "{}",
+        serde_json::to_string(&request).map_err(|e| e.to_string())?
+    )
+    .map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())?;
+
+    let (sender, receiver) = channel();
+    let reader_stream = stream.try_clone().map_err(|e| e.to_string())?;
+
+    std::thread::spawn(move || {
+        let mut buffer = BufReader::new(reader_stream);
         loop {
-            let mut linea = String::new();
-            match buffer.read_line(&mut linea) {
+            let mut line = String::new();
+            match buffer.read_line(&mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
-                    if let Ok(evento) = serde_json::from_str::<Evento>(linea.trim()) {
-                        if emisor.send(evento).is_err() {
+                    if let Ok(event) = serde_json::from_str::<Evento>(line.trim()) {
+                        if sender.send(event).is_err() {
                             break;
                         }
                     }
@@ -199,37 +334,51 @@ fn arrancar_sesion(texto: &str) -> Result<(UnixStream, Receiver<Evento>), String
         }
     });
 
-    Ok((escritura, receptor))
+    Ok((writer, receiver))
 }
 
-fn escuchar(
-    eventos: Receiver<Evento>,
-    contenido: Caja,
-    escritura: Rc<RefCell<Option<UnixStream>>>,
-    entrada: Entry,
+fn listen_events(
+    events: Receiver<Evento>,
+    content: GtkBox,
+    stream_writer: Rc<RefCell<Option<UnixStream>>>,
+    input: Entry,
 ) {
-    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(40), move || {
-        while let Ok(evento) = eventos.try_recv() {
-            match evento {
+    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(35), move || {
+        while let Ok(event) = events.try_recv() {
+            match event {
                 Evento::Inicio { .. } => {}
-                Evento::Nota(texto) => {
-                    vaciar(&contenido);
-                    contenido.append(&etiqueta(&format!("dice: {texto}"), "radio"));
+                Evento::Nota(text) => {
+                    empty_box(&content);
+                    content.append(&make_label(&format!("antOS: {text}"), "radio"));
                 }
-                Evento::Propuesta(propuesta) => {
-                    vaciar(&contenido);
-                    dibujar_propuesta(&contenido, &propuesta, escritura.clone());
+                Evento::Propuesta(proposal) => {
+                    empty_box(&content);
+                    render_proposal(&content, &proposal, stream_writer.clone());
                 }
-                Evento::Salida(texto) => contenido.append(&etiqueta(&texto, "paso")),
-                Evento::Resultado(resultado) => {
-                    let clase = if resultado.ok { "ok" } else { "error" };
-                    contenido.append(&etiqueta(&resultado.mensaje, clase));
-                    entrada.set_sensitive(true);
-                    entrada.set_text("");
+                Evento::EstadoFlow(Some(task)) => {
+                    empty_box(&content);
+                    render_flow_task(&content, &task, stream_writer.clone());
                 }
-                Evento::Error(mensaje) => {
-                    mostrar_error(&contenido, &mensaje);
-                    entrada.set_sensitive(true);
+                Evento::TransicionFlow {
+                    estado_nuevo,
+                    rol,
+                    detalle,
+                    ..
+                } => {
+                    let role_label = rol.map(|r| r.name()).unwrap_or("System");
+                    let transition_text = format!("{}: {} [{}]", estado_nuevo.label(), detalle, role_label);
+                    content.append(&make_label(&transition_text, "paso"));
+                }
+                Evento::Salida(text) => content.append(&make_label(&text, "paso")),
+                Evento::Resultado(result) => {
+                    let class = if result.ok { "ok" } else { "error" };
+                    content.append(&make_label(&result.mensaje, class));
+                    input.set_sensitive(true);
+                    input.set_text("");
+                }
+                Evento::Error(err_msg) => {
+                    render_error(&content, &err_msg);
+                    input.set_sensitive(true);
                 }
                 _ => {}
             }
@@ -238,163 +387,247 @@ fn escuchar(
     });
 }
 
-fn dibujar_propuesta(
-    contenido: &Caja,
-    propuesta: &Propuesta,
-    escritura: Rc<RefCell<Option<UnixStream>>>,
+fn render_proposal(
+    content: &GtkBox,
+    proposal: &Propuesta,
+    stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
-    let hoja = Caja::new(Orientation::Vertical, 10);
-    hoja.add_css_class("hoja");
-    hoja.add_css_class(clase_nivel(propuesta.nivel));
+    let sheet = GtkBox::new(Orientation::Vertical, 10);
+    sheet.add_css_class("hoja");
+    sheet.add_css_class(level_css_class(proposal.nivel));
 
-    // 1 · el plan
-    hoja.append(&etiqueta("PLAN", "etiqueta"));
-    for (i, paso) in propuesta.plan.steps.iter().enumerate() {
-        let args = paso
+    // 1 · Plan steps
+    sheet.append(&make_label("PLAN", "etiqueta"));
+    for (i, step) in proposal.plan.steps.iter().enumerate() {
+        let args = step
             .args
             .iter()
-            .map(|(k, v)| format!("{k}={}", recorta(v, 36)))
+            .map(|(k, v)| format!("{k}={}", truncate_str(v, 36)))
             .collect::<Vec<_>>()
             .join(" ");
-        hoja.append(&etiqueta(
-            &format!("{}. {}  {args}", i + 1, paso.capability),
+        sheet.append(&make_label(
+            &format!("{}. {}  {args}", i + 1, step.capability),
             "paso",
         ));
     }
 
-    // 2 · el diff, que es el contenido de esta superficie
-    hoja.append(&etiqueta("CAMBIOS", "etiqueta"));
-    let lista = Caja::new(Orientation::Vertical, 0);
-    for linea in &propuesta.cambios {
-        let (texto, clase) = match linea {
+    // 2 · Syntax highlighted Diff viewer
+    sheet.append(&make_label("CAMBIOS", "etiqueta"));
+    let diff_list = GtkBox::new(Orientation::Vertical, 0);
+    for line in &proposal.cambios {
+        let (text, css_class) = match line {
             Line::Info(t) => (t.clone(), "info"),
             Line::Add(t) => (format!("+{t}"), "mas"),
             Line::Del(t) => (format!("-{t}"), "menos"),
         };
-        let l = etiqueta(&texto, "diff");
-        l.add_css_class(clase);
-        lista.append(&l);
+        let l = make_label(&text, "diff");
+        l.add_css_class(css_class);
+        diff_list.append(&l);
     }
-    let desplazable = ScrolledWindow::builder()
-        .child(&lista)
+    let scrolled = ScrolledWindow::builder()
+        .child(&diff_list)
         .min_content_height(120)
-        .max_content_height(360)
+        .max_content_height(340)
         .propagate_natural_height(true)
         .hscrollbar_policy(PolicyType::Automatic)
         .build();
-    hoja.append(&desplazable);
+    sheet.append(&scrolled);
 
-    // 3 · el radio de impacto y el nivel
-    hoja.append(&etiqueta("RADIO DE IMPACTO", "etiqueta"));
-    for (nombre, rutas) in [
-        ("escribe", &propuesta.radio.escribe),
-        ("borra", &propuesta.radio.borra),
-        ("lee", &propuesta.radio.lee),
-        ("SISTEMA", &propuesta.radio.sistema),
-        ("red", &propuesta.radio.red),
+    // 3 · Blast radius breakdown
+    sheet.append(&make_label("RADIO DE IMPACTO", "etiqueta"));
+    for (name, paths) in [
+        ("escribe", &proposal.radio.escribe),
+        ("borra", &proposal.radio.borra),
+        ("lee", &proposal.radio.lee),
+        ("SISTEMA", &proposal.radio.sistema),
+        ("red", &proposal.radio.red),
     ] {
-        if !rutas.is_empty() {
-            hoja.append(&etiqueta(
-                &format!("{nombre:9} {}", recorta(&rutas.join(", "), 70)),
+        if !paths.is_empty() {
+            sheet.append(&make_label(
+                &format!("{name:9} {}", truncate_str(&paths.join(", "), 70)),
                 "radio",
             ));
         }
     }
-    let nivel = etiqueta(
+
+    let tier_label = make_label(
         &format!(
             "nivel     {} — {}",
-            propuesta.nivel.label(),
-            propuesta.razones.join("; ")
+            proposal.nivel.label(),
+            proposal.razones.join("; ")
         ),
         "nivel",
     );
-    nivel.add_css_class(clase_nivel(propuesta.nivel));
-    hoja.append(&nivel);
-    hoja.append(&etiqueta(
+    tier_label.add_css_class(level_css_class(proposal.nivel));
+    sheet.append(&tier_label);
+
+    sheet.append(&make_label(
         &format!(
             "recinto   {} — {}",
-            propuesta.recinto.motor, propuesta.recinto.garantiza
+            proposal.recinto.motor, proposal.recinto.garantiza
         ),
         "radio",
     ));
 
-    contenido.append(&hoja);
+    content.append(&sheet);
 
-    // 4 · y solo entonces, la decisión
-    if propuesta.nivel == Tier::Auto || propuesta.seco {
+    // 4 · Decision buttons
+    if proposal.nivel == Tier::Auto || proposal.seco {
         return;
     }
 
-    let botones = Caja::new(Orientation::Horizontal, 10);
-    botones.set_halign(Align::End);
+    let button_box = GtkBox::new(Orientation::Horizontal, 10);
+    button_box.set_halign(Align::End);
 
-    let descartar = Button::with_label("Descartar");
-    descartar.add_css_class("descartar");
-    let aprobar = Button::with_label("Aprobar");
-    aprobar.add_css_class("aprobar");
+    let discard_btn = Button::with_label("Descartar");
+    discard_btn.add_css_class("descartar");
+    let approve_btn = Button::with_label("Aprobar");
+    approve_btn.add_css_class("aprobar");
 
-    for (boton, decision) in [(&descartar, false), (&aprobar, true)] {
-        let escritura = escritura.clone();
-        let botones_ref = botones.clone();
-        boton.connect_clicked(move |_| {
-            if let Some(flujo) = escritura.borrow_mut().as_mut() {
-                let respuesta = Peticion::Aprobacion(decision);
-                if let Ok(json) = serde_json::to_string(&respuesta) {
-                    let _ = writeln!(flujo, "{json}");
-                    let _ = flujo.flush();
+    for (btn, decision) in [(&discard_btn, false), (&approve_btn, true)] {
+        let stream_ref = stream_writer.clone();
+        let box_ref = button_box.clone();
+        btn.connect_clicked(move |_| {
+            if let Some(stream) = stream_ref.borrow_mut().as_mut() {
+                let response = Peticion::Aprobacion(decision);
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let _ = writeln!(stream, "{json}");
+                    let _ = stream.flush();
                 }
             }
-            // Una decisión se toma una vez.
-            botones_ref.set_sensitive(false);
+            box_ref.set_sensitive(false);
         });
     }
 
-    botones.append(&descartar);
-    botones.append(&aprobar);
-    contenido.append(&botones);
+    button_box.append(&discard_btn);
+    button_box.append(&approve_btn);
+    content.append(&button_box);
 }
 
-// ------------------------------------------------------------------ ayudas
+fn render_flow_task(
+    content: &GtkBox,
+    task: &FlowTask,
+    stream_writer: Rc<RefCell<Option<UnixStream>>>,
+) {
+    let sheet = GtkBox::new(Orientation::Vertical, 10);
+    sheet.add_css_class("hoja");
+    sheet.add_css_class("flow");
 
-fn clase_nivel(nivel: Tier) -> &'static str {
-    match nivel {
+    sheet.append(&make_label("antFlow · TAREA DE AGENTES", "etiqueta"));
+    sheet.append(&make_label(
+        &format!("Ticket: {} | Estado: {}", task.ticket_id, task.estado.label()),
+        "nivel",
+    ));
+
+    if let Some(role) = task.rol_actual {
+        sheet.append(&make_label(
+            &format!("Rol Activo: {} ({})", role.name(), role.description()),
+            "paso",
+        ));
+    }
+
+    if let Some(ref diff) = task.diff_preview {
+        sheet.append(&make_label("PREVISUALIZACIÓN DE CAMBIOS", "etiqueta"));
+        let diff_box = GtkBox::new(Orientation::Vertical, 0);
+        for line in diff.lines() {
+            let css_class = if line.starts_with('+') {
+                "mas"
+            } else if line.starts_with('-') {
+                "menos"
+            } else {
+                "info"
+            };
+            let l = make_label(line, "diff");
+            l.add_css_class(css_class);
+            diff_box.append(&l);
+        }
+        let scrolled = ScrolledWindow::builder()
+            .child(&diff_box)
+            .min_content_height(100)
+            .max_content_height(260)
+            .propagate_natural_height(true)
+            .build();
+        sheet.append(&scrolled);
+    }
+
+    content.append(&sheet);
+
+    if task.estado == FlowState::ListoParaAprobacion {
+        let button_box = GtkBox::new(Orientation::Horizontal, 10);
+        button_box.set_halign(Align::End);
+
+        let reject_btn = Button::with_label("Rechazar Flow");
+        reject_btn.add_css_class("descartar");
+        let approve_btn = Button::with_label("Aprobar & Fusionar");
+        approve_btn.add_css_class("aprobar");
+
+        let ticket_id_clone = task.ticket_id.clone();
+        for (btn, decision) in [(&reject_btn, false), (&approve_btn, true)] {
+            let stream_ref = stream_writer.clone();
+            let box_ref = button_box.clone();
+            let tid = ticket_id_clone.clone();
+            btn.connect_clicked(move |_| {
+                if let Some(stream) = stream_ref.borrow_mut().as_mut() {
+                    let req = Peticion::AprobarFlow {
+                        ticket_id: tid.clone(),
+                        decision,
+                    };
+                    if let Ok(json) = serde_json::to_string(&req) {
+                        let _ = writeln!(stream, "{json}");
+                        let _ = stream.flush();
+                    }
+                }
+                box_ref.set_sensitive(false);
+            });
+        }
+
+        button_box.append(&reject_btn);
+        button_box.append(&approve_btn);
+        content.append(&button_box);
+    }
+}
+
+// ---------------------------------------------------------------- helpers
+
+fn level_css_class(tier: Tier) -> &'static str {
+    match tier {
         Tier::Auto => "auto",
         Tier::Confirm => "confirm",
         Tier::Grant => "grant",
     }
 }
 
-fn etiqueta(texto: &str, clase: &str) -> Label {
-    let l = Label::new(Some(texto));
+fn make_label(text: &str, class_name: &str) -> Label {
+    let l = Label::new(Some(text));
     l.set_halign(Align::Start);
     l.set_xalign(0.0);
     l.set_selectable(true);
-    l.add_css_class(clase);
+    l.add_css_class(class_name);
     l
 }
 
-fn dibujar_espera(contenido: &Caja) {
-    contenido.append(&etiqueta("pensando…", "radio"));
+fn render_waiting(content: &GtkBox) {
+    content.append(&make_label("antOS pensando...", "radio"));
 }
 
-fn mostrar_error(contenido: &Caja, mensaje: &str) {
-    vaciar(contenido);
-    for linea in mensaje.lines() {
-        contenido.append(&etiqueta(linea, "error"));
+fn render_error(content: &GtkBox, message: &str) {
+    empty_box(content);
+    for line in message.lines() {
+        content.append(&make_label(line, "error"));
     }
 }
 
-fn vaciar(caja: &Caja) {
-    while let Some(hijo) = caja.first_child() {
-        caja.remove(&hijo);
+fn empty_box(gtk_box: &GtkBox) {
+    while let Some(child) = gtk_box.first_child() {
+        gtk_box.remove(&child);
     }
 }
 
-fn recorta(s: &str, max: usize) -> String {
-    let plano = s.replace('\n', "⏎");
-    if plano.chars().count() <= max {
-        plano
+fn truncate_str(s: &str, max_len: usize) -> String {
+    let flat = s.replace('\n', "⏎");
+    if flat.chars().count() <= max_len {
+        flat
     } else {
-        format!("{}…", plano.chars().take(max - 1).collect::<String>())
+        format!("{}…", flat.chars().take(max_len - 1).collect::<String>())
     }
 }
