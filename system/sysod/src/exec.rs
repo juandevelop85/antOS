@@ -26,6 +26,23 @@ pub enum Change {
     GitStatus { repo_root: PathBuf },
     GitCommit { repo_root: PathBuf, commit_msg: String },
     GitBranch { repo_root: PathBuf, branch_name: String, base: Option<String> },
+    GitWorktreeCreate {
+        repo_root: PathBuf,
+        target_path: PathBuf,
+        branch_name: String,
+        base: String,
+    },
+    GitWorktreeCleanup {
+        repo_root: PathBuf,
+        target_path: PathBuf,
+        force: bool,
+    },
+    GitWorktreeMerge {
+        repo_root: PathBuf,
+        branch_name: String,
+        target_branch: String,
+        message: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -67,7 +84,10 @@ impl Pendiente {
             | Change::Read { .. }
             | Change::GitStatus { .. }
             | Change::GitCommit { .. }
-            | Change::GitBranch { .. } => {}
+            | Change::GitBranch { .. }
+            | Change::GitWorktreeCreate { .. }
+            | Change::GitWorktreeCleanup { .. }
+            | Change::GitWorktreeMerge { .. } => {}
         }
     }
 }
@@ -162,6 +182,46 @@ pub fn changes_for(
             Ok(vec![Change::GitBranch { repo_root: root, branch_name, base }])
         }
 
+        "git.worktree_create" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
+            let branch = a.get("branch").cloned().unwrap_or_else(|| format!("agent/{ticket}"));
+            let base = a.get("base").cloned().unwrap_or_else(|| "HEAD".into());
+            let target_path = ctx.state.join("worktrees").join(&ticket);
+            Ok(vec![Change::GitWorktreeCreate {
+                repo_root: root,
+                target_path,
+                branch_name: branch,
+                base,
+            }])
+        }
+
+        "git.worktree_cleanup" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
+            let force = a.get("force").map(|f| f == "true").unwrap_or(false);
+            let target_path = ctx.state.join("worktrees").join(&ticket);
+            Ok(vec![Change::GitWorktreeCleanup {
+                repo_root: root,
+                target_path,
+                force,
+            }])
+        }
+
+        "git.worktree_merge" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
+            let branch = format!("agent/{ticket}");
+            let target = a.get("target").cloned().unwrap_or_else(|| "main".into());
+            let message = a.get("message").cloned();
+            Ok(vec![Change::GitWorktreeMerge {
+                repo_root: root,
+                branch_name: branch,
+                target_branch: target,
+                message,
+            }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -251,6 +311,27 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     bail!("git checkout falló: {}", String::from_utf8_lossy(&out.stderr));
                 }
                 output.push(format!("rama activa: {branch_name}"));
+            }
+            Change::GitWorktreeCreate { repo_root, target_path, branch_name, base } => {
+                crate::git::crear_worktree(repo_root, target_path, branch_name, base)?;
+                output.push(format!(
+                    "worktree creado en: {} (rama: {})",
+                    target_path.display(),
+                    branch_name
+                ));
+            }
+            Change::GitWorktreeCleanup { repo_root, target_path, force } => {
+                crate::git::eliminar_worktree(repo_root, target_path, *force)?;
+                output.push(format!("worktree eliminado: {}", target_path.display()));
+            }
+            Change::GitWorktreeMerge { repo_root, branch_name, target_branch, message } => {
+                let res = crate::git::merge_worktree(
+                    repo_root,
+                    branch_name,
+                    target_branch,
+                    message.as_deref(),
+                )?;
+                output.push(format!("merge completado: {res}"));
             }
         }
     }
@@ -465,6 +546,41 @@ mod tests {
                 assert_eq!(branch_name, "t2.1/login-oauth");
             }
             _ => panic!("debe ser GitBranch"),
+        }
+
+        // 4. git.worktree_create
+        let mut args_wt_create = BTreeMap::new();
+        args_wt_create.insert("ticket_id".into(), "T2.2".into());
+        let step_wt_create = Step {
+            capability: "git.worktree_create".into(),
+            args: args_wt_create,
+        };
+        let cap_wt_create = catalog.get("git.worktree_create").expect("cap git.worktree_create");
+        let changes_wt_create = changes_for(&step_wt_create, cap_wt_create, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_wt_create.len(), 1);
+        match &changes_wt_create[0] {
+            Change::GitWorktreeCreate { branch_name, target_path, .. } => {
+                assert_eq!(branch_name, "agent/T2.2");
+                assert_eq!(target_path, &ctx.state.join("worktrees/T2.2"));
+            }
+            _ => panic!("debe ser GitWorktreeCreate"),
+        }
+
+        // 5. git.worktree_cleanup
+        let mut args_wt_clean = BTreeMap::new();
+        args_wt_clean.insert("ticket_id".into(), "T2.2".into());
+        let step_wt_clean = Step {
+            capability: "git.worktree_cleanup".into(),
+            args: args_wt_clean,
+        };
+        let cap_wt_clean = catalog.get("git.worktree_cleanup").expect("cap git.worktree_cleanup");
+        let changes_wt_clean = changes_for(&step_wt_clean, cap_wt_clean, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_wt_clean.len(), 1);
+        match &changes_wt_clean[0] {
+            Change::GitWorktreeCleanup { target_path, .. } => {
+                assert_eq!(target_path, &ctx.state.join("worktrees/T2.2"));
+            }
+            _ => panic!("debe ser GitWorktreeCleanup"),
         }
     }
 }

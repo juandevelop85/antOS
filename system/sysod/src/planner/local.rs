@@ -143,9 +143,35 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("git.status", &[])]));
         }
 
+        if lower.contains("worktree") {
+            let ticket = after(&words, &["ticket", "para", "de"])
+                .or_else(|| after(&words, &["worktree"]))
+                .unwrap_or_else(|| "task".into());
+
+            if lower.contains("limpia") || lower.contains("borra") || lower.contains("elimin") {
+                return Ok(Propuesta::solo(vec![step(
+                    "git.worktree_cleanup",
+                    &[("ticket_id", &ticket)],
+                )]));
+            }
+
+            if lower.contains("merge") || lower.contains("fusiona") || lower.contains("integra") {
+                let target = after(&words, &["en", "a", "hacia"]).unwrap_or_else(|| "main".into());
+                return Ok(Propuesta::solo(vec![step(
+                    "git.worktree_merge",
+                    &[("ticket_id", &ticket), ("target", &target)],
+                )]));
+            }
+
+            return Ok(Propuesta::solo(vec![step(
+                "git.worktree_create",
+                &[("ticket_id", &ticket)],
+            )]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos y ramas Git.\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas y worktrees Git.\n\
              Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
@@ -211,5 +237,26 @@ mod tests {
         let s = &propuesta.steps[0];
         assert_eq!(s.capability, "git.smart_branch");
         assert_eq!(s.args.get("name").map(String::as_str), Some("login-flow"));
+    }
+
+    #[test]
+    fn test_plan_worktree_crear_y_limpiar() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_crear = planner
+            .plan("crea worktree para T3.1", &catalog)
+            .expect("debe planificar");
+        assert_eq!(p_crear.steps.len(), 1);
+        assert_eq!(p_crear.steps[0].capability, "git.worktree_create");
+        assert_eq!(p_crear.steps[0].args.get("ticket_id").map(String::as_str), Some("t3.1"));
+
+        let p_limpiar = planner
+            .plan("limpia worktree de T3.1", &catalog)
+            .expect("debe planificar");
+        assert_eq!(p_limpiar.steps.len(), 1);
+        assert_eq!(p_limpiar.steps[0].capability, "git.worktree_cleanup");
+        assert_eq!(p_limpiar.steps[0].args.get("ticket_id").map(String::as_str), Some("t3.1"));
     }
 }

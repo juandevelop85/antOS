@@ -7,7 +7,7 @@
 //! `.git/HEAD` y `.git/index`.
 
 use antos_protocolo::{GitFileDiffSummary, GitFileStatus, GitRepoStatus};
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -303,6 +303,91 @@ fn parsear_numstat(salida: &str, destino: &mut HashMap<String, (usize, usize)>) 
     }
 }
 
+// ---------------------------------------------------- git worktrees (T2.2)
+
+/// Crea un Git Worktree efímero compartiendo los objetos del repositorio base.
+pub fn crear_worktree(repo_root: &Path, destino: &Path, branch: &str, base: &str) -> Result<()> {
+    if let Some(parent) = destino.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("creando directorio padre {}", parent.display()))?;
+    }
+
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["worktree", "add", "-B", branch])
+        .arg(destino)
+        .arg(base)
+        .output()
+        .context("ejecutando git worktree add")?;
+
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        bail!("git worktree add falló: {err}");
+    }
+    Ok(())
+}
+
+/// Elimina y limpia un Git Worktree.
+pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Result<()> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo_root).arg("worktree").arg("remove");
+    if force {
+        cmd.arg("--force");
+    }
+    cmd.arg(destino);
+    let out = cmd.output().context("ejecutando git worktree remove")?;
+
+    if !out.status.success() {
+        if destino.exists() {
+            let _ = fs::remove_dir_all(destino);
+        }
+    }
+
+    let _ = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["worktree", "prune"])
+        .output();
+
+    Ok(())
+}
+
+/// Fusiona la rama de un Worktree en la rama objetivo.
+pub fn merge_worktree(
+    repo_root: &Path,
+    branch: &str,
+    target: &str,
+    message: Option<&str>,
+) -> Result<String> {
+    let checkout = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["checkout", target])
+        .output()
+        .context("checkout rama destino")?;
+
+    if !checkout.status.success() {
+        bail!("git checkout {target} falló: {}", String::from_utf8_lossy(&checkout.stderr));
+    }
+
+    let default_msg = format!("merge: integrar cambios de {branch}");
+    let msg = message.unwrap_or(&default_msg);
+
+    let merge_out = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["merge", "--no-ff", "-m", msg, branch])
+        .output()
+        .context("merge rama de worktree")?;
+
+    if !merge_out.status.success() {
+        bail!("git merge falló: {}", String::from_utf8_lossy(&merge_out.stderr));
+    }
+
+    Ok(String::from_utf8_lossy(&merge_out.stdout).trim().to_string())
+}
+
 // ------------------------------------------------------------------- tests
 
 #[cfg(test)]
@@ -374,6 +459,45 @@ mod tests {
         assert!(status.limpio);
 
         let _ = fs::remove_dir_all(&dir_temp);
+    }
+
+    #[test]
+    fn test_worktree_crear_eliminar_y_rendimiento() {
+        let dir_repo = tempfile_simple("worktree_repo");
+        let dir_wt = tempfile_simple("worktree_target");
+
+        // Inicializar repo con commit inicial
+        let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
+        let _ = fs::write(dir_repo.join("README.md"), "# Test Repo\n");
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["add", "README.md"]).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["commit", "-m", "init"]).output();
+
+        // 1. Medir tiempo de creación de worktree (< 500ms según criterio de aceptación T2.2)
+        let t0 = std::time::Instant::now();
+        crear_worktree(&dir_repo, &dir_wt, "agent/T2.2", "HEAD").expect("crear worktree");
+        let duracion = t0.elapsed();
+
+        assert!(
+            duracion.as_millis() < 500,
+            "creación de worktree debe ser < 500ms (tardó: {:?})",
+            duracion
+        );
+
+        // 2. Verificar existencia y enlace compartido
+        assert!(dir_wt.join("README.md").exists());
+        let wt_git = dir_wt.join(".git");
+        assert!(wt_git.is_file(), ".git en worktree debe ser un puntero gitdir:");
+
+        // 3. Verificar aislamiento: modificar archivo en worktree no toca el repo base
+        fs::write(dir_wt.join("README.md"), "# Modificado en worktree\n").expect("write wt");
+        let contenido_base = fs::read_to_string(dir_repo.join("README.md")).expect("read base");
+        assert_eq!(contenido_base, "# Test Repo\n", "el repo base debe permanecer inalterado");
+
+        // 4. Eliminar worktree
+        eliminar_worktree(&dir_repo, &dir_wt, true).expect("eliminar worktree");
+        assert!(!dir_wt.exists(), "directorio de worktree debe haber sido eliminado");
+
+        let _ = fs::remove_dir_all(&dir_repo);
     }
 
     fn tempfile_simple(nombre: &str) -> PathBuf {

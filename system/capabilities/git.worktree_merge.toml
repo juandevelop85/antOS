@@ -1,0 +1,15 @@
+name = "git.worktree_merge"
+summary = "Fusiona la rama de un Worktree verificado a la rama destino principal"
+
+[params]
+ticket_id = { type = "slug", max = 32 }
+target = { type = "branch", max = 64, optional = true, default = "main" }
+message = { type = "text", max = 256, optional = true }
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+
+[effects]
+writes = ["{path}/.git/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

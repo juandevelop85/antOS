@@ -1,0 +1,15 @@
+name = "git.worktree_create"
+summary = "Crea un árbol de trabajo efímero (Git Worktree) para ejecución aislada de agentes"
+
+[params]
+ticket_id = { type = "slug", max = 32 }
+branch = { type = "branch", max = 64, optional = true }
+base = { type = "branch", max = 64, optional = true, default = "HEAD" }
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+
+[effects]
+writes = ["$STATE/worktrees/{ticket_id}/", "{path}/.git/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

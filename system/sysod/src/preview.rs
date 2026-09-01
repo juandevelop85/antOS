@@ -59,6 +59,26 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                     ctx.display(repo_root)
                 )));
             }
+            Change::GitWorktreeCreate { target_path, branch_name, base, .. } => {
+                out.push(Line::Info(format!(
+                    "crea worktree efímero en {} (rama: {branch_name}, base: {base})",
+                    ctx.display(target_path)
+                )));
+            }
+            Change::GitWorktreeCleanup { target_path, force, .. } => {
+                let force_info = if *force { " (forzado)" } else { "" };
+                out.push(Line::Info(format!(
+                    "elimina worktree efímero en {}{force_info}",
+                    ctx.display(target_path)
+                )));
+                out.push(Line::Del(format!("  {}", ctx.display(target_path))));
+            }
+            Change::GitWorktreeMerge { branch_name, target_branch, message, .. } => {
+                let msg_info = message.as_deref().map(|m| format!(" «{m}»")).unwrap_or_default();
+                out.push(Line::Info(format!(
+                    "fusiona rama {branch_name} a {target_branch}{msg_info}"
+                )));
+            }
         }
         pendiente.aplicar(change);
     }

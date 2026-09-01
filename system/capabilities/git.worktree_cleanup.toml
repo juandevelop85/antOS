@@ -1,0 +1,15 @@
+name = "git.worktree_cleanup"
+summary = "Elimina un Git Worktree efímero tras finalizar o descartar una tarea"
+
+[params]
+ticket_id = { type = "slug", max = 32 }
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+force = { type = "enum", of = ["true", "false"], optional = true, default = "false" }
+
+[effects]
+deletes = ["$STATE/worktrees/{ticket_id}/"]
+writes = ["{path}/.git/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"
