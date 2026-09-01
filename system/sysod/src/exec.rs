@@ -23,6 +23,9 @@ pub enum Change {
     Mkdir { path: PathBuf },
     Delete { path: PathBuf },
     Read { path: PathBuf },
+    GitStatus { repo_root: PathBuf },
+    GitCommit { repo_root: PathBuf, commit_msg: String },
+    GitBranch { repo_root: PathBuf, branch_name: String, base: Option<String> },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -60,7 +63,11 @@ impl Pendiente {
                 self.escrituras.remove(path);
                 self.borrados.insert(path.clone());
             }
-            Change::Mkdir { .. } | Change::Read { .. } => {}
+            Change::Mkdir { .. }
+            | Change::Read { .. }
+            | Change::GitStatus { .. }
+            | Change::GitCommit { .. }
+            | Change::GitBranch { .. } => {}
         }
     }
 }
@@ -126,6 +133,35 @@ pub fn changes_for(
             }])
         }
 
+        "git.status" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            Ok(vec![Change::GitStatus { repo_root: root }])
+        }
+
+        "git.commit_semantic" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let tipo = a.get("type").cloned().unwrap_or_else(|| "feat".into());
+            let msg = a.get("message").cloned().unwrap_or_default();
+            let commit_msg = if let Some(scope) = a.get("scope").filter(|s| !s.is_empty()) {
+                format!("{tipo}({scope}): {msg}")
+            } else {
+                format!("{tipo}: {msg}")
+            };
+            Ok(vec![Change::GitCommit { repo_root: root, commit_msg }])
+        }
+
+        "git.smart_branch" => {
+            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let name = a.get("name").cloned().unwrap_or_default();
+            let base = a.get("base").cloned();
+            let branch_name = if let Some(ticket) = a.get("ticket_id").filter(|t| !t.is_empty()) {
+                format!("{}/{}", ticket.to_lowercase(), name)
+            } else {
+                name
+            };
+            Ok(vec![Change::GitBranch { repo_root: root, branch_name, base }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -157,6 +193,64 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             }
             Change::Read { path } => {
                 output.push(std::fs::read_to_string(path)?);
+            }
+            Change::GitStatus { repo_root } => {
+                if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(repo_root)? {
+                    let lineas = vec![
+                        format!("rama: {}", status.rama.unwrap_or_else(|| "HEAD desacoplado".into())),
+                        format!("commits: +{} / -{}", status.delante, status.detras),
+                        format!("modificados: {}", status.modificados.len()),
+                        format!("staged: {}", status.staged.len()),
+                        format!("sin seguimiento: {}", status.sin_seguimiento.len()),
+                    ];
+                    output.push(lineas.join("\n"));
+                } else {
+                    output.push("no es un repositorio Git".into());
+                }
+            }
+            Change::GitCommit { repo_root, commit_msg } => {
+                let add_out = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(repo_root)
+                    .args(["add", "-A"])
+                    .output()
+                    .context("ejecutando git add")?;
+                if !add_out.status.success() {
+                    bail!("git add falló: {}", String::from_utf8_lossy(&add_out.stderr));
+                }
+
+                let commit_out = std::process::Command::new("git")
+                    .arg("-C")
+                    .arg(repo_root)
+                    .args(["commit", "-m", commit_msg])
+                    .output()
+                    .context("ejecutando git commit")?;
+                if !commit_out.status.success() {
+                    let err = String::from_utf8_lossy(&commit_out.stderr);
+                    let out_str = String::from_utf8_lossy(&commit_out.stdout);
+                    if out_str.contains("nothing to commit") || err.contains("nothing to commit") {
+                        output.push("nada que commitear (árbol limpio)".into());
+                    } else {
+                        bail!("git commit falló: {err}\n{out_str}");
+                    }
+                } else {
+                    let resultado = String::from_utf8_lossy(&commit_out.stdout).trim().to_string();
+                    output.push(format!("commit creado: {resultado}"));
+                }
+            }
+            Change::GitBranch { repo_root, branch_name, base } => {
+                let mut cmd = std::process::Command::new("git");
+                cmd.arg("-C").arg(repo_root);
+                if let Some(b) = base {
+                    cmd.args(["checkout", "-B", branch_name, b]);
+                } else {
+                    cmd.args(["checkout", "-B", branch_name]);
+                }
+                let out = cmd.output().context("ejecutando git checkout")?;
+                if !out.status.success() {
+                    bail!("git checkout falló: {}", String::from_utf8_lossy(&out.stderr));
+                }
+                output.push(format!("rama activa: {branch_name}"));
             }
         }
     }
@@ -315,5 +409,62 @@ mod tests {
             content: "nuevo".into(),
         });
         assert_eq!(pendiente.leer(&ruta).as_deref(), Some("nuevo"));
+    }
+
+    #[test]
+    fn test_changes_for_capacidades_git() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = crate::capability::Catalog::load(&ctx.caps_dir).expect("catalog");
+        let pendiente = Pendiente::default();
+
+        // 1. git.status
+        let step_status = Step {
+            capability: "git.status".into(),
+            args: BTreeMap::new(),
+        };
+        let cap_status = catalog.get("git.status").expect("cap git.status");
+        let changes_status = changes_for(&step_status, cap_status, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_status.len(), 1);
+        match &changes_status[0] {
+            Change::GitStatus { repo_root } => assert_eq!(repo_root, &ctx.workspace),
+            _ => panic!("debe ser GitStatus"),
+        }
+
+        // 2. git.commit_semantic
+        let mut args_commit = BTreeMap::new();
+        args_commit.insert("type".into(), "feat".into());
+        args_commit.insert("scope".into(), "auth".into());
+        args_commit.insert("message".into(), "soporte de tokens JWT".into());
+        let step_commit = Step {
+            capability: "git.commit_semantic".into(),
+            args: args_commit,
+        };
+        let cap_commit = catalog.get("git.commit_semantic").expect("cap git.commit_semantic");
+        let changes_commit = changes_for(&step_commit, cap_commit, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_commit.len(), 1);
+        match &changes_commit[0] {
+            Change::GitCommit { commit_msg, .. } => {
+                assert_eq!(commit_msg, "feat(auth): soporte de tokens JWT");
+            }
+            _ => panic!("debe ser GitCommit"),
+        }
+
+        // 3. git.smart_branch
+        let mut args_branch = BTreeMap::new();
+        args_branch.insert("name".into(), "login-oauth".into());
+        args_branch.insert("ticket_id".into(), "T2.1".into());
+        let step_branch = Step {
+            capability: "git.smart_branch".into(),
+            args: args_branch,
+        };
+        let cap_branch = catalog.get("git.smart_branch").expect("cap git.smart_branch");
+        let changes_branch = changes_for(&step_branch, cap_branch, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_branch.len(), 1);
+        match &changes_branch[0] {
+            Change::GitBranch { branch_name, .. } => {
+                assert_eq!(branch_name, "t2.1/login-oauth");
+            }
+            _ => panic!("debe ser GitBranch"),
+        }
     }
 }

@@ -1,0 +1,15 @@
+name = "git.smart_branch"
+summary = "Crea o cambia a una rama Git vinculándola con un contexto o ticket"
+
+[params]
+name = { type = "branch", max = 64 }
+base = { type = "branch", max = 64, optional = true, default = "main" }
+ticket_id = { type = "slug", max = 16, optional = true }
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+
+[effects]
+writes = ["{path}/.git/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

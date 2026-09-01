@@ -1,0 +1,15 @@
+name = "git.commit_semantic"
+summary = "Crea un commit convencional y semántico con los cambios del espacio de trabajo"
+
+[params]
+type = { type = "enum", of = ["feat", "fix", "docs", "refactor", "test", "chore", "perf", "style"] }
+scope = { type = "slug", max = 32, optional = true }
+message = { type = "text", max = 256 }
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+
+[effects]
+writes = ["{path}/.git/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

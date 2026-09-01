@@ -92,10 +92,61 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("fs.write", &[("path", &path), ("content", &content)])]));
         }
 
+        // Intenciones Git semánticas (T2.1)
+        if lower.contains("commit") {
+            let tipo = if lower.contains("fix") || lower.contains("arregl") || lower.contains("corrige") {
+                "fix"
+            } else if lower.contains("doc") {
+                "docs"
+            } else if lower.contains("refactor") {
+                "refactor"
+            } else if lower.contains("test") || lower.contains("prueba") {
+                "test"
+            } else {
+                "feat"
+            };
+
+            let scope = if lower.contains("auth") || lower.contains("autenticacion") || lower.contains("autenticación") {
+                Some("auth")
+            } else if lower.contains("ipc") || lower.contains("protocolo") {
+                Some("protocolo")
+            } else if lower.contains("ui") || lower.contains("barra") {
+                Some("barra")
+            } else {
+                None
+            };
+
+            // Extraer mensaje descriptivo
+            let msg = if let Some((_, resto)) = intent.split_once("commit") {
+                let m = resto.trim_start_matches(|c: char| c == ':' || c == '-' || c.is_whitespace()).trim();
+                let m = m.trim_start_matches("con ").trim_start_matches("de ").trim();
+                if m.is_empty() { intent.trim() } else { m }
+            } else {
+                intent.trim()
+            };
+
+            let mut params = vec![("type", tipo), ("message", msg)];
+            if let Some(s) = scope {
+                params.push(("scope", s));
+            }
+
+            return Ok(Propuesta::solo(vec![step("git.commit_semantic", &params)]));
+        }
+
+        if lower.contains("rama") || lower.contains("branch") {
+            let name = after(&words, &["rama", "branch", "llamada", "nombre"])
+                .unwrap_or_else(|| words.last().cloned().unwrap_or_else(|| "feature".into()));
+            return Ok(Propuesta::solo(vec![step("git.smart_branch", &[("name", &name)])]));
+        }
+
+        if lower.contains("estado") && (lower.contains("git") || lower.contains("repo")) || lower == "git status" {
+            return Ok(Propuesta::solo(vec![step("git.status", &[])]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir y borrar.\n\
-             Para lenguaje libre usa: syso --planificador claude \"…\""
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos y ramas Git.\n\
+             Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
 }
@@ -121,5 +172,44 @@ fn step(capability: &str, args: &[(&str, &str)]) -> Step {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<BTreeMap<_, _>>(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ctx::Ctx;
+
+    #[test]
+    fn test_plan_commit_semantico_auth() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let propuesta = planner
+            .plan("haz commit con los cambios de auth", &catalog)
+            .expect("debe planificar");
+
+        assert_eq!(propuesta.steps.len(), 1);
+        let s = &propuesta.steps[0];
+        assert_eq!(s.capability, "git.commit_semantic");
+        assert_eq!(s.args.get("type").map(String::as_str), Some("feat"));
+        assert_eq!(s.args.get("scope").map(String::as_str), Some("auth"));
+    }
+
+    #[test]
+    fn test_plan_crear_rama() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let propuesta = planner
+            .plan("crea rama login-flow", &catalog)
+            .expect("debe planificar");
+
+        assert_eq!(propuesta.steps.len(), 1);
+        let s = &propuesta.steps[0];
+        assert_eq!(s.capability, "git.smart_branch");
+        assert_eq!(s.args.get("name").map(String::as_str), Some("login-flow"));
     }
 }

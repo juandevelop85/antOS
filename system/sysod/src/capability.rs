@@ -150,6 +150,20 @@ impl Catalog {
                         bail!("{}: «{name}» no es un identificador válido: «{value}»", cap.name);
                     }
                 }
+                "branch" | "git_ref" => {
+                    let valido = |c: char| {
+                        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')
+                    };
+                    if value.is_empty()
+                        || !value.chars().all(valido)
+                        || value.starts_with('/')
+                        || value.ends_with('/')
+                        || value.contains("..")
+                        || value.contains("//")
+                    {
+                        bail!("{}: «{name}» no es un nombre de rama válido: «{value}»", cap.name);
+                    }
+                }
                 // Un nombre de paquete de un ecosistema real: npm admite
                 // ámbitos (`@types/express`), y otros admiten `+`. Es un tipo
                 // aparte de `slug` a propósito — `slug` lo usan parámetros que

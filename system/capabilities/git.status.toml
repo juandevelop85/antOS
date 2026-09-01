@@ -1,0 +1,12 @@
+name = "git.status"
+summary = "Consulta el estado estructurado del repositorio Git (ramas, archivos sucios, diffs)"
+
+[params]
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+
+[effects]
+reads = ["{path}/.git/"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -45,6 +45,20 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                     }
                 }
             }
+            Change::GitStatus { repo_root } => {
+                out.push(Line::Info(format!("consulta estado git en {}", ctx.display(repo_root))));
+            }
+            Change::GitCommit { repo_root, commit_msg } => {
+                out.push(Line::Info(format!("crea commit en {}", ctx.display(repo_root))));
+                out.push(Line::Add(format!("  + {commit_msg}")));
+            }
+            Change::GitBranch { repo_root, branch_name, base } => {
+                let base_info = base.as_deref().map(|b| format!(" (base: {b})")).unwrap_or_default();
+                out.push(Line::Info(format!(
+                    "crea/cambia a rama {branch_name}{base_info} en {}",
+                    ctx.display(repo_root)
+                )));
+            }
         }
         pendiente.aplicar(change);
     }
