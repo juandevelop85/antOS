@@ -1,6 +1,6 @@
 //! El contrato entre el demonio de antOS y sus clientes.
 //!
-//! Vivía dentro de `sysod` mientras el único cliente era su propio terminal.
+//! Vivía dentro de `antosd` mientras el único cliente era su propio terminal.
 //! Sale a un crate aparte en cuanto aparece un segundo cliente —la barra de
 //! intención— porque la alternativa sería que cada uno tuviera su copia de
 //! estos tipos. Un protocolo duplicado es un protocolo que diverge.

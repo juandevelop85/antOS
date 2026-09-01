@@ -18,7 +18,8 @@ rustPlatform.buildRustPackage {
     fileset = lib.fileset.unions [
       ../../Cargo.toml
       ../../Cargo.lock
-      ../../system/sysod
+      ../../system/protocolo
+      ../../system/antosd
       ../../system/capabilities
       ../../builder/Cargo.toml
       ../../builder/src

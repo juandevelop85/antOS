@@ -1,7 +1,6 @@
 //! El demonio y su cliente.
 //!
-//! `sysod` se llamaba así desde el primer día sin serlo: era un programa que
-//! hacía todo en proceso. Esto lo convierte en lo que decía ser.
+//! `antosd` es el demonio central del sistema operativo antOS.
 //!
 //! ## Por qué ahora
 //!

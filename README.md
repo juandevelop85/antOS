@@ -50,7 +50,7 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 ### Estructura del Workspace (Crates de Rust)
 
 * **[`system/protocolo`](system/protocolo):** Crate `antos-protocolo` con tipos puros de intercambio IPC, serializables con `serde`. Cero dependencias pesadas de I/O.
-* **[`system/sysod`](system/sysod):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/remoto, orquestador `antFlow`, analizador Git, cálculo de radio de impacto, recinto sandbox y motor de ejecución.
+* **[`system/antosd`](system/antosd):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/remoto, orquestador `antFlow`, analizador Git, cálculo de radio de impacto, recinto sandbox y motor de ejecución.
 * **[`system/capabilities`](system/capabilities):** Manifiestos TOML tipados que definen contratos, parámetros, efectos y niveles de riesgo de cada capacidad del desarrollador.
 * **[`system/barra`](system/barra):** Shell de escritorio Wayland / GTK4 Layer Shell con barra flotante de intenciones, insignias en vivo y centro de control Kanban.
 * **[`kernel`](kernel):** Núcleo `no_std` en Rust para arranque en metal desnudo.

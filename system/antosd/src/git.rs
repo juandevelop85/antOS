@@ -1,6 +1,6 @@
 //! Analizador e introspección de repositorios Git en segundo plano para antOS (T1.2).
 //!
-//! Este módulo permite a `sysod` inspeccionar de forma instantánea el estado de
+//! Este módulo permite a `antosd` inspeccionar de forma instantánea el estado de
 //! cualquier espacio de trabajo (rama actual, commits delante/detrás del remoto,
 //! archivos modificados/staged/untracked y recuento de líneas cambiadas),
 //! utilizando caché en memoria invalidada por las marcas de tiempo (`mtime`) de

@@ -7,8 +7,8 @@ trigger: always_on
 ## 1. Arquitectura y Convenciones de Código (Rust)
 - **Crates del Workspace:**
   - `system/protocolo` (`antos-protocolo`): Definición de tipos de datos puros, IPC y mensajes serializables con `serde`. No debe contener lógica de I/O pesada ni dependencias del demonio.
-  - `system/sysod`: Demonio del sistema operativo encargado de servicios de fondo, despacho IPC y coordinación de capacidades.
-  - `system/capabilities`: Módulos de capacidades tipadas (Git semántico, Worktrees, puertos, nix services).
+  - `system/antosd` (`antosd`): Demonio del sistema operativo encargado de servicios de fondo, despacho IPC, sandbox y coordinación de capacidades.
+  - `system/capabilities`: Módulos de capacidades tipadas (Git semántico, Worktrees, puertos, nix services, secretos).
   - `kernel`: Crate `no_std` para bare metal. No mezclar dependencias de `std` con el kernel.
 - **Calidad y Robustez:**
   - **Nomenclatura en Inglés:** Todos los identificadores (funciones, variables, structs, enums, métodos, traits y módulos) deben escribirse exclusivamente en inglés (ej. `FlowEngine`, `start_task`, `diagnose_ports`).

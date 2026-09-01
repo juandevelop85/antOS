@@ -12,8 +12,8 @@ El backlog maestro se encuentra en [`docs/tickets/README.md`](file:///Users/juan
 
 ## 🦀 Estructura de Crates
 - `system/protocolo`: Mensajes IPC y tipos de intercambio (`antos-protocolo`).
-- `system/sysod`: Demonio del sistema operativo.
-- `system/capabilities`: Capacidades tipadas (Git, Sandboxes, Worktrees, Puertos).
+- `system/antosd`: Demonio del sistema operativo (`antosd` / binario `antos`).
+- `system/capabilities`: Capacidades tipadas (Git, Sandboxes, Worktrees, Puertos, Servicios, Secretos).
 - `system/barra`: Shell de escritorio / Interfaz Wayland GTK4.
 - `kernel`: Núcleo `no_std` en Rust.
 - `builder`: Generador de imágenes de arranque.

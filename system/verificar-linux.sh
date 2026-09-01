@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compila y verifica sysod dentro de Linux, contra un kernel de verdad.
+# Compila y verifica antosd dentro de Linux, contra un kernel de verdad.
 #
 # El recinto de Linux (Landlock) no se puede probar desde macOS: hay que
 # ejecutarlo donde vive. Este guion levanta un contenedor, compila dentro y
@@ -15,23 +15,23 @@ IMAGEN="docker.io/library/rust:slim"
 
 exec podman run --rm -i \
   -v "$RAIZ:/src" \
-  -v syso-cargo-registry:/usr/local/cargo/registry \
-  -v syso-target-linux:/tmp/tl \
+  -v antos-cargo-registry:/usr/local/cargo/registry \
+  -v antos-target-linux:/tmp/tl \
   -w /src "$IMAGEN" bash -s <<'DENTRO'
 set -euo pipefail
 export NO_COLOR=1
-export SYSO_WORKSPACE=/tmp/ws
-export SYSO_STATE=/tmp/estado
-export SYSO_CAPABILITIES=/src/system/capabilities
-S=/tmp/tl/debug/syso
+export ANTOS_WORKSPACE=/tmp/ws
+export ANTOS_STATE=/tmp/estado
+export ANTOS_CAPABILITIES=/src/system/capabilities
+S=/tmp/tl/debug/antos
 
 echo "════════ entorno ════════"
 echo "  kernel: $(uname -r) $(uname -m)"
 
 echo
 echo "════════ compilar y probar ════════"
-cargo build -p sysod --target-dir /tmp/tl 2>&1 | tail -3
-cargo test -p sysod --target-dir /tmp/tl 2>&1 | tail -4
+cargo build -p antosd --target-dir /tmp/tl 2>&1 | tail -3
+cargo test -p antosd --target-dir /tmp/tl 2>&1 | tail -4
 
 # Un secreto del usuario, del tipo que una capacidad jamás debería poder leer.
 mkdir -p /root/.ssh
@@ -49,7 +49,7 @@ RECINTO='{"writes":["/tmp/ws"],"reads":[],"network":false}'
 echo -n "  sin confinar: "
 echo "$ORDEN" | $S __ejecutar | head -c 120; echo
 echo -n "  confinado:    "
-echo "$ORDEN" | SYSO_RECINTO="$RECINTO" $S __ejecutar | head -c 200; echo
+echo "$ORDEN" | ANTOS_RECINTO="$RECINTO" $S __ejecutar | head -c 200; echo
 
 echo
 echo "════════ el bucle completo ════════"

@@ -1,30 +1,25 @@
-# syso · capa de sistema (Vía A)
+# antOS · Capa de Sistema (Demonio y CLI)
 
 Convierte una intención en capacidades **tipadas, aisladas y reversibles**.
-Dos documentos:
-
-- [`docs/arquitectura.html`](../docs/arquitectura.html) — el diseño y por qué es así.
-- [`docs/construccion.html`](../docs/construccion.html) — qué se construyó, en qué
-  orden, con qué herramientas, y los quince fallos que solo se vieron ejecutando.
 
 ## Probarlo
 
 ```bash
-cargo build -p sysod
+cargo build -p antosd
 
-target/debug/syso caps                                        # catálogo
-target/debug/syso -n "crea un proyecto rust llamado demo"     # planificar sin ejecutar
-target/debug/syso "crea un proyecto rust llamado demo"        # diff + confirmación
-target/debug/syso log                                         # bitácora
-target/debug/syso undo                                        # revertir
+target/debug/antos caps                                        # catálogo
+target/debug/antos -n "crea un proyecto rust llamado demo"     # planificar sin ejecutar
+target/debug/antos "crea un proyecto rust llamado demo"        # diff + confirmación
+target/debug/antos log                                         # bitácora
+target/debug/antos undo                                        # revertir
 ```
 
 Las capacidades de nivel «concesión» están denegadas por defecto:
 
 ```bash
-target/debug/syso "borra demo"                # denegado
-target/debug/syso grant fs.delete --minutos 5
-target/debug/syso "borra demo"                # ahora sí
+target/debug/antos "borra demo"                # denegado
+target/debug/antos grant fs.delete --minutos 5
+target/debug/antos "borra demo"                # ahora sí
 ```
 
 ## Planificadores
