@@ -1,0 +1,732 @@
+<title>Cómo se construyó syso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;600&display=swap">
+
+<style>
+  /* Mismo sistema que docs/arquitectura.html: son documentos hermanos. */
+  :root {
+    --ground:      #E7EBEF;
+    --surface:     #FBFCFD;
+    --surface-alt: #F1F4F7;
+    --ink:         #16202B;
+    --ink-soft:    #3C4C5C;
+    --muted:       #66788A;
+    --rule:        #C9D4DE;
+    --rule-soft:   #DDE4EB;
+    --accent:      #2B4C74;
+    --via-b:       #1B6B58;
+    --via-b-bg:    #DCEDE7;
+    --via-a:       #9C6410;
+    --via-a-bg:    #F6E9D2;
+    --hallazgo:    #A03B26;
+    --hallazgo-bg: #F6DDD6;
+
+    --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+    --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0F151C;
+      --surface:     #18212B;
+      --surface-alt: #1E2833;
+      --ink:         #DEE6EE;
+      --ink-soft:    #B4C2CF;
+      --muted:       #8195A7;
+      --rule:        #2C3944;
+      --rule-soft:   #232F3A;
+      --accent:      #85AEDF;
+      --via-b:       #56BCA0;
+      --via-b-bg:    #16302B;
+      --via-a:       #DBA451;
+      --via-a-bg:    #33280F;
+      --hallazgo:    #E4785F;
+      --hallazgo-bg: #35201A;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0F151C;
+    --surface:     #18212B;
+    --surface-alt: #1E2833;
+    --ink:         #DEE6EE;
+    --ink-soft:    #B4C2CF;
+    --muted:       #8195A7;
+    --rule:        #2C3944;
+    --rule-soft:   #232F3A;
+    --accent:      #85AEDF;
+    --via-b:       #56BCA0;
+    --via-b-bg:    #16302B;
+    --via-a:       #DBA451;
+    --via-a-bg:    #33280F;
+    --hallazgo:    #E4785F;
+    --hallazgo-bg: #35201A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16.5px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 1.5rem 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; }
+  .col  { max-width: 68ch; }
+
+  /* ---------- cabecera ---------- */
+  .masthead {
+    display: flex; flex-direction: column; gap: 1.3rem;
+    padding: 5rem 0 2.5rem; border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--f-mono); font-size: 0.72rem; font-weight: 500;
+    letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+  }
+  h1 {
+    font-family: var(--f-display); font-weight: 800;
+    font-size: clamp(2.4rem, 6.5vw, 4rem); line-height: 1;
+    letter-spacing: -0.03em; margin: 0; text-wrap: balance;
+  }
+  .thesis {
+    font-size: clamp(1.05rem, 2.2vw, 1.3rem); line-height: 1.5;
+    color: var(--ink-soft); max-width: 46ch; font-weight: 450; margin: 0;
+  }
+  .thesis strong { color: var(--ink); font-weight: 600; }
+
+  .cifras {
+    display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    background: var(--rule); border: 1px solid var(--rule); margin-top: 1rem;
+  }
+  .cifra { background: var(--surface); padding: 1rem 1.1rem; }
+  .cifra b {
+    display: block; font-family: var(--f-display); font-weight: 700;
+    font-size: 1.5rem; letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  .cifra span { font-size: 0.82rem; color: var(--muted); }
+
+  /* ---------- secciones ---------- */
+  section { padding-top: 4rem; }
+  h2 {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: clamp(1.55rem, 3.2vw, 2rem); letter-spacing: -0.022em;
+    line-height: 1.15; margin: 0 0 0.4rem; text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--f-display); font-weight: 600; font-size: 1.05rem;
+    letter-spacing: -0.008em; margin: 2rem 0 0.3rem;
+  }
+  .lede { color: var(--muted); font-size: 1rem; margin: 0 0 1.8rem; max-width: 62ch; }
+  p { margin: 0 0 1.1rem; }
+  code {
+    font-family: var(--f-mono); font-size: 0.86em;
+    background: var(--surface-alt); border: 1px solid var(--rule-soft);
+    padding: 0.08em 0.36em; border-radius: 3px;
+  }
+  strong { font-weight: 600; }
+
+  /* ---------- tablas ---------- */
+  .tabla-scroll { overflow-x: auto; margin: 1.6rem 0; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 540px; }
+  th, td { text-align: left; padding: 0.7rem 1rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  th {
+    font-family: var(--f-mono); font-size: 0.7rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+    background: var(--surface-alt);
+  }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { font-family: var(--f-mono); font-size: 0.83rem; white-space: nowrap; }
+  td.libre { font-family: var(--f-body); font-size: 0.9rem; white-space: normal; }
+
+  /* ---------- cronología ---------- */
+  .hitos { display: flex; flex-direction: column; gap: 1px; background: var(--rule);
+           border: 1px solid var(--rule); margin: 1.8rem 0; }
+  .hito { background: var(--surface); display: grid; grid-template-columns: 4.5rem 1fr;
+          gap: 1.3rem; padding: 1.3rem; }
+  .hito-marca { display: flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; }
+  .via {
+    font-family: var(--f-mono); font-size: 0.62rem; font-weight: 600; letter-spacing: 0.12em;
+    text-transform: uppercase; padding: 0.2em 0.45em; border-radius: 3px;
+  }
+  .via.b { color: var(--via-b); background: var(--via-b-bg); }
+  .via.a { color: var(--via-a); background: var(--via-a-bg); }
+  .hito-n {
+    font-family: var(--f-mono); font-size: 1.5rem; font-weight: 600; line-height: 1;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .hito h3 { margin: 0 0 0.3rem; font-size: 1.05rem; }
+  .hito p { font-size: 0.93rem; color: var(--ink-soft); margin: 0 0 0.7rem; line-height: 1.55; }
+  .campos { display: flex; flex-direction: column; gap: 0.4rem; margin: 0; }
+  .campo { display: grid; grid-template-columns: 5.5rem 1fr; gap: 0.8rem; align-items: baseline; }
+  .campo dt {
+    font-family: var(--f-mono); font-size: 0.66rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+  }
+  .campo dd { margin: 0; font-size: 0.88rem; color: var(--ink-soft); line-height: 1.5; }
+
+  /* ---------- hallazgos ---------- */
+  .hallazgos { display: flex; flex-direction: column; gap: 1.4rem; margin: 1.8rem 0; }
+  .hallazgo { border-left: 3px solid var(--hallazgo); padding-left: 1.2rem; }
+  .hallazgo h4 { font-family: var(--f-display); font-weight: 700; font-size: 1rem;
+                 margin: 0 0 0.3rem; letter-spacing: -0.01em; }
+  .hallazgo p { font-size: 0.93rem; color: var(--ink-soft); margin: 0 0 0.5rem; }
+  .arreglo {
+    font-size: 0.88rem; color: var(--ink-soft); background: var(--surface-alt);
+    border: 1px solid var(--rule-soft); padding: 0.55rem 0.8rem; border-radius: 3px;
+  }
+  .arreglo b { font-family: var(--f-mono); font-size: 0.7rem; letter-spacing: 0.1em;
+               text-transform: uppercase; color: var(--hallazgo); display: block; margin-bottom: 0.2rem; }
+
+  /* ---------- código ---------- */
+  pre.bloque {
+    margin: 1.3rem 0; padding: 1rem 1.1rem; overflow-x: auto;
+    background: var(--surface); border: 1px solid var(--rule);
+    font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.7; color: var(--ink-soft);
+  }
+  pre.bloque .cm { color: var(--muted); }
+
+  /* ---------- mapa ---------- */
+  .mapa { margin: 1.6rem 0; border: 1px solid var(--rule); background: var(--surface);
+          overflow-x: auto; }
+  .mapa pre { margin: 0; padding: 1.2rem; font-family: var(--f-mono);
+              font-size: 0.8rem; line-height: 1.75; color: var(--ink-soft); }
+  .mapa b { color: var(--ink); font-weight: 600; }
+  .mapa i { color: var(--muted); font-style: normal; }
+
+  footer { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+           font-family: var(--f-mono); font-size: 0.76rem; color: var(--muted);
+           display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+
+  @media (max-width: 620px) {
+    .hito { grid-template-columns: 1fr; gap: 0.6rem; }
+    .hito-marca { flex-direction: row; align-items: center; gap: 0.6rem; }
+    .campo { grid-template-columns: 1fr; gap: 0.1rem; }
+    body { padding: 0 1.1rem 4rem; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Guía de construcción · 31 agosto 2026</div>
+    <h1>Cómo se construyó syso</h1>
+    <p class="thesis">Dos sistemas operativos en un repositorio: un <strong>kernel x86_64</strong>
+      escrito desde el arranque, y una <strong>capa de sistema</strong> que convierte lo que dices
+      en cambios tipados, confinados por el kernel y reversibles.</p>
+
+    <div class="cifras">
+      <div class="cifra"><b>21</b><span>commits, todos verificados ejecutándolos</span></div>
+      <div class="cifra"><b>6&nbsp;+&nbsp;4</b><span>fases del kernel y hitos del sistema</span></div>
+      <div class="cifra"><b>6.262</b><span>líneas de Rust</span></div>
+      <div class="cifra"><b>15</b><span>fallos que solo se vieron ejecutando</span></div>
+    </div>
+  </header>
+
+  <section class="col">
+    <h2>Qué hay aquí y por qué son dos cosas</h2>
+    <p>El proyecto empezó como práctica: escribir un sistema operativo para entenderlo. A mitad de
+      camino se le añadió una ambición de producto — un SO donde todo lo que un desarrollador
+      necesita esté a una petición a la IA. Son escalas de tiempo incompatibles: llegar desde un
+      kernel propio hasta ejecutar herramientas reales cuesta años, y la diferenciación de esa idea
+      no está en el kernel sino en la capa que traduce intención en acción.</p>
+    <p>Así que se separaron a conciencia. La <strong>Vía B</strong> es el kernel, y es aprendizaje:
+      entender syscalls, anillos de privilegio y tablas de páginas es lo que evita diseñar la Vía A
+      con ingenuidad. La <strong>Vía A</strong> es el producto, sobre Linux, y es donde vive todo lo
+      que hace distinto a syso.</p>
+    <p>Todo lo que sigue se hizo en una sola sesión de trabajo, y cada entrega se comprobó
+      ejecutándola: nada aquí está «terminado» porque compile.</p>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>El entorno</h2>
+      <p class="lede">Un Mac con Apple Silicon. Esa elección de máquina condiciona media guía:
+        varias decisiones no son las mejores en abstracto, son las que funcionan aquí.</p>
+    </div>
+
+    <div class="tabla-scroll">
+      <table>
+        <thead>
+          <tr><th>Herramienta</th><th>Versión</th><th>Por qué esta</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>rustc nightly</td><td>1.100.0</td>
+            <td class="libre">Nightly no es capricho: <code>abi_x86_interrupt</code> —la convención de
+              llamada de los manejadores de interrupción— solo existe ahí, y sin ella habría que
+              escribir a mano el prólogo y el epílogo de cada uno en ensamblador.</td>
+          </tr>
+          <tr>
+            <td>bootloader</td><td>0.11.17</td>
+            <td class="libre">Resuelve BIOS, modo largo y la paginación inicial, y entrega un
+              <code>BootInfo</code> con el mapa de memoria. Su rama UEFI quedó desactivada: no enlaza
+              con el nightly actual.</td>
+          </tr>
+          <tr>
+            <td>QEMU</td><td>11.1.1</td>
+            <td class="libre">Arranca el kernel en x86_64 emulado y la VM de NixOS en aarch64. Con
+              HVF en el anfitrión va a velocidad nativa; dentro de un contenedor, no.</td>
+          </tr>
+          <tr>
+            <td>podman</td><td>6.0.2</td>
+            <td class="libre">La única forma de tocar Linux de verdad desde macOS: se usa para
+              compilar y probar Landlock, y para todo el trabajo de Nix.</td>
+          </tr>
+          <tr>
+            <td>whisper.cpp</td><td>1.9.2</td>
+            <td class="libre">Transcripción en la propia máquina. Mandar el audio a un servicio
+              tiraría por tierra media premisa: un micrófono capta mucho más que la frase que
+              querías decir.</td>
+          </tr>
+          <tr>
+            <td>ffmpeg</td><td>9.0.1</td>
+            <td class="libre">Captura por <code>avfoundation</code>, conversión a 16 kHz mono, y
+              medición de nivel — que resultó ser una pieza de seguridad, no de comodidad.</td>
+          </tr>
+          <tr>
+            <td>Nix / NixOS</td><td>26.11</td>
+            <td class="libre">Base declarativa: el estado del sistema es un fichero, así que la IA
+              propone un diff revisable y deshacer es cambiar de generación. Se ejecuta dentro de un
+              contenedor porque instalar Nix en macOS pide contraseña.</td>
+          </tr>
+          <tr>
+            <td>API de Claude</td><td>Opus 5</td>
+            <td class="libre">El planificador. Habla HTTP directo: Rust no tiene SDK oficial de
+              Anthropic.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Vía B · el kernel, fase a fase</h2>
+      <p class="lede">Cada fase produce algo arrancable y comprobable. Todo escrito a mano, sin el
+        crate <code>x86_64</code>: el objetivo era entenderlo, no usarlo.</p>
+    </div>
+
+    <div class="hitos">
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">0</span></div>
+        <div>
+          <h3>Arranca y pinta</h3>
+          <p>Un kernel <code>#![no_std] #![no_main]</code>, un <code>panic_handler</code> propio, y
+            una imagen de disco arrancable. Pinta un degradado en el framebuffer que entrega el
+            bootloader.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Sin <code>std</code> no hay <code>println!</code>,
+              ni <code>Vec</code>, ni hilos: todo eso son llamadas a un SO que aquí no existe. La
+              fase existe para tener suelo antes de construir.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd><code>stride</code> ≠ <code>width</code>: el
+              framebuffer tiene relleno al final de cada fila. Usar <code>width</code> habría torcido
+              la imagen en diagonal.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>Captura de pantalla de QEMU con el degradado.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">1</span></div>
+        <div>
+          <h3>Deja de estar ciego</h3>
+          <p>Driver del UART 16550 y un <code>println!</code> propio. Un <code>SpinLock</code>
+            escrito a mano, e informe de arranque con memoria y framebuffer.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Es el instrumento sin el cual depurar las fases
+              siguientes sería a oscuras. Por eso va antes que interrupciones o paginación.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>El puerto serie no es memoria: vive en el espacio
+              de E/S de x86, al que solo se llega con <code>in</code> y <code>out</code>. De ahí el
+              ensamblador. Y un cerrojo sin SO solo puede girar en vacío, porque no hay planificador
+              que duerma a nadie.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>Informe por el serie, y un panic deliberado que
+              imprime fichero, línea y columna con formateo.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">2</span></div>
+        <div>
+          <h3>Empieza a reaccionar</h3>
+          <p>GDT y TSS, IDT con ocho vectores, el PIC 8259 remapeado, y manejadores de temporizador
+            y teclado.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>La GDT sigue viva en 64 bits casi solo para poder
+              describir un TSS, y el TSS casi solo por la IST: da al manejador de doble fallo una
+              pila limpia, y eso convierte un triple fallo silencioso en un mensaje.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>El PIC hay que remapearlo porque emite en los
+              vectores 8–15, que la CPU ya usa. Y no existe <code>mov cs, reg</code>: cambiar el
+              segmento de código exige falsificar un retorno lejano con <code>retfq</code>.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>Breakpoint manejado y reanudado, temporizador a
+              ~18 Hz, y el teclado deletreando «syso» por el serie.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">3</span></div>
+        <div>
+          <h3>Memoria virtual y heap</h3>
+          <p>Paginación de cuatro niveles a mano —traducir y mapear recorriendo tablas—, asignador
+            de marcos, y dos asignadores globales.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Las tablas de páginas guardan direcciones físicas
+              y la CPU solo entiende virtuales. Se rompe el círculo pidiéndole al bootloader que
+              mapee toda la física en un rango contiguo.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>Se implementaron dos asignadores para poder
+              <em>medir</em> por qué uno no basta, no para contarlo.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>5.000 ciclos con una asignación viva: el de puntero
+              agota 512 KiB hacia el ciclo 2.000; la lista enlazada se queda plana en 272 B.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">4</span></div>
+        <div>
+          <h3>Multitarea cooperativa</h3>
+          <p>Un ejecutor de <code>async</code>/<code>await</code> propio, con <code>Waker</code>
+            sobre <code>alloc::task::Wake</code> y cola de tareas listas.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Rust aporta la mitad: una <code>async fn</code> se
+              compila a una máquina de estados. Lo que no aporta —decidir a quién le toca— es lo que
+              escribe un SO. Sin ensamblador y sin una pila por tarea.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>Los manejadores de interrupción dejan de trabajar:
+              solo encolan y despiertan. Mientras uno corre, el resto del sistema está parado.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>Tres tareas sobre una sola pila. La de latido
+              duerme y despierta en los ticks 18, 36, 54, 72 y 90; la del teclado monta líneas.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via b">Vía B</span><span class="hito-n">5</span></div>
+        <div>
+          <h3>Espacio de usuario</h3>
+          <p>Anillo 3, <code>syscall</code>/<code>sysret</code> con su punto de entrada en
+            ensamblador <code>naked</code>, y un cargador de ELF64 propio.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Es lo que convierte esto en un sistema operativo:
+              código que no puede tocar la memoria del kernel, y la MMU encargándose de que así sea.
+              El programa de usuario es un crate aparte que NO enlaza con el kernel.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd><code>syscall</code> no cambia de pila —esa es su
+              diferencia con una interrupción— así que lo hace el kernel a mano. Hasta que ese cambio
+              termina, el kernel corre sobre memoria que el usuario controla: por eso FMASK apaga las
+              interrupciones al entrar.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>El programa escribe por syscall y sale con 0. En un
+              segundo arranque intenta leer el kernel y la MMU lo para con código
+              <code>0b101</code>: presente, lectura, desde usuario.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Vía A · el sistema, hito a hito</h2>
+      <p class="lede">Una capa sobre Linux. El recorrido de una intención es siempre el mismo:
+        plan tipado, radio de impacto, nivel de permiso, diff, confirmación, instantánea, ejecución
+        confinada, bitácora.</p>
+    </div>
+
+    <div class="hitos">
+      <div class="hito">
+        <div class="hito-marca"><span class="via a">Vía A</span><span class="hito-n">1</span></div>
+        <div>
+          <h3>El bucle</h3>
+          <p>Catálogo de capacidades en TOML con efectos y política declarados; el nivel de permiso
+            se deriva del radio de impacto; diff, confirmación, instantánea y <code>undo</code>.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>El modelo nunca recibe una shell: recibe
+              capacidades tipadas y devuelve un plan. Y el nivel no lo elige él — el manifiesto es un
+              suelo que los efectos declarados elevan.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd><code>changes_for()</code> es la única fuente de
+              verdad: previsualización y ejecución llaman a la misma función, para que el diff que
+              apruebas no pueda divergir de lo que ocurre.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>Crear, declarar, leer, borrar denegado por falta de
+              concesión, conceder, borrar, deshacer.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via a">Vía A</span><span class="hito-n">2</span></div>
+        <div>
+          <h3>El recinto</h3>
+          <p>La ejecución se muda a un proceso aparte confinado por el kernel. Seatbelt en macOS,
+            Landlock en Linux. Instantáneas con <code>clonefile(2)</code>.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>M1 comprobaba las rutas; M2 las hace cumplir. La
+              separación de procesos no es decorativa: el confinamiento afecta al proceso entero, así
+              que el broker tiene que quedar fuera para poder escribir su bitácora.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>Landlock confina también lecturas; Seatbelt no
+              —un perfil que las deniegue pelea con el enlazador dinámico de macOS y mata el
+              proceso—. Así que se desarrolla con garantías más flojas que las del destino.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd><code>syso doctor</code> ataca su propio recinto en
+              vez de confiar en él, y prueba la red en los dos sentidos para no confundir
+              «bloqueada» con «sin internet».</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via a">Vía A</span><span class="hito-n">3</span></div>
+        <div>
+          <h3>La voz</h3>
+          <p>Captura por micrófono, transcripción local con Whisper, y desde ahí el mismo recorrido
+            que una orden tecleada.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>La voz no es una arquitectura distinta: es otra
+              entrada. Hablar es más cómodo, no más privilegiado — y por eso va después del recinto y
+              del deshacer, cuando equivocarse ya es barato.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>El transcriptor se ceba con el vocabulario del
+              propio catálogo. Sale de los valores enumerados de los manifiestos, así que una
+              capacidad nueva enseña palabras nuevas sin tocar nada.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>De la voz al disco y vuelta con <code>undo</code>,
+              con audio sintetizado y con micrófono real.</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div class="hito">
+        <div class="hito-marca"><span class="via a">Vía A</span><span class="hito-n">4</span></div>
+        <div>
+          <h3>Arranca como sistema</h3>
+          <p>Un flake define la máquina entera: el paquete, un módulo de NixOS, y un servicio que al
+            arrancar comprueba su propio recinto.</p>
+          <dl class="campos">
+            <div class="campo"><dt>por qué</dt><dd>Gobernar la configuración obligaba a escribir
+              fuera del espacio de trabajo. La respuesta no fue una excepción sino una segunda raíz
+              declarada, <code>$SYSTEM_CONFIG</code>: no es fuga, pero exige concesión siempre.</dd></div>
+            <div class="campo"><dt>detalle</dt><dd>El catálogo viaja en el store inmutable de Nix, no
+              en un directorio mutable donde pudieran aparecer capacidades sin que nadie las
+              apruebe.</dd></div>
+            <div class="campo"><dt>prueba</dt><dd>La VM arranca y <code>syso doctor</code> pasa sus
+              comprobaciones dentro, con Landlock. Y <code>htop</code>, declarado por syso, aparece en
+              <code>environment.systemPackages</code>.</dd></div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>Lo que solo se vio ejecutando</h2>
+      <p class="lede">Ninguno de estos se veía leyendo el código. Son, en conjunto, el argumento
+        entero del proyecto: la diferencia entre razonar un diseño y comprobarlo.</p>
+    </div>
+
+    <div class="hallazgos">
+      <div class="hallazgo">
+        <h4><code>fs.write</code> mentía sobre sus efectos</h4>
+        <p>Declaraba escribir un fichero, pero su implementación creaba directorios que nunca había
+          declarado. En M1 pasaba desapercibido; en M2 el kernel lo paró con EPERM.</p>
+        <div class="arreglo"><b>lo que cambió</b>No una excepción, sino una regla: escribir en una
+          ruta implica crear sus ancestros que falten. Ahora eso aparece en el radio de impacto, se
+          fotografía y se revierte.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>El spinlock se autobloqueaba, y se demostró</h4>
+        <p>Quedó anunciado en la Fase 1 y se comprobó en la Fase 2 con dos arranques comparados:
+          sosteniendo el cerrojo mientras salta el temporizador, sin el arreglo la salida se corta en
+          seco y la máquina no vuelve nunca.</p>
+        <div class="arreglo"><b>lo que cambió</b>Apagar interrupciones ANTES de intentar entrar.
+          Después no sirve: la ventana entre una cosa y otra es justo donde ocurre.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>Landlock rechaza derechos de directorio sobre un fichero</h4>
+        <p>Un <code>EINVAL</code> al añadir la regla del propio binario. Y una regla rechazada tumba
+          el recinto entero, no solo esa ruta — así que denegaba todo, y las comprobaciones de
+          «¿deniega lo prohibido?» pasaban las tres.</p>
+        <div class="arreglo"><b>lo que cambió</b>Lo destapó la comprobación de que lo declarado SÍ se
+          permite. Sin ella, un recinto averiado habría pasado por perfecto.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>Los cambios se calculaban contra el disco de partida</h4>
+        <p>Declarar express, zod y <code>@types/express</code> en un plan dejaba solo el último: cada
+          paso leía el fichero tal y como estaba antes del plan y se pisaban al ejecutarse.</p>
+        <div class="arreglo"><b>lo que cambió</b>Lo grave no era perder dos líneas: el diff aprobado
+          dejaba de describir el resultado. Ahora los pasos se calculan en orden sobre una capa de
+          cambios pendientes, y la previsualización usa la misma capa.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>El silencio producía una intención</h4>
+        <p>Grabando una habitación vacía, Whisper transcribió «La gente se puede hacer un proyecto de
+          trabajo». No dice «no he oído nada»: se inventa una frase bien formada, con la que un
+          planificador puede construir un plan de verdad.</p>
+        <div class="arreglo"><b>lo que cambió</b>Se mide el nivel antes de transcribir. Números
+          medidos, no supuestos: silencio digital −91 dB, habitación −47 dB, voz −18 dB. El umbral
+          queda en −40.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>La clave de la API viajaba al ejecutor confinado</h4>
+        <p>Exportar <code>ANTHROPIC_API_KEY</code> hacía que la heredara todo proceso hijo — incluido
+          el componente que el diseño entero trata como no fiable.</p>
+        <div class="arreglo"><b>lo que cambió</b>La clave se lee de un fichero que solo abre el
+          broker, y se borra del entorno de cualquier hijo. El recinto le prohíbe la red al ejecutor,
+          pero una credencial filtrada no necesita red para hacer daño.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>Se le pedía el plan mal al modelo</h4>
+        <p>Con una herramienta por capacidad, emitía UNA llamada y paraba. Es lo natural: una
+          herramienta se invoca para ver su resultado y seguir. Medido: 1 paso, tres de tres.</p>
+        <div class="arreglo"><b>lo que cambió</b>Una sola herramienta cuyo argumento es el plan
+          entero — que es lo que la arquitectura decía desde el principio. Medido de nuevo: 5 pasos,
+          tres de tres.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>Un cero de más no da fallo de página</h4>
+        <p>El programa de usuario intentaba leer <code>0x1_0000_0000_0000</code>, que no es una
+          dirección canónica en x86-64. Eso produce un fallo de protección general, que es otra
+          excepción distinta.</p>
+        <div class="arreglo"><b>lo que cambió</b>De rebote apareció algo mejor: los manejadores miran
+          ahora el privilegio del selector apilado. Si el culpable es el programa, se le mata; solo un
+          fallo del kernel es motivo de panic.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>El dispositivo de audio por defecto no era el micrófono</h4>
+        <p>Era «Microsoft Teams Audio», un dispositivo virtual. Grabar con <code>:default</code>
+          habría dado silencio sin que nadie se enterase.</p>
+        <div class="arreglo"><b>lo que cambió</b>Opciones <code>--dispositivos</code> y
+          <code>--dispositivo N</code>. Se encontró antes de gastar una grabación.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4><code>include_bytes!</code> tiene alineación 1</h4>
+        <p>Castear eso a un <code>&amp;Header</code> con campos de 64 bits es comportamiento
+          indefinido. Rust en modo depuración lo cazó con un panic limpio.</p>
+        <div class="arreglo"><b>lo que cambió</b>Se lee con <code>read_unaligned</code>. El mismo tipo
+          de detalle que <code>#[repr(C, packed)]</code> en las estructuras que cruzan al kernel.</div>
+      </div>
+
+      <div class="hallazgo">
+        <h4>Apple Silicon no da virtualización anidada</h4>
+        <p>Los formatos de imagen de disco de NixOS —<code>qcow-efi</code> y compañía— ensamblan la
+          imagen DENTRO de una VM, así que necesitan <code>/dev/kvm</code>. Ese camino está cerrado
+          en esta máquina.</p>
+        <div class="arreglo"><b>lo que cambió</b><code>system.build.vm</code> no ensambla nada: se
+          construye como una derivación normal y el resultado es un guion que lanza QEMU montando el
+          store. Misma configuración, construible aquí.</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="col">
+      <h2>El mapa</h2>
+      <p class="lede">Tres workspaces de cargo separados a propósito: el kernel se compila para
+        bare metal y mezclarlo con el resto obligaría a pasar <code>--target</code> en todo.</p>
+    </div>
+
+    <div class="mapa">
+<pre><b>kernel/</b>                  <i>Vía B · workspace propio, target x86_64-unknown-none</i>
+  src/main.rs             <i>arranque, informe, demos</i>
+  src/serial.rs           <i>UART 16550 · println!</i>
+  src/sync.rs             <i>SpinLock e InitOnly, sin static mut</i>
+  src/gdt.rs              <i>GDT, TSS, pilas IST y de privilegio</i>
+  src/interrupts.rs       <i>IDT, excepciones, PIC 8259</i>
+  src/memory.rs           <i>paginación de 4 niveles, marcos, heap</i>
+  src/allocator/          <i>asignador de puntero y de lista enlazada</i>
+  src/task/               <i>ejecutor async, teclado, temporizador</i>
+  src/userspace.rs        <i>anillo 3, MSRs, syscall/sysret</i>
+  src/elf.rs              <i>cargador de ELF64</i>
+  build.rs                <i>compila e incrusta el programa de usuario</i>
+
+<b>user/</b>                    <i>workspace propio · el programa de anillo 3</i>
+
+<b>system/sysod/</b>            <i>Vía A · el intérprete de intenciones</i>
+  src/capability.rs       <i>catálogo, tipos de parámetro, validación</i>
+  src/blast.rs            <i>radio de impacto y derivación del nivel</i>
+  src/exec.rs             <i>changes_for() y la capa de pendientes</i>
+  src/sandbox/            <i>Seatbelt, Landlock, protocolo con el ejecutor</i>
+  src/planner/            <i>local determinista y Claude por HTTP</i>
+  src/voz.rs              <i>captura, nivel, transcripción</i>
+  src/snapshot.rs         <i>clonefile con caída a copia</i>
+  src/journal.rs          <i>bitácora append-only</i>
+
+<b>system/capabilities/</b>     <i>7 manifiestos TOML</i>
+<b>system/nixos/</b>            <i>módulo, configuración y VM</i>
+<b>builder/</b>                 <i>ELF del kernel → imagen de disco arrancable</i>
+<b>flake.nix</b>                <i>la máquina entera, como un valor</i>
+<b>docs/</b>                    <i>arquitectura y esta guía</i></pre>
+    </div>
+  </section>
+
+  <section class="col">
+    <h2>Cómo se ejecuta cada cosa</h2>
+
+    <h3>El kernel</h3>
+<pre class="bloque">./run.sh                          <span class="cm"># compila, genera la imagen y arranca QEMU</span>
+cd kernel &amp;&amp; cargo build --features bump   <span class="cm"># con el asignador de puntero</span></pre>
+
+    <h3>La capa de sistema</h3>
+<pre class="bloque">cargo build -p sysod
+
+target/debug/syso caps                          <span class="cm"># catálogo y niveles</span>
+target/debug/syso doctor                        <span class="cm"># ataca su propio recinto</span>
+target/debug/syso "crea un proyecto rust llamado demo"
+target/debug/syso log                           <span class="cm"># bitácora</span>
+target/debug/syso undo                          <span class="cm"># revierte el último plan</span>
+target/debug/syso grant fs.delete --minutos 10  <span class="cm"># concesión con caducidad</span></pre>
+
+    <h3>La voz</h3>
+<pre class="bloque">./system/instalar-voz.sh          <span class="cm"># whisper-cpp, ffmpeg y el modelo</span>
+target/debug/syso escucha --dispositivos
+target/debug/syso escucha --dispositivo 1 --segundos 5
+
+<span class="cm"># sin micrófono, sintetizando la orden:</span>
+say -v Monica -o /tmp/orden.aiff "crea un proyecto python llamado servidor"
+target/debug/syso escucha --desde /tmp/orden.aiff</pre>
+
+    <h3>Linux y la máquina completa</h3>
+<pre class="bloque">./system/verificar-linux.sh       <span class="cm"># compila y ataca el recinto en un contenedor</span>
+./system/arrancar-vm.sh           <span class="cm"># construye y arranca NixOS con syso dentro</span></pre>
+
+    <p>El planificador con Claude necesita una clave en
+      <code>~/.config/syso/anthropic.key</code> con permisos <code>600</code>. Nunca en el entorno:
+      la heredarían los procesos hijos.</p>
+  </section>
+
+  <section class="col">
+    <h2>Qué queda</h2>
+    <p>Nada pendiente de <em>verificar</em>: las veintiuna entregas se comprobaron ejecutándolas. Lo
+      que queda son decisiones.</p>
+    <p><strong>syso declara pero no aplica.</strong> Convertir la declaración en la máquina real
+      sigue siendo un <code>nixos-rebuild switch</code> a mano. Hay diseño —partir el acto en tres y
+      poner el privilegio al otro lado de una cola— pero ni una línea escrita.</p>
+    <p><strong>Los términos técnicos en español se transcriben mal.</strong> «rust» sale «rastre», y
+      el tamaño del modelo no lo arregla. El planificador amortigua el daño declarando su
+      interpretación, pero puede corregir hacia el sitio equivocado con la misma seguridad.</p>
+    <p><strong>El recinto no garantiza lo mismo en las dos plataformas.</strong> Landlock confina
+      lecturas; Seatbelt no, y lleva años deprecado. Se desarrolla con menos garantías que las del
+      destino.</p>
+    <p><strong>El kernel tiene todas las piezas estructurales.</strong> Lo que queda ahí no son
+      saltos conceptuales sino profundidad: hilos expulsivos, un sistema de ficheros, drivers,
+      llamadas al sistema de verdad.</p>
+  </section>
+
+  <footer>
+    <span>syso · guía de construcción</span>
+    <span>21 commits · 6.262 líneas de Rust</span>
+    <span>Revisión 1 — 31 agosto 2026</span>
+  </footer>
+
+</div>

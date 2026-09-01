@@ -1,7 +1,11 @@
 # syso · capa de sistema (Vía A)
 
 Convierte una intención en capacidades **tipadas, aisladas y reversibles**.
-Arquitectura completa: [`docs/arquitectura.html`](../docs/arquitectura.html).
+Dos documentos:
+
+- [`docs/arquitectura.html`](../docs/arquitectura.html) — el diseño y por qué es así.
+- [`docs/construccion.html`](../docs/construccion.html) — qué se construyó, en qué
+  orden, con qué herramientas, y los quince fallos que solo se vieron ejecutando.
 
 ## Probarlo
 
