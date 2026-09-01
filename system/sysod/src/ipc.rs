@@ -35,12 +35,12 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
 pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
-    ctx.state.join("syso.sock")
+    ctx.state.join("antos.sock")
 }
 
 // ------------------------------------------------------------- el protocolo
 
-pub use syso_protocolo::{Evento, Peticion};
+pub use antos_protocolo::{Evento, Peticion};
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los

@@ -35,28 +35,33 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::{channel, Receiver};
-use syso_protocolo::{Evento, Line, Peticion, Propuesta, Tier};
+use antos_protocolo::{Evento, Line, Peticion, Propuesta, Tier};
 
 const ANCHO: i32 = 720;
 
 fn ruta_socket() -> PathBuf {
-    if let Some(v) = std::env::var_os("SYSO_SOCKET") {
+    if let Some(v) = std::env::var_os("ANTOS_SOCKET").or_else(|| std::env::var_os("SYSO_SOCKET")) {
         return PathBuf::from(v);
     }
-    let estado = std::env::var_os("SYSO_STATE")
+    let estado = std::env::var_os("ANTOS_STATE")
+        .or_else(|| std::env::var_os("SYSO_STATE"))
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(".syso"));
-    estado.join("syso.sock")
+        .unwrap_or_else(|| PathBuf::from(".antos"));
+    estado.join("antos.sock")
 }
 
 fn main() {
     let app = Application::builder()
-        .application_id("dev.syso.barra")
+        .application_id("dev.antos.barra")
         .build();
 
     app.connect_startup(|_| {
         let proveedor = CssProvider::new();
-        proveedor.load_from_string(include_str!("estilo.css"));
+        // `load_from_string` existe solo con la característica v4_12 de la
+        // crate; activarla obligaría a recompilar gtk4 entero. `load_from_data`
+        // hace lo mismo y está disponible sin condiciones.
+        #[allow(deprecated)]
+        proveedor.load_from_data(include_str!("estilo.css"));
         if let Some(pantalla) = Display::default() {
             gtk4::style_context_add_provider_for_display(
                 &pantalla,
@@ -102,6 +107,15 @@ fn construir(app: &Application) {
     let contenido = Caja::new(Orientation::Vertical, 10);
     marco.append(&contenido);
 
+    // Una intención por argumentos. Sirve para guionizar la barra, y es lo
+    // que permite verificarla sin nadie tecleando delante.
+    let inicial: Option<String> = {
+        let args: Vec<String> = std::env::args().collect();
+        args.iter()
+            .position(|a| a == "--intencion")
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+
     let escritura: Rc<RefCell<Option<UnixStream>>> = Rc::new(RefCell::new(None));
 
     {
@@ -141,6 +155,11 @@ fn construir(app: &Application) {
     ventana.add_controller(controlador);
 
     ventana.present();
+
+    if let Some(texto) = inicial {
+        entrada.set_text(&texto);
+        entrada.emit_activate();
+    }
 }
 
 /// Abre la conexión y deja un hilo leyendo eventos.

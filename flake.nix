@@ -1,5 +1,5 @@
 {
-  description = "syso — el sistema hace lo que le pides, y puedes deshacerlo";
+  description = "antOS — el sistema hace lo que le pides, y puedes deshacerlo";
 
   # El flake vive en la raíz porque un flake no puede referenciar rutas por
   # encima de sí mismo, y el paquete necesita el workspace de cargo entero.
@@ -17,7 +17,7 @@
       base = [
         ./system/nixos/configuracion.nix
         self.nixosModules.default
-        { nixpkgs.overlays = [ (final: prev: { sysod = final.callPackage ./system/nixos/paquete.nix { }; }) ]; }
+        { nixpkgs.overlays = [ (final: prev: { antosd = final.callPackage ./system/nixos/paquete.nix { }; }) ]; }
       ];
 
       maquina = extra: nixpkgs.lib.nixosSystem {
@@ -28,7 +28,7 @@
     {
       packages = paraCada (pkgs: {
         default = pkgs.callPackage ./system/nixos/paquete.nix { };
-        sysod = pkgs.callPackage ./system/nixos/paquete.nix { };
+        antosd = pkgs.callPackage ./system/nixos/paquete.nix { };
       });
 
       # El entorno para compilar la barra de intención.
@@ -48,13 +48,9 @@
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior
       # en vez de reconstruir a mano lo que había.
-      nixosConfigurations.syso = maquina [ ./system/nixos/arranque.nix ];
+      nixosConfigurations.antos = maquina [ ./system/nixos/arranque.nix ];
 
       # La misma máquina, arrancable en QEMU.
-      #
-      # `system.build.vm` se construye SIN necesitar una VM, que es lo que
-      # importa en Apple Silicon: aquí no hay virtualización anidada, y los
-      # generadores de imágenes de disco montan una VM para ensamblarse.
-      nixosConfigurations.syso-vm = maquina [ ./system/nixos/vm.nix ];
+      nixosConfigurations.antos-vm = maquina [ ./system/nixos/vm.nix ];
     };
 }

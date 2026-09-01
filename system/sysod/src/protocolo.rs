@@ -10,7 +10,7 @@
 //! imprime, y no habrá dos verdades que mantener sincronizadas.
 
 
-pub use syso_protocolo::{Propuesta, Radio, Recinto, Resultado};
+pub use antos_protocolo::{Propuesta, Radio, Recinto, Resultado};
 
 /// Con quién habla el recorrido.
 ///

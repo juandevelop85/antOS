@@ -12,9 +12,9 @@ export PATH="$PATH:/opt/podman/bin"
 echo ">> construyendo la VM (la primera vez descarga el cierre entero)"
 podman run --rm -v "$RAIZ:/src" -v syso-nix-store:/nix docker.io/nixos/nix:latest \
   nix --extra-experimental-features "nix-command flakes" \
-      build "path:/src#nixosConfigurations.syso-vm.config.system.build.vm" \
+      build "path:/src#nixosConfigurations.antos-vm.config.system.build.vm" \
       --out-link /nix/vm
 
 echo ">> arrancando · Ctrl-a x para salir de QEMU"
 podman run --rm -it -v syso-nix-store:/nix docker.io/nixos/nix:latest \
-  sh -c 'cd /tmp && exec /nix/vm/bin/run-syso-vm'
+  sh -c 'cd /tmp && exec /nix/vm/bin/run-*-vm'

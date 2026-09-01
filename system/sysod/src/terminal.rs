@@ -56,7 +56,7 @@ impl Terminal {
 impl Interlocutor for Terminal {
     fn inicio(&mut self, intencion: &str, planificador: &str) -> Result<()> {
         println!();
-        println!("{}", paint("syso", BOLD));
+        println!("{}", paint("antOS", BOLD));
         println!("  {}", paint(&format!("«{intencion}»"), DIM));
         println!("  {}", paint(&format!("planificador: {planificador}"), DIM));
         Ok(())
@@ -169,7 +169,7 @@ impl Interlocutor for Terminal {
             Some(id) => println!(
                 "{} {}",
                 paint(&resultado.mensaje, GREEN),
-                paint(&format!("· instantánea {id} · «syso undo» lo revierte"), DIM)
+                paint(&format!("· instantánea {id} · «antos undo» lo revierte"), DIM)
             ),
             None => println!("{}", paint(&resultado.mensaje, GREEN)),
         }

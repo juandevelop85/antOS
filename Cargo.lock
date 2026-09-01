@@ -18,6 +18,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "antos-protocolo"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "antosd"
+version = "0.1.0"
+dependencies = [
+ "antos-protocolo",
+ "anyhow",
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml",
+ "ureq",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -842,27 +863,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
-]
-
-[[package]]
-name = "syso-protocolo"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "sysod"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "libc",
- "serde",
- "serde_json",
- "syso-protocolo",
- "toml",
- "ureq",
 ]
 
 [[package]]

@@ -12,7 +12,7 @@ pub struct Ctx {
     pub caps_dir: PathBuf,
     /// La configuración declarativa del sistema.
     ///
-    /// Es la SEGUNDA raíz que syso reconoce, y no es un espacio de trabajo
+    /// Es la SEGUNDA raíz que antOS reconoce, y no es un espacio de trabajo
     /// más: tocar aquí cambia la máquina entera. Por eso no cuenta como fuga
     /// —está declarada, tiene nombre— pero siempre exige concesión.
     pub system_config: PathBuf,
@@ -20,7 +20,7 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn discover() -> Result<Self> {
-        let workspace = match std::env::var_os("SYSO_WORKSPACE") {
+        let workspace = match std::env::var_os("ANTOS_WORKSPACE").or_else(|| std::env::var_os("SYSO_WORKSPACE")) {
             Some(v) => PathBuf::from(v),
             None => PathBuf::from("workspace"),
         };
@@ -30,25 +30,33 @@ impl Ctx {
         // comparten prefijo aunque sean el mismo sitio.
         let workspace = workspace.canonicalize()?;
 
-        let state = match std::env::var_os("SYSO_STATE") {
+        let state = match std::env::var_os("ANTOS_STATE").or_else(|| std::env::var_os("SYSO_STATE")) {
             Some(v) => PathBuf::from(v),
-            None => PathBuf::from(".syso"),
+            None => {
+                if Path::new(".antos").is_dir() {
+                    PathBuf::from(".antos")
+                } else if Path::new(".syso").is_dir() {
+                    PathBuf::from(".syso")
+                } else {
+                    PathBuf::from(".antos")
+                }
+            }
         };
         std::fs::create_dir_all(&state)?;
         let state = state.canonicalize()?;
 
-        let caps_dir = match std::env::var_os("SYSO_CAPABILITIES") {
+        let caps_dir = match std::env::var_os("ANTOS_CAPABILITIES").or_else(|| std::env::var_os("SYSO_CAPABILITIES")) {
             Some(v) => PathBuf::from(v),
             None => ["system/capabilities", "capabilities", "../capabilities"]
                 .iter()
                 .map(PathBuf::from)
                 .find(|p| p.is_dir())
                 .ok_or_else(|| {
-                    anyhow!("no encuentro el catálogo de capacidades; define SYSO_CAPABILITIES")
+                    anyhow!("no encuentro el catálogo de capacidades; define ANTOS_CAPABILITIES")
                 })?,
         };
 
-        let system_config = match std::env::var_os("SYSO_SYSTEM_CONFIG") {
+        let system_config = match std::env::var_os("ANTOS_SYSTEM_CONFIG").or_else(|| std::env::var_os("SYSO_SYSTEM_CONFIG")) {
             Some(v) => PathBuf::from(v),
             None => {
                 let nixos = PathBuf::from("/etc/nixos");

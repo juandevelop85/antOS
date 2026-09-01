@@ -136,7 +136,7 @@ pub fn intencion(
             journal::append(&ctx.journal_path(), &record)?;
             bail!(
                 "denegado por defecto: {} requiere concesión explícita.\n  \
-                 Concédela con: syso grant {} --minutos 10",
+                 Concédela con: antos grant {} --minutos 10",
                 missing.join(", "),
                 missing[0]
             );

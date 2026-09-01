@@ -45,7 +45,7 @@ pub struct Voz {
 
 impl Voz {
     pub fn discover() -> Result<Self> {
-        let whisper = match std::env::var_os("SYSO_WHISPER") {
+        let whisper = match std::env::var_os("ANTOS_WHISPER").or_else(|| std::env::var_os("SYSO_WHISPER")) {
             Some(path) => PathBuf::from(path),
             None => buscar_en_path(&["whisper-cli", "whisper-cpp"]).ok_or_else(|| {
                 anyhow::anyhow!(
@@ -54,7 +54,7 @@ impl Voz {
             })?,
         };
 
-        let modelo = match std::env::var_os("SYSO_MODELO_VOZ") {
+        let modelo = match std::env::var_os("ANTOS_MODELO_VOZ").or_else(|| std::env::var_os("SYSO_MODELO_VOZ")) {
             Some(path) => PathBuf::from(path),
             None => modelo_por_defecto(),
         };
@@ -69,7 +69,9 @@ impl Voz {
         Ok(Voz {
             whisper,
             modelo,
-            idioma: std::env::var("SYSO_IDIOMA_VOZ").unwrap_or_else(|_| "es".into()),
+            idioma: std::env::var("ANTOS_IDIOMA_VOZ")
+                .or_else(|_| std::env::var("SYSO_IDIOMA_VOZ"))
+                .unwrap_or_else(|_| "es".into()),
         })
     }
 
@@ -185,7 +187,8 @@ impl Voz {
         // Filtrar los marcadores de silencio no basta, porque la alucinación
         // no viene marcada. Hay que negarse a transcribir lo que no tiene
         // energía suficiente para ser una voz.
-        let umbral = std::env::var("SYSO_UMBRAL_VOZ")
+        let umbral = std::env::var("ANTOS_UMBRAL_VOZ")
+            .or_else(|_| std::env::var("SYSO_UMBRAL_VOZ"))
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .unwrap_or(UMBRAL_DB);
@@ -194,7 +197,7 @@ impl Voz {
         if nivel < umbral {
             bail!(
                 "no he oído ninguna voz (nivel medio {nivel:.1} dB, umbral {umbral:.1} dB).\n\
-                 Si estabas hablando, prueba con otro micrófono:\n  syso escucha --dispositivos"
+                 Si estabas hablando, prueba con otro micrófono:\n  antos escucha --dispositivos"
             );
         }
 
@@ -301,5 +304,13 @@ fn modelo_por_defecto() -> PathBuf {
     let base = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join(".cache/syso/modelos/ggml-base.bin")
+    let antos_model = base.join(".cache/antos/modelos/ggml-base.bin");
+    if antos_model.exists() {
+        return antos_model;
+    }
+    let syso_model = base.join(".cache/syso/modelos/ggml-base.bin");
+    if syso_model.exists() {
+        return syso_model;
+    }
+    antos_model
 }

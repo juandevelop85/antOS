@@ -100,10 +100,12 @@ pub fn changes_for(
         }
 
         "pkg.declare" => {
-            let path = ctx
-                .workspace
-                .join(&a["project"])
-                .join("syso.packages.toml");
+            let proj = ctx.workspace.join(&a["project"]);
+            let path = if proj.join("syso.packages.toml").exists() {
+                proj.join("syso.packages.toml")
+            } else {
+                proj.join("antos.packages.toml")
+            };
             let previo = leer_con_pendiente(&path, pendiente);
             Ok(vec![Change::Write {
                 content: declare_package(&previo, &a["package"], &a["version"])?,
@@ -112,7 +114,11 @@ pub fn changes_for(
         }
 
         "system.declare" => {
-            let path = ctx.system_config.join("syso-paquetes.nix");
+            let path = if ctx.system_config.join("syso-paquetes.nix").exists() {
+                ctx.system_config.join("syso-paquetes.nix")
+            } else {
+                ctx.system_config.join("antos-paquetes.nix")
+            };
             let previo = leer_con_pendiente(&path, pendiente);
             Ok(vec![Change::Write {
                 content: declare_system_package(&previo, &a["package"])?,
@@ -193,14 +199,14 @@ fn scaffold(language: &str, name: &str) -> Vec<(&'static str, String)> {
 }
 
 const NIX_HEADER: &str = "\
-# Paquetes del sistema, declarados por syso.
+# Paquetes del sistema, declarados por antOS.
 #
 # Esto NO instala nada: describe qué debe tener la máquina. Aplicarlo es un
 # paso aparte, explícito y tuyo:
 #
 #     sudo nixos-rebuild switch
 #
-# Editarlo a mano es correcto: syso respeta lo que encuentre aquí.
+# Editarlo a mano es correcto: antOS respeta lo que encuentre aquí.
 { pkgs, ... }:
 {
   environment.systemPackages = with pkgs; [
@@ -218,7 +224,7 @@ fn declare_system_package(previo: &str, package: &str) -> Result<String> {
 
     {
         let existing = previo;
-        // Un análisis por líneas basta porque este fichero lo genera syso.
+        // Un análisis por líneas basta porque este fichero lo genera antOS.
         // Si alguien lo reescribe con Nix de verdad, lo peor que pasa es que
         // no reconozcamos sus paquetes — y eso se ve en el diff antes de
         // aprobar nada.
@@ -254,7 +260,7 @@ struct PackagesFile {
 }
 
 const PACKAGES_HEADER: &str = "\
-# Dependencias declaradas por syso.
+# Dependencias declaradas por antOS.
 #
 # Declarar no es instalar: este fichero dice qué necesita el proyecto, y la
 # instalación es un paso aparte y explícito. Así lo que apruebas es un diff

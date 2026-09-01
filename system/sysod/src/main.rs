@@ -98,7 +98,9 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
     //
     // El resultado es idéntico porque ambos caminos usan el MISMO recorrido y
     // el MISMO dibujado: lo único que cambia es dónde corre cada mitad.
-    let forzar_local = std::env::var_os("SYSO_SIN_DEMONIO").is_some();
+    let forzar_local = std::env::var_os("ANTOS_SIN_DEMONIO")
+        .or_else(|| std::env::var_os("SYSO_SIN_DEMONIO"))
+        .is_some();
     if !forzar_local && ipc::hay_demonio(ctx) {
         return ipc::intencion_remota(
             &ipc::ruta_socket(ctx),
@@ -128,7 +130,7 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
             println!("  {linea}");
         }
         println!();
-        println!("{}", paint("elige uno con: syso escucha --dispositivo N", DIM));
+        println!("{}", paint("elige uno con: antos escucha --dispositivo N", DIM));
         return Ok(());
     }
 
@@ -152,7 +154,7 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
         .unwrap_or_else(|| ":default".to_string());
 
     println!();
-    println!("{}", paint("syso · escucha", BOLD));
+    println!("{}", paint("antOS · escucha", BOLD));
     println!(
         "  {}",
         paint(&format!("modelo local: {}", voz.modelo().display()), DIM)
@@ -488,17 +490,17 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
 fn help() {
     println!(
         "\
-syso — el sistema hace lo que le pides, y puedes deshacerlo
+antOS — el sistema hace lo que le pides, y puedes deshacerlo
 
-  syso \"<intención>\"        planifica, enseña el diff y ejecuta
-  syso escucha               lo mismo, dictado por voz (transcripción local)
-  syso caps                  catálogo de capacidades y su nivel
-  syso log                   bitácora de lo que ha pasado
-  syso undo                  revierte el último plan ejecutado
-  syso doctor                comprueba que el recinto es real, atacándolo
-  syso demonio               atiende peticiones por socket (lo que usará el escritorio)
-  syso grant <cap> [--minutos N]
-  syso revoke <cap>
+  antos \"<intención>\"       planifica, enseña el diff y ejecuta
+  antos escucha              lo mismo, dictado por voz (transcripción local)
+  antos caps                 catálogo de capacidades y su nivel
+  antos log                  bitácora de lo que ha pasado
+  antos undo                 revierte el último plan ejecutado
+  antos doctor               comprueba que el recinto es real, atacándolo
+  antos demonio              atiende peticiones por socket (lo que usará el escritorio)
+  antos grant <cap> [--minutos N]
+  antos revoke <cap>
 
 opciones
   -p, --planificador <local|claude>
@@ -510,8 +512,8 @@ opciones
       --dispositivo <N>      escucha: cuál usar (por defecto, la del sistema)
 
 entorno
-  SYSO_WORKSPACE   espacio de trabajo (por defecto ./workspace)
-  SYSO_STATE       instantáneas y bitácora (por defecto ./.syso)
+  ANTOS_WORKSPACE  espacio de trabajo (por defecto ./workspace)
+  ANTOS_STATE      instantáneas y bitácora (por defecto ./.antos)
   ANTHROPIC_API_KEY  activa el planificador con Claude"
     );
 }
