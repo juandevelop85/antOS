@@ -47,6 +47,7 @@ Antes de escribir código:
 
 1. **Desarrollo en Rust:**
    - Seguir las directrices de código de antOS:
+     - **Nomenclatura 100% en inglés:** Todas las funciones, métodos, variables, structs, enums, traits, módulos y comentarios internos de código deben estar en idioma inglés (ej. `GitRepoStatus`, `get_status()`, `create_worktree()`, `FlowEngine`, `start_task()`).
      - Manejo exhaustivo de errores con `Result<T, E>`.
      - Evitar `unwrap()` o `expect()` en código de producción/IPC.
      - Tipado estricto y serialización segura con `serde`.

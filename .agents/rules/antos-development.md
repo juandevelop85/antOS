@@ -11,6 +11,7 @@ trigger: always_on
   - `system/capabilities`: Módulos de capacidades tipadas (Git semántico, Worktrees, puertos, nix services).
   - `kernel`: Crate `no_std` para bare metal. No mezclar dependencias de `std` con el kernel.
 - **Calidad y Robustez:**
+  - **Nomenclatura en Inglés:** Todos los identificadores (funciones, variables, structs, enums, métodos, traits y módulos) deben escribirse exclusivamente en inglés (ej. `FlowEngine`, `start_task`, `diagnose_ports`).
   - Cero `unwrap()` o `expect()` en rutas de ejecución de IPC o demonio; utilizar siempre propagación de errores (`?`) o manejo explícito.
   - Documentar structs y mensajes públicos expuestos a través del protocolo IPC.
 

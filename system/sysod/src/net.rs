@@ -9,47 +9,47 @@ use anyhow::{bail, Context, Result};
 use std::collections::BTreeSet;
 use std::process::Command;
 
-/// Diagnostica puertos TCP locales en estado LISTEN.
-pub fn diagnosticar_puertos(filtro_puerto: Option<u16>) -> Result<Vec<PortDiagnosticInfo>> {
+/// Diagnoses local TCP listening ports.
+pub fn diagnose_ports(port_filter: Option<u16>) -> Result<Vec<PortDiagnosticInfo>> {
     let mut args = vec!["-iTCP", "-sTCP:LISTEN", "-P", "-n"];
-    let puerto_str;
-    if let Some(p) = filtro_puerto {
-        puerto_str = format!("-iTCP:{p}");
-        args[0] = &puerto_str;
+    let port_str;
+    if let Some(p) = port_filter {
+        port_str = format!("-iTCP:{p}");
+        args[0] = &port_str;
     }
 
     let out = Command::new("lsof")
         .args(&args)
         .output()
-        .context("ejecutando lsof para inspeccionar puertos TCP")?;
+        .context("executing lsof to inspect TCP ports")?;
 
-    let mut resultados = Vec::new();
-    let mut vistos = BTreeSet::new();
+    let mut results = Vec::new();
+    let mut seen = BTreeSet::new();
 
     if out.status.success() {
         let stdout = String::from_utf8_lossy(&out.stdout);
-        for linea in stdout.lines().skip(1) {
-            let partes: Vec<&str> = linea.split_whitespace().collect();
-            if partes.len() >= 9 {
-                let process_name = partes[0].to_string();
-                let pid: u32 = match partes[1].parse() {
+        for line in stdout.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 9 {
+                let process_name = parts[0].to_string();
+                let pid: u32 = match parts[1].parse() {
                     Ok(p) => p,
                     Err(_) => continue,
                 };
-                let name_col = partes[8]; // ej. *:3000 o 127.0.0.1:8080 o [::1]:5173
-                if let Some(puerto) = extraer_puerto(name_col) {
-                    if let Some(filtro) = filtro_puerto {
-                        if puerto != filtro {
+                let name_col = parts[8]; // e.g. *:3000 or 127.0.0.1:8080 or [::1]:5173
+                if let Some(port) = extract_port(name_col) {
+                    if let Some(filter) = port_filter {
+                        if port != filter {
                             continue;
                         }
                     }
 
-                    if vistos.insert((puerto, pid)) {
-                        let command = obtener_comando_proceso(pid).unwrap_or_else(|| process_name.clone());
-                        let working_dir = obtener_directorio_proceso(pid);
+                    if seen.insert((port, pid)) {
+                        let command = get_process_command(pid).unwrap_or_else(|| process_name.clone());
+                        let working_dir = get_process_cwd(pid);
 
-                        resultados.push(PortDiagnosticInfo {
-                            port: puerto,
+                        results.push(PortDiagnosticInfo {
+                            port,
                             pid,
                             process_name,
                             command,
@@ -61,45 +61,60 @@ pub fn diagnosticar_puertos(filtro_puerto: Option<u16>) -> Result<Vec<PortDiagno
         }
     }
 
-    resultados.sort_by_key(|p| (p.port, p.pid));
-    Ok(resultados)
+    results.sort_by_key(|p| (p.port, p.pid));
+    Ok(results)
 }
 
-/// Libera un puerto de red terminando los procesos que lo tienen ocupado.
-pub fn liberar_puerto(puerto: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
-    let procesos = diagnosticar_puertos(Some(puerto))?;
-    if procesos.is_empty() {
+/// Alias compatible.
+pub fn diagnosticar_puertos(filtro_puerto: Option<u16>) -> Result<Vec<PortDiagnosticInfo>> {
+    diagnose_ports(filtro_puerto)
+}
+
+/// Terminates processes holding a network port.
+pub fn kill_port(port: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
+    let processes = diagnose_ports(Some(port))?;
+    if processes.is_empty() {
         return Ok(Vec::new());
     }
 
-    for p in &procesos {
+    for p in &processes {
         let signal = if force { "-9" } else { "-15" };
         let out = Command::new("kill")
             .arg(signal)
             .arg(p.pid.to_string())
             .output()
-            .with_context(|| format!("terminando proceso PID {} en puerto {}", p.pid, puerto))?;
+            .with_context(|| format!("terminating process PID {} on port {}", p.pid, port))?;
 
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
-            bail!("no se pudo terminar el proceso {} en puerto {}: {}", p.pid, puerto, err);
+            bail!("could not kill process {} on port {}: {}", p.pid, port, err);
         }
     }
 
-    Ok(procesos)
+    Ok(processes)
 }
 
-/// Extrae el puerto numérico de un descriptor de socket tipo `*:3000` o `127.0.0.1:8080`.
-fn extraer_puerto(name: &str) -> Option<u16> {
-    if let Some((_, puerto_str)) = name.rsplit_once(':') {
-        puerto_str.parse::<u16>().ok()
+/// Alias compatible.
+pub fn liberar_puerto(puerto: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
+    kill_port(puerto, force)
+}
+
+/// Extracts port from socket descriptor e.g. `*:3000` or `127.0.0.1:8080`.
+pub fn extract_port(name: &str) -> Option<u16> {
+    if let Some((_, port_str)) = name.rsplit_once(':') {
+        port_str.parse::<u16>().ok()
     } else {
         None
     }
 }
 
-/// Obtiene la línea de comando completa de un proceso a través de `ps`.
-fn obtener_comando_proceso(pid: u32) -> Option<String> {
+/// Alias compatible.
+pub fn extraer_puerto(name: &str) -> Option<u16> {
+    extract_port(name)
+}
+
+/// Gets full process command line via `ps`.
+fn get_process_command(pid: u32) -> Option<String> {
     let out = Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "command="])
         .output()
@@ -114,8 +129,8 @@ fn obtener_comando_proceso(pid: u32) -> Option<String> {
     None
 }
 
-/// Obtiene el directorio de trabajo de un proceso si está accesible.
-fn obtener_directorio_proceso(pid: u32) -> Option<String> {
+/// Gets process current working directory via `lsof`.
+fn get_process_cwd(pid: u32) -> Option<String> {
     let out = Command::new("lsof")
         .args(["-p", &pid.to_string(), "-a", "-d", "cwd", "-Fn"])
         .output()

@@ -37,8 +37,8 @@ impl SpecEngine {
     }
 
     /// Lista todos los tickets disponibles en el espacio de trabajo.
-    pub fn listar_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
-        let dir_tickets = encontrar_directorio_tickets(workspace_path);
+    pub fn list_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
+        let dir_tickets = find_tickets_dir(workspace_path);
         let Some(dir) = dir_tickets else {
             return Ok(Vec::new());
         };
@@ -78,15 +78,20 @@ impl SpecEngine {
         Ok(tickets)
     }
 
+    /// Alias compatible.
+    pub fn listar_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
+        self.list_tickets(workspace_path)
+    }
+
     /// Obtiene el detalle completo de un ticket específico.
-    pub fn obtener_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
-        let dir_tickets = encontrar_directorio_tickets(workspace_path);
+    pub fn get_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
+        let dir_tickets = find_tickets_dir(workspace_path);
         let Some(dir) = dir_tickets else {
             return Ok(None);
         };
 
         // Asegurar que la lista de tickets esté indexada
-        let _ = self.listar_tickets(workspace_path)?;
+        let _ = self.list_tickets(workspace_path)?;
 
         let id_normalizado = ticket_id.trim().to_uppercase();
 
@@ -138,10 +143,15 @@ impl SpecEngine {
 
         Ok(Some(detalle))
     }
+
+    /// Alias compatible.
+    pub fn obtener_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
+        self.get_ticket(workspace_path, ticket_id)
+    }
 }
 
 /// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`).
-pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
+pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
     let mut actual = inicio.canonicalize().unwrap_or_else(|_| inicio.to_path_buf());
 
     loop {
@@ -163,6 +173,11 @@ pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Alias compatible.
+pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
+    find_tickets_dir(inicio)
 }
 
 /// Indexa el directorio de tickets leyendo `README.md` (si existe) y los ficheros individuales.

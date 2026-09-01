@@ -150,9 +150,13 @@ pub struct GitRepoStatus {
 }
 
 impl GitRepoStatus {
+    pub fn is_clean(&self) -> bool {
+        self.modificados.is_empty() && self.staged.is_empty() && self.sin_seguimiento.is_empty()
+    }
+
     /// Helper para verificar si el estado no tiene modificaciones ni archivos pendientes.
     pub fn es_limpio(&self) -> bool {
-        self.modificados.is_empty() && self.staged.is_empty() && self.sin_seguimiento.is_empty()
+        self.is_clean()
     }
 }
 
@@ -169,6 +173,15 @@ pub enum TicketStatus {
 }
 
 impl TicketStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TicketStatus::Pendiente => "Pending",
+            TicketStatus::EnProgreso => "In Progress",
+            TicketStatus::EnRevision => "In Review",
+            TicketStatus::Completado => "Completed",
+        }
+    }
+
     pub fn etiqueta(&self) -> &'static str {
         match self {
             TicketStatus::Pendiente => "⏳ Pendiente",
@@ -225,12 +238,30 @@ pub enum AgentRole {
 }
 
 impl AgentRole {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AgentRole::Arquitecto => "Architect",
+            AgentRole::Coder => "Coder",
+            AgentRole::QA => "QA / Tester",
+            AgentRole::Auditor => "Security Auditor",
+        }
+    }
+
     pub fn nombre(&self) -> &'static str {
         match self {
             AgentRole::Arquitecto => "Arquitecto",
             AgentRole::Coder => "Coder",
             AgentRole::QA => "QA / Tester",
             AgentRole::Auditor => "Auditor de Seguridad",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            AgentRole::Arquitecto => "Technical planning, ticket breakdown and architecture design.",
+            AgentRole::Coder => "Modular implementation of changes and refactoring in the worktree.",
+            AgentRole::QA => "Automated test suite generation and execution in sandbox.",
+            AgentRole::Auditor => "Review of diffs, security, style and blast radius.",
         }
     }
 
@@ -243,29 +274,33 @@ impl AgentRole {
         }
     }
 
-    pub fn prompt_sistema(&self) -> &'static str {
+    pub fn system_prompt(&self) -> &'static str {
         match self {
             AgentRole::Arquitecto => {
-                "Eres el Agente Arquitecto de antOS. Tu objetivo es descomponer el ticket técnico \
-                 en pasos atómicos, validar dependencias y diseñar la arquitectura respetando \
-                 la separación estricta de crates y cero unwraps en producción."
+                "You are the Architect Agent of antOS. Your goal is to break down technical tickets \
+                 into atomic steps, validate dependencies, and design the architecture adhering \
+                 to crate boundaries and zero unwraps in production."
             }
             AgentRole::Coder => {
-                "Eres el Agente Coder de antOS. Tu objetivo es implementar los cambios en los \
-                 ficheros dentro del worktree efímero asignado, manteniendo la robustez, \
-                 manejo idiomático de errores y las convenciones de código del proyecto."
+                "You are the Coder Agent of antOS. Your goal is to implement changes in files \
+                 within the assigned ephemeral worktree, maintaining robustness, idiomatic \
+                 error handling, and project conventions."
             }
             AgentRole::QA => {
-                "Eres el Agente QA de antOS. Tu objetivo es compilar y ejecutar la suite de pruebas \
-                 en el recinto confinado (sandbox), detectando fallos o regresiones y reportando \
-                 los mensajes de error detallados para su corrección."
+                "You are the QA Agent of antOS. Your goal is to build and run test suites \
+                 inside the confined sandbox, detecting failures or regressions and reporting \
+                 detailed error output for correction."
             }
             AgentRole::Auditor => {
-                "Eres el Agente Auditor de antOS. Tu objetivo es auditar el diff generado, \
-                 verificar que el radio de impacto no exceda los límites del proyecto y \
-                 asegurar que todo cumpla con los criterios de aceptación antes del merge."
+                "You are the Auditor Agent of antOS. Your goal is to audit generated diffs, \
+                 verify that the blast radius does not exceed limits, and ensure all \
+                 acceptance criteria are met before merging."
             }
         }
+    }
+
+    pub fn prompt_sistema(&self) -> &'static str {
+        self.system_prompt()
     }
 }
 
@@ -284,6 +319,19 @@ pub enum FlowState {
 }
 
 impl FlowState {
+    pub fn label(&self) -> &'static str {
+        match self {
+            FlowState::Pendiente => "Pending",
+            FlowState::Planificando => "Planning (Architect)",
+            FlowState::Implementando => "Implementing (Coder)",
+            FlowState::VerificandoTests => "Running Tests (QA)",
+            FlowState::RevisionAuditor => "Reviewing (Auditor)",
+            FlowState::ListoParaAprobacion => "Ready for Approval",
+            FlowState::Fusionado => "Merged",
+            FlowState::Fallido => "Failed",
+        }
+    }
+
     pub fn etiqueta(&self) -> &'static str {
         match self {
             FlowState::Pendiente => "⏳ Pendiente",
@@ -297,7 +345,7 @@ impl FlowState {
         }
     }
 
-    pub fn rol_activo(&self) -> Option<AgentRole> {
+    pub fn active_role(&self) -> Option<AgentRole> {
         match self {
             FlowState::Planificando => Some(AgentRole::Arquitecto),
             FlowState::Implementando => Some(AgentRole::Coder),
@@ -305,6 +353,10 @@ impl FlowState {
             FlowState::RevisionAuditor => Some(AgentRole::Auditor),
             _ => None,
         }
+    }
+
+    pub fn rol_activo(&self) -> Option<AgentRole> {
+        self.active_role()
     }
 }
 

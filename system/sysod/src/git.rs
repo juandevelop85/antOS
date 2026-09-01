@@ -38,13 +38,13 @@ impl GitAnalyzer {
     }
 
     /// Obtiene el estado del repositorio para una ruta dada, utilizando la caché si es válida.
-    pub fn consultar_estado(&self, workspace_path: &Path) -> Result<Option<GitRepoStatus>> {
-        let Some((repo_root, git_dir)) = encontrar_raiz_git(workspace_path) else {
+    pub fn get_status(&self, workspace_path: &Path) -> Result<Option<GitRepoStatus>> {
+        let Some((repo_root, git_dir)) = find_git_root(workspace_path) else {
             return Ok(None);
         };
 
-        let head_mtime = obtener_mtime(&git_dir.join("HEAD"));
-        let index_mtime = obtener_mtime(&git_dir.join("index"));
+        let head_mtime = get_mtime(&git_dir.join("HEAD"));
+        let index_mtime = get_mtime(&git_dir.join("index"));
 
         // Comprobar caché
         if let Ok(guard) = self.cache.lock() {
@@ -56,7 +56,7 @@ impl GitAnalyzer {
         }
 
         // Analizar en disco
-        let status = inspeccionar_repositorio(&repo_root, &git_dir)?;
+        let status = inspect_repo(&repo_root, &git_dir)?;
 
         // Actualizar caché
         if let Ok(mut guard) = self.cache.lock() {
@@ -72,11 +72,16 @@ impl GitAnalyzer {
 
         Ok(Some(status))
     }
+
+    /// Alias compatible con el protocolo previo.
+    pub fn consultar_estado(&self, workspace_path: &Path) -> Result<Option<GitRepoStatus>> {
+        self.get_status(workspace_path)
+    }
 }
 
 /// Encuentra la raíz del repositorio de trabajo y la carpeta `.git` asociada.
 /// Soporta tanto `.git` como directorio como `.git` como archivo (para worktrees y submódulos).
-pub fn encontrar_raiz_git(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
+pub fn find_git_root(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut actual = inicio.canonicalize().unwrap_or_else(|_| inicio.to_path_buf());
 
     loop {
@@ -108,12 +113,17 @@ pub fn encontrar_raiz_git(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
     None
 }
 
-fn obtener_mtime(ruta: &Path) -> Option<SystemTime> {
+/// Alias compatible.
+pub fn encontrar_raiz_git(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
+    find_git_root(inicio)
+}
+
+fn get_mtime(ruta: &Path) -> Option<SystemTime> {
     fs::metadata(ruta).and_then(|m| m.modified()).ok()
 }
 
 /// Inspecciona un repositorio de forma optimizada.
-fn inspeccionar_repositorio(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
+fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
     // 1. Obtener HEAD y rama desde el sistema de archivos
     let (rama, head_commit) = leer_head(git_dir);
 
@@ -306,41 +316,46 @@ fn parsear_numstat(salida: &str, destino: &mut HashMap<String, (usize, usize)>) 
 // ---------------------------------------------------- git worktrees (T2.2)
 
 /// Crea un Git Worktree efímero compartiendo los objetos del repositorio base.
-pub fn crear_worktree(repo_root: &Path, destino: &Path, branch: &str, base: &str) -> Result<()> {
-    if let Some(parent) = destino.parent() {
+pub fn create_worktree(repo_root: &Path, destination: &Path, branch: &str, base: &str) -> Result<()> {
+    if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
-            .with_context(|| format!("creando directorio padre {}", parent.display()))?;
+            .with_context(|| format!("creating parent dir {}", parent.display()))?;
     }
 
     let out = Command::new("git")
         .arg("-C")
         .arg(repo_root)
         .args(["worktree", "add", "-B", branch])
-        .arg(destino)
+        .arg(destination)
         .arg(base)
         .output()
-        .context("ejecutando git worktree add")?;
+        .context("executing git worktree add")?;
 
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        bail!("git worktree add falló: {err}");
+        bail!("git worktree add failed: {err}");
     }
     Ok(())
 }
 
+/// Alias compatible.
+pub fn crear_worktree(repo_root: &Path, destino: &Path, branch: &str, base: &str) -> Result<()> {
+    create_worktree(repo_root, destino, branch, base)
+}
+
 /// Elimina y limpia un Git Worktree.
-pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Result<()> {
+pub fn remove_worktree(repo_root: &Path, destination: &Path, force: bool) -> Result<()> {
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo_root).arg("worktree").arg("remove");
     if force {
         cmd.arg("--force");
     }
-    cmd.arg(destino);
-    let out = cmd.output().context("ejecutando git worktree remove")?;
+    cmd.arg(destination);
+    let out = cmd.output().context("executing git worktree remove")?;
 
     if !out.status.success() {
-        if destino.exists() {
-            let _ = fs::remove_dir_all(destino);
+        if destination.exists() {
+            let _ = fs::remove_dir_all(destination);
         }
     }
 
@@ -351,6 +366,11 @@ pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Resul
         .output();
 
     Ok(())
+}
+
+/// Alias compatible.
+pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Result<()> {
+    remove_worktree(repo_root, destino, force)
 }
 
 /// Fusiona la rama de un Worktree en la rama objetivo.

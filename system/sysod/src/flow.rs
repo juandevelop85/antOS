@@ -25,8 +25,8 @@ impl FlowEngine {
         })
     }
 
-    /// Inicia una nueva tarea de orquestación antFlow para un ticket dado.
-    pub fn iniciar_tarea(
+    /// Starts a new antFlow orchestration task for a given ticket.
+    pub fn start_task(
         &self,
         workspace: &Path,
         state_dir: &Path,
@@ -34,22 +34,22 @@ impl FlowEngine {
     ) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
 
-        // 1. Verificar existencia del ticket en el SpecEngine
+        // 1. Verify ticket existence in SpecEngine
         let spec_engine = crate::spec::SpecEngine::global();
-        let ticket_opt = spec_engine.obtener_ticket(workspace, &ticket_upper)?;
+        let ticket_opt = spec_engine.get_ticket(workspace, &ticket_upper)?;
         let detalle_ticket = ticket_opt.ok_or_else(|| {
             anyhow::anyhow!("no se encontró la especificación del ticket «{ticket_upper}»")
         })?;
 
         let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
 
-        // 2. Preparar rutas de worktree y ramas
+        // 2. Prepare worktree paths and branch names
         let ticket_clean = ticket_upper.to_lowercase();
         let branch_name = format!("agent/{ticket_clean}");
         let wt_path = state_dir.join("worktrees").join(&ticket_clean);
 
         let id = format!("flow-{}", ticket_clean);
-        let timestamp = ahora_segundos();
+        let timestamp = now_secs();
 
         let mut task = FlowTask {
             id: id.clone(),
@@ -65,7 +65,7 @@ impl FlowEngine {
             historial: Vec::new(),
         };
 
-        // Registrar transición inicial: Pendiente -> Planificando (Arquitecto)
+        // Initial transition: Pendiente -> Planificando (Arquitecto)
         task.historial.push(FlowTransition {
             timestamp_segundos: timestamp,
             estado_anterior: FlowState::Pendiente,
@@ -84,8 +84,18 @@ impl FlowEngine {
         Ok(task)
     }
 
-    /// Avanza la máquina de estados de una tarea a su siguiente fase.
-    pub fn avanzar_fase(
+    /// Alias compatible.
+    pub fn iniciar_tarea(
+        &self,
+        workspace: &Path,
+        state_dir: &Path,
+        ticket_id: &str,
+    ) -> Result<FlowTask> {
+        self.start_task(workspace, state_dir, ticket_id)
+    }
+
+    /// Advances the task's state machine to the next phase.
+    pub fn advance_phase(
         &self,
         ticket_id: &str,
         detalle: &str,
@@ -216,8 +226,18 @@ impl FlowEngine {
         Ok(task.clone())
     }
 
+    /// Alias compatible.
+    pub fn avanzar_fase(
+        &self,
+        ticket_id: &str,
+        detalle: &str,
+        test_exitoso: bool,
+    ) -> Result<FlowTask> {
+        self.advance_phase(ticket_id, detalle, test_exitoso)
+    }
+
     /// Aprueba o rechaza la tarea en su etapa final de revisión.
-    pub fn aprobar_tarea(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
+    pub fn approve_task(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
         let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
 
@@ -225,7 +245,7 @@ impl FlowEngine {
             .get_mut(&ticket_upper)
             .ok_or_else(|| anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»"))?;
 
-        let timestamp = ahora_segundos();
+        let timestamp = now_secs();
         let anterior = task.estado;
 
         if decision {
@@ -251,15 +271,25 @@ impl FlowEngine {
         Ok(task.clone())
     }
 
+    /// Alias compatible.
+    pub fn aprobar_tarea(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
+        self.approve_task(ticket_id, decision)
+    }
+
     /// Consulta una tarea por su ticket ID.
-    pub fn consultar_tarea(&self, ticket_id: &str) -> Option<FlowTask> {
+    pub fn get_task(&self, ticket_id: &str) -> Option<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
         let lock = self.state.lock().ok()?;
         lock.get(&ticket_upper).cloned()
     }
 
+    /// Alias compatible.
+    pub fn consultar_tarea(&self, ticket_id: &str) -> Option<FlowTask> {
+        self.get_task(ticket_id)
+    }
+
     /// Lista todas las tareas orquestadas.
-    pub fn listar_tareas(&self) -> Vec<FlowTask> {
+    pub fn list_tasks(&self) -> Vec<FlowTask> {
         let lock = match self.state.lock() {
             Ok(l) => l,
             Err(_) => return Vec::new(),
@@ -269,13 +299,18 @@ impl FlowEngine {
         tasks
     }
 
+    /// Alias compatible.
+    pub fn listar_tareas(&self) -> Vec<FlowTask> {
+        self.list_tasks()
+    }
+
     /// Ejecuta el pipeline completo de agentes en segundo plano para un ticket (T3.2):
     /// 1. Arquitecto analiza especificación.
     /// 2. Creación del Worktree efímero aislado (T2.2).
     /// 3. Coder aplica los cambios en el Worktree.
     /// 4. QA ejecuta tests en Sandbox. Si fallan, bucle de reintento.
     /// 5. Auditor genera diff consolidado y transiciona a ListoParaAprobacion.
-    pub fn ejecutar_pipeline_worktree(
+    pub fn run_worktree_pipeline(
         &self,
         workspace: &Path,
         state_dir: &Path,
@@ -288,11 +323,11 @@ impl FlowEngine {
         let branch_name = format!("agent/{ticket_clean}");
 
         // 1. Iniciar tarea (Arquitecto)
-        let _ = self.iniciar_tarea(workspace, state_dir, &ticket_upper)?;
+        let _ = self.start_task(workspace, state_dir, &ticket_upper)?;
 
         // 2. Crear worktree efímero si es repo Git
         if workspace.join(".git").exists() {
-            let _ = crate::git::crear_worktree(workspace, &wt_path, &branch_name, "HEAD");
+            let _ = crate::git::create_worktree(workspace, &wt_path, &branch_name, "HEAD");
         } else {
             std::fs::create_dir_all(&wt_path)?;
         }
@@ -317,13 +352,13 @@ impl FlowEngine {
         let _ = self.avanzar_fase(&ticket_upper, "Cambios escritos en worktree. Iniciando QA.", true)?;
 
         // QA ejecuta tests dentro del worktree
-        let (tests_ok, salida_tests) = ejecutar_tests_en_worktree(&wt_path)?;
+        let (tests_ok, salida_tests) = run_worktree_tests(&wt_path)?;
 
         if !tests_ok {
             // Realimentar a Coder
             let _ = self.avanzar_fase(&ticket_upper, &salida_tests, false)?;
             return self
-                .consultar_tarea(&ticket_upper)
+                .get_task(&ticket_upper)
                 .ok_or_else(|| anyhow::anyhow!("tarea perdida"));
         }
 
@@ -331,7 +366,7 @@ impl FlowEngine {
         let _ = self.avanzar_fase(&ticket_upper, "Batería de tests aprobada en verde.", true)?;
 
         // Calcular diff del worktree
-        let diff = calcular_diff_worktree(&wt_path).unwrap_or_default();
+        let diff = calculate_worktree_diff(&wt_path).unwrap_or_default();
 
         // 6. Auditor -> ListoParaAprobacion
         let mut task = self.avanzar_fase(&ticket_upper, "Diff verificado. Listo para aprobación.", true)?;
@@ -348,10 +383,21 @@ impl FlowEngine {
 
         Ok(task)
     }
+
+    /// Alias compatible.
+    pub fn ejecutar_pipeline_worktree(
+        &self,
+        workspace: &Path,
+        state_dir: &Path,
+        ticket_id: &str,
+        cambios_ficheros: &[(String, String)],
+    ) -> Result<FlowTask> {
+        self.run_worktree_pipeline(workspace, state_dir, ticket_id, cambios_ficheros)
+    }
 }
 
-/// Ejecuta la suite de pruebas del proyecto dentro del directorio worktree.
-pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
+/// Runs the test suite inside the worktree directory.
+pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
     if worktree.join("Cargo.toml").exists() {
         let out = std::process::Command::new("cargo")
             .arg("test")
@@ -369,7 +415,7 @@ pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
                 );
                 Ok((exito, salida.trim().to_string()))
             }
-            Err(e) => Ok((false, format!("error ejecutando cargo test: {e:#}"))),
+            Err(e) => Ok((false, format!("error executing cargo test: {e:#}"))),
         }
     } else if worktree.join("package.json").exists() {
         let out = std::process::Command::new("npm")
@@ -387,15 +433,20 @@ pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
                 );
                 Ok((exito, salida.trim().to_string()))
             }
-            Err(e) => Ok((false, format!("error ejecutando npm test: {e:#}"))),
+            Err(e) => Ok((false, format!("error executing npm test: {e:#}"))),
         }
     } else {
         Ok((true, "Suite de pruebas completada con éxito (0 fallos).".into()))
     }
 }
 
-/// Calcula el diff consolidado del worktree.
-pub fn calcular_diff_worktree(worktree: &Path) -> Result<String> {
+/// Alias compatible.
+pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
+    run_worktree_tests(worktree)
+}
+
+/// Calculates consolidated diff of a worktree against HEAD.
+pub fn calculate_worktree_diff(worktree: &Path) -> Result<String> {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(worktree)
@@ -427,11 +478,20 @@ pub fn calcular_diff_worktree(worktree: &Path) -> Result<String> {
     Ok("sin cambios pendientes".into())
 }
 
-fn ahora_segundos() -> u64 {
+/// Alias compatible.
+pub fn calcular_diff_worktree(worktree: &Path) -> Result<String> {
+    calculate_worktree_diff(worktree)
+}
+
+pub fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+pub fn ahora_segundos() -> u64 {
+    now_secs()
 }
 
 // ------------------------------------------------------------------- tests

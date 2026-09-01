@@ -43,18 +43,23 @@ pub struct Record {
     pub reverted: bool,
 }
 
-/// Extrae un ID de ticket (ej. T1.2, T3.3) si está presente en el texto de la intención.
-pub fn extraer_ticket_id(texto: &str) -> Option<String> {
-    for palabra in texto.split_whitespace() {
-        let limpia = palabra.trim_matches(|c: char| !c.is_alphanumeric() && c != '.');
-        if (limpia.starts_with('T') || limpia.starts_with('t')) && limpia.contains('.') {
-            let num_part = &limpia[1..];
+/// Extracts ticket ID (e.g. T1.2, T3.3) from intent text if present.
+pub fn extract_ticket_id(text: &str) -> Option<String> {
+    for word in text.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.');
+        if (clean.starts_with('T') || clean.starts_with('t')) && clean.contains('.') {
+            let num_part = &clean[1..];
             if num_part.chars().all(|c| c.is_ascii_digit() || c == '.') {
-                return Some(limpia.to_uppercase());
+                return Some(clean.to_uppercase());
             }
         }
     }
     None
+}
+
+/// Alias compatible.
+pub fn extraer_ticket_id(texto: &str) -> Option<String> {
+    extract_ticket_id(texto)
 }
 
 pub fn append(path: &Path, record: &Record) -> Result<()> {
