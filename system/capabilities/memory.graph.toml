@@ -1,0 +1,12 @@
+name = "memory.graph"
+summary = "Explora las relaciones y dependencias en el grafo de contexto del proyecto"
+
+[params]
+target = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE/.antos/memory.json"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

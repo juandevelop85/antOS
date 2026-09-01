@@ -1,0 +1,11 @@
+name = "memory.index"
+summary = "Indexa el código fuente, especificaciones y documentación del proyecto en la memoria semántica"
+
+[params]
+
+[effects]
+writes = ["$WORKSPACE/.antos/memory.json"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -79,7 +79,10 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("fs.delete", &[("path", &path)])]));
         }
 
-        if lower.contains("lee") || lower.contains("muestra") || lower.contains("enseña") {
+        if (lower.contains("lee") || lower.contains("muestra") || lower.contains("enseña"))
+            && !lower.contains("grafo")
+            && !lower.contains("memoria")
+        {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
         }
@@ -264,14 +267,15 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de secretos y concesiones (T5.2)
-        if lower.contains("secreto")
-            || lower.contains("secret")
-            || lower.contains("concede")
-            || lower.contains("grant")
-            || lower.contains("revoca")
-            || lower.contains("revoke")
-            || lower.contains("bóveda")
-            || lower.contains("boveda")
+        if (!lower.contains("busca") && !lower.contains("search"))
+            && (lower.contains("secreto")
+                || lower.contains("secret")
+                || lower.contains("concede")
+                || lower.contains("grant")
+                || lower.contains("revoca")
+                || lower.contains("revoke")
+                || lower.contains("bóveda")
+                || lower.contains("boveda"))
         {
             if lower.contains("revoca") || lower.contains("revoke") {
                 let sec = after(&words, &["revoca", "revoke", "a", "de", "secreto"]).unwrap_or_else(|| "secret.env".into());
@@ -304,7 +308,9 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de tickets y especificaciones
-        if lower.contains("ticket") || lower.contains("especificación") || lower.contains("especificacion") {
+        if (lower.contains("ticket") || lower.contains("especificación") || lower.contains("especificacion"))
+            && !lower.contains("grafo")
+        {
             if lower.contains("crea") || lower.contains("nuevo") || lower.contains("agrega") || lower.contains("new") {
                 let id_cand = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
                     .cloned()
@@ -360,9 +366,35 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("spec.list_tickets", &[])]));
         }
 
+        // Intenciones de memoria semántica y grafo de contexto
+        if lower.contains("memoria") || lower.contains("grafo") || (lower.contains("busca") && (lower.contains("codigo") || lower.contains("código") || lower.contains("semántica") || lower.contains("semantica"))) {
+            if lower.contains("indexa") || lower.contains("actualiza") || lower.contains("reindexa") {
+                return Ok(Propuesta::solo(vec![step("memory.index", &[])]));
+            }
+            if lower.contains("grafo") {
+                let target = after(&words, &["para", "de", "sobre", "grafo"]);
+                let args = if let Some(ref t) = target {
+                    vec![("target", t.as_str())]
+                } else {
+                    vec![]
+                };
+                return Ok(Propuesta::solo(vec![step("memory.graph", &args)]));
+            }
+            // Búsqueda semántica
+            let query = if let Some(pos) = words.iter().position(|w| w == "sobre" || w == "de" || w == "para" || w == "busca") {
+                words[pos + 1..].join(" ")
+            } else {
+                words.join(" ")
+            };
+            return Ok(Propuesta::solo(vec![step(
+                "memory.search",
+                &[("query", &query), ("limit", "5")],
+            )]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis), secretos/concesiones y gestión de tickets/especificaciones.\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis), secretos/concesiones, tickets y memoria semántica/grafo.\n\
              Para lenguaje libre usa: antos --planificador ollama \"…\" o antos --planificador claude \"…\""
         )
     }
@@ -544,5 +576,30 @@ mod tests {
         assert_eq!(p_status.steps.len(), 1);
         assert_eq!(p_status.steps[0].capability, "spec.update_ticket");
         assert_eq!(p_status.steps[0].args.get("ticket_id").map(String::as_str), Some("T1.1"));
+    }
+
+    #[test]
+    fn test_plan_memoria_y_grafo() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_index = planner
+            .plan("indexa la memoria del proyecto", &catalog)
+            .expect("plan index");
+        assert_eq!(p_index.steps.len(), 1);
+        assert_eq!(p_index.steps[0].capability, "memory.index");
+
+        let p_search = planner
+            .plan("busca codigo sobre gestion de secretos", &catalog)
+            .expect("plan search");
+        assert_eq!(p_search.steps.len(), 1);
+        assert_eq!(p_search.steps[0].capability, "memory.search");
+
+        let p_graph = planner
+            .plan("muestra el grafo para ticket:T6.1", &catalog)
+            .expect("plan graph");
+        assert_eq!(p_graph.steps.len(), 1);
+        assert_eq!(p_graph.steps[0].capability, "memory.graph");
     }
 }

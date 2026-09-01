@@ -1,0 +1,13 @@
+name = "memory.search"
+summary = "Busca semánticamente funciones, especificaciones y módulos en la memoria vectorial del proyecto"
+
+[params]
+query = { type = "text" }
+limit = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE/.antos/memory.json"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

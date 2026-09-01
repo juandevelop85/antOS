@@ -13,6 +13,7 @@ pub mod git;
 pub mod net;
 pub mod spec;
 pub mod flow;
+pub mod memory;
 pub mod service;
 pub mod vault;
 mod ipc;
@@ -98,6 +99,7 @@ fn run() -> Result<()> {
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "llm" | "models" | "model" => cmd_llm(&rest[1..]),
+        "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -773,6 +775,113 @@ fn cmd_llm(args: &[String]) -> Result<()> {
             // 3. Fallback determinista
             println!("\n  ● Planificador Determinista Local:");
             println!("    Estado: {}", paint("● Siempre activo (Reglas locales deterministas)", GREEN));
+            println!();
+        }
+    }
+
+    Ok(())
+}
+
+// ------------------------------------------------------------------ memory
+
+fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    let db_path = memory::MemoryEngine::default_db_path(&ctx.workspace);
+
+    match sub {
+        "index" | "reindex" => {
+            println!("\n{} Escaneando e indexando espacio de trabajo: {}", paint("●", GREEN), paint(&ctx.workspace.display().to_string(), BOLD));
+            let store = memory::MemoryEngine::index_workspace(&ctx.workspace)?;
+            memory::MemoryEngine::save(&store, &db_path)?;
+            println!(
+                "{} Indexación completada: {} fragmentos y {} nodos de grafo guardados en {}\n",
+                paint("✓", GREEN),
+                paint(&store.chunks.len().to_string(), BOLD),
+                paint(&store.graph.nodes.len().to_string(), BOLD),
+                paint(&db_path.display().to_string(), DIM)
+            );
+        }
+        "search" | "find" => {
+            let query = args.get(1).map(String::as_str).unwrap_or_default();
+            if query.is_empty() {
+                bail!("uso: antos memory search <texto_de_busqueda> [--limit N]");
+            }
+            let limit = args
+                .iter()
+                .position(|a| a == "--limit" || a == "-n")
+                .and_then(|i| args.get(i + 1))
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(5);
+
+            let store = if db_path.exists() {
+                memory::MemoryEngine::load(&db_path)?
+            } else {
+                println!("{} No existe índice previo. Indexando espacio de trabajo por primera vez...", paint("i", YELLOW));
+                let s = memory::MemoryEngine::index_workspace(&ctx.workspace)?;
+                memory::MemoryEngine::save(&s, &db_path)?;
+                s
+            };
+
+            let hits = memory::MemoryEngine::search(&store, query, limit);
+            println!("\n{}", paint(&format!("antOS · Búsqueda Semántica Vectorial para «{query}»"), BOLD));
+            println!("  Resultados encontrados: {}\n", hits.len());
+
+            if hits.is_empty() {
+                println!("  No se encontraron coincidencias relevantes en el código o tickets.\n");
+            } else {
+                for (idx, h) in hits.iter().enumerate() {
+                    let score_badge = paint(&format!("[{:.2}]", h.score), GREEN);
+                    let kind_badge = paint(&format!("{:?}", h.kind), DIM);
+                    println!("  {}. {} {} {}:{}", idx + 1, score_badge, kind_badge, paint(&h.path, BOLD), h.line_start);
+                    println!("     Título: {}", paint(&h.title, YELLOW));
+                    println!("     Extracto: {}\n", paint(&h.snippet, DIM));
+                }
+            }
+        }
+        "graph" => {
+            let target = args.get(1).map(String::as_str);
+            let store = if db_path.exists() {
+                memory::MemoryEngine::load(&db_path)?
+            } else {
+                let s = memory::MemoryEngine::index_workspace(&ctx.workspace)?;
+                memory::MemoryEngine::save(&s, &db_path)?;
+                s
+            };
+
+            println!("\n{}", paint("antOS · Grafo de Contexto y Dependencias del Proyecto", BOLD));
+            match target {
+                Some(t) => {
+                    let related = store.graph.related_to(t);
+                    println!("  Relaciones para símbolo o archivo «{}»: {}\n", paint(t, BOLD), related.len());
+                    for (node, edge) in related {
+                        println!("    • {:<18} ──> {} ({})", format!("{:?}", edge), paint(&node.label, BOLD), node.kind);
+                    }
+                    println!();
+                }
+                None => {
+                    println!("  Total de nodos:   {}", paint(&store.graph.nodes.len().to_string(), GREEN));
+                    println!("  Total de aristas: {}\n", paint(&store.graph.edges.len().to_string(), GREEN));
+                    println!("  Usa: antos memory graph <nodo> para inspeccionar relaciones.");
+                    println!("  Ejemplo: antos memory graph ticket:T6.1 o file:system/antosd/src/main.rs\n");
+                }
+            }
+        }
+        "status" | _ => {
+            let exists = db_path.exists();
+            println!("\n{}", paint("antOS · Memoria Semántica y Grafo de Contexto (T6.2)", BOLD));
+            println!("  Ubicación: {}", paint(&db_path.display().to_string(), DIM));
+            if exists {
+                if let Ok(store) = memory::MemoryEngine::load(&db_path) {
+                    println!("  Estado:    {}", paint("● Activo / Sincronizado", GREEN));
+                    println!("  Fragmentos: {}", paint(&store.chunks.len().to_string(), BOLD));
+                    println!("  Nodos:      {}", paint(&store.graph.nodes.len().to_string(), BOLD));
+                    println!("  Aristas:    {}", paint(&store.graph.edges.len().to_string(), BOLD));
+                } else {
+                    println!("  Estado:    {}", paint("! Archivo de memoria corrupto", RED));
+                }
+            } else {
+                println!("  Estado:    {}", paint("○ Sin indexar (Ejecuta: antos memory index)", YELLOW));
+            }
             println!();
         }
     }

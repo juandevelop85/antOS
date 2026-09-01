@@ -138,6 +138,17 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::TicketList { .. } => {
                 out.push(Line::Info("lista tickets y catálogo de especificaciones del proyecto".into()));
             }
+            Change::MemoryIndex { .. } => {
+                out.push(Line::Info("indexa código y especificaciones en la memoria semántica vectorial".into()));
+                out.push(Line::Add("  + generar vectores y grafo en .antos/memory.json".into()));
+            }
+            Change::MemorySearch { query, .. } => {
+                out.push(Line::Info(format!("búsqueda semántica por similitud coseno para «{query}»")));
+            }
+            Change::MemoryGraph { target, .. } => {
+                let t_str = target.as_deref().unwrap_or("raíz");
+                out.push(Line::Info(format!("explora el grafo de dependencias y contexto para «{t_str}»")));
+            }
         }
         pendiente.aplicar(change);
     }

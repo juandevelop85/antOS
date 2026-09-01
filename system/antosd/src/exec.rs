@@ -105,6 +105,18 @@ pub enum Change {
         workspace: PathBuf,
         filter: Option<String>,
     },
+    MemoryIndex {
+        workspace: PathBuf,
+    },
+    MemorySearch {
+        workspace: PathBuf,
+        query: String,
+        limit: usize,
+    },
+    MemoryGraph {
+        workspace: PathBuf,
+        target: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -162,7 +174,10 @@ impl Pendiente {
             | Change::SecretRead { .. }
             | Change::TicketCreate { .. }
             | Change::TicketUpdateStatus { .. }
-            | Change::TicketList { .. } => {}
+            | Change::TicketList { .. }
+            | Change::MemoryIndex { .. }
+            | Change::MemorySearch { .. }
+            | Change::MemoryGraph { .. } => {}
         }
     }
 }
@@ -427,6 +442,30 @@ pub fn changes_for(
             Ok(vec![Change::TicketList {
                 workspace: ctx.workspace.clone(),
                 filter,
+            }])
+        }
+
+        "memory.index" => {
+            Ok(vec![Change::MemoryIndex {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "memory.search" => {
+            let query = a.get("query").cloned().ok_or_else(|| anyhow::anyhow!("query requerido"))?;
+            let limit = a.get("limit").and_then(|l| l.parse::<usize>().ok()).unwrap_or(5);
+            Ok(vec![Change::MemorySearch {
+                workspace: ctx.workspace.clone(),
+                query,
+                limit,
+            }])
+        }
+
+        "memory.graph" => {
+            let target = a.get("target").cloned();
+            Ok(vec![Change::MemoryGraph {
+                workspace: ctx.workspace.clone(),
+                target,
             }])
         }
 
@@ -714,6 +753,57 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         }
                     }
                     lines.push(format!("  - [{}] {} [{:?}] ({})", t.id, t.titulo, t.estado, t.fase));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::MemoryIndex { workspace } => {
+                let db_path = crate::memory::MemoryEngine::default_db_path(workspace);
+                let store = crate::memory::MemoryEngine::index_workspace(workspace)?;
+                crate::memory::MemoryEngine::save(&store, &db_path)?;
+                output.push(format!(
+                    "memoria semántica actualizada: {} fragmentos y {} nodos de grafo indexados en {}",
+                    store.chunks.len(),
+                    store.graph.nodes.len(),
+                    db_path.display()
+                ));
+            }
+            Change::MemorySearch { workspace, query, limit } => {
+                let db_path = crate::memory::MemoryEngine::default_db_path(workspace);
+                let store = crate::memory::MemoryEngine::load(&db_path)?;
+                let hits = crate::memory::MemoryEngine::search(&store, query, *limit);
+                if hits.is_empty() {
+                    output.push(format!("no se encontraron coincidencias para «{query}»"));
+                } else {
+                    let mut lines = Vec::new();
+                    lines.push(format!("coincidencias semánticas para «{query}» ({}):", hits.len()));
+                    for h in hits {
+                        lines.push(format!(
+                            "  - [{:.2}] {}:{} ({:?}) - {}",
+                            h.score, h.path, h.line_start, h.kind, h.title
+                        ));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::MemoryGraph { workspace, target } => {
+                let db_path = crate::memory::MemoryEngine::default_db_path(workspace);
+                let store = crate::memory::MemoryEngine::load(&db_path)?;
+                let mut lines = Vec::new();
+                match target {
+                    Some(t) => {
+                        let related = store.graph.related_to(t);
+                        lines.push(format!("relaciones en el grafo para «{t}» ({}):", related.len()));
+                        for (node, edge) in related {
+                            lines.push(format!("  - {:?} -> {} ({})", edge, node.label, node.kind));
+                        }
+                    }
+                    None => {
+                        lines.push(format!(
+                            "grafo de contexto: {} nodos, {} aristas",
+                            store.graph.nodes.len(),
+                            store.graph.edges.len()
+                        ));
+                    }
                 }
                 output.push(lines.join("\n"));
             }
