@@ -43,6 +43,13 @@ pub enum Change {
         target_branch: String,
         message: Option<String>,
     },
+    PortStatus {
+        port: Option<u16>,
+    },
+    PortKill {
+        port: u16,
+        force: bool,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -87,7 +94,9 @@ impl Pendiente {
             | Change::GitBranch { .. }
             | Change::GitWorktreeCreate { .. }
             | Change::GitWorktreeCleanup { .. }
-            | Change::GitWorktreeMerge { .. } => {}
+            | Change::GitWorktreeMerge { .. }
+            | Change::PortStatus { .. }
+            | Change::PortKill { .. } => {}
         }
     }
 }
@@ -222,6 +231,20 @@ pub fn changes_for(
             }])
         }
 
+        "diag.port_status" => {
+            let port = a.get("port").and_then(|p| p.parse::<u16>().ok());
+            Ok(vec![Change::PortStatus { port }])
+        }
+
+        "diag.port_kill" => {
+            let port = a
+                .get("port")
+                .and_then(|p| p.parse::<u16>().ok())
+                .ok_or_else(|| anyhow::anyhow!("debes especificar el puerto a liberar"))?;
+            let force = a.get("force").map(|f| f == "true").unwrap_or(false);
+            Ok(vec![Change::PortKill { port, force }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -332,6 +355,42 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     message.as_deref(),
                 )?;
                 output.push(format!("merge completado: {res}"));
+            }
+            Change::PortStatus { port } => {
+                let puertos = crate::net::diagnosticar_puertos(*port)?;
+                if puertos.is_empty() {
+                    if let Some(p) = port {
+                        output.push(format!("puerto {p} está libre"));
+                    } else {
+                        output.push("no hay puertos de desarrollo en escucha".into());
+                    }
+                } else {
+                    let mut lineas = Vec::new();
+                    for p in puertos {
+                        let dir_info = p
+                            .working_dir
+                            .as_deref()
+                            .map(|d| format!(" (en {d})"))
+                            .unwrap_or_default();
+                        lineas.push(format!(
+                            "puerto {:<5} | PID {:<6} | {:<15} | {}{dir_info}",
+                            p.port, p.pid, p.process_name, p.command
+                        ));
+                    }
+                    output.push(lineas.join("\n"));
+                }
+            }
+            Change::PortKill { port, force } => {
+                let eliminados = crate::net::liberar_puerto(*port, *force)?;
+                if eliminados.is_empty() {
+                    output.push(format!("puerto {port} ya estaba libre"));
+                } else {
+                    let pids: Vec<String> = eliminados
+                        .iter()
+                        .map(|p| format!("PID {} ({})", p.pid, p.process_name))
+                        .collect();
+                    output.push(format!("puerto {port} liberado terminando {}", pids.join(", ")));
+                }
             }
         }
     }
@@ -581,6 +640,40 @@ mod tests {
                 assert_eq!(target_path, &ctx.state.join("worktrees/T2.2"));
             }
             _ => panic!("debe ser GitWorktreeCleanup"),
+        }
+
+        // 6. diag.port_status
+        let mut args_port_st = BTreeMap::new();
+        args_port_st.insert("port".into(), "3000".into());
+        let step_port_st = Step {
+            capability: "diag.port_status".into(),
+            args: args_port_st,
+        };
+        let cap_port_st = catalog.get("diag.port_status").expect("cap diag.port_status");
+        let changes_port_st = changes_for(&step_port_st, cap_port_st, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_port_st.len(), 1);
+        match &changes_port_st[0] {
+            Change::PortStatus { port } => assert_eq!(*port, Some(3000)),
+            _ => panic!("debe ser PortStatus"),
+        }
+
+        // 7. diag.port_kill
+        let mut args_port_kill = BTreeMap::new();
+        args_port_kill.insert("port".into(), "8080".into());
+        args_port_kill.insert("force".into(), "true".into());
+        let step_port_kill = Step {
+            capability: "diag.port_kill".into(),
+            args: args_port_kill,
+        };
+        let cap_port_kill = catalog.get("diag.port_kill").expect("cap diag.port_kill");
+        let changes_port_kill = changes_for(&step_port_kill, cap_port_kill, &ctx, &pendiente).expect("changes");
+        assert_eq!(changes_port_kill.len(), 1);
+        match &changes_port_kill[0] {
+            Change::PortKill { port, force } => {
+                assert_eq!(*port, 8080);
+                assert!(*force);
+            }
+            _ => panic!("debe ser PortKill"),
         }
     }
 }

@@ -10,6 +10,7 @@ mod ctx;
 mod exec;
 mod grants;
 pub mod git;
+pub mod net;
 pub mod spec;
 mod ipc;
 mod journal;
@@ -88,6 +89,7 @@ fn run() -> Result<()> {
         "log" => cmd_log(&ctx),
         "undo" => cmd_undo(&ctx),
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
+        "ports" => cmd_ports(&rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -569,6 +571,53 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn cmd_ports(args: &[String]) -> Result<()> {
+    let filtro = args.first().and_then(|a| a.parse::<u16>().ok());
+    let puertos = net::diagnosticar_puertos(filtro)?;
+
+    println!("\n{}", paint("antOS · Diagnóstico de Puertos y Procesos", BOLD));
+    if puertos.is_empty() {
+        if let Some(p) = filtro {
+            println!("  El puerto {} está libre.\n", paint(&format!(":{p}"), GREEN));
+        } else {
+            println!("  No se detectaron puertos de desarrollo en escucha activa.\n");
+        }
+        return Ok(());
+    }
+
+    println!(
+        "\n  {:<8} {:<8} {:<16} {:<32} CARPETA",
+        paint("PUERTO", DIM),
+        paint("PID", DIM),
+        paint("PROCESO", DIM),
+        paint("COMANDO", DIM)
+    );
+    println!("  {}", "─".repeat(88));
+
+    for p in &puertos {
+        let puerto_fmt = format!(":{}", p.port);
+        let dir_fmt = p.working_dir.as_deref().unwrap_or("-");
+        let cmd_recortado = if p.command.len() > 30 {
+            format!("{}…", &p.command[..29])
+        } else {
+            p.command.clone()
+        };
+
+        println!(
+            "  {:<8} {:<8} {:<16} {:<32} {}",
+            paint(&puerto_fmt, GREEN),
+            paint(&p.pid.to_string(), YELLOW),
+            p.process_name,
+            cmd_recortado,
+            paint(dir_fmt, DIM)
+        );
+    }
+
+    println!("  {}", "─".repeat(88));
+    println!("  Total: {} proceso(s) en escucha\n", puertos.len());
+    Ok(())
+}
+
 fn help() {
     println!(
         "\
@@ -577,6 +626,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos \"<intención>\"       planifica, enseña el diff y ejecuta
   antos escucha              lo mismo, dictado por voz (transcripción local)
   antos tickets [id]         catálogo de tickets y especificaciones
+  antos ports [puerto]       diagnóstico de puertos de red y procesos
   antos caps                 catálogo de capacidades y su nivel
   antos log                  bitácora de lo que ha pasado
   antos undo                 revierte el último plan ejecutado

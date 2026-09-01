@@ -169,9 +169,39 @@ impl Planner for LocalPlanner {
             )]));
         }
 
+        if lower.contains("puerto") || lower.contains("port") {
+            let port_num = words.iter().find_map(|w| {
+                let digitos: String = w.chars().filter(|c| c.is_ascii_digit()).collect();
+                if !digitos.is_empty() {
+                    Some(digitos)
+                } else {
+                    None
+                }
+            });
+
+            if lower.contains("libera")
+                || lower.contains("mata")
+                || lower.contains("cierra")
+                || lower.contains("kill")
+            {
+                let port =
+                    port_num.ok_or_else(|| anyhow::anyhow!("no veo qué puerto quieres liberar"))?;
+                return Ok(Propuesta::solo(vec![step(
+                    "diag.port_kill",
+                    &[("port", &port)],
+                )]));
+            }
+
+            let mut params = Vec::new();
+            if let Some(ref p) = port_num {
+                params.push(("port", p.as_str()));
+            }
+            return Ok(Propuesta::solo(vec![step("diag.port_status", &params)]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas y worktrees Git.\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git y puertos de red.\n\
              Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
@@ -258,5 +288,25 @@ mod tests {
         assert_eq!(p_limpiar.steps.len(), 1);
         assert_eq!(p_limpiar.steps[0].capability, "git.worktree_cleanup");
         assert_eq!(p_limpiar.steps[0].args.get("ticket_id").map(String::as_str), Some("t3.1"));
+    }
+
+    #[test]
+    fn test_plan_puerto_diagnostico_y_liberacion() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_libera = planner
+            .plan("libera el puerto 3000", &catalog)
+            .expect("debe planificar");
+        assert_eq!(p_libera.steps.len(), 1);
+        assert_eq!(p_libera.steps[0].capability, "diag.port_kill");
+        assert_eq!(p_libera.steps[0].args.get("port").map(String::as_str), Some("3000"));
+
+        let p_estado = planner
+            .plan("puertos", &catalog)
+            .expect("debe planificar");
+        assert_eq!(p_estado.steps.len(), 1);
+        assert_eq!(p_estado.steps[0].capability, "diag.port_status");
     }
 }

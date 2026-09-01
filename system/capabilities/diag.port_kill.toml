@@ -1,0 +1,13 @@
+name = "diag.port_kill"
+summary = "Termina de forma segura un proceso que bloquea un puerto de desarrollo"
+
+[params]
+port = { type = "slug", max = 8 }
+force = { type = "enum", of = ["true", "false"], optional = true, default = "false" }
+
+[effects]
+writes = ["$WORKSPACE/"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

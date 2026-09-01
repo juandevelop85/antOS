@@ -79,6 +79,17 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                     "fusiona rama {branch_name} a {target_branch}{msg_info}"
                 )));
             }
+            Change::PortStatus { port } => {
+                let p_info = port.map(|p| format!(" {p}")).unwrap_or_default();
+                out.push(Line::Info(format!("diagnostica puertos TCP{p_info}")));
+            }
+            Change::PortKill { port, force } => {
+                let force_info = if *force { " (SIGKILL forzado)" } else { " (SIGTERM)" };
+                out.push(Line::Info(format!(
+                    "termina procesos ocupando el puerto {port}{force_info}"
+                )));
+                out.push(Line::Del(format!("  liberar puerto :{port}")));
+            }
         }
         pendiente.aplicar(change);
     }

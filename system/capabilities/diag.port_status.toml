@@ -1,0 +1,12 @@
+name = "diag.port_status"
+summary = "Lista puertos TCP locales en escucha y los procesos asociados a ellos"
+
+[params]
+port = { type = "slug", max = 8, optional = true }
+
+[effects]
+reads = ["$WORKSPACE/"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -202,6 +202,16 @@ pub struct TicketDetail {
     pub criterios_aceptacion: Vec<String>,
 }
 
+/// Información de diagnóstico de un puerto TCP en escucha.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortDiagnosticInfo {
+    pub port: u16,
+    pub pid: u32,
+    pub process_name: String,
+    pub command: String,
+    pub working_dir: Option<String>,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +236,10 @@ pub enum Peticion {
         workspace_path: String,
         ticket_id: String,
     },
+    /// Diagnostica puertos TCP en escucha y los procesos asociados.
+    DiagnosticarPuertos {
+        port: Option<u16>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,6 +257,8 @@ pub enum Evento {
     ListaTickets(Vec<TicketSummary>),
     /// Respuesta con el detalle de un ticket específico.
     DetalleTicket(Option<TicketDetail>),
+    /// Respuesta con el listado de puertos diagnosticados.
+    EstadoPuertos(Vec<PortDiagnosticInfo>),
     Error(String),
 }
 
@@ -373,5 +389,16 @@ mod tests {
         let json_resp = serde_json::to_string(&respuesta_lista).expect("serializar lista tickets");
         let des_resp: Evento = serde_json::from_str(&json_resp).expect("deserializar lista tickets");
         assert_eq!(respuesta_lista, des_resp);
+
+        let info_puerto = PortDiagnosticInfo {
+            port: 3000,
+            pid: 12345,
+            process_name: "node".into(),
+            command: "node server.js".into(),
+            working_dir: Some("/app".into()),
+        };
+        let json_puerto = serde_json::to_string(&info_puerto).expect("serializar puerto");
+        let des_puerto: PortDiagnosticInfo = serde_json::from_str(&json_puerto).expect("deserializar puerto");
+        assert_eq!(info_puerto, des_puerto);
     }
 }

@@ -199,6 +199,16 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::DiagnosticarPuertos { port } => {
+            match crate::net::diagnosticar_puertos(port) {
+                Ok(puertos) => {
+                    enviar(&mut escritura, &Evento::EstadoPuertos(puertos))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -262,6 +272,9 @@ pub fn intencion_remota(
                 if let Some(t) = detalle {
                     pantalla.nota(&format!("ticket {}: {}", t.id, t.titulo))?;
                 }
+            }
+            Evento::EstadoPuertos(puertos) => {
+                pantalla.nota(&format!("puertos en escucha: {}", puertos.len()))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }
