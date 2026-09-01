@@ -7,7 +7,7 @@
 //! entre capacidades declaradas y rellena parámetros tipados — y aun así su
 //! salida vuelve a validarse contra el catálogo antes de usarse.
 
-use super::Planner;
+use super::{Planner, Propuesta};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{anyhow, bail, Context, Result};
@@ -18,6 +18,7 @@ use std::path::PathBuf;
 const URL: &str = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL: &str = "claude-opus-5";
 pub const CLAVE_ENV: &str = "ANTHROPIC_API_KEY";
+const PLAN_TOOL: &str = "emitir_plan";
 
 pub struct ClaudePlanner {
     api_key: String,
@@ -107,12 +108,12 @@ impl Planner for ClaudePlanner {
         "claude"
     }
 
-    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Vec<Step>> {
+    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Propuesta> {
         let body = json!({
             "model": self.model,
             "max_tokens": 16000,
-            "system": SYSTEM,
-            "tools": tools_from(catalog),
+            "system": format!("{SYSTEM}\n\nCapacidades disponibles:\n\n{}", catalogo_como_texto(catalog)),
+            "tools": [herramienta_plan(catalog)],
             // tool_choice queda en automático a propósito: si la intención no
             // se puede expresar con las capacidades disponibles, el modelo
             // tiene que poder decirlo en vez de verse forzado a inventarse
@@ -161,38 +162,45 @@ impl Planner for ClaudePlanner {
         let mut said = String::new();
         for block in blocks {
             match block["type"].as_str() {
-                Some("tool_use") => {
-                    let tool = block["name"].as_str().unwrap_or_default();
-                    let mut args = BTreeMap::new();
-                    if let Some(obj) = block["input"].as_object() {
-                        for (k, val) in obj {
-                            // Los valores no-string se serializan tal cual:
-                            // la validación del catálogo decidirá si valen.
-                            let s = match val {
-                                Value::String(s) => s.clone(),
-                                other => other.to_string(),
-                            };
-                            args.insert(k.clone(), s);
-                        }
+                Some("tool_use") if block["name"] == PLAN_TOOL => {
+                    let entrada = &block["input"];
+                    if let Some(nota) = entrada["nota"].as_str() {
+                        said.push_str(nota);
                     }
-                    steps.push(Step {
-                        capability: from_tool_name(tool),
-                        args,
-                    });
+                    for paso in entrada["pasos"].as_array().into_iter().flatten() {
+                        let capability = paso["capacidad"].as_str().unwrap_or_default().to_string();
+                        let mut args = BTreeMap::new();
+                        if let Some(obj) = paso["argumentos"].as_object() {
+                            for (k, val) in obj {
+                                // Los valores no-string se serializan tal cual:
+                                // la validación del catálogo decidirá si valen.
+                                let s = match val {
+                                    Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                };
+                                args.insert(k.clone(), s);
+                            }
+                        }
+                        steps.push(Step { capability, args });
+                    }
                 }
                 Some("text") => said.push_str(block["text"].as_str().unwrap_or_default()),
                 _ => {}
             }
         }
 
+        let said = said.trim().to_string();
         if steps.is_empty() {
-            let said = said.trim();
             if said.is_empty() {
                 bail!("el modelo no propuso ninguna capacidad");
             }
             bail!("no se pudo planificar con las capacidades disponibles.\n{said}");
         }
-        Ok(steps)
+
+        Ok(Propuesta {
+            steps,
+            nota: (!said.is_empty()).then_some(said),
+        })
     }
 }
 
@@ -203,66 +211,76 @@ Traduces la intención del usuario a llamadas de las capacidades disponibles.
 Reglas:
 - Solo puedes usar las capacidades ofrecidas como herramientas. No existe una \
 shell ni ninguna otra vía.
-- Emite todas las llamadas necesarias para cubrir la intención completa, en orden.
+- NO HAY SEGUNDA VUELTA. No vas a ver el resultado de tus llamadas ni podrás \
+continuar después. Emite el plan COMPLETO en esta única respuesta.
+- Los pasos se ejecutan en orden, así que puedes dar por hecho que lo que crea \
+un paso existe para los siguientes: declarar una dependencia en un proyecto que \
+creas dos líneas más arriba es correcto.
 - No ejecutas nada: tus llamadas son una propuesta que el usuario revisará.
 - Si la intención no se puede expresar con las capacidades disponibles, no \
 llames a ninguna: explica en texto qué falta.
 - Las rutas son relativas al espacio de trabajo. Nunca uses rutas absolutas ni '..'.";
 
-/// Los nombres de herramienta de la API no admiten puntos, y los de las
-/// capacidades sí (`fs.read`). Traducimos en los dos sentidos.
-fn to_tool_name(cap: &str) -> String {
-    cap.replace('.', "__")
+/// UNA sola herramienta, cuyo argumento es el plan entero.
+///
+/// Antes había una herramienta por capacidad, y el modelo emitía una llamada
+/// y paraba: es lo natural: una herramienta se invoca para VER su resultado y
+/// seguir. Pero aquí no hay bucle de agente — el modelo emite un plan que una
+/// persona aprueba de una vez.
+///
+/// Pedir «devuélveme un plan» en vez de «llama a las capacidades» alinea la
+/// petición con lo que la arquitectura decía desde el principio, y de paso
+/// hace imposible el plan a medias.
+fn herramienta_plan(catalog: &Catalog) -> Value {
+    let nombres: Vec<&str> = catalog.caps.keys().map(String::as_str).collect();
+
+    json!({
+        "name": PLAN_TOOL,
+        "description": "Devuelve el plan COMPLETO que cubre la intención del usuario.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nota": {
+                    "type": "string",
+                    "description": "Una frase para el usuario explicando el plan."
+                },
+                "pasos": {
+                    "type": "array",
+                    "description": "Las invocaciones, en el orden en que deben ejecutarse.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "capacidad": { "type": "string", "enum": nombres },
+                            "argumentos": {
+                                "type": "object",
+                                "description": "Los parámetros de esa capacidad. Todos los valores son cadenas.",
+                                "additionalProperties": { "type": "string" }
+                            }
+                        },
+                        "required": ["capacidad", "argumentos"]
+                    }
+                }
+            },
+            "required": ["pasos"]
+        }
+    })
 }
 
-fn from_tool_name(tool: &str) -> String {
-    tool.replace("__", ".")
-}
-
-fn tools_from(catalog: &Catalog) -> Vec<Value> {
-    catalog
-        .caps
-        .values()
-        .map(|cap| {
-            let mut properties = serde_json::Map::new();
-            let mut required = Vec::new();
-
-            for (name, spec) in &cap.params {
-                let mut schema = serde_json::Map::new();
-                schema.insert("type".into(), json!("string"));
-                if spec.kind == "enum" {
-                    schema.insert("enum".into(), json!(spec.of));
-                }
-                let mut description = match spec.kind.as_str() {
-                    "path" => "Ruta relativa al espacio de trabajo".to_string(),
-                    "slug" => "Identificador: letras, dígitos, '-', '_' y '.'".to_string(),
-                    "text" => "Contenido literal del fichero".to_string(),
-                    _ => String::new(),
-                };
-                if let Some(max) = spec.max {
-                    description.push_str(&format!(" (máximo {max} caracteres)"));
-                }
-                let description = description.trim().to_string();
-                if !description.is_empty() {
-                    schema.insert("description".into(), json!(description));
-                }
-                properties.insert(name.clone(), Value::Object(schema));
-
-                if !spec.optional && spec.default.is_none() {
-                    required.push(name.clone());
-                }
-            }
-
-            json!({
-                "name": to_tool_name(&cap.name),
-                "description": cap.summary,
-                "input_schema": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required,
-                    "additionalProperties": false,
-                }
-            })
-        })
-        .collect()
+/// El catálogo, para que el modelo sepa qué puede pedir. Sale de los
+/// manifiestos: no hay una segunda descripción que mantener sincronizada.
+fn catalogo_como_texto(catalog: &Catalog) -> String {
+    let mut texto = String::new();
+    for cap in catalog.caps.values() {
+        texto.push_str(&format!("- {}: {}\n", cap.name, cap.summary));
+        for (nombre, spec) in &cap.params {
+            let opcional = if spec.optional || spec.default.is_some() { " (opcional)" } else { "" };
+            let tipo = if spec.of.is_empty() {
+                spec.kind.clone()
+            } else {
+                format!("uno de [{}]", spec.of.join(", "))
+            };
+            texto.push_str(&format!("    {nombre}: {tipo}{opcional}\n"));
+        }
+    }
+    texto
 }

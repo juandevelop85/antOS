@@ -101,11 +101,14 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
     println!("  {}", paint(&format!("planificador: {}", planner.name()), DIM));
 
     // 02 · planificación — la única etapa donde participa un modelo
-    let raw_steps = planner.plan(intent, catalog)?;
+    let propuesta = planner.plan(intent, catalog)?;
+    if let Some(nota) = &propuesta.nota {
+        println!("  {}", paint(&format!("dice: {nota}"), DIM));
+    }
 
     // Nada de lo que devuelve un planificador se considera de fiar.
     let mut steps: Vec<Step> = Vec::new();
-    for mut step in raw_steps {
+    for mut step in propuesta.steps {
         let cap = catalog.get(&step.capability)?;
         catalog.validate(cap, &mut step.args)?;
         steps.push(step);
@@ -134,9 +137,17 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
     let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config)?;
     let (tier, reasons) = radius.required_tier();
 
+    // Los cambios se calculan EN ORDEN, y cada paso ve lo que los anteriores
+    // ya decidieron. Calcularlos todos contra el disco de partida hacía que
+    // dos pasos sobre el mismo fichero se pisaran.
     let mut changes = Vec::new();
+    let mut pendiente = exec::Pendiente::default();
     for step in &plan.steps {
-        changes.extend(exec::changes_for(step, catalog.get(&step.capability)?, ctx)?);
+        let del_paso = exec::changes_for(step, catalog.get(&step.capability)?, ctx, &pendiente)?;
+        for cambio in &del_paso {
+            pendiente.aplicar(cambio);
+        }
+        changes.extend(del_paso);
     }
 
     println!();

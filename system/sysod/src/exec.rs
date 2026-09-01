@@ -12,7 +12,7 @@ use crate::plan::Step;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Serializable porque cruza la frontera de proceso: el broker decide los
 /// cambios, el ejecutor confinado los aplica.
@@ -25,7 +25,59 @@ pub enum Change {
     Read { path: PathBuf },
 }
 
-pub fn changes_for(step: &Step, cap: &Capability, ctx: &Ctx) -> Result<Vec<Change>> {
+/// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
+///
+/// Sin esto, dos pasos que tocan el mismo fichero se pisan: cada uno lo lee
+/// del disco tal y como estaba ANTES del plan, y al ejecutar gana el último.
+/// Declarar tres dependencias dejaba una.
+///
+/// Y lo grave no era perder dos líneas: era que el diff aprobado dejaba de
+/// describir el resultado. Que lo que ves sea lo que pasa es la propiedad
+/// que sostiene todo lo demás.
+#[derive(Default)]
+pub struct Pendiente {
+    escrituras: BTreeMap<PathBuf, String>,
+    borrados: std::collections::BTreeSet<PathBuf>,
+}
+
+impl Pendiente {
+    /// El contenido que tendrá el fichero cuando llegue este paso.
+    /// `None` significa «pregúntale al disco».
+    pub fn leer(&self, path: &Path) -> Option<String> {
+        if self.borrados.contains(path) {
+            return Some(String::new());
+        }
+        self.escrituras.get(path).cloned()
+    }
+
+    pub fn aplicar(&mut self, change: &Change) {
+        match change {
+            Change::Write { path, content } => {
+                self.borrados.remove(path);
+                self.escrituras.insert(path.clone(), content.clone());
+            }
+            Change::Delete { path } => {
+                self.escrituras.remove(path);
+                self.borrados.insert(path.clone());
+            }
+            Change::Mkdir { .. } | Change::Read { .. } => {}
+        }
+    }
+}
+
+/// Lee un fichero teniendo en cuenta lo que el plan ya ha decidido.
+fn leer_con_pendiente(path: &Path, pendiente: &Pendiente) -> String {
+    pendiente
+        .leer(path)
+        .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default())
+}
+
+pub fn changes_for(
+    step: &Step,
+    cap: &Capability,
+    ctx: &Ctx,
+    pendiente: &Pendiente,
+) -> Result<Vec<Change>> {
     let a = &step.args;
     match cap.name.as_str() {
         "fs.read" => Ok(vec![Change::Read { path: abs(ctx, &a["path"]) }]),
@@ -52,16 +104,18 @@ pub fn changes_for(step: &Step, cap: &Capability, ctx: &Ctx) -> Result<Vec<Chang
                 .workspace
                 .join(&a["project"])
                 .join("syso.packages.toml");
+            let previo = leer_con_pendiente(&path, pendiente);
             Ok(vec![Change::Write {
-                path: path.clone(),
-                content: declare_package(&path, &a["package"], &a["version"])?,
+                content: declare_package(&previo, &a["package"], &a["version"])?,
+                path,
             }])
         }
 
         "system.declare" => {
             let path = ctx.system_config.join("syso-paquetes.nix");
+            let previo = leer_con_pendiente(&path, pendiente);
             Ok(vec![Change::Write {
-                content: declare_system_package(&path, &a["package"])?,
+                content: declare_system_package(&previo, &a["package"])?,
                 path,
             }])
         }
@@ -159,11 +213,11 @@ const NIX_FOOTER: &str = "  ];\n}\n";
 /// Se lee lo que hay y se vuelve a escribir entero, en vez de aplicar un
 /// parche. Es lo que permite fotografiarlo, previsualizarlo y revertirlo con
 /// el mismo código que cualquier otro fichero.
-fn declare_system_package(path: &PathBuf, package: &str) -> Result<String> {
+fn declare_system_package(previo: &str, package: &str) -> Result<String> {
     let mut packages: BTreeMap<String, ()> = BTreeMap::new();
 
-    if path.exists() {
-        let existing = std::fs::read_to_string(path)?;
+    {
+        let existing = previo;
         // Un análisis por líneas basta porque este fichero lo genera syso.
         // Si alguien lo reescribe con Nix de verdad, lo peor que pasa es que
         // no reconozcamos sus paquetes — y eso se ve en el diff antes de
@@ -210,12 +264,50 @@ const PACKAGES_HEADER: &str = "\
 /// Devuelve el contenido COMPLETO que tendría el fichero de declaraciones
 /// tras añadir el paquete. Devolver el fichero entero (y no un parche) es lo
 /// que permite fotografiarlo y previsualizarlo con el mismo código.
-fn declare_package(path: &PathBuf, package: &str, version: &str) -> Result<String> {
-    let mut file: PackagesFile = if path.exists() {
-        toml::from_str(&std::fs::read_to_string(path)?).unwrap_or_default()
-    } else {
-        PackagesFile::default()
-    };
+fn declare_package(previo: &str, package: &str, version: &str) -> Result<String> {
+    let mut file: PackagesFile = toml::from_str(previo).unwrap_or_default();
     file.packages.insert(package.to_string(), version.to_string());
     Ok(format!("{PACKAGES_HEADER}\n{}", toml::to_string(&file)?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn un_paso_ve_lo_que_decidio_el_anterior() {
+        let mut pendiente = Pendiente::default();
+        let ruta = PathBuf::from("/ws/paquetes.toml");
+
+        assert_eq!(pendiente.leer(&ruta), None, "de partida, manda el disco");
+
+        pendiente.aplicar(&Change::Write {
+            path: ruta.clone(),
+            content: "express".into(),
+        });
+        assert_eq!(
+            pendiente.leer(&ruta).as_deref(),
+            Some("express"),
+            "el paso siguiente debe ver lo que este escribió, no el disco"
+        );
+    }
+
+    #[test]
+    fn escribir_despues_de_borrar_parte_de_cero() {
+        let mut pendiente = Pendiente::default();
+        let ruta = PathBuf::from("/ws/notas.txt");
+
+        pendiente.aplicar(&Change::Delete { path: ruta.clone() });
+        assert_eq!(
+            pendiente.leer(&ruta).as_deref(),
+            Some(""),
+            "un fichero borrado por un paso anterior está vacío, no como en el disco"
+        );
+
+        pendiente.aplicar(&Change::Write {
+            path: ruta.clone(),
+            content: "nuevo".into(),
+        });
+        assert_eq!(pendiente.leer(&ruta).as_deref(), Some("nuevo"));
+    }
 }

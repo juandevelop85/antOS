@@ -176,6 +176,22 @@ impl Catalog {
                         bail!("{}: «{name}» no es un identificador válido: «{value}»", cap.name);
                     }
                 }
+                // Un nombre de paquete de un ecosistema real: npm admite
+                // ámbitos (`@types/express`), y otros admiten `+`. Es un tipo
+                // aparte de `slug` a propósito — `slug` lo usan parámetros que
+                // acaban dentro de una RUTA, y ahí una barra sería otra cosa.
+                "package" => {
+                    let valido = |c: char| {
+                        c.is_ascii_alphanumeric()
+                            || matches!(c, '-' | '_' | '.' | '@' | '/' | '+')
+                    };
+                    if value.is_empty() || !value.chars().all(valido) {
+                        bail!("{}: «{name}» no es un nombre de paquete válido: «{value}»", cap.name);
+                    }
+                    if value.starts_with('/') || value.starts_with('-') || value.contains("..") {
+                        bail!("{}: «{name}» tiene una forma sospechosa: «{value}»", cap.name);
+                    }
+                }
                 "path" => {
                     if value.is_empty() {
                         bail!("{}: «{name}» está vacío", cap.name);

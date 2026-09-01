@@ -6,7 +6,7 @@
 //! aislamiento y el deshacer solo funcionan cuando el modelo acierta, no
 //! funcionan.
 
-use super::Planner;
+use super::{Planner, Propuesta};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{bail, Result};
@@ -19,7 +19,7 @@ impl Planner for LocalPlanner {
         "local"
     }
 
-    fn plan(&self, intent: &str, _catalog: &Catalog) -> Result<Vec<Step>> {
+    fn plan(&self, intent: &str, _catalog: &Catalog) -> Result<Propuesta> {
         let lower = intent.to_lowercase();
         // El punto se conserva porque forma parte de nombres de fichero
         // (`main.rs`), pero un punto FINAL es puntuación de frase. Sin
@@ -46,7 +46,7 @@ impl Planner for LocalPlanner {
             };
             let name = after(&words, &["llamado", "llamada", "nombre"])
                 .unwrap_or_else(|| words.last().cloned().unwrap_or_default());
-            return Ok(vec![step("project.scaffold", &[("language", language), ("name", &name)])]);
+            return Ok(Propuesta::solo(vec![step("project.scaffold", &[("language", language), ("name", &name)])]));
         }
 
         // El sistema se comprueba ANTES que el proyecto: "declara htop en el
@@ -59,7 +59,7 @@ impl Planner for LocalPlanner {
         {
             let package = after(&words, &["declara", "instala", "añade", "paquete"])
                 .ok_or_else(|| anyhow::anyhow!("no veo qué paquete quieres declarar"))?;
-            return Ok(vec![step("system.declare", &[("package", &package)])]);
+            return Ok(Propuesta::solo(vec![step("system.declare", &[("package", &package)])]));
         }
 
         if lower.contains("depend") || lower.contains("paquete") {
@@ -68,20 +68,20 @@ impl Planner for LocalPlanner {
             let project = after(&words, &["proyecto"])
                 .ok_or_else(|| anyhow::anyhow!("no veo en qué proyecto declararlo"))?;
             let version = after(&words, &["version", "versión", "v"]).unwrap_or_else(|| "*".into());
-            return Ok(vec![step(
+            return Ok(Propuesta::solo(vec![step(
                 "pkg.declare",
                 &[("project", &project), ("package", &package), ("version", &version)],
-            )]);
+            )]));
         }
 
         if lower.contains("borra") || lower.contains("elimin") {
             let path = words.last().cloned().unwrap_or_default();
-            return Ok(vec![step("fs.delete", &[("path", &path)])]);
+            return Ok(Propuesta::solo(vec![step("fs.delete", &[("path", &path)])]));
         }
 
         if lower.contains("lee") || lower.contains("muestra") || lower.contains("enseña") {
             let path = words.last().cloned().unwrap_or_default();
-            return Ok(vec![step("fs.read", &[("path", &path)])]);
+            return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
         }
 
         if lower.contains("escribe") {
@@ -89,7 +89,7 @@ impl Planner for LocalPlanner {
                 .ok_or_else(|| anyhow::anyhow!("no veo en qué fichero escribir"))?;
             let content = intent.split_once(':').map(|(_, c)| c.trim().to_string()).unwrap_or_default();
 
-            return Ok(vec![step("fs.write", &[("path", &path), ("content", &content)])]);
+            return Ok(Propuesta::solo(vec![step("fs.write", &[("path", &path), ("content", &content)])]));
         }
 
         bail!(

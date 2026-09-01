@@ -3,7 +3,8 @@ summary = "Declara una dependencia del proyecto. No la instala: escribe la decla
 
 [params]
 project = { type = "slug", max = 64 }
-package = { type = "slug", max = 128 }
+# No es un "slug": npm admite ámbitos como @types/express.
+package = { type = "package", max = 128 }
 version = { type = "string", max = 32, optional = true, default = "*" }
 
 [effects]

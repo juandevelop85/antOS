@@ -13,6 +13,11 @@ const MAX_DIFF_LINES: usize = 16;
 
 pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
     let mut out = Vec::new();
+    // El diff de un paso se compara con lo que dejó el paso anterior, no con
+    // el disco de partida. Si no, tres escrituras al mismo fichero se
+    // mostrarían las tres como si partieran de cero.
+    let mut pendiente = crate::exec::Pendiente::default();
+
     for change in changes {
         match change {
             Change::Read { path } => {
@@ -31,8 +36,11 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 out.push(Line::Del(format!("  {}", ctx.display(path))));
             }
             Change::Write { path, content } => {
-                let old = std::fs::read_to_string(path).unwrap_or_default();
-                let verb = if path.exists() { "modifica" } else { "crea    " };
+                let ya_previsto = pendiente.leer(path);
+                let existia = ya_previsto.is_some() || path.exists();
+                let old = ya_previsto
+                    .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default());
+                let verb = if existia { "modifica" } else { "crea    " };
                 out.push(Line::Info(format!("{verb}  {}", ctx.display(path))));
                 for (marker, text) in diff(&old, content) {
                     match marker {
@@ -42,6 +50,7 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 }
             }
         }
+        pendiente.aplicar(change);
     }
     out
 }
