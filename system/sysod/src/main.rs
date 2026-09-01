@@ -328,6 +328,17 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
 /// confirmación. La voz no salta ningún control: hablar es más cómodo, no
 /// más privilegiado.
 fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> Result<()> {
+    if args.iter().any(|a| a == "--dispositivos") {
+        println!();
+        println!("{}", paint("dispositivos de audio", BOLD));
+        for linea in voz::Voz::dispositivos()?.lines() {
+            println!("  {linea}");
+        }
+        println!();
+        println!("{}", paint("elige uno con: syso escucha --dispositivo N", DIM));
+        return Ok(());
+    }
+
     let voz = voz::Voz::discover()?;
 
     let segundos = args
@@ -340,6 +351,12 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
         .iter()
         .position(|a| a == "--desde")
         .and_then(|i| args.get(i + 1));
+    let dispositivo = args
+        .iter()
+        .position(|a| a == "--dispositivo")
+        .and_then(|i| args.get(i + 1))
+        .map(|d| format!(":{d}"))
+        .unwrap_or_else(|| ":default".to_string());
 
     println!();
     println!("{}", paint("syso · escucha", BOLD));
@@ -357,9 +374,9 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
         None => {
             println!(
                 "  {}",
-                paint(&format!("grabando {segundos} s · habla ahora"), BOLD)
+                paint(&format!("grabando {segundos} s desde {dispositivo} · habla ahora"), BOLD)
             );
-            voz.grabar(segundos, &captura)?;
+            voz.grabar(segundos, &captura, &dispositivo)?;
         }
     }
 
@@ -715,6 +732,8 @@ opciones
   -n, --seco                 planificar y previsualizar sin ejecutar
       --segundos <N>         escucha: cuánto grabar (por defecto 5)
       --desde <fichero>      escucha: transcribir un audio en vez del micrófono
+      --dispositivos         escucha: listar las entradas de audio
+      --dispositivo <N>      escucha: cuál usar (por defecto, la del sistema)
 
 entorno
   SYSO_WORKSPACE   espacio de trabajo (por defecto ./workspace)

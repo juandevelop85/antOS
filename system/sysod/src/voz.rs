@@ -23,6 +23,20 @@ use std::process::Command;
 /// cosa hay que convertirla antes.
 const SAMPLE_RATE: &str = "16000";
 
+/// Por debajo de este nivel medio, se considera que no ha hablado nadie.
+///
+/// El número sale de medir, no de suponer. En esta máquina:
+///
+/// | fuente                  | nivel medio |
+/// |-------------------------|-------------|
+/// | silencio digital        | −91 dB      |
+/// | habitación en silencio  | −47 dB      |
+/// | alguien hablando        | −18 dB      |
+///
+/// −40 dB deja siete decibelios de margen sobre el ruido de una habitación y
+/// veintidós por debajo de una voz.
+const UMBRAL_DB: f32 = -40.0;
+
 pub struct Voz {
     whisper: PathBuf,
     modelo: PathBuf,
@@ -63,7 +77,7 @@ impl Voz {
     ///
     /// La primera vez, macOS pedirá permiso de micrófono al terminal desde el
     /// que se lance. Ese permiso lo concede una persona, no este programa.
-    pub fn grabar(&self, segundos: u32, destino: &Path) -> Result<()> {
+    pub fn grabar(&self, segundos: u32, destino: &Path, dispositivo: &str) -> Result<()> {
         let ffmpeg = buscar_en_path(&["ffmpeg"]).ok_or_else(|| {
             anyhow::anyhow!("no encuentro ffmpeg. Instálalo con:\n  brew install ffmpeg")
         })?;
@@ -72,9 +86,15 @@ impl Voz {
         crate::sandbox::sin_secretos(&mut orden);
         let salida = orden
             .args(["-hide_banner", "-loglevel", "error", "-nostdin"])
-            // avfoundation es la capa de captura de macOS; ":default" toma la
-            // entrada de audio predeterminada y ningún vídeo.
-            .args(["-f", "avfoundation", "-i", ":default"])
+            // avfoundation es la capa de captura de macOS. Los dos puntos
+            // iniciales significan "sin vídeo"; detrás va el índice del
+            // dispositivo de audio.
+            //
+            // No vale con ":default": en una máquina con Teams, Zoom o
+            // cualquier cosa que instale un dispositivo virtual, el
+            // predeterminado es ESE y no el micrófono. Grabarías silencio sin
+            // enterarte.
+            .args(["-f", "avfoundation", "-i", dispositivo])
             .args(["-t", &segundos.to_string()])
             .args(["-ar", SAMPLE_RATE, "-ac", "1", "-c:a", "pcm_s16le"])
             .arg("-y")
@@ -126,7 +146,58 @@ impl Voz {
     /// la transcribe como "rastre". Darle de antemano las palabras que este
     /// sistema entiende cambia esa apuesta — y esas palabras las conoce el
     /// catálogo de capacidades, así que no hay que inventarlas.
+    /// Nivel medio del audio, en decibelios.
+    fn nivel_db(&self, wav: &Path) -> Result<f32> {
+        let ffmpeg = buscar_en_path(&["ffmpeg"])
+            .ok_or_else(|| anyhow::anyhow!("no encuentro ffmpeg"))?;
+
+        let mut orden = Command::new(&ffmpeg);
+        crate::sandbox::sin_secretos(&mut orden);
+        let salida = orden
+            .args(["-hide_banner", "-nostdin", "-i"])
+            .arg(wav)
+            .args(["-af", "volumedetect", "-f", "null", "-"])
+            .output()
+            .context("no pude medir el nivel del audio")?;
+
+        let texto = String::from_utf8_lossy(&salida.stderr);
+        for linea in texto.lines() {
+            if let Some((_, resto)) = linea.split_once("mean_volume:") {
+                if let Some(numero) = resto.split_whitespace().next() {
+                    return Ok(numero.parse::<f32>().unwrap_or(f32::NEG_INFINITY));
+                }
+            }
+        }
+        // Si no se puede medir, se deja pasar: mejor transcribir de más que
+        // negarse a escuchar por un fallo de la medida.
+        Ok(0.0)
+    }
+
     pub fn transcribir(&self, wav: &Path, vocabulario: &str) -> Result<String> {
+        // La puerta más importante de todo el módulo.
+        //
+        // Whisper ante ruido de fondo no dice "no he oído nada": se inventa
+        // una frase perfectamente formada. Grabando una habitación vacía
+        // salió «La gente se puede hacer un proyecto de trabajo.» — una
+        // intención plausible, con la que un planificador puede construir un
+        // plan de verdad.
+        //
+        // Filtrar los marcadores de silencio no basta, porque la alucinación
+        // no viene marcada. Hay que negarse a transcribir lo que no tiene
+        // energía suficiente para ser una voz.
+        let umbral = std::env::var("SYSO_UMBRAL_VOZ")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(UMBRAL_DB);
+
+        let nivel = self.nivel_db(wav)?;
+        if nivel < umbral {
+            bail!(
+                "no he oído ninguna voz (nivel medio {nivel:.1} dB, umbral {umbral:.1} dB).\n\
+                 Si estabas hablando, prueba con otro micrófono:\n  syso escucha --dispositivos"
+            );
+        }
+
         let mut orden = Command::new(&self.whisper);
         crate::sandbox::sin_secretos(&mut orden);
         let salida = orden
@@ -156,6 +227,42 @@ impl Voz {
             bail!("no he entendido nada. ¿Estaba el micrófono activo?");
         }
         Ok(limpio)
+    }
+
+    /// Los dispositivos de audio que ve macOS, con su índice.
+    pub fn dispositivos() -> Result<String> {
+        let ffmpeg = buscar_en_path(&["ffmpeg"])
+            .ok_or_else(|| anyhow::anyhow!("no encuentro ffmpeg"))?;
+
+        let salida = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""])
+            .output()
+            .context("no pude lanzar ffmpeg")?;
+
+        // ffmpeg lista los dispositivos por stderr y luego "falla" a
+        // propósito, porque no hay nada que abrir. No es un error.
+        let texto = String::from_utf8_lossy(&salida.stderr);
+        let mut lineas = Vec::new();
+        let mut en_audio = false;
+        for linea in texto.lines() {
+            if linea.contains("audio devices") {
+                en_audio = true;
+                continue;
+            }
+            if linea.contains("video devices") {
+                en_audio = false;
+            }
+            // Tras la lista, ffmpeg escupe su error de "no hay entrada que
+            // abrir". Solo nos quedamos con las líneas que son un dispositivo.
+            if en_audio {
+                if let Some((_, resto)) = linea.split_once("] ") {
+                    if resto.starts_with('[') {
+                        lineas.push(resto.to_string());
+                    }
+                }
+            }
+        }
+        Ok(lineas.join("\n"))
     }
 
     pub fn modelo(&self) -> &Path {

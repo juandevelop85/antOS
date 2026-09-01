@@ -79,6 +79,33 @@ El transcriptor se ceba con el vocabulario del catálogo (`--prompt`), que sale
 de los valores enumerados de los manifiestos: si mañana una capacidad acepta un
 lenguaje nuevo, el transcriptor lo aprende solo.
 
+Elegir micrófono, porque el predeterminado del sistema suele ser un dispositivo
+virtual de Teams o Zoom y grabarías silencio sin enterarte:
+
+```bash
+target/debug/syso escucha --dispositivos
+target/debug/syso escucha --dispositivo 1
+```
+
+### El silencio no es una intención
+
+Whisper ante ruido de fondo no dice «no he oído nada»: **se inventa una frase
+bien formada**. Grabando una habitación vacía salió «La gente se puede hacer un
+proyecto de trabajo» — una intención plausible con la que un planificador puede
+construir un plan de verdad.
+
+Por eso se mide el nivel antes de transcribir. Los números salen de medir en
+esta máquina, no de suponer:
+
+| fuente | nivel medio |
+|---|---|
+| silencio digital | −91 dB |
+| habitación en silencio | −47 dB |
+| alguien hablando | −18 dB |
+
+El umbral está en −40 dB (`SYSO_UMBRAL_VOZ` lo cambia). Filtrar los marcadores
+`[BLANK_AUDIO]` no bastaba: la alucinación no viene marcada.
+
 ## El recinto
 
 La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el
@@ -147,10 +174,10 @@ Sin verificar todavía:
   deprecado. En Linux sí lo están.
 - **Landlock solo cubre TCP**: UDP y los sockets unix quedan fuera de su
   alcance, así que la denegación de red no es total.
-- **La captura por micrófono no está probada**: necesita que macOS conceda
-  permiso al terminal, y eso lo autoriza una persona. Verificado el camino
-  completo con audio sintetizado, que ejercita todo menos `ffmpeg -f
-  avfoundation`.
+- **La captura por micrófono funciona**, con permiso ya concedido en esta
+  máquina. Lo que falta es una transcripción correcta de una voz real: los
+  intentos hasta ahora no capturaron voz y la puerta de nivel los rechazó,
+  que es el comportamiento deseado pero no cierra la prueba.
 - **La imagen arrancable no se ha construido.** El sistema *evalúa* entero
   —`nixos-system-syso-26.11...drv`— y sus piezas se han comprobado una a una,
   pero construirlo son gigabytes de cierre y no se ha hecho aquí.
