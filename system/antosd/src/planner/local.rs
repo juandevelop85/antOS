@@ -266,6 +266,25 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("diag.port_status", &params)]));
         }
 
+        // Intenciones de perfiles de entorno y flakes (T7.1)
+        if lower.contains("entorno") || lower.contains("toolchain") || lower.contains("devbox") || lower.contains("flake") || lower.contains("perfil") {
+            if lower.contains("init") || lower.contains("configura") || lower.contains("crea") || lower.contains("inicializa") {
+                let prof = words.iter().find_map(|w| {
+                    match w.as_str() {
+                        "rust" | "node" | "python" | "go" | "base" => Some(w.as_str()),
+                        _ => None,
+                    }
+                }).unwrap_or("rust");
+                return Ok(Propuesta::solo(vec![step("env.init", &[("profile", prof)])]));
+            }
+
+            if lower.contains("sync") || lower.contains("sincroniza") || lower.contains("verifica") {
+                return Ok(Propuesta::solo(vec![step("env.sync", &[])]));
+            }
+
+            return Ok(Propuesta::solo(vec![step("env.profile_status", &[])]));
+        }
+
         // Intenciones de secretos y concesiones (T5.2)
         if (!lower.contains("busca") && !lower.contains("search"))
             && (lower.contains("secreto")
@@ -601,5 +620,25 @@ mod tests {
             .expect("plan graph");
         assert_eq!(p_graph.steps.len(), 1);
         assert_eq!(p_graph.steps[0].capability, "memory.graph");
+    }
+
+    #[test]
+    fn test_plan_env_profile_y_sync() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_init = planner
+            .plan("configura el entorno para python", &catalog)
+            .expect("plan init");
+        assert_eq!(p_init.steps.len(), 1);
+        assert_eq!(p_init.steps[0].capability, "env.init");
+        assert_eq!(p_init.steps[0].args.get("profile").map(String::as_str), Some("python"));
+
+        let p_sync = planner
+            .plan("sincroniza el entorno del proyecto", &catalog)
+            .expect("plan sync");
+        assert_eq!(p_sync.steps.len(), 1);
+        assert_eq!(p_sync.steps[0].capability, "env.sync");
     }
 }

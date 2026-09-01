@@ -117,6 +117,18 @@ pub enum Change {
         workspace: PathBuf,
         target: Option<String>,
     },
+    EnvProfileInit {
+        workspace: PathBuf,
+        profile: Option<String>,
+        create_devbox: bool,
+        create_flake: bool,
+    },
+    EnvProfileSync {
+        workspace: PathBuf,
+    },
+    EnvProfileStatus {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -177,7 +189,10 @@ impl Pendiente {
             | Change::TicketList { .. }
             | Change::MemoryIndex { .. }
             | Change::MemorySearch { .. }
-            | Change::MemoryGraph { .. } => {}
+            | Change::MemoryGraph { .. }
+            | Change::EnvProfileInit { .. }
+            | Change::EnvProfileSync { .. }
+            | Change::EnvProfileStatus { .. } => {}
         }
     }
 }
@@ -466,6 +481,30 @@ pub fn changes_for(
             Ok(vec![Change::MemoryGraph {
                 workspace: ctx.workspace.clone(),
                 target,
+            }])
+        }
+
+        "env.init" => {
+            let profile = a.get("profile").cloned();
+            let create_devbox = a.get("devbox").map(|s| s != "false").unwrap_or(true);
+            let create_flake = a.get("flake").map(|s| s != "false").unwrap_or(true);
+            Ok(vec![Change::EnvProfileInit {
+                workspace: ctx.workspace.clone(),
+                profile,
+                create_devbox,
+                create_flake,
+            }])
+        }
+
+        "env.sync" => {
+            Ok(vec![Change::EnvProfileSync {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "env.profile_status" => {
+            Ok(vec![Change::EnvProfileStatus {
+                workspace: ctx.workspace.clone(),
             }])
         }
 
@@ -803,6 +842,55 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                             store.graph.nodes.len(),
                             store.graph.edges.len()
                         ));
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::EnvProfileInit {
+                workspace,
+                profile,
+                create_devbox,
+                create_flake,
+            } => {
+                let prof = match profile {
+                    Some(ref p) => crate::env::EnvProfile::from_str_loose(p).unwrap_or(crate::env::EnvProfile::Base),
+                    None => crate::env::EnvEngine::detect_stack(workspace).unwrap_or(crate::env::EnvProfile::Base),
+                };
+                let summary = crate::env::EnvEngine::init_profile(workspace, prof, *create_devbox, *create_flake)?;
+                let files_str = summary.created_files.join(", ");
+                output.push(format!(
+                    "perfil de entorno «{}» inicializado. Archivos creados: [{files_str}]. Paquetes: [{}]",
+                    summary.profile,
+                    summary.packages.join(", ")
+                ));
+            }
+            Change::EnvProfileSync { workspace } => {
+                let statuses = crate::env::EnvEngine::check_toolchains(workspace)?;
+                let mut lines = Vec::new();
+                lines.push(format!("sincronización de entorno para {}", workspace.display()));
+                for s in statuses {
+                    let mark = if s.available { "✓" } else { "✗" };
+                    let loc = s.path.unwrap_or_else(|| "no instalado".into());
+                    lines.push(format!("  [{mark}] {:<16} ({loc})", s.name));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::EnvProfileStatus { workspace } => {
+                let cfg = crate::env::EnvEngine::load_config(workspace)?;
+                let mut lines = Vec::new();
+                match cfg {
+                    Some(c) => {
+                        lines.push(format!("perfil activo: «{}» ({} paquetes)", c.profile, c.packages.len()));
+                        let statuses = crate::env::EnvEngine::check_toolchains(workspace)?;
+                        for s in statuses {
+                            let mark = if s.available { "●" } else { "○" };
+                            lines.push(format!("  {mark} {:<16} disponible: {}", s.name, s.available));
+                        }
+                    }
+                    None => {
+                        let detected = crate::env::EnvEngine::detect_stack(workspace);
+                        let det_str = detected.map(|d| d.as_str()).unwrap_or("no detectado");
+                        lines.push(format!("sin perfil explícito configurado (stack detectado: {det_str})"));
                     }
                 }
                 output.push(lines.join("\n"));

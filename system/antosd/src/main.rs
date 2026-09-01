@@ -12,6 +12,7 @@ mod grants;
 pub mod git;
 pub mod net;
 pub mod spec;
+pub mod env;
 pub mod flow;
 pub mod memory;
 pub mod service;
@@ -100,6 +101,7 @@ fn run() -> Result<()> {
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "llm" | "models" | "model" => cmd_llm(&rest[1..]),
         "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
+        "env" | "profile" => cmd_env(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -883,6 +885,78 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!("  Estado:    {}", paint("○ Sin indexar (Ejecuta: antos memory index)", YELLOW));
             }
             println!();
+        }
+    }
+
+    Ok(())
+}
+
+// ------------------------------------------------------------------ env
+
+fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "init" | "setup" => {
+            let profile_arg = args.get(1).map(String::as_str);
+            let profile = match profile_arg {
+                Some(p) => env::EnvProfile::from_str_loose(p).ok_or_else(|| {
+                    anyhow::anyhow!("perfil desconocido «{p}». Opciones válidas: rust, node, python, go, base")
+                })?,
+                None => env::EnvEngine::detect_stack(&ctx.workspace).unwrap_or(env::EnvProfile::Base),
+            };
+
+            let summary = env::EnvEngine::init_profile(&ctx.workspace, profile, true, true)?;
+            println!("\n{} Perfil de entorno declarativo inicializado exitosamente.", paint("✓", GREEN));
+            println!("  Perfil:   {}", paint(&summary.profile, BOLD));
+            println!("  Archivos: {}", paint(&summary.created_files.join(", "), GREEN));
+            println!("  Paquetes: {}\n", paint(&summary.packages.join(", "), DIM));
+            println!("  Ejecuta: antos env sync para comprobar la disponibilidad de las herramientas.\n");
+        }
+        "sync" | "check" => {
+            println!("\n{}", paint("antOS · Sincronización y Diagnóstico de Toolchains (T7.1)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            let statuses = env::EnvEngine::check_toolchains(&ctx.workspace)?;
+            let mut all_ok = true;
+
+            for s in statuses {
+                if s.available {
+                    let loc = s.path.unwrap_or_default();
+                    println!("  {} {:<16} ({})", paint("✓", GREEN), paint(&s.name, BOLD), paint(&loc, DIM));
+                } else {
+                    all_ok = false;
+                    println!("  {} {:<16} ({})", paint("✗", RED), paint(&s.name, BOLD), paint("no instalado en el sistema o nix-store", RED));
+                }
+            }
+
+            println!();
+            if all_ok {
+                println!("  {} Todas las toolchains declaradas están disponibles y operativas.\n", paint("✓ Entorno listo:", GREEN));
+            } else {
+                println!("  {} Faltan herramientas por aprovisionar. Puedes usar devbox shell o nix develop.\n", paint("! Advertencia:", YELLOW));
+            }
+        }
+        "status" | _ => {
+            println!("\n{}", paint("antOS · Estado del Perfil de Entorno (T7.1)", BOLD));
+            let cfg = env::EnvEngine::load_config(&ctx.workspace)?;
+
+            match cfg {
+                Some(c) => {
+                    println!("  Perfil activo:      {}", paint(&c.profile, GREEN));
+                    println!("  Paquetes declarados: {}", paint(&c.packages.join(", "), BOLD));
+                    let statuses = env::EnvEngine::check_toolchains(&ctx.workspace)?;
+                    let available_count = statuses.iter().filter(|s| s.available).count();
+                    println!("  Disponibilidad:     {}/{} herramientas en PATH\n", available_count, statuses.len());
+                }
+                None => {
+                    let detected = env::EnvEngine::detect_stack(&ctx.workspace);
+                    let det_str = detected.map(|d| d.as_str()).unwrap_or("no detectado");
+                    println!("  Perfil configurado: {}", paint("○ Ninguno", YELLOW));
+                    println!("  Stack detectado:    {}", paint(det_str, BOLD));
+                    println!("\n  Usa antos env init [{det_str}] para inicializar devbox.json y flake.nix.\n");
+                }
+            }
         }
     }
 

@@ -149,6 +149,23 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let t_str = target.as_deref().unwrap_or("raíz");
                 out.push(Line::Info(format!("explora el grafo de dependencias y contexto para «{t_str}»")));
             }
+            Change::EnvProfileInit { profile, create_devbox, create_flake, .. } => {
+                let p = profile.as_deref().unwrap_or("auto");
+                out.push(Line::Info(format!("inicializa perfil declarativo de desarrollo: «{p}»")));
+                out.push(Line::Add("  + generar .antos/env.toml".into()));
+                if *create_devbox {
+                    out.push(Line::Add("  + generar devbox.json".into()));
+                }
+                if *create_flake {
+                    out.push(Line::Add("  + generar flake.nix".into()));
+                }
+            }
+            Change::EnvProfileSync { .. } => {
+                out.push(Line::Info("sincroniza y verifica toolchains declaradas en el workspace".into()));
+            }
+            Change::EnvProfileStatus { .. } => {
+                out.push(Line::Info("consulta el estado del perfil de entorno del proyecto".into()));
+            }
         }
         pendiente.aplicar(change);
     }
