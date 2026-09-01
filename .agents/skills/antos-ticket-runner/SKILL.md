@@ -1,7 +1,7 @@
 ---
 name: antos-ticket-runner
 description: >-
-  Protocolo estandarizado para la planificación, desarrollo, verificación y cierre
+  Protocolo estandarizado para la planificación, desarrollo, verificación, commit y cierre
   de tickets técnicos ubicados en `docs/tickets/` para antOS. Activar cuando el usuario
   quiera resolver, continuar o auditar un ticket (ej. 'ejecuta el ticket T1.1', 'desarrolla T1.2').
 ---
@@ -55,26 +55,46 @@ Antes de escribir código:
      ```bash
      cargo check --workspace
      ```
-   - Ejecutar tests específicos del crate modificado:
+   - Ejecutar tests específicos del crate modificado y del workspace:
      ```bash
-     cargo test -p antos-protocolo
-     # o el crate correspondiente
+     cargo test --workspace
      ```
 
 ---
 
 ## 4. Validación de Criterios de Aceptación
 
-1. Revisar cada punto de los **Criterios de Aceptación** definidos en el archivo del ticket.
+1. Revisar exhaustivamente cada punto de los **Criterios de Aceptación** definidos en el archivo del ticket.
 2. Asegurar que todas las pruebas pasen sin advertencias (`warnings`) críticas de clippy o del compilador.
 
 ---
 
-## 5. Actualización y Cierre de Ticket
+## 5. Actualización del Backlog y Registro
 
 1. Actualizar el estado en [`docs/tickets/README.md`](file:///Users/juandevelop/Develop/antOS/docs/tickets/README.md):
    - Cambiar `⏳ Pendiente` o `🔄 En Progreso` a `✅ Completado`.
-2. Notificar al usuario con un resumen conciso:
-   - Archivos y crates modificados.
-   - Tests ejecutados y su resultado.
-   - Sugerencia del siguiente ticket en la hoja de ruta.
+
+---
+
+## 6. Commit de Cierre de Ticket (Obligatorio)
+
+Una vez verificados los tests y actualizado el backlog, crear un commit de Git con el detalle de lo modificado:
+
+1. Preparar los archivos relevantes (`git add`).
+2. Generar un commit semántico y descriptivo:
+   - **Título:** Formato `<tipo>(<área>): <TID> - <título corto del ticket>` (ej. `feat(sysod): T1.2 - analizador de repositorios git en segundo plano`).
+   - **Cuerpo:**
+     - Resumen del objetivo del ticket.
+     - Lista detallada de archivos y módulos creados o modificados.
+     - Pruebas unitarias e integradas añadidas/ejecutadas.
+     - Estado de los criterios de aceptación.
+
+---
+
+## 7. Notificación al Usuario
+
+Notificar al usuario con un resumen conciso:
+- Hash y mensaje del commit creado.
+- Archivos y crates modificados.
+- Tests ejecutados y su resultado.
+- Sugerencia del siguiente ticket en la hoja de ruta.

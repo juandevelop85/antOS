@@ -1,4 +1,4 @@
-# syso · Objetivo Funcional
+# antOS · Objetivo Funcional
 ## El Sistema Operativo para Desarrolladores Impulsado por IA
 
 > **Versión del Documento:** 1.1  
@@ -15,9 +15,9 @@ Los sistemas operativos convencionales (macOS, Windows, distribuciones Linux est
 2. **Autoridad ambiental total y comandos en texto plano:** Cuando un agente de IA o un script de terminal se ejecuta, hereda todos los permisos del usuario (pudiendo leer claves SSH o borrar archivos críticos) y se comunica a través de cadenas de texto desestructuradas y propensas a errores de interpretación.
 3. **Herramientas de IA desconectadas del sistema:** Los entornos de desarrollo y orquestadores de agentes (como tableros web, chats o extensiones de navegador) viven en islas separadas, sin acceso de bajo nivel al hardware, sin capacidad de crear recintos de seguridad eficientes y consumiendo recursos excesivos.
 
-### La Misión de syso
+### La Misión de antOS
 
-**syso** es un sistema operativo personal diseñado desde sus cimientos para el **desarrollador de software**. Transforma la máquina en un entorno donde:
+**antOS** es un sistema operativo personal diseñado desde sus cimientos para el **desarrollador de software**. Transforma la máquina en un entorno donde:
 * **El Proyecto / Repositorio es un ciudadano de primera clase:** El sistema operativo entiende intrínsecamente el contexto de tus proyectos (árbol de trabajo Git, estado de compilación, linters, contenedores y servicios asociados).
 * **Orquestación Multi-Agente Nativa (Integración antFlow):** El ciclo de vida del software (especificación, arquitectura, desarrollo, pruebas, auditoría) es coordinado por un equipo de agentes especializados que corren como demonios del sistema operativo, con espacios de trabajo efímeros (*Git Worktrees*) y sin depender de plataformas web externas.
 * **La IA opera con capacidades tipadas y aisladas:** La inteligencia artificial no ejecuta comandos ciegos en Bash; genera planes con herramientas tipadas, calcula su radio de impacto antes de tocar el disco, opera en *sandboxes* estrictos (Landlock / Seatbelt) y permite **deshacer cualquier cambio (`undo`) como una primitiva nativa del sistema**.
@@ -32,7 +32,7 @@ Los sistemas operativos convencionales (macOS, Windows, distribuciones Linux est
  │                         SUPERFICIE DE ESCRITORIO                            │
  │  HUD de Intenciones · Centro de Agentes (antFlow UI) · Diffs · Ventanas Git │
  └──────────────────────────────────────┬──────────────────────────────────────┘
-                                        │ IPC Tipado (syso-protocolo)
+                                        │ IPC Tipado (antos-protocolo)
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
  │                      MOTOR DE CONTEXTO Y MULTI-AGENTE                       │
  │  - Orquestador de Agentes (Arquitecto, Coder, QA, Auditor)                  │
@@ -42,7 +42,7 @@ Los sistemas operativos convencionales (macOS, Windows, distribuciones Linux est
  └──────────────────────────────────────┬──────────────────────────────────────┘
                                         │ Capacidades Tipadas & Sandboxing
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
- │                   NÚCLEO DE EJECUCIÓN AISLADA (sysod)                       │
+ │                   NÚCLEO DE EJECUCIÓN AISLADA (antosd)                      │
  │  Planificador IA · Cálculo de Radio de Impacto · Landlock · Bitácora & Undo │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -59,7 +59,7 @@ El sistema operativo sustituye las aplicaciones web de agentes por un subsistema
 ### Pilar II: Desarrollo Basado en Especificaciones y Tickets (*Spec-Driven Development*)
 * **Gestor de Flujo Nativo:** El sistema operativo indexa automáticamente las especificaciones y tickets Markdown del proyecto (ej. `docs/tickets/` o `specs/`).
 * **Tablero de Estado Integrado:** Visualización nativa del estado de los tickets (*Backlog*, *En Progreso*, *Revisión*, *Completado*) accesible por atajo global (`Super + A`) sin necesidad de Jira, Trello o herramientas web pesadas.
-* **Trazabilidad Absoluta:** Cada diff, commit y registro de bitácora queda vinculado al ticket que lo originó, permitiendo revertir funcionalidades completas con `syso undo --ticket <id>`.
+* **Trazabilidad Absoluta:** Cada diff, commit y registro de bitácora queda vinculado al ticket que lo originó, permitiendo revertir funcionalidades completas con `antos undo --ticket <id>`.
 
 ### Pilar III: Conciencia Nativa de Repositorios (Git-Aware Workspace)
 El sistema operativo monitoriza continuamente los directorios declarados como `$WORKSPACE`:
@@ -76,7 +76,7 @@ La interacción humano-IA en el sistema operativo se rige por un contrato estric
 3. **Cálculo de Radio de Impacto (*Blast Radius*):** El sistema determina con precisión qué rutas se escribirán, qué puertos o dominios de red se contactarán y qué nivel de permiso requiere la acción (*Auto*, *Confirmación*, *Concesión Temporal*).
 4. **Previsualización de Diffs:** Si la acción modifica código o configuración del sistema, se presenta un diff limpio e interactivo antes de ejecutar.
 5. **Ejecución en Recinto (*Sandbox*):** Cada paso se ejecuta bajo restricciones estrictas del kernel (Landlock en Linux / Seatbelt en macOS), bloqueando cualquier acceso fuera de lo declarado.
-6. **Bitácora y Reversibilidad:** Todos los cambios son registrados en una bitácora transaccional, permitiendo revertir la acción al instante con `syso undo`.
+6. **Bitácora y Reversibilidad:** Todos los cambios son registrados en una bitácora transaccional, permitiendo revertir la acción al instante con `antos undo`.
 
 ### Pilar V: Entornos Declarativos, Servicios y Diagnóstico de Puertos
 * **Cero instalación global contaminante:** El sistema no ensucia `/usr` ni el home del usuario con múltiples versiones globales de Node, Python, Rust o bases de datos.
@@ -116,7 +116,7 @@ El sistema expone sus operaciones mediante manifiestos tipados en `system/capabi
 
 ## 4. Experiencia de Usuario (UI & Desktop Shell)
 
-### 4.1. HUD de Intención Rápida (`syso barra`)
+### 4.1. HUD de Intención Rápida (`antos barra`)
 * Una superficie flotante y minimalista accesible mediante atajo global (ej. `Super + Espacio`).
 * Permite redactar o dictar una orden en lenguaje natural.
 * Muestra el plan resultante, el diff de código a aplicar y el botón/tecla de confirmación en una sola vista cohesiva.
@@ -154,7 +154,7 @@ El sistema expone sus operaciones mediante manifiestos tipados en `system/capabi
 
 El plan de trabajo se estructura en los siguientes paquetes de desarrollo:
 
-* **Fase 1: Motor de Contexto Git & Spec Engine** (Protocolo IPC, analizador de Git y parser de tickets en `sysod`).
+* **Fase 1: Motor de Contexto Git & Spec Engine** (Protocolo IPC, analizador de Git y parser de tickets en `antosd`).
 * **Fase 2: Expansión del Catálogo de Capacidades** (Capacidades de Git, Worktrees, Tests y Diagnóstico de Puertos).
 * **Fase 3: Orquestación Multi-Agente Nativa (antFlow Core en Rust)** (Roles de agentes, colas de ejecución y worktrees efímeros).
 * **Fase 4: Superficie de Usuario y Centro de Agentes** (Evolución de `system/barra` y panel de control Wayland/GTK4).

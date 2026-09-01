@@ -245,9 +245,3 @@ pub fn probe_network_from_inside() -> Result<()> {
     println!("{}", if reachable { "conectado" } else { "bloqueado" });
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-}

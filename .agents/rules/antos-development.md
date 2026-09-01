@@ -17,4 +17,7 @@ trigger: always_on
 ## 2. Flujo de Tickets (`docs/tickets/`)
 - Cada desarrollo debe corresponder a un ticket estructurado en `docs/tickets/T*.md`.
 - No alterar los objetivos funcionales sin actualizar el ticket correspondiente.
-- Al completar un ticket, verificar todos sus criterios de aceptación y marcar el estado en `docs/tickets/README.md`.
+- Al completar un ticket:
+  1. Verificar todos sus criterios de aceptación con `cargo test --workspace`.
+  2. Marcar el estado en `docs/tickets/README.md` a `✅ Completado`.
+  3. **Realizar un commit de Git detallado** con el formato `<tipo>(<área>): <TID> - <título>` y desglose en el cuerpo de los cambios, archivos modificados y pruebas realizadas.

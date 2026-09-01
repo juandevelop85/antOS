@@ -231,6 +231,7 @@ fn escuchar(
                     mostrar_error(&contenido, &mensaje);
                     entrada.set_sensitive(true);
                 }
+                _ => {}
             }
         }
         gtk4::glib::ControlFlow::Continue

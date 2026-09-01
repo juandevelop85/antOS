@@ -9,6 +9,7 @@ mod capability;
 mod ctx;
 mod exec;
 mod grants;
+pub mod git;
 mod ipc;
 mod journal;
 mod plan;

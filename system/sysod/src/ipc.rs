@@ -166,6 +166,19 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 &Evento::Error("una aprobación sin propuesta previa".into()),
             )?;
         }
+        Peticion::ConsultarEstadoGit { workspace_path } => {
+            match crate::git::GitAnalyzer::global().consultar_estado(Path::new(&workspace_path)) {
+                Ok(Some(status)) => {
+                    enviar(&mut escritura, &Evento::EstadoGit(status))?;
+                }
+                Ok(None) => {
+                    enviar(&mut escritura, &Evento::NoEsRepoGit)?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -216,6 +229,12 @@ pub fn intencion_remota(
             }
             Evento::Salida(t) => pantalla.salida(&t)?,
             Evento::Resultado(r) => pantalla.resultado(&r)?,
+            Evento::EstadoGit(status) => {
+                pantalla.nota(&format!("git branch: {:?}", status.rama))?;
+            }
+            Evento::NoEsRepoGit => {
+                pantalla.nota("no es un repositorio Git")?;
+            }
             Evento::Error(m) => bail!("{m}"),
         }
     }
