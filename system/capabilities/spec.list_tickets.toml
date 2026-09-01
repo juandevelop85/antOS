@@ -1,0 +1,12 @@
+name = "spec.list_tickets"
+summary = "Lista todos los tickets y especificaciones técnicas del proyecto"
+
+[params]
+filter = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE/docs/tickets/"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -91,7 +91,7 @@ fn run() -> Result<()> {
         "escucha" => cmd_escuchar(&ctx, &catalog, &rest[1..], &opts),
         "log" => cmd_log(&ctx),
         "undo" => cmd_undo(&ctx, &rest[1..]),
-        "tickets" => cmd_tickets(&ctx, &rest[1..]),
+        "tickets" | "ticket" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
         "services" | "service" => cmd_services(&ctx, &rest[1..]),
         "secrets" | "secret" => cmd_secrets(&ctx, &rest[1..]),
@@ -696,78 +696,129 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
 
 fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
     let engine = spec::SpecEngine::global();
-    if let Some(ticket_id) = args.first() {
-        let detalle = engine.obtener_ticket(&ctx.workspace, ticket_id)?;
-        match detalle {
-            Some(t) => {
-                println!(
-                    "{} {}  {}",
-                    paint(&t.id, BOLD),
-                    paint(&t.fase, DIM),
-                    t.estado.etiqueta()
-                );
-                println!("{}", paint(&t.titulo, BOLD));
-                println!();
-                println!("{}", paint("Descripción:", BOLD));
-                println!("  {}", t.descripcion);
-                if !t.alcance_tecnico.is_empty() {
-                    println!();
-                    println!("{}", paint("Alcance Técnico:", BOLD));
-                    for a in &t.alcance_tecnico {
-                        println!("  • {a}");
-                    }
-                }
-                if !t.criterios_aceptacion.is_empty() {
-                    println!();
-                    println!("{}", paint("Criterios de Aceptación:", BOLD));
-                    for c in &t.criterios_aceptacion {
-                        println!("  • {c}");
-                    }
-                }
-            }
-            None => {
-                println!("ticket '{ticket_id}' no encontrado en el espacio de trabajo.");
-            }
-        }
-    } else {
-        let tickets = engine.listar_tickets(&ctx.workspace)?;
-        if tickets.is_empty() {
-            println!("no se encontraron tickets en el espacio de trabajo.");
+    let sub = args.first().map(String::as_str);
+
+    match sub {
+        Some("new" | "create" | "add") => {
+            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"))?;
+            let title = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"))?;
+            
+            let phase = args
+                .iter()
+                .position(|a| a == "--fase" || a == "-f")
+                .and_then(|i| args.get(i + 1))
+                .cloned();
+
+            let desc = args
+                .iter()
+                .position(|a| a == "--desc" || a == "-d")
+                .and_then(|i| args.get(i + 1))
+                .cloned();
+
+            let path = engine.create_ticket(&ctx.workspace, id, title, desc.as_deref(), phase.as_deref())?;
+            println!(
+                "\n{} Ticket {} creado exitosamente en {}.\n",
+                paint("✓", GREEN),
+                paint(id, BOLD),
+                paint(&path.display().to_string(), DIM)
+            );
             return Ok(());
         }
+        Some("status" | "set-status") => {
+            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"))?;
+            let status_raw = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"))?;
+            let st = match status_raw.to_lowercase().as_str() {
+                "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completado,
+                "progreso" | "en_progreso" | "in_progress" => antos_protocolo::TicketStatus::EnProgreso,
+                "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::EnRevision,
+                _ => antos_protocolo::TicketStatus::Pendiente,
+            };
+            engine.update_ticket_status(&ctx.workspace, id, st)?;
+            println!(
+                "\n{} Estado del ticket {} actualizado a {}.\n",
+                paint("✓", GREEN),
+                paint(id, BOLD),
+                st.etiqueta()
+            );
+            return Ok(());
+        }
+        Some(ticket_id) if ticket_id != "list" => {
+            let detalle = engine.obtener_ticket(&ctx.workspace, ticket_id)?;
+            match detalle {
+                Some(t) => {
+                    println!(
+                        "\n{} {}  {}",
+                        paint(&t.id, BOLD),
+                        paint(&t.fase, DIM),
+                        t.estado.etiqueta()
+                    );
+                    println!("{}", paint(&t.titulo, BOLD));
+                    println!();
+                    println!("{}", paint("Descripción:", BOLD));
+                    println!("  {}", t.descripcion);
+                    if !t.alcance_tecnico.is_empty() {
+                        println!();
+                        println!("{}", paint("Alcance Técnico:", BOLD));
+                        for a in &t.alcance_tecnico {
+                            println!("  • {a}");
+                        }
+                    }
+                    if !t.criterios_aceptacion.is_empty() {
+                        println!();
+                        println!("{}", paint("Criterios de Aceptación:", BOLD));
+                        for c in &t.criterios_aceptacion {
+                            println!("  • {c}");
+                        }
+                    }
+                    println!();
+                }
+                None => {
+                    println!("\nticket '{ticket_id}' no encontrado en el espacio de trabajo.\n");
+                }
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
 
-        println!("{}", paint("antOS · Catálogo y Hoja de Ruta de Tickets", BOLD));
-        println!();
+    let tickets = engine.listar_tickets(&ctx.workspace)?;
+    if tickets.is_empty() {
+        println!("\nno se encontraron tickets en el espacio de trabajo.");
+        println!("Crea uno con: antos ticket new <ID> <Título>\n");
+        return Ok(());
+    }
+
+    println!("\n{}", paint("antOS · Catálogo y Hoja de Ruta de Tickets", BOLD));
+    println!();
+    println!(
+        "  {:<8} {:<8} {:<55} {}",
+        paint("FASE", DIM),
+        paint("ID", DIM),
+        paint("TÍTULO", DIM),
+        paint("ESTADO", DIM)
+    );
+    println!("  {}", "─".repeat(88));
+
+    let mut completados = 0;
+    for t in &tickets {
+        if t.estado == antos_protocolo::TicketStatus::Completado {
+            completados += 1;
+        }
         println!(
             "  {:<8} {:<8} {:<55} {}",
-            paint("FASE", DIM),
-            paint("ID", DIM),
-            paint("TÍTULO", DIM),
-            paint("ESTADO", DIM)
-        );
-        println!("  {}", "─".repeat(88));
-
-        let mut completados = 0;
-        for t in &tickets {
-            if t.estado == antos_protocolo::TicketStatus::Completado {
-                completados += 1;
-            }
-            println!(
-                "  {:<8} {:<8} {:<55} {}",
-                paint(&t.fase, DIM),
-                paint(&t.id, BOLD),
-                ellipsis(&t.titulo, 53),
-                t.estado.etiqueta()
-            );
-        }
-        println!("  {}", "─".repeat(88));
-        println!(
-            "  Total: {} tickets | {} completados | {} pendientes",
-            tickets.len(),
-            completados,
-            tickets.len() - completados
+            paint(&t.fase, DIM),
+            paint(&t.id, BOLD),
+            ellipsis(&t.titulo, 53),
+            t.estado.etiqueta()
         );
     }
+    println!("  {}", "─".repeat(88));
+    println!(
+        "  Total: {} tickets | {} completados | {} pendientes\n",
+        tickets.len(),
+        completados,
+        tickets.len() - completados
+    );
     Ok(())
 }
 

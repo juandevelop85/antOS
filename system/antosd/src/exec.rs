@@ -89,6 +89,22 @@ pub enum Change {
         state_dir: PathBuf,
         grants_path: PathBuf,
     },
+    TicketCreate {
+        ticket_id: String,
+        title: String,
+        description: Option<String>,
+        phase: Option<String>,
+        workspace: PathBuf,
+    },
+    TicketUpdateStatus {
+        ticket_id: String,
+        status: String,
+        workspace: PathBuf,
+    },
+    TicketList {
+        workspace: PathBuf,
+        filter: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -143,7 +159,10 @@ impl Pendiente {
             | Change::SecretRevoke { .. }
             | Change::SecretList { .. }
             | Change::SecretSet { .. }
-            | Change::SecretRead { .. } => {}
+            | Change::SecretRead { .. }
+            | Change::TicketCreate { .. }
+            | Change::TicketUpdateStatus { .. }
+            | Change::TicketList { .. } => {}
         }
     }
 }
@@ -376,6 +395,38 @@ pub fn changes_for(
                 key,
                 state_dir: ctx.state.clone(),
                 grants_path: ctx.grants_path(),
+            }])
+        }
+
+        "spec.create_ticket" => {
+            let ticket_id = a.get("ticket_id").cloned().ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
+            let title = a.get("title").cloned().ok_or_else(|| anyhow::anyhow!("title requerido"))?;
+            let description = a.get("description").cloned();
+            let phase = a.get("phase").cloned();
+            Ok(vec![Change::TicketCreate {
+                ticket_id,
+                title,
+                description,
+                phase,
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "spec.update_ticket" => {
+            let ticket_id = a.get("ticket_id").cloned().ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
+            let status = a.get("status").cloned().unwrap_or_else(|| "completado".into());
+            Ok(vec![Change::TicketUpdateStatus {
+                ticket_id,
+                status,
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "spec.list_tickets" => {
+            let filter = a.get("filter").cloned();
+            Ok(vec![Change::TicketList {
+                workspace: ctx.workspace.clone(),
+                filter,
             }])
         }
 
@@ -617,6 +668,54 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         output.push(format!("acceso bloqueado: {e}"));
                     }
                 }
+            }
+            Change::TicketCreate {
+                ticket_id,
+                title,
+                description,
+                phase,
+                workspace,
+            } => {
+                let engine = crate::spec::SpecEngine::global();
+                let path = engine.create_ticket(
+                    workspace,
+                    ticket_id,
+                    title,
+                    description.as_deref(),
+                    phase.as_deref(),
+                )?;
+                output.push(format!("ticket «{}» creado exitosamente en {}", ticket_id, path.display()));
+            }
+            Change::TicketUpdateStatus {
+                ticket_id,
+                status,
+                workspace,
+            } => {
+                let st = match status.to_lowercase().as_str() {
+                    "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completado,
+                    "progreso" | "en_progreso" | "in_progress" => antos_protocolo::TicketStatus::EnProgreso,
+                    "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::EnRevision,
+                    _ => antos_protocolo::TicketStatus::Pendiente,
+                };
+                let engine = crate::spec::SpecEngine::global();
+                engine.update_ticket_status(workspace, ticket_id, st)?;
+                output.push(format!("estado del ticket «{}» actualizado a {:?}", ticket_id, st));
+            }
+            Change::TicketList { workspace, filter } => {
+                let engine = crate::spec::SpecEngine::global();
+                let tickets = engine.list_tickets(workspace)?;
+                let mut lines = Vec::new();
+                lines.push(format!("tickets en el proyecto: {}", tickets.len()));
+                for t in tickets {
+                    if let Some(ref f) = filter {
+                        let st_str = format!("{:?}", t.estado).to_lowercase();
+                        if !st_str.contains(&f.to_lowercase()) {
+                            continue;
+                        }
+                    }
+                    lines.push(format!("  - [{}] {} [{:?}] ({})", t.id, t.titulo, t.estado, t.fase));
+                }
+                output.push(lines.join("\n"));
             }
         }
     }

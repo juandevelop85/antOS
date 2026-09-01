@@ -148,6 +148,163 @@ impl SpecEngine {
     pub fn obtener_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
         self.get_ticket(workspace_path, ticket_id)
     }
+
+    /// Crea un nuevo ticket técnico en el espacio de trabajo activo.
+    pub fn create_ticket(
+        &self,
+        workspace_path: &Path,
+        id: &str,
+        title: &str,
+        description: Option<&str>,
+        phase: Option<&str>,
+    ) -> Result<PathBuf> {
+        let dir = find_or_create_tickets_dir(workspace_path)?;
+        let id_clean = id.trim().to_uppercase();
+        let slug = slugify(title);
+        let filename = format!("{id_clean}-{slug}.md");
+        let filepath = dir.join(&filename);
+
+        let phase_str = phase.unwrap_or("Fase Activa");
+        let desc_str = description.unwrap_or("Descripción pendiente de especificación detallada.");
+
+        let content = format!(
+            "# {id_clean} · {title}\n\n\
+            > **Estado:** ⏳ Pendiente  \n\
+            > **Fase:** {phase_str}  \n\
+            > **Fecha:** {date}\n\n\
+            ## Descripción\n\
+            {desc_str}\n\n\
+            ## Alcance Técnico\n\
+            1. **Diseño y Arquitectura:**\n\
+               * Definir interfaces y modelos de datos tipados.\n\
+            2. **Implementación:**\n\
+               * Desarrollar lógica principal y módulos asociados.\n\
+            3. **Pruebas y Verificación:**\n\
+               * Crear pruebas unitarias y de integración para validar el funcionamiento.\n\n\
+            ## Criterios de Aceptación\n\
+            * El comando o funcionalidad responde adecuadamente a las intenciones del usuario.\n\
+            * `cargo test --workspace` pasa al 100% sin advertencias ni regresiones.\n\
+            * La bitácora del sistema y el catálogo de capacidades quedan actualizados.\n",
+            date = chrono::Local::now().format("%B %Y")
+        );
+
+        fs::write(&filepath, content)?;
+
+        // Actualizar README.md si existe
+        let readme_path = dir.join("README.md");
+        if readme_path.exists() {
+            let mut readme_content = fs::read_to_string(&readme_path).unwrap_or_default();
+            if readme_content.contains("| :--- |") || readme_content.contains("| Estado |") {
+                let new_row = format!("| **{phase_str}** | [{id_clean}]({filename}) | {title} | ⏳ Pendiente |\n");
+                readme_content.push_str(&new_row);
+                let _ = fs::write(&readme_path, readme_content);
+            }
+        }
+
+        // Invalidar caché
+        if let Ok(mut guard) = self.cache.lock() {
+            guard.remove(&dir);
+        }
+
+        Ok(filepath)
+    }
+
+    /// Actualiza el estado de un ticket en su fichero y en el README.md.
+    pub fn update_ticket_status(
+        &self,
+        workspace_path: &Path,
+        ticket_id: &str,
+        new_status: TicketStatus,
+    ) -> Result<()> {
+        let dir = find_tickets_dir(workspace_path)
+            .ok_or_else(|| anyhow::anyhow!("no se encontró el directorio de tickets"))?;
+        let id_upper = ticket_id.trim().to_uppercase();
+
+        let status_label = match new_status {
+            TicketStatus::Completado => "✅ Completado",
+            TicketStatus::EnProgreso => "🔄 En progreso",
+            TicketStatus::EnRevision => "🔍 En revisión",
+            TicketStatus::Pendiente => "⏳ Pendiente",
+        };
+
+        // 1. Actualizar el fichero individual del ticket
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(&id_upper) && name.ends_with(".md") {
+                        if let Ok(content) = fs::read_to_string(&p) {
+                            let mut new_lines = Vec::new();
+                            for line in content.lines() {
+                                if line.starts_with("> **Estado:**") {
+                                    new_lines.push(format!("> **Estado:** {status_label}  "));
+                                } else {
+                                    new_lines.push(line.to_string());
+                                }
+                            }
+                            let _ = fs::write(&p, new_lines.join("\n"));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Actualizar README.md si existe
+        let readme_path = dir.join("README.md");
+        if readme_path.exists() {
+            if let Ok(content) = fs::read_to_string(&readme_path) {
+                let mut new_lines = Vec::new();
+                for line in content.lines() {
+                    if line.contains(&format!("[{id_upper}]")) || line.contains(&format!(" {id_upper} ")) {
+                        let parts: Vec<&str> = line.split('|').collect();
+                        if parts.len() >= 5 {
+                            let mut updated_parts = parts.clone();
+                            let formatted = format!(" {status_label} ");
+                            updated_parts[4] = &formatted;
+                            new_lines.push(updated_parts.join("|"));
+                            continue;
+                        }
+                    }
+                    new_lines.push(line.to_string());
+                }
+                let _ = fs::write(&readme_path, new_lines.join("\n"));
+            }
+        }
+
+        // Invalidar caché
+        if let Ok(mut guard) = self.cache.lock() {
+            guard.remove(&dir);
+        }
+
+        Ok(())
+    }
+}
+
+pub fn slugify(texto: &str) -> String {
+    texto
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Encuentra o crea el directorio de tickets (`docs/tickets/`).
+pub fn find_or_create_tickets_dir(inicio: &Path) -> Result<PathBuf> {
+    if let Some(d) = find_tickets_dir(inicio) {
+        return Ok(d);
+    }
+    let default_dir = inicio.join("docs").join("tickets");
+    fs::create_dir_all(&default_dir)?;
+    let readme = default_dir.join("README.md");
+    if !readme.exists() {
+        let content = "# Catálogo y Hoja de Ruta de Tickets\n\n| Fase | ID | Título | Estado |\n| :--- | :--- | :--- | :--- |\n";
+        let _ = fs::write(&readme, content);
+    }
+    Ok(default_dir)
 }
 
 /// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`).
@@ -159,6 +316,7 @@ pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
             actual.join("docs").join("tickets"),
             actual.join("specs"),
             actual.join(".tickets"),
+            actual.join(".antos").join("tickets"),
         ];
 
         for c in candidatos {
@@ -474,5 +632,41 @@ mod tests {
         assert!(!detalle.descripcion.is_empty());
         assert!(!detalle.alcance_tecnico.is_empty());
         assert!(!detalle.criterios_aceptacion.is_empty());
+    }
+
+    #[test]
+    fn test_crear_y_actualizar_ticket_dinamico() {
+        let ws = std::env::temp_dir().join(format!("antos-test-spec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&ws);
+        fs::create_dir_all(&ws).expect("create test ws");
+
+        let engine = SpecEngine::global();
+
+        // 1. Crear ticket en nuevo workspace
+        let path = engine.create_ticket(
+            &ws,
+            "T99.1",
+            "Módulo de Prueba Dinámica",
+            Some("Prueba de creación dinámica"),
+            Some("Fase 99"),
+        ).expect("crear ticket");
+
+        assert!(path.exists());
+        let content = fs::read_to_string(&path).expect("read ticket");
+        assert!(content.contains("# T99.1 · Módulo de Prueba Dinámica"));
+        assert!(content.contains("> **Estado:** ⏳ Pendiente"));
+
+        // 2. Listar y verificar
+        let tickets = engine.list_tickets(&ws).expect("listar");
+        assert_eq!(tickets.len(), 1);
+        assert_eq!(tickets[0].id, "T99.1");
+        assert_eq!(tickets[0].estado, TicketStatus::Pendiente);
+
+        // 3. Actualizar estado
+        engine.update_ticket_status(&ws, "T99.1", TicketStatus::Completado).expect("update");
+        let detalle = engine.get_ticket(&ws, "T99.1").expect("get").expect("exists");
+        assert_eq!(detalle.estado, TicketStatus::Completado);
+
+        let _ = fs::remove_dir_all(&ws);
     }
 }

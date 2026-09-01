@@ -303,9 +303,66 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("secret.list", &[])]));
         }
 
+        // Intenciones de tickets y especificaciones
+        if lower.contains("ticket") || lower.contains("especificación") || lower.contains("especificacion") {
+            if lower.contains("crea") || lower.contains("nuevo") || lower.contains("agrega") || lower.contains("new") {
+                let id_cand = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
+                    .cloned()
+                    .unwrap_or_else(|| "T6.1".into())
+                    .to_uppercase();
+                
+                // Extraer título después de "para" o "de" o "llamado"
+                let title = if let Some(pos) = words.iter().position(|w| w == "para" || w == "de" || w == "llamado" || w == "titulado") {
+                    words[pos + 1..].join(" ")
+                } else {
+                    format!("Nueva funcionalidad {id_cand}")
+                };
+
+                let phase = if id_cand.starts_with('T') && id_cand.contains('.') {
+                    let p_num = id_cand.strip_prefix('T').and_then(|r| r.split('.').next()).unwrap_or("1");
+                    format!("Fase {p_num}")
+                } else {
+                    "Fase Activa".to_string()
+                };
+
+                return Ok(Propuesta::solo(vec![step(
+                    "spec.create_ticket",
+                    &[
+                        ("ticket_id", &id_cand),
+                        ("title", &title),
+                        ("phase", &phase),
+                        ("description", &format!("Requerimiento técnico para {title}")),
+                    ],
+                )]));
+            }
+
+            if lower.contains("actualiza") || lower.contains("marca") || lower.contains("status") {
+                let id_cand = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
+                    .cloned()
+                    .unwrap_or_else(|| "T1.1".into())
+                    .to_uppercase();
+                let status = if lower.contains("completado") || lower.contains("hecho") || lower.contains("done") {
+                    "completado"
+                } else if lower.contains("progreso") {
+                    "progreso"
+                } else if lower.contains("revisión") || lower.contains("revision") {
+                    "revision"
+                } else {
+                    "pendiente"
+                };
+
+                return Ok(Propuesta::solo(vec![step(
+                    "spec.update_ticket",
+                    &[("ticket_id", &id_cand), ("status", status)],
+                )]));
+            }
+
+            return Ok(Propuesta::solo(vec![step("spec.list_tickets", &[])]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis) y secretos/concesiones.\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis), secretos/concesiones y gestión de tickets/especificaciones.\n\
              Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
@@ -466,5 +523,26 @@ mod tests {
             .expect("debe planificar list");
         assert_eq!(p_list.steps.len(), 1);
         assert_eq!(p_list.steps[0].capability, "secret.list");
+    }
+
+    #[test]
+    fn test_plan_tickets_dinamicos() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_create = planner
+            .plan("crea un ticket T6.1 para motor de inferencia local", &catalog)
+            .expect("plan create");
+        assert_eq!(p_create.steps.len(), 1);
+        assert_eq!(p_create.steps[0].capability, "spec.create_ticket");
+        assert_eq!(p_create.steps[0].args.get("ticket_id").map(String::as_str), Some("T6.1"));
+
+        let p_status = planner
+            .plan("actualiza ticket T1.1 a completado", &catalog)
+            .expect("plan status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "spec.update_ticket");
+        assert_eq!(p_status.steps[0].args.get("ticket_id").map(String::as_str), Some("T1.1"));
     }
 }

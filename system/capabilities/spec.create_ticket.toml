@@ -1,0 +1,15 @@
+name = "spec.create_ticket"
+summary = "Crea una nueva especificación o ticket técnico en Markdown en el proyecto"
+
+[params]
+ticket_id = { type = "text" }
+title = { type = "text" }
+description = { type = "text", optional = true }
+phase = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/docs/tickets/"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

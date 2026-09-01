@@ -126,6 +126,18 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::SecretRead { key, .. } => {
                 out.push(Line::Info(format!("lee secreto {key} de la bóveda")));
             }
+            Change::TicketCreate { ticket_id, title, phase, .. } => {
+                let f_str = phase.as_deref().map(|f| format!(" [{f}]")).unwrap_or_default();
+                out.push(Line::Info(format!("crea especificación / ticket {ticket_id}: «{title}»{f_str}")));
+                out.push(Line::Add(format!("  + crear archivo docs/tickets/{ticket_id}-*.md")));
+                out.push(Line::Add(format!("  + actualizar índice maestro docs/tickets/README.md")));
+            }
+            Change::TicketUpdateStatus { ticket_id, status, .. } => {
+                out.push(Line::Info(format!("actualiza estado del ticket {ticket_id} a «{status}»")));
+            }
+            Change::TicketList { .. } => {
+                out.push(Line::Info("lista tickets y catálogo de especificaciones del proyecto".into()));
+            }
         }
         pendiente.aplicar(change);
     }
