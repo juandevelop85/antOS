@@ -92,6 +92,7 @@ fn run() -> Result<()> {
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
+        "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -825,6 +826,97 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
+    if let Some(pos) = args.iter().position(|a| a == "--dispatch" || a == "-d") {
+        if let Some(target_ticket) = args.get(pos + 1) {
+            println!("\n{} Despachando ticket {} al equipo multi-agente antFlow...", paint("🚀", BOLD), paint(target_ticket, YELLOW));
+            let run_args = vec!["run".to_string(), target_ticket.clone(), "--auto".to_string()];
+            return cmd_agent(ctx, &run_args);
+        }
+    }
+
+    let spec_engine = spec::SpecEngine::global();
+    let tickets = spec_engine.list_tickets(&ctx.workspace)?;
+    let flow_engine = flow::FlowEngine::global();
+    let tasks = flow_engine.list_tasks();
+
+    println!("\n{}", paint("╔══════════════════════════════════════════════════════════════════════════════════════╗", BOLD));
+    println!("║       {}        ║", paint("antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)", BOLD));
+    println!("{}\n", paint("╚══════════════════════════════════════════════════════════════════════════════════════╝", BOLD));
+
+    // Monitor de Agentes
+    println!("  {}", paint("● MONITOR DE AGENTES ACTIVOS (antFlow)", BOLD));
+    let roles = [
+        ("📐 Arquitecto", antos_protocolo::AgentRole::Arquitecto),
+        ("💻 Coder", antos_protocolo::AgentRole::Coder),
+        ("🧪 QA / Tester", antos_protocolo::AgentRole::QA),
+        ("🛡️ Auditor", antos_protocolo::AgentRole::Auditor),
+    ];
+
+    for (etiqueta_rol, rol) in roles {
+        let active_tasks: Vec<_> = tasks.iter().filter(|t| t.rol_actual == Some(rol)).collect();
+        if active_tasks.is_empty() {
+            println!("    {} {:<18} {}", paint("○", DIM), etiqueta_rol, paint("[Inactivo / En espera]", DIM));
+        } else {
+            for t in active_tasks {
+                println!(
+                    "    {} {:<18} {} → Tarea: {} ({})",
+                    paint("●", GREEN),
+                    paint(etiqueta_rol, BOLD),
+                    paint(t.estado.etiqueta(), YELLOW),
+                    paint(&t.ticket_id, BOLD),
+                    t.worktree_path.as_deref().unwrap_or("sandbox")
+                );
+            }
+        }
+    }
+    println!();
+
+    // Columnas Kanban
+    let pendientes: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::Pendiente).collect();
+    let en_progreso: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::EnProgreso).collect();
+    let en_revision: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::EnRevision).collect();
+    let completados: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::Completado).collect();
+
+    println!("  {}", paint("● TABLERO DE TICKETS (docs/tickets/)", BOLD));
+    println!("  ┌────────────────────────┬────────────────────────┬────────────────────────┬────────────────────────┐");
+    let hdr_backlog = format!("⏳ BACKLOG ({})", pendientes.len());
+    let hdr_progreso = format!("🔄 EN CURSO ({})", en_progreso.len());
+    let hdr_revision = format!("🔍 REVISIÓN ({})", en_revision.len());
+    let hdr_hecho = format!("✅ HECHO ({})", completados.len());
+    println!(
+        "  │ {:<22} │ {:<22} │ {:<22} │ {:<22} │",
+        paint(&hdr_backlog, BOLD),
+        paint(&hdr_progreso, BOLD),
+        paint(&hdr_revision, BOLD),
+        paint(&hdr_hecho, BOLD)
+    );
+    println!("  ├────────────────────────┼────────────────────────┼────────────────────────┼────────────────────────┤");
+
+    let max_filas = [pendientes.len(), en_progreso.len(), en_revision.len(), completados.len()]
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+
+    for i in 0..max_filas {
+        let col1 = pendientes.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
+        let col2 = en_progreso.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
+        let col3 = en_revision.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
+        let col4 = completados.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
+
+        println!(
+            "  │ {:<22} │ {:<22} │ {:<22} │ {:<22} │",
+            col1, col2, col3, col4
+        );
+    }
+    println!("  └────────────────────────┴────────────────────────┴────────────────────────┴────────────────────────┘");
+
+    println!("\n  {} Usa {} para despachar un ticket al equipo de agentes.", paint("💡", YELLOW), paint("antos panel --dispatch <TID>", BOLD));
+    println!("  {} Usa {} para lanzar la interfaz gráfica Wayland/GTK4.\n", paint("🖥️", BOLD), paint("antos-barra", BOLD));
+
+    Ok(())
+}
+
 fn help() {
     println!(
         "\
@@ -832,6 +924,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
 
   antos \"<intención>\"       planifica, enseña el diff y ejecuta
   antos escucha              lo mismo, dictado por voz (transcripción local)
+  antos panel                centro de control de agentes y tablero Kanban (Super + A)
   antos tickets [id]         catálogo de tickets y especificaciones
   antos agent run <id>       ejecuta ticket con orquestación multi-agente
   antos agent status [id]    consulta estado y traza de agentes

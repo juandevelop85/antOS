@@ -1,4 +1,4 @@
-/* antOS Modern Wayland Shell Theme (T4.1) */
+/* antOS Modern Wayland Shell & Mission Center Theme (T4.1 & T4.2) */
 
 window.fondo {
   background-color: rgba(15, 21, 28, 0.96);
@@ -223,4 +223,89 @@ button.descartar:hover {
   color: #56BCA0;
   font-size: 13px;
   font-weight: bold;
+}
+
+/* Agent Mission Center & Kanban Board (T4.2) */
+.agent-monitor-bar {
+  padding: 8px 10px;
+  background: rgba(24, 33, 43, 0.7);
+  border-radius: 6px;
+  border: 1px solid #2C3944;
+}
+
+.agent-badge {
+  font-family: monospace;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.agent-badge.active {
+  background: #1B3A5C;
+  color: #85AEDF;
+  font-weight: bold;
+  border: 1px solid #2B4C74;
+}
+
+.agent-badge.idle {
+  color: #8195A7;
+}
+
+.kanban-columns {
+  margin-top: 8px;
+}
+
+.kanban-column {
+  background: #121A22;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #222E3C;
+}
+
+.kanban-column-header {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: bold;
+  color: #85AEDF;
+  margin-bottom: 6px;
+}
+
+.kanban-card {
+  background: #18212B;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #2C3944;
+  margin-bottom: 4px;
+  transition: border-color 120ms ease-in-out;
+}
+
+.kanban-card:hover {
+  border-color: #85AEDF;
+}
+
+.kanban-card-id {
+  font-family: monospace;
+  font-size: 10px;
+  color: #DBA451;
+  font-weight: bold;
+}
+
+.kanban-card-title {
+  font-size: 12px;
+  color: #DEE6EE;
+}
+
+button.dispatch-btn {
+  margin-top: 4px;
+  font-family: monospace;
+  font-size: 10px;
+  background: #1B3A5C;
+  color: #DEE6EE;
+  border: 1px solid #2B4C74;
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+
+button.dispatch-btn:hover {
+  background: #2B4C74;
 }
