@@ -120,8 +120,9 @@ pub fn intencion(
         );
     }
 
+    let grants = Grants::load(&ctx.grants_path()).unwrap_or_default();
+
     if tier == Tier::Grant {
-        let grants = Grants::load(&ctx.grants_path())?;
         let missing: Vec<String> = plan
             .steps
             .iter()
@@ -170,7 +171,7 @@ pub fn intencion(
     };
     record.snapshot = snap.as_ref().map(|s| s.id.clone());
 
-    let policy = sandbox::Policy::from_blast(&radius);
+    let policy = sandbox::Policy::from_blast(&radius).with_grants(&grants, &ctx.workspace);
     match sandbox::run(&*jail, &changes, &policy) {
         Ok(outputs) => {
             record.outcome = Outcome::Ejecutado;

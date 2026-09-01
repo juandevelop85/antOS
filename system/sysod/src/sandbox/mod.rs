@@ -35,7 +35,7 @@ pub const NET_SUBCOMMAND: &str = "__probar-red";
 
 /// Lo que el recinto permite. Se deriva del radio de impacto: exactamente lo
 /// que las capacidades declararon que iban a tocar, ni un byte más.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Policy {
     pub writes: Vec<PathBuf>,
     #[serde(default)]
@@ -44,6 +44,9 @@ pub struct Policy {
     #[serde(default)]
     pub dirs: Vec<PathBuf>,
     pub network: bool,
+    /// Rutas sensibles explícitamente permitidas por una concesión (grant) activa (T5.2)
+    #[serde(default)]
+    pub allowed_secrets: Vec<PathBuf>,
 }
 
 impl Policy {
@@ -53,7 +56,20 @@ impl Policy {
             reads: blast.reads.iter().cloned().collect(),
             dirs: blast.dirs.iter().cloned().collect(),
             network: !blast.network.is_empty(),
+            allowed_secrets: Vec::new(),
         }
+    }
+
+    pub fn with_grants(mut self, grants: &crate::grants::Grants, workspace: &Path) -> Self {
+        if grants.is_granted("secret.env") || grants.is_granted("secret.read") {
+            self.allowed_secrets.push(workspace.join(".env"));
+        }
+        if grants.is_granted("secret.ssh") || grants.is_granted("secret.read") {
+            if let Ok(home) = std::env::var("HOME") {
+                self.allowed_secrets.push(PathBuf::from(home).join(".ssh"));
+            }
+        }
+        self
     }
 }
 

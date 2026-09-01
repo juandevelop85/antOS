@@ -107,6 +107,25 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let svc_info = service.as_deref().map(|s| format!(" ({s})")).unwrap_or_default();
                 out.push(Line::Info(format!("consulta estado de servicios locales{svc_info}")));
             }
+            Change::SecretGrant { secret, minutes, reason, .. } => {
+                let r_str = reason.as_deref().map(|r| format!(" (motivo: «{r}»)")).unwrap_or_default();
+                out.push(Line::Info(format!("concede acceso temporal a {secret} por {minutes} min{r_str}")));
+                out.push(Line::Add(format!("  + habilitar permiso {secret} en $STATE/grants.json")));
+            }
+            Change::SecretRevoke { secret, .. } => {
+                out.push(Line::Info(format!("revoca acceso a {secret}")));
+                out.push(Line::Del(format!("  - revocar permiso {secret} en $STATE/grants.json")));
+            }
+            Change::SecretList { .. } => {
+                out.push(Line::Info("lista secretos y concesiones activas de la bóveda".into()));
+            }
+            Change::SecretSet { key, .. } => {
+                out.push(Line::Info(format!("almacena clave {key} en bóveda de secretos")));
+                out.push(Line::Add(format!("  + guardar {key} en $STATE/vault.json (0600)")));
+            }
+            Change::SecretRead { key, .. } => {
+                out.push(Line::Info(format!("lee secreto {key} de la bóveda")));
+            }
         }
         pendiente.aplicar(change);
     }

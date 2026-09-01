@@ -14,6 +14,7 @@ pub mod net;
 pub mod spec;
 pub mod flow;
 pub mod service;
+pub mod vault;
 mod ipc;
 mod journal;
 mod plan;
@@ -93,6 +94,7 @@ fn run() -> Result<()> {
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
         "services" | "service" => cmd_services(&ctx, &rest[1..]),
+        "secrets" | "secret" => cmd_secrets(&ctx, &rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
@@ -401,6 +403,7 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         reads: vec![],
         dirs: vec![ctx.workspace.clone()],
         network: false,
+        allowed_secrets: vec![],
     };
 
     // 1) escribir fuera de lo declarado
@@ -471,7 +474,7 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
 
     // 4) red. Se prueba en los dos sentidos para no confundir «bloqueada»
     //    con «esta máquina no tiene internet».
-    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true };
+    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![] };
     let alcanzable_declarando = sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
     let alcanzable_sin_declarar = sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
 
@@ -541,37 +544,135 @@ fn cmd_log(ctx: &Ctx) -> Result<()> {
 
 fn cmd_grant(ctx: &Ctx, catalog: &Catalog, args: &[String]) -> Result<()> {
     let Some(cap_name) = args.first() else {
-        bail!("uso: syso grant <capacidad> [--minutos N]");
+        bail!("uso: antos grant <capacidad|secreto> [--minutos N] [--para \"motivo\"]");
     };
-    let cap = catalog.get(cap_name)?;
-    if cap.policy.tier != Tier::Grant {
-        bail!("{cap_name} es de nivel «{}»: no necesita concesión", cap.policy.tier.label());
+
+    // Si no está en el catálogo directamente, comprobar si es un permiso de secreto o ruta
+    if let Ok(cap) = catalog.get(cap_name) {
+        if cap.policy.tier != Tier::Grant {
+            bail!("{cap_name} es de nivel «{}»: no necesita concesión", cap.policy.tier.label());
+        }
     }
+
     let minutes = args
         .iter()
-        .position(|a| a == "--minutos")
+        .position(|a| a == "--minutos" || a == "-m")
         .and_then(|i| args.get(i + 1))
         .and_then(|m| m.parse::<i64>().ok())
         .unwrap_or(10);
 
+    let reason = args
+        .iter()
+        .position(|a| a == "--para" || a == "--reason" || a == "-p")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
     let mut grants = Grants::load(&ctx.grants_path())?;
-    grants.grant(cap_name, minutes);
+    grants.grant_with_reason(cap_name, minutes, reason.clone());
     grants.save(&ctx.grants_path())?;
+
+    let motivo_str = reason.map(|r| format!(" para «{r}»")).unwrap_or_default();
     println!(
-        "{} {cap_name} durante {minutes} minutos",
-        paint("concedida", GREEN)
+        "\n{} Concesión explícita otorgada a «{}» durante {} minutos{motivo_str}.\n",
+        paint("🔑 CONCEDIDA", GREEN),
+        paint(cap_name, BOLD),
+        paint(&minutes.to_string(), YELLOW)
     );
     Ok(())
 }
 
 fn cmd_revoke(ctx: &Ctx, args: &[String]) -> Result<()> {
     let Some(cap_name) = args.first() else {
-        bail!("uso: syso revoke <capacidad>");
+        bail!("uso: antos revoke <capacidad|secreto>");
     };
     let mut grants = Grants::load(&ctx.grants_path())?;
     grants.revoke(cap_name);
     grants.save(&ctx.grants_path())?;
-    println!("{} {cap_name}", paint("revocada", DIM));
+    println!("\n{} Concesión revocada: «{}».\n", paint("🔒 REVOCADA", DIM), paint(cap_name, BOLD));
+    Ok(())
+}
+
+fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+    let grants = Grants::load(&ctx.grants_path())?;
+
+    match sub {
+        "set" => {
+            let key = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
+            let val = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
+            vault::set_secret(&ctx.state, key, val)?;
+            println!("\n{} Secreto «{}» almacenado de forma segura en la bóveda de antOS.\n", paint("✓", GREEN), paint(key, BOLD));
+        }
+        "get" => {
+            let key = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos secret get <CLAVE>"))?;
+            match vault::get_secret(&ctx.state, key, &grants) {
+                Ok(Some(v)) => {
+                    println!("\n{} {key} = {}\n", paint("🔑", BOLD), paint(&v, GREEN));
+                }
+                Ok(None) => {
+                    println!("\n{} El secreto «{key}» no existe en la bóveda.\n", paint("○", DIM));
+                }
+                Err(e) => {
+                    println!("\n{} {e}\n", paint("🛡️ Cero Autoridad Ambiental (Bloqueado):", RED));
+                }
+            }
+        }
+        "list" | _ => {
+            let list = vault::list_secrets(&ctx.state)?;
+            let active_grants = grants.list_active();
+
+            println!("\n{}", paint("antOS · Bóveda de Secretos y Blindaje Zero Environmental Authority (T5.2)", BOLD));
+            
+            // Concesiones activas
+            println!("  {}", paint("● CONCESIONES ACTIVAS", BOLD));
+            if active_grants.is_empty() {
+                println!("    {} No hay concesiones activas. Blindaje al 100%.", paint("○", DIM));
+            } else {
+                for g in active_grants {
+                    let mins_left = ((g.expires_at - chrono::Local::now().timestamp()) / 60).max(1);
+                    let reason_str = g.reason.as_deref().map(|r| format!(" (motivo: «{r}»)")).unwrap_or_default();
+                    println!(
+                        "    {} {:<20} expira en {:>2} min{reason_str}",
+                        paint("●", GREEN),
+                        paint(&g.cap, BOLD),
+                        paint(&mins_left.to_string(), YELLOW)
+                    );
+                }
+            }
+            println!();
+
+            // Secretos almacenados
+            println!("  {}", paint("● SECRETOS EN BÓVEDA ($STATE/vault.json)", BOLD));
+            if list.is_empty() {
+                println!("    No hay secretos en la bóveda.");
+                println!("    Guarda uno con: antos secret set <CLAVE> <VALOR>\n");
+            } else {
+                println!("    ┌──────────────────────────────┬──────────────┬────────────────────────────┐");
+                println!(
+                    "    │ {:<28} │ {:<12} │ {:<26} │",
+                    paint("CLAVE", BOLD),
+                    paint("LONGITUD", BOLD),
+                    paint("ESTADO DE ACCESO", BOLD)
+                );
+                println!("    ├──────────────────────────────┼──────────────┼────────────────────────────┤");
+                for s in list {
+                    let has_grant = grants.is_granted("secret.read") || grants.is_granted(&format!("secret.{}", s.key));
+                    let acc_str = if has_grant {
+                        paint("🔓 Concedido", GREEN)
+                    } else {
+                        paint("🔒 Protegido (Grant req)", YELLOW)
+                    };
+                    println!(
+                        "    │ {:<28} │ {:<12} │ {:<37} │",
+                        paint(&s.key, BOLD),
+                        format!("{} bytes", s.length),
+                        acc_str
+                    );
+                }
+                println!("    └──────────────────────────────┴──────────────┴────────────────────────────┘\n");
+            }
+        }
+    }
     Ok(())
 }
 

@@ -65,6 +65,30 @@ pub enum Change {
         service: Option<String>,
         state_dir: PathBuf,
     },
+    SecretGrant {
+        secret: String,
+        minutes: i64,
+        reason: Option<String>,
+        grants_path: PathBuf,
+    },
+    SecretRevoke {
+        secret: String,
+        grants_path: PathBuf,
+    },
+    SecretList {
+        state_dir: PathBuf,
+        grants_path: PathBuf,
+    },
+    SecretSet {
+        key: String,
+        value: String,
+        state_dir: PathBuf,
+    },
+    SecretRead {
+        key: String,
+        state_dir: PathBuf,
+        grants_path: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -114,7 +138,12 @@ impl Pendiente {
             | Change::PortKill { .. }
             | Change::ServiceUp { .. }
             | Change::ServiceDown { .. }
-            | Change::ServiceStatus { .. } => {}
+            | Change::ServiceStatus { .. }
+            | Change::SecretGrant { .. }
+            | Change::SecretRevoke { .. }
+            | Change::SecretList { .. }
+            | Change::SecretSet { .. }
+            | Change::SecretRead { .. } => {}
         }
     }
 }
@@ -295,6 +324,58 @@ pub fn changes_for(
             Ok(vec![Change::ServiceStatus {
                 service,
                 state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "secret.grant" => {
+            let secret = a
+                .get("secret")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("debes especificar el secreto a conceder"))?;
+            let minutes = a.get("minutes").and_then(|m| m.parse::<i64>().ok()).unwrap_or(10);
+            let reason = a.get("reason").cloned();
+            Ok(vec![Change::SecretGrant {
+                secret,
+                minutes,
+                reason,
+                grants_path: ctx.grants_path(),
+            }])
+        }
+
+        "secret.revoke" => {
+            let secret = a
+                .get("secret")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("debes especificar el secreto a revocar"))?;
+            Ok(vec![Change::SecretRevoke {
+                secret,
+                grants_path: ctx.grants_path(),
+            }])
+        }
+
+        "secret.list" => {
+            Ok(vec![Change::SecretList {
+                state_dir: ctx.state.clone(),
+                grants_path: ctx.grants_path(),
+            }])
+        }
+
+        "secret.set" => {
+            let key = a.get("key").cloned().ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
+            let value = a.get("value").cloned().ok_or_else(|| anyhow::anyhow!("valor requerido"))?;
+            Ok(vec![Change::SecretSet {
+                key,
+                value,
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "secret.read" => {
+            let key = a.get("key").cloned().ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
+            Ok(vec![Change::SecretRead {
+                key,
+                state_dir: ctx.state.clone(),
+                grants_path: ctx.grants_path(),
             }])
         }
 
@@ -487,6 +568,54 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         ));
                     }
                     output.push(lines.join("\n"));
+                }
+            }
+            Change::SecretGrant {
+                secret,
+                minutes,
+                reason,
+                grants_path,
+            } => {
+                let mut grants = crate::grants::Grants::load(grants_path)?;
+                grants.grant_with_reason(secret, *minutes, reason.clone());
+                grants.save(grants_path)?;
+                let motivo = reason.as_deref().map(|r| format!(" para «{r}»")).unwrap_or_default();
+                output.push(format!("concesión temporal otorgada a «{secret}» por {minutes} minutos{motivo}"));
+            }
+            Change::SecretRevoke { secret, grants_path } => {
+                let mut grants = crate::grants::Grants::load(grants_path)?;
+                grants.revoke(secret);
+                grants.save(grants_path)?;
+                output.push(format!("concesión revocada: «{secret}»"));
+            }
+            Change::SecretList { state_dir, grants_path } => {
+                let list = crate::vault::list_secrets(state_dir)?;
+                let grants = crate::grants::Grants::load(grants_path)?;
+                let active = grants.list_active();
+                let mut lines = Vec::new();
+                lines.push(format!("secretos en bóveda: {} | concesiones activas: {}", list.len(), active.len()));
+                for s in list {
+                    let granted = grants.is_granted("secret.read") || grants.is_granted(&format!("secret.{}", s.key));
+                    lines.push(format!("  - {} ({} bytes, concedido: {})", s.key, s.length, granted));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::SecretSet { key, value, state_dir } => {
+                crate::vault::set_secret(state_dir, key, value)?;
+                output.push(format!("secreto «{key}» guardado de forma segura en la bóveda de antOS"));
+            }
+            Change::SecretRead { key, state_dir, grants_path } => {
+                let grants = crate::grants::Grants::load(grants_path)?;
+                match crate::vault::get_secret(state_dir, key, &grants) {
+                    Ok(Some(val)) => {
+                        output.push(format!("secreto {key}={val}"));
+                    }
+                    Ok(None) => {
+                        output.push(format!("secreto {key} no encontrado en la bóveda"));
+                    }
+                    Err(e) => {
+                        output.push(format!("acceso bloqueado: {e}"));
+                    }
                 }
             }
         }

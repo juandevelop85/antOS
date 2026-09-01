@@ -263,9 +263,49 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("diag.port_status", &params)]));
         }
 
+        // Intenciones de secretos y concesiones (T5.2)
+        if lower.contains("secreto")
+            || lower.contains("secret")
+            || lower.contains("concede")
+            || lower.contains("grant")
+            || lower.contains("revoca")
+            || lower.contains("revoke")
+            || lower.contains("bóveda")
+            || lower.contains("boveda")
+        {
+            if lower.contains("revoca") || lower.contains("revoke") {
+                let sec = after(&words, &["revoca", "revoke", "a", "de", "secreto"]).unwrap_or_else(|| "secret.env".into());
+                let clean_sec = if sec.starts_with("secret.") { sec } else { format!("secret.{sec}") };
+                return Ok(Propuesta::solo(vec![step(
+                    "secret.revoke",
+                    &[("secret", &clean_sec)],
+                )]));
+            }
+
+            if lower.contains("concede") || lower.contains("grant") || lower.contains("permite") {
+                let sec = after(&words, &["concede", "grant", "a", "para", "secreto"]).unwrap_or_else(|| "secret.env".into());
+                let clean_sec = if sec.starts_with("secret.") { sec } else { format!("secret.{sec}") };
+                return Ok(Propuesta::solo(vec![step(
+                    "secret.grant",
+                    &[("secret", &clean_sec), ("minutes", "10"), ("reason", "intención local")],
+                )]));
+            }
+
+            if lower.contains("guarda") || lower.contains("set") || lower.contains("almacena") {
+                let key = after(&words, &["guarda", "secreto", "clave", "set"]).unwrap_or_else(|| "API_KEY".into());
+                let val = after(&words, &["valor", "val", "con"]).unwrap_or_else(|| "dummy_val".into());
+                return Ok(Propuesta::solo(vec![step(
+                    "secret.set",
+                    &[("key", &key), ("value", &val)],
+                )]));
+            }
+
+            return Ok(Propuesta::solo(vec![step("secret.list", &[])]));
+        }
+
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red y servicios efímeros (postgres, redis).\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red, servicios efímeros (postgres, redis) y secretos/concesiones.\n\
              Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
@@ -401,5 +441,30 @@ mod tests {
         assert_eq!(p_down.steps.len(), 1);
         assert_eq!(p_down.steps[0].capability, "env.service_down");
         assert_eq!(p_down.steps[0].args.get("service").map(String::as_str), Some("postgres"));
+    }
+
+    #[test]
+    fn test_plan_secretos_y_concesiones() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_grant = planner
+            .plan("concede acceso a .env", &catalog)
+            .expect("debe planificar grant");
+        assert_eq!(p_grant.steps.len(), 1);
+        assert_eq!(p_grant.steps[0].capability, "secret.grant");
+
+        let p_revoke = planner
+            .plan("revoca acceso a .env", &catalog)
+            .expect("debe planificar revoke");
+        assert_eq!(p_revoke.steps.len(), 1);
+        assert_eq!(p_revoke.steps[0].capability, "secret.revoke");
+
+        let p_list = planner
+            .plan("lista los secretos de la bóveda", &catalog)
+            .expect("debe planificar list");
+        assert_eq!(p_list.steps.len(), 1);
+        assert_eq!(p_list.steps[0].capability, "secret.list");
     }
 }
