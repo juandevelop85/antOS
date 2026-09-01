@@ -49,7 +49,7 @@ pub fn intencion(
     };
 
     // 03 · radio de impacto, calculado ANTES de ejecutar nada
-    let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config)?;
+    let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config, &ctx.state)?;
     let (tier, reasons) = radius.required_tier();
 
     // Los cambios se calculan EN ORDEN, y cada paso ve lo que los anteriores

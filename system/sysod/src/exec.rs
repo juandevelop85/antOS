@@ -50,6 +50,21 @@ pub enum Change {
         port: u16,
         force: bool,
     },
+    ServiceUp {
+        service: String,
+        port: Option<u16>,
+        db_name: Option<String>,
+        state_dir: PathBuf,
+        workspace: PathBuf,
+    },
+    ServiceDown {
+        service: String,
+        state_dir: PathBuf,
+    },
+    ServiceStatus {
+        service: Option<String>,
+        state_dir: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -96,7 +111,10 @@ impl Pendiente {
             | Change::GitWorktreeCleanup { .. }
             | Change::GitWorktreeMerge { .. }
             | Change::PortStatus { .. }
-            | Change::PortKill { .. } => {}
+            | Change::PortKill { .. }
+            | Change::ServiceUp { .. }
+            | Change::ServiceDown { .. }
+            | Change::ServiceStatus { .. } => {}
         }
     }
 }
@@ -245,6 +263,41 @@ pub fn changes_for(
             Ok(vec![Change::PortKill { port, force }])
         }
 
+        "env.service_up" => {
+            let service = a
+                .get("service")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. postgres, redis)"))?;
+            let port = a.get("port").and_then(|p| p.parse::<u16>().ok());
+            let db_name = a.get("db_name").cloned();
+            Ok(vec![Change::ServiceUp {
+                service,
+                port,
+                db_name,
+                state_dir: ctx.state.clone(),
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "env.service_down" => {
+            let service = a
+                .get("service")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio a detener"))?;
+            Ok(vec![Change::ServiceDown {
+                service,
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "env.service_status" => {
+            let service = a.get("service").cloned();
+            Ok(vec![Change::ServiceStatus {
+                service,
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -390,6 +443,50 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         .map(|p| format!("PID {} ({})", p.pid, p.process_name))
                         .collect();
                     output.push(format!("puerto {port} liberado terminando {}", pids.join(", ")));
+                }
+            }
+            Change::ServiceUp {
+                service,
+                port,
+                db_name,
+                state_dir,
+                workspace,
+            } => {
+                let info = crate::service::start_service(
+                    service,
+                    *port,
+                    db_name.as_deref(),
+                    state_dir,
+                    workspace,
+                )?;
+                output.push(format!(
+                    "servicio «{}» arrancado en puerto {} | {}={}",
+                    info.name, info.port, info.env_var_key, info.env_var_value
+                ));
+            }
+            Change::ServiceDown {
+                service,
+                state_dir,
+            } => {
+                crate::service::stop_service(service, state_dir)?;
+                output.push(format!("servicio «{service}» detenido y limpiado"));
+            }
+            Change::ServiceStatus {
+                service,
+                state_dir,
+            } => {
+                let services = crate::service::get_service_status(service.as_deref(), state_dir)?;
+                if services.is_empty() {
+                    output.push("no hay servicios efímeros aprovisionados".into());
+                } else {
+                    let mut lines = Vec::new();
+                    for s in services {
+                        lines.push(format!(
+                            "servicio {:<12} | puerto {:<5} | estado {:<8} | {}={}",
+                            s.name, s.port, s.status, s.env_var_key, s.env_var_value
+                        ));
+                    }
+                    output.push(lines.join("\n"));
                 }
             }
         }

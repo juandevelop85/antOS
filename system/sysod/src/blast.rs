@@ -37,6 +37,7 @@ impl Blast {
         catalog: &Catalog,
         workspace: &Path,
         system_config: &Path,
+        state: &Path,
     ) -> Result<Self> {
         let mut b = Blast { declared_tier: Tier::Auto, ..Default::default() };
 
@@ -57,10 +58,10 @@ impl Blast {
                 (&cap.effects.deletes, &mut b.deletes),
             ] {
                 for tpl in templates {
-                    let (resolved, is_dir) = resolve(tpl, step, workspace, system_config);
+                    let (resolved, is_dir) = resolve(tpl, step, workspace, system_config, state);
                     if resolved.starts_with(system_config) {
                         b.system.insert(resolved.clone());
-                    } else if !resolved.starts_with(workspace) {
+                    } else if !resolved.starts_with(workspace) && !resolved.starts_with(state) {
                         b.escapes.insert(resolved.clone());
                     }
                     if is_dir {
@@ -75,12 +76,6 @@ impl Blast {
         // No es una excepción concedida a nadie: es lo que «escribir aquí»
         // significa de verdad, y se hace explícito para que aparezca en el
         // radio de impacto, se fotografíe y el recinto lo permita.
-        //
-        // Sigue estando acotado: solo directorios inexistentes, solo dentro
-        // del espacio de trabajo, y solo en la rama de una ruta ya declarada.
-        // Crear un fichero dentro de la configuración del sistema exige
-        // permiso sobre su directorio. Es el mismo razonamiento que los
-        // ancestros del espacio de trabajo, y por eso se declara igual.
         for path in b.system.clone() {
             if let Some(parent) = path.parent() {
                 b.writes.insert(parent.to_path_buf());
@@ -88,7 +83,7 @@ impl Blast {
             }
         }
 
-        let ancestors = missing_ancestors(&b.writes, workspace);
+        let ancestors = missing_ancestors(&b.writes, workspace, state);
         // Un ancestro que falta siempre es un directorio: por definición
         // cuelga algo de él.
         dirs.extend(ancestors.iter().cloned());
@@ -155,14 +150,20 @@ impl Blast {
     }
 }
 
-fn missing_ancestors(paths: &BTreeSet<PathBuf>, workspace: &Path) -> BTreeSet<PathBuf> {
+fn missing_ancestors(
+    paths: &BTreeSet<PathBuf>,
+    workspace: &Path,
+    state: &Path,
+) -> BTreeSet<PathBuf> {
     let mut out = BTreeSet::new();
     for path in paths {
         let mut cursor = path.parent();
         while let Some(dir) = cursor {
-            // Al llegar al espacio de trabajo, o a un directorio que ya
-            // existe, no hay nada más que crear.
-            if dir == workspace || !dir.starts_with(workspace) || dir.exists() {
+            if dir == workspace
+                || dir == state
+                || (!dir.starts_with(workspace) && !dir.starts_with(state))
+                || dir.exists()
+            {
                 break;
             }
             out.insert(dir.to_path_buf());
@@ -177,12 +178,18 @@ fn join(set: &BTreeSet<String>) -> String {
 }
 
 /// Expande una plantilla de efecto (`$WORKSPACE/{name}`) con los argumentos
-/// del paso y la normaliza contra el espacio de trabajo.
+/// del paso y la normaliza contra el espacio de trabajo o estado.
 ///
 /// Devuelve además si la plantilla la declaró como directorio, que es lo que
 /// significa la barra final.
-fn resolve(tpl: &str, step: &Step, workspace: &Path, system_config: &Path) -> (PathBuf, bool) {
-    let expanded = expand_all(tpl, &step.args, workspace, system_config);
+fn resolve(
+    tpl: &str,
+    step: &Step,
+    workspace: &Path,
+    system_config: &Path,
+    state: &Path,
+) -> (PathBuf, bool) {
+    let expanded = expand_all(tpl, &step.args, workspace, system_config, state);
     let is_dir = expanded.ends_with('/');
     let p = PathBuf::from(expanded.trim_end_matches('/'));
     let absolute = if p.is_absolute() { p } else { workspace.join(p) };
@@ -194,8 +201,11 @@ pub fn expand_all(
     args: &BTreeMap<String, String>,
     workspace: &Path,
     system_config: &Path,
+    state: &Path,
 ) -> String {
-    let s = tpl.replace("$SYSTEM_CONFIG", &system_config.to_string_lossy());
+    let s = tpl
+        .replace("$SYSTEM_CONFIG", &system_config.to_string_lossy())
+        .replace("$STATE", &state.to_string_lossy());
     expand(&s, args, workspace)
 }
 
@@ -269,7 +279,7 @@ mod tests {
     #[test]
     fn detecta_la_fuga_aunque_el_parametro_no_este_restringido() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("../../etc/passwd"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion")).unwrap();
+        let blast = Blast::compute(&plan_leyendo("../../etc/passwd"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
 
         assert!(!blast.escapes.is_empty(), "una ruta fuera del espacio de trabajo debe registrarse como fuga");
         let (tier, reasons) = blast.required_tier();
@@ -280,7 +290,7 @@ mod tests {
     #[test]
     fn una_ruta_de_dentro_no_escala_el_nivel() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("proyecto/src/main.rs"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion")).unwrap();
+        let blast = Blast::compute(&plan_leyendo("proyecto/src/main.rs"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
 
         assert!(blast.escapes.is_empty());
         assert_eq!(blast.required_tier().0, Tier::Auto, "solo leer dentro del espacio no requiere permiso");
@@ -296,7 +306,7 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}".into()];
 
-        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
+        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
 
         assert!(blast.writes.contains(&ws.join("uno")), "el ancestro que falta debe declararse");
         assert!(blast.writes.contains(&ws.join("uno/dos")));
@@ -316,7 +326,7 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["/tmp/configuracion/paquetes.nix".into()];
 
-        let blast = Blast::compute(&plan_leyendo("da igual"), &catalog, &ws, &sistema).unwrap();
+        let blast = Blast::compute(&plan_leyendo("da igual"), &catalog, &ws, &sistema, Path::new("/tmp/sin-estado")).unwrap();
 
         assert!(
             blast.escapes.is_empty(),
@@ -337,7 +347,7 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}/".into()];
 
-        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
+        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
         assert!(blast.dirs.contains(&ws.join("proyecto")));
         assert!(!blast.dirs.iter().any(|d| d.to_string_lossy().ends_with('/')),
                 "la barra es una marca, no parte de la ruta");
@@ -352,7 +362,7 @@ mod tests {
         cap.effects.writes = vec!["{path}".into()];
 
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("dentro.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion")).unwrap();
+        let blast = Blast::compute(&plan_leyendo("dentro.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
 
         let (tier, reasons) = blast.required_tier();
         assert_eq!(tier, Tier::Confirm, "escribir exige confirmación aunque el manifiesto diga auto");

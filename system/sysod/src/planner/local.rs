@@ -169,6 +169,70 @@ impl Planner for LocalPlanner {
             )]));
         }
 
+        // Intenciones de servicios efímeros (T5.1)
+        if lower.contains("servicio")
+            || lower.contains("postgres")
+            || lower.contains("postgresql")
+            || lower.contains("redis")
+            || lower.contains("mariadb")
+            || lower.contains("mysql")
+            || lower.contains("meilisearch")
+            || lower.contains("rabbitmq")
+            || lower.contains("base de datos")
+            || lower.contains("db")
+        {
+            let svc = if lower.contains("redis") {
+                "redis"
+            } else if lower.contains("mariadb") || lower.contains("mysql") {
+                "mariadb"
+            } else if lower.contains("meilisearch") {
+                "meilisearch"
+            } else if lower.contains("rabbitmq") {
+                "rabbitmq"
+            } else {
+                "postgres"
+            };
+
+            if lower.contains("apaga")
+                || lower.contains("deten")
+                || lower.contains("detén")
+                || lower.contains("stop")
+                || lower.contains("down")
+                || lower.contains("parar")
+            {
+                return Ok(Propuesta::solo(vec![step(
+                    "env.service_down",
+                    &[("service", svc)],
+                )]));
+            }
+
+            if lower.contains("estado")
+                || lower.contains("status")
+                || lower.contains("lista")
+                || lower.contains("info")
+            {
+                return Ok(Propuesta::solo(vec![step(
+                    "env.service_status",
+                    &[("service", svc)],
+                )]));
+            }
+
+            let mut args = vec![("service", svc)];
+            let port_str = words.iter().find_map(|w| {
+                if let Ok(p) = w.parse::<u16>() {
+                    if p > 1000 {
+                        return Some(w.as_str());
+                    }
+                }
+                None
+            });
+            if let Some(p) = port_str {
+                args.push(("port", p));
+            }
+
+            return Ok(Propuesta::solo(vec![step("env.service_up", &args)]));
+        }
+
         if lower.contains("puerto") || lower.contains("port") {
             let port_num = words.iter().find_map(|w| {
                 let digitos: String = w.chars().filter(|c| c.is_ascii_digit()).collect();
@@ -201,7 +265,7 @@ impl Planner for LocalPlanner {
 
         bail!(
             "el planificador local no sabe traducir esa intención.\n\
-             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git y puertos de red.\n\
+             Entiende: crear proyectos, declarar dependencias, leer, escribir, borrar, commits semánticos, ramas, worktrees Git, puertos de red y servicios efímeros (postgres, redis).\n\
              Para lenguaje libre usa: antos --planificador claude \"…\""
         )
     }
@@ -308,5 +372,34 @@ mod tests {
             .expect("debe planificar");
         assert_eq!(p_estado.steps.len(), 1);
         assert_eq!(p_estado.steps[0].capability, "diag.port_status");
+    }
+
+    #[test]
+    fn test_plan_servicios_locales() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_up = planner
+            .plan("levanta un postgres para este proyecto", &catalog)
+            .expect("debe planificar postgres");
+        assert_eq!(p_up.steps.len(), 1);
+        assert_eq!(p_up.steps[0].capability, "env.service_up");
+        assert_eq!(p_up.steps[0].args.get("service").map(String::as_str), Some("postgres"));
+
+        let p_redis = planner
+            .plan("inicia redis en el puerto 6379", &catalog)
+            .expect("debe planificar redis");
+        assert_eq!(p_redis.steps.len(), 1);
+        assert_eq!(p_redis.steps[0].capability, "env.service_up");
+        assert_eq!(p_redis.steps[0].args.get("service").map(String::as_str), Some("redis"));
+        assert_eq!(p_redis.steps[0].args.get("port").map(String::as_str), Some("6379"));
+
+        let p_down = planner
+            .plan("apaga el servicio postgres", &catalog)
+            .expect("debe planificar down");
+        assert_eq!(p_down.steps.len(), 1);
+        assert_eq!(p_down.steps[0].capability, "env.service_down");
+        assert_eq!(p_down.steps[0].args.get("service").map(String::as_str), Some("postgres"));
     }
 }

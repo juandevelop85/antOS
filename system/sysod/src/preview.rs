@@ -90,6 +90,23 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 )));
                 out.push(Line::Del(format!("  liberar puerto :{port}")));
             }
+            Change::ServiceUp { service, port, db_name, .. } => {
+                let port_str = port.map(|p| format!(" en puerto {p}")).unwrap_or_default();
+                let db_str = db_name.as_deref().map(|d| format!(" (db: {d})")).unwrap_or_default();
+                out.push(Line::Info(format!(
+                    "aprovisiona y arranca servicio {service}{port_str}{db_str}"
+                )));
+                out.push(Line::Add(format!("  + iniciar demonio de {service} en background")));
+                out.push(Line::Add(format!("  + inyectar variable de conexión en .env")));
+            }
+            Change::ServiceDown { service, .. } => {
+                out.push(Line::Info(format!("detiene y limpia servicio {service}")));
+                out.push(Line::Del(format!("  - detener proceso de {service}")));
+            }
+            Change::ServiceStatus { service, .. } => {
+                let svc_info = service.as_deref().map(|s| format!(" ({s})")).unwrap_or_default();
+                out.push(Line::Info(format!("consulta estado de servicios locales{svc_info}")));
+            }
         }
         pendiente.aplicar(change);
     }

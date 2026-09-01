@@ -13,6 +13,7 @@ pub mod git;
 pub mod net;
 pub mod spec;
 pub mod flow;
+pub mod service;
 mod ipc;
 mod journal;
 mod plan;
@@ -91,6 +92,7 @@ fn run() -> Result<()> {
         "undo" => cmd_undo(&ctx, &rest[1..]),
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
+        "services" | "service" => cmd_services(&ctx, &rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
@@ -826,6 +828,69 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    match sub {
+        "up" | "start" => {
+            let svc = args.get(1).ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. antos service up postgres)"))?;
+            let port = args.get(2).and_then(|p| p.parse::<u16>().ok());
+            let db = args.get(3).map(String::as_str);
+
+            println!("\n{} Aprovisionando servicio efímero «{}»...", paint("⚡", BOLD), paint(svc, YELLOW));
+            let info = service::start_service(svc, port, db, &ctx.state, &ctx.workspace)?;
+            println!("  {} Servicio:      {}", paint("●", GREEN), paint(&info.name, BOLD));
+            println!("  {} Puerto:        {}", paint("●", GREEN), paint(&info.port.to_string(), YELLOW));
+            println!("  {} Estado:        {}", paint("●", GREEN), paint(&info.status, GREEN));
+            println!("  {} Variable .env: {}={}", paint("●", GREEN), paint(&info.env_var_key, BOLD), paint(&info.env_var_value, CYAN_COLOR));
+            println!("  {} Almacenamiento: {}\n", paint("●", GREEN), paint(&info.data_dir, DIM));
+        }
+        "down" | "stop" => {
+            let svc = args.get(1).ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. antos service down postgres)"))?;
+            service::stop_service(svc, &ctx.state)?;
+            println!("\n{} Servicio «{}» detenido y limpiado.\n", paint("✓", GREEN), paint(svc, BOLD));
+        }
+        "status" | "list" | _ => {
+            let svc_filter = if sub != "status" && sub != "list" {
+                Some(sub)
+            } else {
+                args.get(1).map(String::as_str)
+            };
+
+            let services = service::get_service_status(svc_filter, &ctx.state)?;
+            println!("\n{}", paint("antOS · Servicios Locales Efímeros de Desarrollo (T5.1)", BOLD));
+            if services.is_empty() {
+                println!("  No hay servicios efímeros aprovisionados.");
+                println!("  Inicia uno con: antos service up <postgres|redis|mariadb|meilisearch>\n");
+            } else {
+                println!("  ┌────────────────┬────────┬───────────┬─────────────────────────────────────────────────────────┐");
+                println!(
+                    "  │ {:<14} │ {:<6} │ {:<9} │ {:<55} │",
+                    paint("SERVICIO", BOLD),
+                    paint("PUERTO", BOLD),
+                    paint("ESTADO", BOLD),
+                    paint("VARIABLE DE ENTORNO (.env)", BOLD)
+                );
+                println!("  ├────────────────┼────────┼───────────┼─────────────────────────────────────────────────────────┤");
+                for s in services {
+                    let st_fmt = if s.status == "running" {
+                        paint("● running", GREEN)
+                    } else {
+                        paint("○ stopped", DIM)
+                    };
+                    println!(
+                        "  │ {:<14} │ {:<6} │ {:<20} │ {}={} │",
+                        s.name, s.port, st_fmt, paint(&s.env_var_key, BOLD), ellipsis(&s.env_var_value, 38)
+                    );
+                }
+                println!("  └────────────────┴────────┴───────────┴─────────────────────────────────────────────────────────┘\n");
+            }
+        }
+    }
+    Ok(())
+}
+
+const CYAN_COLOR: &str = "\x1b[36m";
+
 fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     if let Some(pos) = args.iter().position(|a| a == "--dispatch" || a == "-d") {
         if let Some(target_ticket) = args.get(pos + 1) {
@@ -930,6 +995,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos agent status [id]    consulta estado y traza de agentes
   antos agents               lista los roles especializados y sus directivas
   antos ports [puerto]       diagnóstico de puertos de red y procesos
+  antos services             gestión de servicios efímeros (postgres, redis, mysql)
   antos caps                 catálogo de capacidades y su nivel
   antos log                  bitácora de lo que ha pasado
   antos undo [--ticket id]   revierte el último plan o todos los cambios de un ticket
