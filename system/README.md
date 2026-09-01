@@ -174,10 +174,9 @@ Sin verificar todavía:
   deprecado. En Linux sí lo están.
 - **Landlock solo cubre TCP**: UDP y los sockets unix quedan fuera de su
   alcance, así que la denegación de red no es total.
-- **La captura por micrófono funciona**, con permiso ya concedido en esta
-  máquina. Lo que falta es una transcripción correcta de una voz real: los
-  intentos hasta ahora no capturaron voz y la puerta de nivel los rechazó,
-  que es el comportamiento deseado pero no cierra la prueba.
+- **La captura por micrófono está probada con voz real** y funciona. Elige
+  el dispositivo con `--dispositivo N`: el predeterminado del sistema suele
+  ser un dispositivo virtual de Teams o Zoom.
 - **La imagen arrancable no se ha construido.** El sistema *evalúa* entero
   —`nixos-system-syso-26.11...drv`— y sus piezas se han comprobado una a una,
   pero construirlo son gigabytes de cierre y no se ha hecho aquí.
