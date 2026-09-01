@@ -415,6 +415,100 @@
       por si la curva resulta insoportable en la práctica.</p>
   </section>
 
+
+  <section>
+    <div class="col">
+      <h2>Aplicar sin abrir la puerta</h2>
+      <p class="lede">Escribir la declaración es fácil. Convertirla en la máquina real es donde casi
+        todos los diseños se rinden y conceden una excepción.</p>
+
+      <p>El problema no es el privilegio, es la <strong>entrada sin acotar</strong>. Una capacidad
+        que ejecute <code>nixos-rebuild switch</code> necesitaría permiso para escribir en todas
+        partes, y una capacidad exenta del recinto convierte al recinto en decoración: a quien
+        quiera saltárselo le basta con encaminar su plan por ahí.</p>
+
+      <p>La salida es no darle esa capacidad a nadie. El acto se parte en tres piezas con
+        confianzas distintas, y el privilegio vive al otro lado de una cola.</p>
+    </div>
+
+    <div class="pipeline">
+      <div class="stage">
+        <div class="stage-n">01</div>
+        <div>
+          <div class="stage-t">Declarar · capacidad confinada</div>
+          <div class="stage-d">Escribe la línea en la configuración. Es lo que ya existe, y su
+            recinto no cambia: sigue sin poder tocar nada más.</div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">02</div>
+        <div>
+          <div class="stage-t">Construir · sin efecto sobre la máquina viva</div>
+          <div class="stage-d">Se le pide a Nix que <em>construya</em> el sistema nuevo. Produce una
+            ruta del almacén y no toca nada de lo que está corriendo. No necesita nuestro recinto
+            porque tiene el suyo: una construcción de Nix ya corre aislada y sin privilegios.
+            <em>Y aquí aparece el regalo: comparar dos cierres da un diff exacto y legible de lo
+            que cambiaría en la máquina, antes de cambiar nada.</em></div>
+        </div>
+      </div>
+      <div class="stage">
+        <div class="stage-n">03</div>
+        <div>
+          <div class="stage-t">Solicitar · una capacidad que solo escribe un fichero</div>
+          <div class="stage-d">La capacidad no aplica: deja una solicitud en un directorio
+            declarado. Sigue tan confinada como cualquier otra, porque lo único que hace es
+            escribir unos cientos de bytes en una ruta que declaró.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <h3>El aplicador está fuera del catálogo</h3>
+      <p>Al otro lado de esa cola hay un servicio con privilegio que <strong>no es una
+        capacidad</strong>: no aparece en el catálogo, el planificador no lo conoce y no se le puede
+        pedir nada que no sea uno de dos verbos. Se despierta al aparecer una solicitud y comprueba
+        cuatro cosas antes de mover un dedo:</p>
+    </div>
+
+    <div class="specimen">
+      <div class="specimen-h">/var/lib/syso/solicitudes/20260831-192031.json</div>
+      <pre><code>{
+  <span class="ky">"accion"</span>: <span class="st">"reconciliar"</span>,        <span class="cm">// solo "reconciliar" o "revertir"</span>
+  <span class="ky">"sistema"</span>: <span class="st">"/nix/store/…-nixos-system-syso-26.11"</span>,
+  <span class="ky">"configuracion"</span>: <span class="st">"sha256:8f3c…"</span>,  <span class="cm">// lo que el humano aprobó</span>
+  <span class="ky">"caduca"</span>: <span class="st">"2026-08-31T19:25:31Z"</span>
+}</code></pre>
+    </div>
+
+    <div class="col">
+      <p>Activa <strong>una ruta del almacén concreta</strong>, no «lo que diga la configuración
+        ahora». Esa diferencia cierra la ventana entre aprobar y aplicar: lo que se activa es
+        exactamente el cierre cuyo diff viste, aunque alguien edite la configuración en medio. El
+        hash y la caducidad son lo que hace que la confirmación sobreviva al cruce entre procesos —
+        la misma idea que las concesiones con caducidad, aplicada al sistema.</p>
+
+      <p>Deshacer deja de ser restaurar ficheros y pasa a ser lo que NixOS ya sabe hacer: una
+        solicitud de <code>revertir</code> con la ruta de la generación anterior.</p>
+
+      <h3>La regla que sostiene todo esto</h3>
+      <p>Nada de lo anterior vale si una capacidad puede escribir <em>texto libre</em> en un fichero
+        <code>.nix</code>. La configuración de un sistema es código que corre como root al activarse,
+        así que poder redactarla es poder ejecutar cualquier cosa — con recinto o sin él.</p>
+      <p>Por eso deja de ser una convención y pasa a ser una comprobación al cargar el catálogo:
+        <strong>una capacidad que escriba bajo <code>$SYSTEM_CONFIG</code> no puede tener ningún
+        parámetro de tipo texto.</strong> Solo tipos cerrados —enumerados, identificadores— que no
+        pueden expresar sintaxis. Un catálogo que incumpla eso no se carga, y el error señala la
+        capacidad culpable.</p>
+
+      <h3>Lo que sigue siendo peligroso</h3>
+      <p>Construir ejecuta código de nixpkgs, y eso es cadena de suministro, no recinto: se mitiga
+        fijando el <code>flake.lock</code>, no confinando. Y el aplicador corre como root, así que
+        tiene que ser aburridísimo: leer cuatro campos, comparar dos hashes, ejecutar una orden. Todo
+        lo que crezca ahí dentro es superficie nueva en el único sitio del sistema donde no hay red
+        de seguridad.</p>
+    </div>
+  </section>
+
   <section class="col">
     <h2>Lo que syso no va a ser</h2>
     <p class="lede">Decidido ahora para no discutirlo cada mes.</p>
@@ -506,12 +600,12 @@
           capacidades deja de ser un lujo y pasa a ser estructural.</p>
       </div>
       <div class="risk">
-        <h4>syso declara, pero todavía no aplica</h4>
-        <p>Una capacidad escribe la declaración; convertirla en la máquina real sigue siendo un
-          <code>sudo nixos-rebuild switch</code> a mano. No es pereza: aplicar toca todo el sistema,
-          así que tendría que correr fuera del recinto — y una capacidad con permiso para salirse del
-          recinto es exactamente la puerta trasera que este diseño existe para no tener. Merece su
-          propio diseño, no un parche.</p>
+        <h4>Aplicar está diseñado, no construido</h4>
+        <p>El reparto en tres piezas y el aplicador tras una cola resuelven el problema sobre el
+          papel, pero no hay ni una línea escrita. Y el papel es donde estos diseños se ven mejor de
+          lo que son: falta saber si el diff de cierres es legible cuando cambian doscientos
+          paquetes a la vez, y si el aplicador se mantiene aburrido cuando aparezca el primer caso
+          que no encaje. Mientras tanto, <code>sudo nixos-rebuild switch</code> a mano.</p>
       </div>
       <div class="risk">
         <h4>Dictar términos técnicos es el punto débil</h4>
