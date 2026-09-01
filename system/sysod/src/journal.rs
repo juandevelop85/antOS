@@ -18,11 +18,13 @@ pub enum Outcome {
     Revertido,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub id: String,
     pub at: String,
     pub intent: String,
+    #[serde(default)]
+    pub ticket_id: Option<String>,
     pub planner: String,
     pub plan: Plan,
     pub tier: Tier,
@@ -39,6 +41,20 @@ pub struct Record {
     /// Se marca al revertir, para que `undo` no deshaga dos veces lo mismo.
     #[serde(default)]
     pub reverted: bool,
+}
+
+/// Extrae un ID de ticket (ej. T1.2, T3.3) si está presente en el texto de la intención.
+pub fn extraer_ticket_id(texto: &str) -> Option<String> {
+    for palabra in texto.split_whitespace() {
+        let limpia = palabra.trim_matches(|c: char| !c.is_alphanumeric() && c != '.');
+        if (limpia.starts_with('T') || limpia.starts_with('t')) && limpia.contains('.') {
+            let num_part = &limpia[1..];
+            if num_part.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                return Some(limpia.to_uppercase());
+            }
+        }
+    }
+    None
 }
 
 pub fn append(path: &Path, record: &Record) -> Result<()> {
@@ -59,8 +75,6 @@ pub fn read_all(path: &Path) -> Result<Vec<Record>> {
         .collect())
 }
 
-/// Reescribe la bitácora entera. Solo se usa para marcar una entrada como
-/// revertida: el fichero sigue siendo append-only para todo lo demás.
 pub fn rewrite(path: &Path, records: &[Record]) -> Result<()> {
     let mut out = String::new();
     for r in records {
@@ -69,4 +83,51 @@ pub fn rewrite(path: &Path, records: &[Record]) -> Result<()> {
     }
     std::fs::write(path, out)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extraer_ticket_id() {
+        assert_eq!(extraer_ticket_id("desarrolla el ticket T1.2 ahora"), Some("T1.2".into()));
+        assert_eq!(extraer_ticket_id("corrige bug en t3.3"), Some("T3.3".into()));
+        assert_eq!(extraer_ticket_id("haz commit normal"), None);
+    }
+
+    #[test]
+    fn test_serializacion_record_con_ticket_id() {
+        let temp_file = std::env::temp_dir().join("antos_journal_test.jsonl");
+        let _ = std::fs::remove_file(&temp_file);
+
+        let rec = Record {
+            id: "rec-1".into(),
+            at: "2026-09-01T12:00:00Z".into(),
+            intent: "ejecutar T3.3".into(),
+            ticket_id: Some("T3.3".into()),
+            planner: "local".into(),
+            plan: crate::plan::Plan {
+                id: "p1".into(),
+                intent: "ejecutar T3.3".into(),
+                planner: "local".into(),
+                steps: vec![],
+            },
+            tier: Tier::Auto,
+            reasons: vec![],
+            outcome: Outcome::Ejecutado,
+            detail: None,
+            snapshot: Some("snap-1".into()),
+            sandbox: "broker".into(),
+            reverted: false,
+        };
+
+        append(&temp_file, &rec).expect("append");
+        let leidos = read_all(&temp_file).expect("read_all");
+        assert_eq!(leidos.len(), 1);
+        assert_eq!(leidos[0].ticket_id, Some("T3.3".into()));
+        assert_eq!(leidos[0].outcome, Outcome::Ejecutado);
+
+        let _ = std::fs::remove_file(&temp_file);
+    }
 }

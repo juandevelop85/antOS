@@ -90,6 +90,7 @@ pub fn intencion(
         id: plan.id.clone(),
         at: chrono::Local::now().to_rfc3339(),
         intent: texto.to_string(),
+        ticket_id: journal::extraer_ticket_id(texto),
         planner: planificador.name().to_string(),
         plan: plan.clone(),
         tier,

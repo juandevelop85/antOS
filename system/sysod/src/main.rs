@@ -88,7 +88,7 @@ fn run() -> Result<()> {
         "doctor" => cmd_doctor(&ctx),
         "escucha" => cmd_escuchar(&ctx, &catalog, &rest[1..], &opts),
         "log" => cmd_log(&ctx),
-        "undo" => cmd_undo(&ctx),
+        "undo" => cmd_undo(&ctx, &rest[1..]),
         "tickets" => cmd_tickets(&ctx, &rest[1..]),
         "ports" => cmd_ports(&rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
@@ -217,8 +217,95 @@ fn vocabulario(catalog: &Catalog) -> String {
 
 // ------------------------------------------------------------------ deshacer
 
-fn cmd_undo(ctx: &Ctx) -> Result<()> {
+fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
     let mut records = journal::read_all(&ctx.journal_path())?;
+
+    let ticket_id_arg = args
+        .iter()
+        .position(|a| a == "--ticket" || a == "-t")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .or_else(|| {
+            if !args.is_empty() && !args[0].starts_with('-') {
+                Some(args[0].clone())
+            } else {
+                None
+            }
+        });
+
+    if let Some(raw_tid) = ticket_id_arg {
+        let tid = raw_tid.to_uppercase();
+        println!("\n{} {}", paint("antOS · Reversión granular de ticket", BOLD), paint(&tid, YELLOW));
+
+        let mut reversiones = 0;
+        let mut idxs_a_revertir = Vec::new();
+
+        for (idx, r) in records.iter().enumerate() {
+            if r.outcome == Outcome::Ejecutado && !r.reverted && r.snapshot.is_some() {
+                let coincide_ticket = r.ticket_id.as_deref() == Some(&tid)
+                    || journal::extraer_ticket_id(&r.intent).as_deref() == Some(&tid);
+                if coincide_ticket {
+                    idxs_a_revertir.push(idx);
+                }
+            }
+        }
+
+        if idxs_a_revertir.is_empty() {
+            let ticket_clean = tid.to_lowercase();
+            let wt_path = ctx.state.join("worktrees").join(&ticket_clean);
+            if wt_path.exists() {
+                let _ = std::fs::remove_dir_all(&wt_path);
+                println!("  {} Worktree efímero ({}) limpiado.", paint("✓", GREEN), wt_path.display());
+                reversiones += 1;
+            }
+
+            if reversiones == 0 {
+                println!("  No hay transacciones ejecutadas ni cambios pendientes para el ticket «{tid}».\n");
+                return Ok(());
+            }
+        }
+
+        idxs_a_revertir.reverse();
+        for idx in idxs_a_revertir {
+            let snap_id = records[idx].snapshot.clone().unwrap();
+            let snap = snapshot::load(&snap_id, &ctx.snapshots_dir())?;
+
+            println!("  {} Transacción {}: «{}»", paint("↩", DIM), paint(&records[idx].id, DIM), records[idx].intent);
+            for line in snapshot::restore(&snap)? {
+                println!("    {line}");
+            }
+
+            records[idx].reverted = true;
+            let undone = Record {
+                id: plan::nuevo_id(),
+                at: chrono::Local::now().to_rfc3339(),
+                intent: format!("deshacer ticket {tid} ({})", records[idx].id),
+                ticket_id: Some(tid.clone()),
+                planner: "antos".into(),
+                plan: records[idx].plan.clone(),
+                tier: records[idx].tier,
+                reasons: vec![format!("revierte instantánea {snap_id} del ticket {tid}")],
+                outcome: Outcome::Revertido,
+                detail: None,
+                sandbox: "broker".into(),
+                snapshot: Some(snap_id),
+                reverted: false,
+            };
+            journal::append(&ctx.journal_path(), &undone)?;
+            reversiones += 1;
+        }
+
+        let ticket_clean = tid.to_lowercase();
+        let wt_path = ctx.state.join("worktrees").join(&ticket_clean);
+        if wt_path.exists() {
+            let _ = std::fs::remove_dir_all(&wt_path);
+            println!("  {} Worktree efímero ({}) eliminado.", paint("✓", GREEN), wt_path.display());
+        }
+
+        journal::rewrite(&ctx.journal_path(), &records)?;
+        println!("\n  {} Reversión completada: {} transacción(es) revertida(s).\n", paint("✓", GREEN), reversiones);
+        return Ok(());
+    }
 
     let idx = records
         .iter()
@@ -243,7 +330,8 @@ fn cmd_undo(ctx: &Ctx) -> Result<()> {
         id: plan::nuevo_id(),
         at: chrono::Local::now().to_rfc3339(),
         intent: format!("deshacer {}", records[idx].id),
-        planner: "syso".into(),
+        ticket_id: records[idx].ticket_id.clone(),
+        planner: "antos".into(),
         plan: records[idx].plan.clone(),
         tier: records[idx].tier,
         reasons: vec![format!("revierte la instantánea {snap_id}")],
@@ -428,10 +516,16 @@ fn cmd_log(ctx: &Ctx) -> Result<()> {
             Outcome::Fallido => paint("!", RED),
             Outcome::Cancelado => paint("·", DIM),
         };
+        let ticket_badge = if let Some(tid) = &r.ticket_id {
+            format!("{} ", paint(&format!("[{tid}]"), BOLD))
+        } else {
+            String::new()
+        };
         println!(
-            "  {mark} {}  {}  {}",
+            "  {mark} {}  {} {}{}",
             paint(&r.id, DIM),
             paint(&format!("[{}]", r.tier.label()), tier_color(r.tier)),
+            ticket_badge,
             ellipsis(&r.intent, 60)
         );
         if let Some(d) = &r.detail {
@@ -745,7 +839,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos ports [puerto]       diagnóstico de puertos de red y procesos
   antos caps                 catálogo de capacidades y su nivel
   antos log                  bitácora de lo que ha pasado
-  antos undo                 revierte el último plan ejecutado
+  antos undo [--ticket id]   revierte el último plan o todos los cambios de un ticket
   antos doctor               comprueba que el recinto es real, atacándolo
   antos demonio              atiende peticiones por socket (lo que usará el escritorio)
   antos grant <cap> [--minutos N]
