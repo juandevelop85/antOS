@@ -98,6 +98,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("enjambre")
             && !lower.contains("vfs")
             && !lower.contains("antfs")
+            && !lower.contains("ebpf")
+            && !lower.contains("bpf")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -432,6 +434,20 @@ impl Planner for LocalPlanner {
                 args.push(("path", p.as_str()));
             }
             return Ok(Propuesta::solo(vec![step("vfs.query", &args)]));
+        }
+
+        // Intenciones de Supervisor Kernel eBPF LSM (T11.1)
+        if lower.contains("ebpf") || lower.contains("bpf") || (lower.contains("syscall") && lower.contains("kernel")) {
+            if lower.contains("audit") || lower.contains("registro") || lower.contains("traza") || lower.contains("log") {
+                let limit = after(&words, &["ultimos", "últimos", "limite", "limit", "de"]).unwrap_or_else(|| "20".into());
+                let pid = after(&words, &["pid", "proceso"]);
+                let mut args = vec![("limit", limit.as_str())];
+                if let Some(ref p) = pid {
+                    args.push(("pid", p.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("ebpf.audit_log", &args)]));
+            }
+            return Ok(Propuesta::solo(vec![step("ebpf.status", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -937,5 +953,17 @@ mod tests {
             .expect("plan vfs guard status");
         assert_eq!(p_guard.steps.len(), 1);
         assert_eq!(p_guard.steps[0].capability, "vfs.guard_status");
+
+        let p_ebpf = planner
+            .plan("muestra el estado del supervisor ebpf", &catalog)
+            .expect("plan ebpf status");
+        assert_eq!(p_ebpf.steps.len(), 1);
+        assert_eq!(p_ebpf.steps[0].capability, "ebpf.status");
+
+        let p_audit = planner
+            .plan("audita las trazas de syscalls de ebpf", &catalog)
+            .expect("plan ebpf audit");
+        assert_eq!(p_audit.steps.len(), 1);
+        assert_eq!(p_audit.steps[0].capability, "ebpf.audit_log");
     }
 }

@@ -24,6 +24,7 @@ pub mod mesh;
 pub mod distributed;
 pub mod vfs;
 pub mod vfs_guard;
+pub mod ebpf;
 mod ipc;
 mod journal;
 mod plan;
@@ -116,6 +117,7 @@ fn run() -> Result<()> {
         "mesh" | "p2p" => cmd_mesh(&ctx, &rest[1..]),
         "swarm" => cmd_swarm(&ctx, &rest[1..]),
         "vfs" | "antfs" => cmd_vfs(&ctx, &rest[1..]),
+        "ebpf" | "bpf" => cmd_ebpf(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1439,6 +1441,131 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos vfs unmount [ruta]   Desmonta la proyección /antfs");
             println!("    • antos vfs validate <file>  Valida la integridad sintáctica antes de persistir");
             println!("    • antos vfs guard            Muestra métricas del interceptor de escrituras\n");
+        }
+    }
+    Ok(())
+}
+
+// --------------------------------------------------------------------- ebpf
+
+fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let engine = ebpf::EbpfSentinelEngine::global();
+    let sub = args.first().map(String::as_str);
+
+    match sub {
+        Some("status" | "info" | "estado") => {
+            let status = engine.status()?;
+            println!("\n{}", paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            let lsm_badge = if status.lsm_enabled {
+                paint("● KERNEL LSM ACTIVO (BPF Enforcing)", GREEN)
+            } else {
+                paint("○ EMULACIÓN ESPACIO DE USUARIO (Auditoría activa)", YELLOW)
+            };
+            println!("  Estado del soporte eBPF: {}", lsm_badge);
+            println!("  Sondas activas ({}):", status.active_probes.len());
+            for probe in status.active_probes {
+                println!("    • {}", paint(&probe, CYAN));
+            }
+            println!("  Capacidad del ring buffer: {} entradas (uso: {})", status.ring_buffer_capacity, status.ring_buffer_utilization);
+            println!("  Eventos capturados:        {}", paint(&status.total_events_captured.to_string(), BOLD));
+            println!("  Violaciones bloqueadas:    {}\n", paint(&status.total_violations_blocked.to_string(), if status.total_violations_blocked > 0 { RED } else { GREEN }));
+        }
+        Some("trace" | "traza") => {
+            let pid_opt = args.get(1).and_then(|p| p.parse::<u32>().ok());
+            let events = match pid_opt {
+                Some(pid) => engine.trace_pid(pid),
+                None => engine.get_audit_log(25),
+            };
+            println!("\n{} Traza en vivo de syscalls y eventos de seguridad", paint("antOS eBPF ·", BOLD));
+            if let Some(p) = pid_opt {
+                println!("  Filtro por PID: {}\n", paint(&p.to_string(), YELLOW));
+            } else {
+                println!("  Mostrando los últimos {} eventos:\n", events.len());
+            }
+
+            if events.is_empty() {
+                println!("  (no hay eventos en el ring buffer)\n");
+            } else {
+                for ev in events {
+                    let mark = match ev.action_taken {
+                        antos_protocolo::EbpfSecurityAction::Allowed => paint("✓ ALLOW", GREEN),
+                        antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔ BLOCK", RED),
+                        antos_protocolo::EbpfSecurityAction::Audited => paint("👁 AUDIT", YELLOW),
+                    };
+                    println!("  {} [{}] PID {}:{} ➔ {} ({:?})",
+                        mark, paint(&ev.id, DIM), ev.pid, paint(&ev.comm, BOLD), paint(&ev.target_resource, YELLOW), ev.hook
+                    );
+                    if let Some(ref r) = ev.violation_reason {
+                        println!("      └─ {}", paint(r, DIM));
+                    }
+                }
+                println!();
+            }
+        }
+        Some("audit" | "log" | "registro") => {
+            let limit = args.get(1).and_then(|l| l.parse::<usize>().ok()).unwrap_or(20);
+            let events = engine.get_audit_log(limit);
+            println!("\n{} Registro de auditoría eBPF (últimos {} eventos)\n", paint("antOS eBPF ·", BOLD), events.len());
+            if events.is_empty() {
+                println!("  (registro vacío)\n");
+            } else {
+                for ev in events {
+                    let mark = match ev.action_taken {
+                        antos_protocolo::EbpfSecurityAction::Allowed => paint("✓", GREEN),
+                        antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔", RED),
+                        antos_protocolo::EbpfSecurityAction::Audited => paint("👁", YELLOW),
+                    };
+                    println!("  {} [{}] {:<18} PID {}:{} ➔ {}",
+                        mark, paint(&ev.id, DIM), format!("{:?}", ev.hook), ev.pid, paint(&ev.comm, BOLD), ev.target_resource
+                    );
+                }
+                println!();
+            }
+        }
+        Some("simulate" | "simula" | "test") => {
+            let kind_str = args.get(1).map(String::as_str).unwrap_or("file");
+            let hook = match kind_str {
+                "socket" | "net" | "red" => antos_protocolo::EbpfHookKind::SocketConnect,
+                "bprm" | "exec" => antos_protocolo::EbpfHookKind::BprmCheckSecurity,
+                "syscall" => antos_protocolo::EbpfHookKind::SyscallTrace,
+                _ => antos_protocolo::EbpfHookKind::FileOpen,
+            };
+            let target = args.get(2).map(String::as_str).unwrap_or_else(|| match hook {
+                antos_protocolo::EbpfHookKind::SocketConnect => "192.168.1.50:4444",
+                antos_protocolo::EbpfHookKind::FileOpen => "/etc/shadow",
+                antos_protocolo::EbpfHookKind::BprmCheckSecurity => "/bin/nc",
+                antos_protocolo::EbpfHookKind::SyscallTrace => "ptrace",
+            });
+
+            let ev = engine.simulate_violation(hook, target);
+            println!("\n{} Simulación de intento de evasión de sandbox", paint("antOS eBPF ·", BOLD));
+            println!("  Hook interceptado: {:?}", ev.hook);
+            println!("  Recurso objetivo:  {}", paint(&ev.target_resource, YELLOW));
+            println!("  Acción del kernel: {}", paint("⛔ BLOQUEADO", RED));
+            println!("  Alerta disparada:  {} Se envió notificación prioritaria a la bandeja Wayland.\n", paint("✓", GREEN));
+        }
+        _ => {
+            let status = engine.status()?;
+            println!("\n{}", paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            let lsm_badge = if status.lsm_enabled {
+                paint("● KERNEL LSM ACTIVO", GREEN)
+            } else {
+                paint("○ EMULACIÓN ESPACIO USUARIO", YELLOW)
+            };
+            println!("  Soporte:            {}", lsm_badge);
+            println!("  Sondas activas:     {}", status.active_probes.len());
+            println!("  Eventos capturados: {}", paint(&status.total_events_captured.to_string(), BOLD));
+            println!("  Bloqueos evasión:   {}\n", paint(&status.total_violations_blocked.to_string(), if status.total_violations_blocked > 0 { RED } else { GREEN }));
+
+            println!("  Subcomandos disponibles:");
+            println!("    • antos ebpf status            Diagnóstico de sondas y soporte de kernel");
+            println!("    • antos ebpf trace [pid]       Traza de llamadas al sistema en tiempo real");
+            println!("    • antos ebpf audit [limit]     Registro de auditoría del ring buffer");
+            println!("    • antos ebpf simulate <tipo>   Simula evasión (file|socket|bprm) y alerta\n");
         }
     }
     Ok(())

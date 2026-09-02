@@ -190,6 +190,14 @@ pub enum Change {
     VfsGuardStatus {
         workspace: PathBuf,
     },
+    EbpfStatus {
+        workspace: PathBuf,
+    },
+    EbpfAuditLog {
+        workspace: PathBuf,
+        limit: usize,
+        pid: Option<u32>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -269,7 +277,9 @@ impl Pendiente {
             | Change::VfsMount { .. }
             | Change::VfsUnmount { .. }
             | Change::VfsValidateWrite { .. }
-            | Change::VfsGuardStatus { .. } => {}
+            | Change::VfsGuardStatus { .. }
+            | Change::EbpfStatus { .. }
+            | Change::EbpfAuditLog { .. } => {}
         }
     }
 }
@@ -730,6 +740,27 @@ pub fn changes_for(
         "vfs.guard_status" => {
             Ok(vec![Change::VfsGuardStatus {
                 workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "ebpf.status" => {
+            Ok(vec![Change::EbpfStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "ebpf.audit_log" => {
+            let limit = a
+                .get("limit")
+                .and_then(|l| l.parse::<usize>().ok())
+                .unwrap_or(20);
+            let pid = a
+                .get("pid")
+                .and_then(|p| p.parse::<u32>().ok());
+            Ok(vec![Change::EbpfAuditLog {
+                workspace: ctx.workspace.clone(),
+                limit,
+                pid,
             }])
         }
 
@@ -1302,6 +1333,43 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push(format!("  • Escrituras rechazadas:    {}", status.total_rejected));
                 if !status.rejected_paths.is_empty() {
                     lines.push(format!("  • Ficheros protegidos contra corrupción: {}", status.rejected_paths.join(", ")));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::EbpfStatus { .. } => {
+                let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
+                let mut lines = Vec::new();
+                let lsm_badge = if status.lsm_enabled { "Kernel LSM (Hardware/BPF Activo)" } else { "Emulación Espacio de Usuario (Ring Buffer Activo)" };
+                lines.push(format!("antOS eBPF LSM Sentinel: {}", lsm_badge));
+                lines.push(format!("  • Sondas activas ({}): {}", status.active_probes.len(), status.active_probes.join(", ")));
+                lines.push(format!("  • Eventos capturados en ring buffer: {} / {}", status.total_events_captured, status.ring_buffer_capacity));
+                lines.push(format!("  • Intentos de evasión bloqueados:   {}", status.total_violations_blocked));
+                output.push(lines.join("\n"));
+            }
+            Change::EbpfAuditLog { limit, pid, .. } => {
+                let engine = crate::ebpf::EbpfSentinelEngine::global();
+                let events = match pid {
+                    Some(p) => engine.trace_pid(*p),
+                    None => engine.get_audit_log(*limit),
+                };
+                let mut lines = Vec::new();
+                lines.push(format!("registro de auditoría eBPF ({} eventos):", events.len()));
+                if events.is_empty() {
+                    lines.push("  (sin eventos de seguridad registrados)".into());
+                } else {
+                    for ev in events {
+                        let action_mark = match ev.action_taken {
+                            antos_protocolo::EbpfSecurityAction::Allowed => "✓ PERMITIDO",
+                            antos_protocolo::EbpfSecurityAction::Blocked => "⛔ BLOQUEADO",
+                            antos_protocolo::EbpfSecurityAction::Audited => "👁 AUDITADO",
+                        };
+                        lines.push(format!("  {} [{}] PID {}:{} ➔ {} ({:?})",
+                            action_mark, ev.id, ev.pid, ev.comm, ev.target_resource, ev.hook
+                        ));
+                        if let Some(ref r) = ev.violation_reason {
+                            lines.push(format!("      └─ Motivo: {r}"));
+                        }
+                    }
                 }
                 output.push(lines.join("\n"));
             }

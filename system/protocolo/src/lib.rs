@@ -266,6 +266,48 @@ pub struct VfsGuardStatus {
     pub rejected_paths: Vec<String>,
 }
 
+// --------------------------------------------------- supervisor kernel ebpf (T11.1)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EbpfHookKind {
+    BprmCheckSecurity,
+    FileOpen,
+    SocketConnect,
+    SyscallTrace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EbpfSecurityAction {
+    Allowed,
+    Blocked,
+    Audited,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EbpfSecurityEvent {
+    pub id: String,
+    pub timestamp_ms: u64,
+    pub pid: u32,
+    pub comm: String,
+    pub hook: EbpfHookKind,
+    pub target_resource: String,
+    pub action_taken: EbpfSecurityAction,
+    pub violation_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EbpfStatus {
+    pub available: bool,
+    pub lsm_enabled: bool,
+    pub active_probes: Vec<String>,
+    pub total_events_captured: usize,
+    pub total_violations_blocked: usize,
+    pub ring_buffer_capacity: usize,
+    pub ring_buffer_utilization: usize,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -697,6 +739,21 @@ pub enum Peticion {
     ConsultarGuardVfs {
         workspace_path: String,
     },
+    /// Consulta el estado y compatibilidad de las sondas kernel eBPF LSM (T11.1)
+    ConsultarEbpfStatus {
+        workspace_path: String,
+    },
+    /// Consulta el registro de auditoría de syscalls y eventos de seguridad eBPF (T11.1)
+    ConsultarEbpfAuditLog {
+        workspace_path: String,
+        limit: usize,
+    },
+    /// Simula un intento de evasión de sandbox para verificar la detección (T11.1)
+    SimularViolacionEbpf {
+        workspace_path: String,
+        hook: EbpfHookKind,
+        target_resource: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -778,6 +835,16 @@ pub enum Evento {
     ResultadoValidacionVfs(ValidationResult),
     /// Estado del interceptor de escrituras semánticas (T10.2)
     EstadoGuardVfs(VfsGuardStatus),
+    /// Estado de las sondas kernel eBPF LSM (T11.1)
+    EstadoEbpf(EbpfStatus),
+    /// Eventos de seguridad y trazas del ring buffer eBPF (T11.1)
+    AuditLogEbpf(Vec<EbpfSecurityEvent>),
+    /// Resultado de una acción o simulación eBPF (T11.1)
+    ResultadoEbpf {
+        action: String,
+        success: bool,
+        message: String,
+    },
     Error(String),
 }
 
@@ -1170,6 +1237,46 @@ mod tests {
         let ev2 = Evento::EstadoGuardVfs(guard_status);
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize guard status");
         let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize guard status");
+        assert_eq!(ev2, des_ev2);
+    }
+
+    #[test]
+    fn test_serializacion_ebpf() {
+        let status = EbpfStatus {
+            available: true,
+            lsm_enabled: true,
+            active_probes: vec!["bprm_check_security".into(), "file_open".into(), "socket_connect".into()],
+            total_events_captured: 120,
+            total_violations_blocked: 3,
+            ring_buffer_capacity: 1024,
+            ring_buffer_utilization: 45,
+        };
+        let event = EbpfSecurityEvent {
+            id: "evt-001".into(),
+            timestamp_ms: 1725280000000,
+            pid: 12345,
+            comm: "python3".into(),
+            hook: EbpfHookKind::SocketConnect,
+            target_resource: "192.168.1.100:4444".into(),
+            action_taken: EbpfSecurityAction::Blocked,
+            violation_reason: Some("Out-of-blast-radius network egress attempt blocked by eBPF LSM".into()),
+        };
+
+        let req = Peticion::ConsultarEbpfStatus {
+            workspace_path: "/workspace".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize ebpf req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize ebpf req");
+        assert_eq!(req, des_req);
+
+        let ev1 = Evento::EstadoEbpf(status);
+        let json_ev1 = serde_json::to_string(&ev1).expect("serialize ebpf status");
+        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize ebpf status");
+        assert_eq!(ev1, des_ev1);
+
+        let ev2 = Evento::AuditLogEbpf(vec![event]);
+        let json_ev2 = serde_json::to_string(&ev2).expect("serialize ebpf log");
+        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize ebpf log");
         assert_eq!(ev2, des_ev2);
     }
 }

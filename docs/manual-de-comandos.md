@@ -571,6 +571,32 @@ antos vfs guard
 
 ---
 
+### 4.18 Supervisor Kernel eBPF LSM (`antos ebpf`)
+
+Monitorización y centinela de seguridad a nivel de kernel para detección inmediata de evasiones de sandbox y llamadas al sistema anómalas:
+
+```bash
+# Diagnóstico de compatibilidad de eBPF LSM en el kernel y sondas activas
+antos ebpf status
+
+# Visualizar la traza de llamadas al sistema en tiempo real
+antos ebpf trace
+
+# Filtrar eventos y traza de syscalls para un PID específico
+antos ebpf trace 12345
+
+# Inspeccionar el registro de auditoría de seguridad del ring buffer (por defecto 20 eventos)
+antos ebpf audit
+antos ebpf audit 50
+
+# Simular un intento de evasión de sandbox para comprobar la intercepción y alertas
+antos ebpf simulate file /etc/shadow
+antos ebpf simulate socket 192.168.1.100:4444
+antos ebpf simulate bprm /bin/nc
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

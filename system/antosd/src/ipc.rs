@@ -426,6 +426,22 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let status = crate::vfs_guard::VfsGuardEngine::global().status()?;
             enviar(&mut escritura, &Evento::EstadoGuardVfs(status))?;
         }
+        Peticion::ConsultarEbpfStatus { .. } => {
+            let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
+            enviar(&mut escritura, &Evento::EstadoEbpf(status))?;
+        }
+        Peticion::ConsultarEbpfAuditLog { limit, .. } => {
+            let events = crate::ebpf::EbpfSentinelEngine::global().get_audit_log(limit);
+            enviar(&mut escritura, &Evento::AuditLogEbpf(events))?;
+        }
+        Peticion::SimularViolacionEbpf { hook, target_resource, .. } => {
+            let event = crate::ebpf::EbpfSentinelEngine::global().simulate_violation(hook, &target_resource);
+            enviar(&mut escritura, &Evento::ResultadoEbpf {
+                action: format!("{:?}", hook),
+                success: true,
+                message: format!("evento {} generado con éxito (acción: {:?})", event.id, event.action_taken),
+            })?;
+        }
     }
     Ok(())
 }
@@ -562,6 +578,22 @@ pub fn intencion_remota(
             }
             Evento::EstadoGuardVfs(status) => {
                 pantalla.nota(&format!("VFS Guard: {} escrituras interceptadas ({} rechazadas)", status.total_intercepted, status.total_rejected))?;
+            }
+            Evento::EstadoEbpf(status) => {
+                let lsm_badge = if status.lsm_enabled { "Kernel LSM Activo" } else { "Emulación Espacio Usuario" };
+                pantalla.nota(&format!("eBPF Sentinel [{lsm_badge}]: {} sondas, {} eventos, {} bloqueos",
+                    status.active_probes.len(), status.total_events_captured, status.total_violations_blocked
+                ))?;
+            }
+            Evento::AuditLogEbpf(events) => {
+                pantalla.nota(&format!("eBPF Audit: {} eventos capturados en el ring buffer", events.len()))?;
+            }
+            Evento::ResultadoEbpf { action, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ eBPF {action}: {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ eBPF {action}: {message}"))?;
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

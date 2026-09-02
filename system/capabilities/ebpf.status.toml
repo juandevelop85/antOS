@@ -1,0 +1,11 @@
+name = "ebpf.status"
+summary = "Diagnóstico de compatibilidad y sondas eBPF LSM activas en el kernel"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

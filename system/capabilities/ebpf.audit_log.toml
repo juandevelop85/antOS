@@ -1,0 +1,13 @@
+name = "ebpf.audit_log"
+summary = "Lectura del registro en vivo de syscalls y eventos de seguridad interceptados por eBPF"
+
+[params]
+limit = { type = "text", optional = true }
+pid = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

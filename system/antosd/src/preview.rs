@@ -230,6 +230,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::VfsGuardStatus { .. } => {
                 out.push(Line::Info("consulta métricas del interceptor sintáctico VFS Guard".into()));
             }
+            Change::EbpfStatus { .. } => {
+                out.push(Line::Info("diagnostica el estado de las sondas y compatibilidad de eBPF LSM en el kernel".into()));
+            }
+            Change::EbpfAuditLog { limit, pid, .. } => {
+                let p_str = pid.map(|p| format!(" para PID {p}")).unwrap_or_default();
+                out.push(Line::Info(format!("inspecciona el registro de auditoría de syscalls de eBPF (hasta {limit} eventos{p_str})")));
+            }
         }
         pendiente.aplicar(change);
     }
