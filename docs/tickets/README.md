@@ -41,4 +41,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 13** | [T13.2](T13.2-pipeline-de-arranque-bare-metal-compilacion-cruzada-de-kernel-y-disco-bios-uefi-en-qemu.md) | Pipeline de Arranque Bare Metal, Compilación Cruzada de Kernel y Disco BIOS/UEFI en QEMU | ✅ Completado |
 | **Fase 14** | [T14.1](T14.1-motor-de-capacidades-y-plugins-en-webassembly-wasi-con-aislamiento-de-memoria.md) | Motor de Capacidades y Plugins en WebAssembly (WASI) con Aislamiento de Memoria | ✅ Completado |
 | **Fase 14** | [T14.2](T14.2-agente-multimodal-con-captura-de-pantalla-wayland-para-inspeccion-y-qa-visual.md) | Agente Multimodal con Captura de Pantalla Wayland para Inspección y QA Visual | ✅ Completado |
-| **Fase 14** | [T14.3](T14.3-generador-de-live-iso-autonoma-empaquetado-release-y-distribucion-v0.1.0.md) | Generador de Live ISO Autónoma, Empaquetado Release y Distribución v0.1.0 | ⏳ Pendiente |
+| **Fase 14** | [T14.3](T14.3-generador-de-live-iso-autonoma-empaquetado-release-y-distribucion-v0.1.0.md) | Generador de Live ISO Autónoma, Empaquetado Release y Distribución v0.1.0 | ✅ Completado |

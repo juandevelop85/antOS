@@ -762,6 +762,21 @@ antos qa visual desktop
 
 ---
 
+### 4.27 Live ISO y Empaquetado Release (`antos boot iso` / `antos release`)
+
+Construcción automatizada de la imagen Live ISO autoarrancable (con soporte híbrido BIOS/MBR y NixOS) y pipeline oficial de empaquetado de distribución con sumas SHA256 para el lanzamiento v0.1.0:
+
+```bash
+# Generar la imagen Live ISO híbrida autoarrancable (antos-live-x86_64.iso)
+antos boot iso
+
+# Ejecutar el pipeline de empaquetado release completo (tarball + Live ISO + SHA256SUMS)
+antos release
+antos boot release
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

@@ -187,6 +187,55 @@ impl BootEngine {
             bail!("No se detectó el banner de arranque del kernel en la salida serial de QEMU");
         }
     }
+
+    /// Genera la imagen Live ISO autoarrancable de antOS (T14.3).
+    pub fn build_iso(&self, workspace: &Path) -> Result<PathBuf> {
+        let root = Self::find_repo_root(workspace);
+        let iso_script = root.join("system/iso/build-iso.sh");
+        if !iso_script.exists() {
+            bail!("No se encontró el script de construcción de ISO en {}", iso_script.display());
+        }
+
+        let status = Command::new("bash")
+            .arg(&iso_script)
+            .current_dir(&root)
+            .status()
+            .context("Error al ejecutar system/iso/build-iso.sh")?;
+
+        if !status.success() {
+            bail!("Fallo la generación de la Live ISO");
+        }
+
+        let iso_path = root.join("target/antos-live-x86_64.iso");
+        if !iso_path.exists() {
+            bail!("La Live ISO no fue encontrada en {}", iso_path.display());
+        }
+
+        Ok(iso_path)
+    }
+
+    /// Ejecuta el pipeline de empaquetado release y distribución (T14.3).
+    pub fn build_release(&self, workspace: &Path) -> Result<String> {
+        let root = Self::find_repo_root(workspace);
+        let rel_script = root.join("system/build-release.sh");
+        if !rel_script.exists() {
+            bail!("No se encontró el script de empaquetado en {}", rel_script.display());
+        }
+
+        let out = Command::new("bash")
+            .arg(&rel_script)
+            .current_dir(&root)
+            .output()
+            .context("Error al ejecutar system/build-release.sh")?;
+
+        if !out.status.success() {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            bail!("Fallo el empaquetado release: {}", stderr);
+        }
+
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        Ok(stdout.trim().to_string())
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +257,15 @@ mod tests {
         let img = BootEngine::bios_image_path(&cwd);
         assert!(elf.ends_with("kernel"));
         assert!(img.ends_with("antos-bios.img"));
+    }
+
+    #[test]
+    fn test_boot_engine_iso_and_release_scripts_exist() {
+        let cwd = std::env::current_dir().unwrap();
+        let root = BootEngine::find_repo_root(&cwd);
+        assert!(root.join("system/iso/build-iso.sh").exists());
+        assert!(root.join("system/iso/live-image.nix").exists());
+        assert!(root.join("system/build-release.sh").exists());
+        assert!(root.join("CHANGELOG.md").exists());
     }
 }

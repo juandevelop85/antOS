@@ -136,6 +136,7 @@ fn run() -> Result<()> {
         "plugin" | "plugins" | "wasm" => cmd_plugin(&ctx, &rest[1..]),
         "screenshot" | "captura" => cmd_screenshot(&ctx, &rest[1..]),
         "qa" => cmd_qa(&ctx, &rest[1..]),
+        "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1964,6 +1965,16 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
+        "iso" => {
+            println!("\n{} Construyendo imagen Live ISO autoarrancable...", paint("antOS Boot ·", BOLD));
+            let iso = engine.build_iso(&ctx.workspace)?;
+            println!("  {} {}\n", paint("✓ Live ISO generada:", GREEN), iso.display());
+        }
+        "release" | "dist" => {
+            println!("\n{} Ejecutando pipeline oficial de empaquetado release...", paint("antOS Release ·", BOLD));
+            let res = engine.build_release(&ctx.workspace)?;
+            println!("{}\n", res);
+        }
         "status" | _ => {
             let st = engine.status(&ctx.workspace);
             println!("\n{} Estado del Pipeline de Arranque Bare Metal:", paint("antOS Boot ·", BOLD));
@@ -1980,7 +1991,9 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("\n  Uso:");
             println!("    antos boot build      Compila el kernel no_std y crea la imagen de disco");
             println!("    antos boot test       Prueba automatizada de arranque en QEMU headless");
-            println!("    antos boot qemu       Lanza la máquina virtual interactiva en QEMU\n");
+            println!("    antos boot qemu       Lanza la máquina virtual interactiva en QEMU");
+            println!("    antos boot iso        Genera la imagen Live ISO autoarrancable");
+            println!("    antos boot release    Ejecuta el pipeline de empaquetado y checksums\n");
         }
     }
     Ok(())
