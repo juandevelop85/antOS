@@ -1,0 +1,12 @@
+name = "ui.diff_viewer"
+summary = "Muestra el visor interactivo de diffs estructurados y coloreados sintácticamente"
+
+[params]
+target = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

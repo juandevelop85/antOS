@@ -240,6 +240,24 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ConsultarDiff { workspace_path, target } => {
+            let ws = Path::new(&workspace_path);
+            let git_out = std::process::Command::new("git")
+                .current_dir(ws)
+                .args(&["diff", target.as_deref().unwrap_or("HEAD")])
+                .output();
+
+            match git_out {
+                Ok(out) if out.status.success() => {
+                    let diff_str = String::from_utf8_lossy(&out.stdout);
+                    let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_str);
+                    enviar(&mut escritura, &Evento::DiffEstructurado(files))?;
+                }
+                _ => {
+                    enviar(&mut escritura, &Evento::DiffEstructurado(Vec::new()))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -317,6 +335,9 @@ pub fn intencion_remota(
             }
             Evento::TransicionFlow { ticket_id, estado_nuevo, detalle, .. } => {
                 pantalla.nota(&format!("[antFlow {ticket_id}] ➔ {}: {detalle}", estado_nuevo.etiqueta()))?;
+            }
+            Evento::DiffEstructurado(files) => {
+                pantalla.nota(&format!("archivos con diff: {}", files.len()))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

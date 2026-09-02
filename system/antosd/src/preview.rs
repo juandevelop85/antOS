@@ -176,6 +176,14 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 )));
                 out.push(Line::Add("  + actualizar configuración en .antos/quota.toml".into()));
             }
+            Change::UiDiffViewer { target, .. } => {
+                let t_str = target.as_deref().unwrap_or("HEAD");
+                out.push(Line::Info(format!("abre el visor interactivo de diffs para «{t_str}»")));
+            }
+            Change::UiTerminal { command } => {
+                let cmd_str = command.as_deref().unwrap_or("shell");
+                out.push(Line::Info(format!("abre la consola terminal interactiva VTE: {cmd_str}")));
+            }
         }
         pendiente.aplicar(change);
     }

@@ -1,0 +1,11 @@
+name = "ui.terminal"
+summary = "Abre o ejecuta comandos en la consola terminal interactiva VTE"
+
+[params]
+command = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

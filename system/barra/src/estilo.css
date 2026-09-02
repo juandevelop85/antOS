@@ -309,3 +309,97 @@ button.dispatch-btn {
 button.dispatch-btn:hover {
   background: #2B4C74;
 }
+
+/* Interactive Syntax-Highlighted Diff Viewer (T8.1) */
+.diff-file-header {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  color: #85AEDF;
+  background: #18212B;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #2C3944;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+.diff-hunk-header {
+  font-family: monospace;
+  font-size: 11px;
+  color: #8195A7;
+  background: rgba(35, 55, 77, 0.4);
+  padding: 3px 8px;
+  border-radius: 3px;
+  margin-bottom: 2px;
+}
+
+.diff-row {
+  font-family: monospace;
+  font-size: 11px;
+  padding: 1px 4px;
+}
+
+.diff-row.add {
+  background-color: rgba(86, 188, 160, 0.12);
+  color: #56BCA0;
+}
+
+.diff-row.del {
+  background-color: rgba(224, 108, 117, 0.12);
+  color: #E06C75;
+}
+
+.diff-row.ctx {
+  color: #8195A7;
+}
+
+.diff-line-number {
+  color: #5C6E7E;
+  margin-right: 8px;
+  min-width: 35px;
+}
+
+/* Syntax Highlighting Tokens (T8.1) */
+.syn-keyword {
+  color: #C678DD;
+  font-weight: bold;
+}
+
+.syn-type {
+  color: #E5C07B;
+}
+
+.syn-string {
+  color: #98C379;
+}
+
+.syn-comment {
+  color: #5C6370;
+  font-style: italic;
+}
+
+.syn-number {
+  color: #D19A66;
+}
+
+/* Floating Terminal Console / VTE (T8.1) */
+.terminal-frame {
+  background: #0D1218;
+  border: 1px solid #2C3944;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+}
+
+.terminal-buffer {
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #DEE6EE;
+}
+
+.terminal-prompt {
+  color: #56BCA0;
+  font-weight: bold;
+}

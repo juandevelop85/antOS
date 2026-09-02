@@ -64,6 +64,64 @@ pub enum Line {
     Del(String),
 }
 
+// ----------------------------------------------------------- diff interactivo (T8.1)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+    HunkHeader,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyntaxTokenType {
+    Keyword,
+    Type,
+    StringLit,
+    Comment,
+    Number,
+    Added,
+    Deleted,
+    Normal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyntaxToken {
+    pub text: String,
+    pub token_type: SyntaxTokenType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub old_line_num: Option<usize>,
+    pub new_line_num: Option<usize>,
+    pub content: String,
+    pub tokens: Vec<SyntaxToken>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffHunk {
+    pub header: String,
+    pub old_start: usize,
+    pub old_lines: usize,
+    pub new_start: usize,
+    pub new_lines: usize,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiffFile {
+    pub old_path: String,
+    pub new_path: String,
+    pub additions: usize,
+    pub deletions: usize,
+    pub hunks: Vec<DiffHunk>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -432,6 +490,11 @@ pub enum Peticion {
         ticket_id: String,
         decision: bool,
     },
+    /// Consulta el diff estructurado y sintáctico para un ticket, archivo o commit (T8.1)
+    ConsultarDiff {
+        workspace_path: String,
+        target: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -463,6 +526,8 @@ pub enum Evento {
         rol: Option<AgentRole>,
         detalle: String,
     },
+    /// Respuesta con diffs estructurados y coloreados sintácticamente (T8.1)
+    DiffEstructurado(Vec<DiffFile>),
     Error(String),
 }
 
@@ -628,5 +693,57 @@ mod tests {
         let json_task = serde_json::to_string(&task).expect("serializar task");
         let des_task: FlowTask = serde_json::from_str(&json_task).expect("deserializar task");
         assert_eq!(task, des_task);
+    }
+
+    #[test]
+    fn test_serializacion_diff_estructurado() {
+        let diff_file = DiffFile {
+            old_path: "src/main.rs".into(),
+            new_path: "src/main.rs".into(),
+            additions: 2,
+            deletions: 1,
+            hunks: vec![DiffHunk {
+                header: "@@ -10,4 +10,5 @@".into(),
+                old_start: 10,
+                old_lines: 4,
+                new_start: 10,
+                new_lines: 5,
+                lines: vec![
+                    DiffLine {
+                        kind: DiffLineKind::Context,
+                        old_line_num: Some(10),
+                        new_line_num: Some(10),
+                        content: "fn main() {".into(),
+                        tokens: vec![
+                            SyntaxToken { text: "fn".into(), token_type: SyntaxTokenType::Keyword },
+                            SyntaxToken { text: " main() {".into(), token_type: SyntaxTokenType::Normal },
+                        ],
+                    },
+                    DiffLine {
+                        kind: DiffLineKind::Addition,
+                        old_line_num: None,
+                        new_line_num: Some(11),
+                        content: "    println!(\"antOS\");".into(),
+                        tokens: vec![
+                            SyntaxToken { text: "    println!".into(), token_type: SyntaxTokenType::Keyword },
+                            SyntaxToken { text: "(\"antOS\");".into(), token_type: SyntaxTokenType::StringLit },
+                        ],
+                    },
+                ],
+            }],
+        };
+
+        let req = Peticion::ConsultarDiff {
+            workspace_path: "/ws".into(),
+            target: Some("T8.1".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let event = Evento::DiffEstructurado(vec![diff_file.clone()]);
+        let json_ev = serde_json::to_string(&event).expect("serialize event");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event");
+        assert_eq!(event, des_ev);
     }
 }

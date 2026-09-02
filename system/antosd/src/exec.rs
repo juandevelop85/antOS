@@ -136,6 +136,13 @@ pub enum Change {
         workspace: PathBuf,
         quota: crate::sandbox::quota::ResourceQuota,
     },
+    UiDiffViewer {
+        workspace: PathBuf,
+        target: Option<String>,
+    },
+    UiTerminal {
+        command: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -201,7 +208,9 @@ impl Pendiente {
             | Change::EnvProfileSync { .. }
             | Change::EnvProfileStatus { .. }
             | Change::QuotaStatus { .. }
-            | Change::QuotaSet { .. } => {}
+            | Change::QuotaSet { .. }
+            | Change::UiDiffViewer { .. }
+            | Change::UiTerminal { .. } => {}
         }
     }
 }
@@ -541,6 +550,21 @@ pub fn changes_for(
             Ok(vec![Change::QuotaSet {
                 workspace: ctx.workspace.clone(),
                 quota: current,
+            }])
+        }
+
+        "ui.diff_viewer" => {
+            let target = a.get("target").cloned();
+            Ok(vec![Change::UiDiffViewer {
+                workspace: ctx.workspace.clone(),
+                target,
+            }])
+        }
+
+        "ui.terminal" => {
+            let command = a.get("command").cloned();
+            Ok(vec![Change::UiTerminal {
+                command,
             }])
         }
 
@@ -949,6 +973,35 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     "cuotas de sandbox actualizadas: timeout={}s, memoria={}MB, cpu={}%",
                     quota.timeout_secs, quota.max_memory_mb, quota.cpu_quota_percent
                 ));
+            }
+            Change::UiDiffViewer { workspace, target } => {
+                let git_out = std::process::Command::new("git")
+                    .current_dir(workspace)
+                    .args(&["diff", target.as_deref().unwrap_or("HEAD")])
+                    .output();
+                match git_out {
+                    Ok(o) if o.status.success() => {
+                        let diff_text = String::from_utf8_lossy(&o.stdout);
+                        let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_text);
+                        if files.is_empty() {
+                            output.push("no hay diferencias registradas en el repositorio".into());
+                        } else {
+                            output.push(crate::diff_view::DiffEngine::render_terminal(&files));
+                        }
+                    }
+                    _ => {
+                        output.push("no se pudo generar el diff git para el objetivo especificado".into());
+                    }
+                }
+            }
+            Change::UiTerminal { command } => {
+                let mut session = crate::vte::TerminalSession::new("interactive");
+                if let Some(ref cmd) = command {
+                    let _ = session.execute_command(cmd);
+                    output.push(format!("terminal: ejecutado «{cmd}» con código {:?}", session.exit_code));
+                } else {
+                    output.push(format!("terminal interactivo listo con shell {}", session.active_shell));
+                }
             }
         }
     }

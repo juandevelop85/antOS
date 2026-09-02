@@ -85,6 +85,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("cuota")
             && !lower.contains("limite")
             && !lower.contains("límite")
+            && !lower.contains("diff")
+            && !lower.contains("terminal")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -317,6 +319,22 @@ impl Planner for LocalPlanner {
             }
 
             return Ok(Propuesta::solo(vec![step("quota.status", &[])]));
+        }
+
+        // Intenciones de visor de diffs y terminal interactiva (T8.1)
+        if lower.contains("diff") || lower.contains("diferencias") || lower.contains("parche") {
+            let target = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
+                .or_else(|| words.iter().find(|w| w.starts_with("head")))
+                .cloned();
+            let mut params = Vec::new();
+            if let Some(ref t) = target {
+                params.push(("target", t.as_str()));
+            }
+            return Ok(Propuesta::solo(vec![step("ui.diff_viewer", &params)]));
+        }
+
+        if lower.contains("terminal") || lower.contains("consola") || lower.contains("vte") {
+            return Ok(Propuesta::solo(vec![step("ui.terminal", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -695,5 +713,24 @@ mod tests {
         assert_eq!(p_set.steps[0].capability, "quota.set");
         assert_eq!(p_set.steps[0].args.get("timeout").map(String::as_str), Some("60"));
         assert_eq!(p_set.steps[0].args.get("memory").map(String::as_str), Some("512"));
+    }
+
+    #[test]
+    fn test_plan_diff_viewer_y_terminal() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_diff = planner
+            .plan("muestra el diff para ticket:T8.1", &catalog)
+            .expect("plan diff");
+        assert_eq!(p_diff.steps.len(), 1);
+        assert_eq!(p_diff.steps[0].capability, "ui.diff_viewer");
+
+        let p_term = planner
+            .plan("abre la consola terminal interactiva", &catalog)
+            .expect("plan term");
+        assert_eq!(p_term.steps.len(), 1);
+        assert_eq!(p_term.steps[0].capability, "ui.terminal");
     }
 }

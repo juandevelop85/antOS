@@ -17,6 +17,8 @@ pub mod flow;
 pub mod memory;
 pub mod service;
 pub mod vault;
+pub mod diff_view;
+pub mod vte;
 mod ipc;
 mod journal;
 mod plan;
@@ -103,6 +105,8 @@ fn run() -> Result<()> {
         "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
         "env" | "profile" => cmd_env(&ctx, &rest[1..]),
         "quota" | "cuota" | "cuotas" | "limits" => cmd_quota(&ctx, &rest[1..]),
+        "diff" | "diffs" => cmd_diff(&ctx, &rest[1..]),
+        "vte" | "term" | "terminal" => cmd_terminal(&rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1035,6 +1039,61 @@ fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  Límite de procesos: {}\n", paint(&format!("{} PIDs", q.max_pids), GREEN));
             println!("  Usa antos quota set [--timeout N] [--memory N] [--cpu N] para modificar.\n");
         }
+    }
+
+    Ok(())
+}
+
+// ------------------------------------------------------------------ diff
+
+fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let target = args.first().map(String::as_str).unwrap_or("HEAD");
+    println!("\n{}", paint("antOS · Visor Interactivo de Diffs y Parches (T8.1)", BOLD));
+    println!("  Espacio de trabajo: {}", paint(&ctx.workspace.display().to_string(), DIM));
+    println!("  Objetivo:           {}\n", paint(target, BOLD));
+
+    let git_out = std::process::Command::new("git")
+        .current_dir(&ctx.workspace)
+        .args(&["diff", target])
+        .output();
+
+    match git_out {
+        Ok(out) if out.status.success() => {
+            let diff_str = String::from_utf8_lossy(&out.stdout);
+            let files = diff_view::DiffEngine::parse_unified_diff(&diff_str);
+
+            if files.is_empty() {
+                println!("  {} No hay cambios ni diferencias pendientes contra «{target}».\n", paint("✓ Repositorio limpio:", GREEN));
+            } else {
+                let rendered = diff_view::DiffEngine::render_terminal(&files);
+                print!("{rendered}");
+            }
+        }
+        _ => {
+            println!("  {} No se pudo invocar git diff en el espacio de trabajo.\n", paint("✗ Error:", RED));
+        }
+    }
+
+    Ok(())
+}
+
+// ------------------------------------------------------------------ terminal / vte
+
+fn cmd_terminal(args: &[String]) -> Result<()> {
+    let mut session = vte::TerminalSession::new("vte-cli");
+    println!("\n{}", paint("antOS · Consola Terminal VTE Embebida (T8.1)", BOLD));
+    println!("  Shell interactivo:  {}\n", paint(&session.active_shell, GREEN));
+
+    if args.is_empty() {
+        println!("  Consola terminal interactiva lista. Para ejecutar comandos usa:");
+        println!("    antos terminal \"<comando>\"\n");
+    } else {
+        let cmd = args.join(" ");
+        session.execute_command(&cmd)?;
+        for line in &session.buffer {
+            println!("{}", line.raw);
+        }
+        println!();
     }
 
     Ok(())
