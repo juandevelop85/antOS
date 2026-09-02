@@ -122,6 +122,39 @@ pub struct DiffFile {
     pub hunks: Vec<DiffHunk>,
 }
 
+// ----------------------------------------------------------- notificaciones (T8.2)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationKind {
+    TaskFinished,
+    ApprovalRequired,
+    QAFailed,
+    SecurityAlert,
+    System,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationAction {
+    Approve,
+    Reject,
+    ViewDiff,
+    Dismiss,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationItem {
+    pub id: String,
+    pub ticket_id: String,
+    pub title: String,
+    pub body: String,
+    pub kind: NotificationKind,
+    pub created_at: u64,
+    pub read: bool,
+    pub actions: Vec<NotificationAction>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -495,6 +528,16 @@ pub enum Peticion {
         workspace_path: String,
         target: Option<String>,
     },
+    /// Lista notificaciones pendientes de agentes y del sistema (T8.2)
+    ListarNotificaciones {
+        workspace_path: String,
+    },
+    /// Ejecuta una acción sobre una notificación (aprobación, rechazo, descarte) (T8.2)
+    AccionNotificacion {
+        workspace_path: String,
+        notification_id: String,
+        action: NotificationAction,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -528,6 +571,14 @@ pub enum Evento {
     },
     /// Respuesta con diffs estructurados y coloreados sintácticamente (T8.1)
     DiffEstructurado(Vec<DiffFile>),
+    /// Respuesta con la lista de notificaciones activas (T8.2)
+    ListaNotificaciones(Vec<NotificationItem>),
+    /// Respuesta al ejecutar una acción sobre una notificación (T8.2)
+    ResultadoNotificacion {
+        id: String,
+        success: bool,
+        message: String,
+    },
     Error(String),
 }
 
@@ -744,6 +795,34 @@ mod tests {
         let event = Evento::DiffEstructurado(vec![diff_file.clone()]);
         let json_ev = serde_json::to_string(&event).expect("serialize event");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event");
+        assert_eq!(event, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_notificaciones() {
+        let notif = NotificationItem {
+            id: "notif-1".into(),
+            ticket_id: "T8.2".into(),
+            title: "Revisión requerida para T8.2".into(),
+            body: "Agente QA validó todos los tests con éxito.".into(),
+            kind: NotificationKind::ApprovalRequired,
+            created_at: 1700000000,
+            read: false,
+            actions: vec![NotificationAction::Approve, NotificationAction::Reject, NotificationAction::ViewDiff],
+        };
+
+        let req = Peticion::AccionNotificacion {
+            workspace_path: "/ws".into(),
+            notification_id: "notif-1".into(),
+            action: NotificationAction::Approve,
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req notif");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize req notif");
+        assert_eq!(req, des_req);
+
+        let event = Evento::ListaNotificaciones(vec![notif.clone()]);
+        let json_ev = serde_json::to_string(&event).expect("serialize event notif");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event notif");
         assert_eq!(event, des_ev);
     }
 }

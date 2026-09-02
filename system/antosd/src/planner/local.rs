@@ -87,6 +87,9 @@ impl Planner for LocalPlanner {
             && !lower.contains("límite")
             && !lower.contains("diff")
             && !lower.contains("terminal")
+            && !lower.contains("notifica")
+            && !lower.contains("alerta")
+            && !lower.contains("bandeja")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -335,6 +338,19 @@ impl Planner for LocalPlanner {
 
         if lower.contains("terminal") || lower.contains("consola") || lower.contains("vte") {
             return Ok(Propuesta::solo(vec![step("ui.terminal", &[])]));
+        }
+
+        // Intenciones de bandeja de notificaciones y aprobaciones asíncronas (T8.2)
+        if lower.contains("notifica") || lower.contains("alerta") || lower.contains("bandeja") {
+            if lower.contains("aprueba") || lower.contains("approve") {
+                let id = words.iter().find(|w| w.starts_with("notif-")).cloned().unwrap_or_else(|| "notif-1".into());
+                return Ok(Propuesta::solo(vec![step("notify.action", &[("id", &id), ("action", "approve")])]));
+            }
+            if lower.contains("rechaza") || lower.contains("reject") || lower.contains("rollback") {
+                let id = words.iter().find(|w| w.starts_with("notif-")).cloned().unwrap_or_else(|| "notif-1".into());
+                return Ok(Propuesta::solo(vec![step("notify.action", &[("id", &id), ("action", "reject")])]));
+            }
+            return Ok(Propuesta::solo(vec![step("notify.list", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -732,5 +748,25 @@ mod tests {
             .expect("plan term");
         assert_eq!(p_term.steps.len(), 1);
         assert_eq!(p_term.steps[0].capability, "ui.terminal");
+    }
+
+    #[test]
+    fn test_plan_notificaciones_y_aprobaciones() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_list = planner
+            .plan("muestra la bandeja de notificaciones", &catalog)
+            .expect("plan list notif");
+        assert_eq!(p_list.steps.len(), 1);
+        assert_eq!(p_list.steps[0].capability, "notify.list");
+
+        let p_approve = planner
+            .plan("aprueba la notificación notif-t82", &catalog)
+            .expect("plan approve notif");
+        assert_eq!(p_approve.steps.len(), 1);
+        assert_eq!(p_approve.steps[0].capability, "notify.action");
+        assert_eq!(p_approve.steps[0].args.get("action").map(String::as_str), Some("approve"));
     }
 }

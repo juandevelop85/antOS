@@ -403,3 +403,76 @@ button.dispatch-btn:hover {
   color: #56BCA0;
   font-weight: bold;
 }
+
+/* Asynchronous Notification Tray & Agent Approvals (T8.2) */
+.notif-badge {
+  font-family: monospace;
+  font-size: 11px;
+  color: #DBA451;
+  background: rgba(219, 164, 81, 0.15);
+  border: 1px solid #DBA451;
+  border-radius: 12px;
+  padding: 2px 8px;
+}
+
+.notif-card {
+  background: #18212B;
+  border: 1px solid #2C3944;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  transition: border-color 150ms ease-in-out;
+}
+
+.notif-card:hover {
+  border-color: #85AEDF;
+}
+
+.notif-card.unread {
+  border-left: 3px solid #DBA451;
+}
+
+.notif-title {
+  font-size: 13px;
+  font-weight: bold;
+  color: #DEE6EE;
+  margin-bottom: 2px;
+}
+
+.notif-body {
+  font-size: 12px;
+  color: #8195A7;
+  margin-bottom: 6px;
+}
+
+.notif-actions {
+  margin-top: 4px;
+}
+
+button.notif-btn-approve {
+  background: #1B4D3E;
+  color: #56BCA0;
+  border: 1px solid #277960;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+button.notif-btn-approve:hover {
+  background: #277960;
+  color: #FFFFFF;
+}
+
+button.notif-btn-reject {
+  background: #4D1B1B;
+  color: #E06C75;
+  border: 1px solid #792727;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 3px 10px;
+}
+
+button.notif-btn-reject:hover {
+  background: #792727;
+  color: #FFFFFF;
+}

@@ -258,6 +258,30 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ListarNotificaciones { workspace_path } => {
+            let ws = Path::new(&workspace_path);
+            let notifs = crate::notification::NotificationEngine::global().list(ws).unwrap_or_default();
+            enviar(&mut escritura, &Evento::ListaNotificaciones(notifs))?;
+        }
+        Peticion::AccionNotificacion { workspace_path, notification_id, action } => {
+            let ws = Path::new(&workspace_path);
+            match crate::notification::NotificationEngine::global().handle_action(ws, &notification_id, action) {
+                Ok((success, message)) => {
+                    enviar(&mut escritura, &Evento::ResultadoNotificacion {
+                        id: notification_id,
+                        success,
+                        message,
+                    })?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::ResultadoNotificacion {
+                        id: notification_id,
+                        success: false,
+                        message: format!("{e:#}"),
+                    })?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -338,6 +362,16 @@ pub fn intencion_remota(
             }
             Evento::DiffEstructurado(files) => {
                 pantalla.nota(&format!("archivos con diff: {}", files.len()))?;
+            }
+            Evento::ListaNotificaciones(notifs) => {
+                pantalla.nota(&format!("notificaciones recibidas: {}", notifs.len()))?;
+            }
+            Evento::ResultadoNotificacion { message, success, .. } => {
+                if success {
+                    pantalla.nota(&format!("✓ {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ {message}"))?;
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

@@ -143,6 +143,14 @@ pub enum Change {
     UiTerminal {
         command: Option<String>,
     },
+    NotifyList {
+        workspace: PathBuf,
+    },
+    NotifyAction {
+        workspace: PathBuf,
+        notification_id: String,
+        action: antos_protocolo::NotificationAction,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -210,7 +218,9 @@ impl Pendiente {
             | Change::QuotaStatus { .. }
             | Change::QuotaSet { .. }
             | Change::UiDiffViewer { .. }
-            | Change::UiTerminal { .. } => {}
+            | Change::UiTerminal { .. }
+            | Change::NotifyList { .. }
+            | Change::NotifyAction { .. } => {}
         }
     }
 }
@@ -565,6 +575,28 @@ pub fn changes_for(
             let command = a.get("command").cloned();
             Ok(vec![Change::UiTerminal {
                 command,
+            }])
+        }
+
+        "notify.list" => {
+            Ok(vec![Change::NotifyList {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "notify.action" => {
+            let id = a.get("id").cloned().unwrap_or_default();
+            let action_str = a.get("action").map(String::as_str).unwrap_or("dismiss");
+            let action = match action_str {
+                "approve" | "aprobar" => antos_protocolo::NotificationAction::Approve,
+                "reject" | "rechazar" | "rollback" => antos_protocolo::NotificationAction::Reject,
+                "diff" | "view_diff" => antos_protocolo::NotificationAction::ViewDiff,
+                _ => antos_protocolo::NotificationAction::Dismiss,
+            };
+            Ok(vec![Change::NotifyAction {
+                workspace: ctx.workspace.clone(),
+                notification_id: id,
+                action,
             }])
         }
 
@@ -1001,6 +1033,29 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     output.push(format!("terminal: ejecutado «{cmd}» con código {:?}", session.exit_code));
                 } else {
                     output.push(format!("terminal interactivo listo con shell {}", session.active_shell));
+                }
+            }
+            Change::NotifyList { workspace } => {
+                let notifs = crate::notification::NotificationEngine::global().list(workspace)?;
+                if notifs.is_empty() {
+                    output.push("no hay notificaciones ni aprobaciones pendientes".into());
+                } else {
+                    let mut lines = Vec::new();
+                    lines.push(format!("notificaciones pendientes ({}):", notifs.len()));
+                    for n in notifs {
+                        let read_mark = if n.read { " " } else { "●" };
+                        lines.push(format!("  {} [{}] {} — {}", read_mark, n.id, n.title, n.body));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::NotifyAction { workspace, notification_id, action } => {
+                let (ok, msg) = crate::notification::NotificationEngine::global()
+                    .handle_action(workspace, notification_id, *action)?;
+                if ok {
+                    output.push(msg);
+                } else {
+                    output.push(format!("falló la acción sobre la notificación: {msg}"));
                 }
             }
         }

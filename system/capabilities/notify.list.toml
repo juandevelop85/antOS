@@ -1,0 +1,11 @@
+name = "notify.list"
+summary = "Lista las notificaciones y aprobaciones pendientes del sistema y los agentes"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE/.antos"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -184,6 +184,18 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let cmd_str = command.as_deref().unwrap_or("shell");
                 out.push(Line::Info(format!("abre la consola terminal interactiva VTE: {cmd_str}")));
             }
+            Change::NotifyList { .. } => {
+                out.push(Line::Info("consulta la bandeja de notificaciones y aprobaciones de agentes".into()));
+            }
+            Change::NotifyAction { notification_id, action, .. } => {
+                let act_str = match action {
+                    antos_protocolo::NotificationAction::Approve => "aprobar y fusionar",
+                    antos_protocolo::NotificationAction::Reject => "rechazar y rollback",
+                    antos_protocolo::NotificationAction::Dismiss => "descartar",
+                    antos_protocolo::NotificationAction::ViewDiff => "inspeccionar diff",
+                };
+                out.push(Line::Info(format!("ejecuta «{act_str}» sobre la notificación «{notification_id}»")));
+            }
         }
         pendiente.aplicar(change);
     }

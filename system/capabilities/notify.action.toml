@@ -1,0 +1,13 @@
+name = "notify.action"
+summary = "Ejecuta una acción asíncrona sobre una notificación (aprobar, rechazar, descartar)"
+
+[params]
+id = { type = "text" }
+action = { type = "text" }
+
+[effects]
+writes = ["$WORKSPACE/.antos"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"
