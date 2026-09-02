@@ -249,6 +249,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::LspStatus { .. } => {
                 out.push(Line::Info("diagnostica el estado del servidor LSP y símbolos indexados".into()));
             }
+            Change::CollabSession { file, ticket, .. } => {
+                let t_str = ticket.as_ref().map(|t| format!(" para el ticket {t}")).unwrap_or_default();
+                out.push(Line::Info(format!("inicia sesión interactiva de pair programming con el agente Coder en «{file}»{t_str}")));
+            }
+            Change::DapAttach { command, .. } => {
+                out.push(Line::Info(format!("conecta una sesión de depuración supervisada DAP al comando «{command}»")));
+            }
         }
         pendiente.aplicar(change);
     }

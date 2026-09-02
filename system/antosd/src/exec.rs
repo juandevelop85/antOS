@@ -212,6 +212,15 @@ pub enum Change {
     LspStatus {
         workspace: PathBuf,
     },
+    CollabSession {
+        workspace: PathBuf,
+        file: String,
+        ticket: Option<String>,
+    },
+    DapAttach {
+        workspace: PathBuf,
+        command: String,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -297,7 +306,9 @@ impl Pendiente {
             | Change::ProfileRun { .. }
             | Change::ProfileAnalyze { .. }
             | Change::LspStart { .. }
-            | Change::LspStatus { .. } => {}
+            | Change::LspStatus { .. }
+            | Change::CollabSession { .. }
+            | Change::DapAttach { .. } => {}
         }
     }
 }
@@ -810,6 +821,24 @@ pub fn changes_for(
         "lsp.status" => {
             Ok(vec![Change::LspStatus {
                 workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "collab.session" => {
+            let file = a.get("file").cloned().unwrap_or_else(|| "src/main.rs".into());
+            let ticket = a.get("ticket").cloned();
+            Ok(vec![Change::CollabSession {
+                workspace: ctx.workspace.clone(),
+                file,
+                ticket,
+            }])
+        }
+
+        "dap.attach" => {
+            let command = a.get("command").cloned().unwrap_or_else(|| "cargo test".into());
+            Ok(vec![Change::DapAttach {
+                workspace: ctx.workspace.clone(),
+                command,
             }])
         }
 
@@ -1484,6 +1513,28 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push(format!("  • Espacio de trabajo:    {}", status.active_workspace));
                 lines.push(format!("  • Símbolos indexados:    {}", status.indexed_symbols_count));
                 lines.push(format!("  • Capacidades activas:   {}", status.capabilities.join(", ")));
+                output.push(lines.join("\n"));
+            }
+            Change::CollabSession { workspace, file, ticket } => {
+                let status = crate::collab::CollabEngine::global().start_session(workspace, file, ticket.clone())?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Pair Programming · Sesión iniciada: {}", status.session_id));
+                lines.push(format!("  • Archivo compartido:   {}", status.file_path));
+                lines.push(format!("  • Colaboradores:        {}", status.collaborators.join(", ")));
+                lines.push(format!("  • Longitud del buffer:  {} caracteres", status.buffer_length));
+                if let Some(t) = status.active_ticket_id {
+                    lines.push(format!("  • Ticket vinculado:     {t}"));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::DapAttach { workspace: _, command } => {
+                let mut dap = crate::collab::DapServer::new("dap-exec".into(), command.clone());
+                let bp = dap.add_breakpoint("src/main.rs", 1);
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Isolated DAP Debugger · Sesión adjunta a: «{command}»"));
+                lines.push(format!("  • Estado:                {}", dap.state));
+                lines.push(format!("  • Punto de interrupción: {}:{} (verificado: {})", bp.file_path, bp.line, bp.verified));
+                lines.push(format!("  • Pila de llamadas:      {}", dap.call_stack.join(" -> ")));
                 output.push(lines.join("\n"));
             }
         }

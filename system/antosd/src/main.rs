@@ -27,6 +27,7 @@ pub mod vfs_guard;
 pub mod ebpf;
 pub mod profiler;
 pub mod lsp;
+pub mod collab;
 mod ipc;
 mod journal;
 mod plan;
@@ -122,6 +123,8 @@ fn run() -> Result<()> {
         "ebpf" | "bpf" => cmd_ebpf(&ctx, &rest[1..]),
         "profile" | "perf" | "profiler" => cmd_profile(&ctx, &rest[1..]),
         "lsp" => cmd_lsp(&ctx, &rest[1..]),
+        "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
+        "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1743,6 +1746,79 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos lsp config <editor>    Genera configuración para vscode, neovim, helix, emacs\n");
         }
     }
+    Ok(())
+}
+
+// --------------------------------------------------------------------- pair
+
+fn cmd_pair(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let engine = collab::CollabEngine::global();
+    let first = args.first().map(String::as_str);
+
+    let (ticket_id, file_path) = match first {
+        Some(arg) if arg.starts_with('T') && arg.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) => {
+            let file = args.get(1).map(String::as_str).unwrap_or("src/main.rs");
+            (Some(arg.to_string()), file.to_string())
+        }
+        Some(file) => (None, file.to_string()),
+        None => (None, "src/main.rs".to_string()),
+    };
+
+    println!("\n{} Iniciando sesión interactiva de Pair Programming con Coder...", paint("antOS Pair ·", BOLD));
+    let status = engine.start_session(&ctx.workspace, &file_path, ticket_id)?;
+
+    println!("\n{}", paint("Sesión de Co-Edición Activa:", BOLD));
+    println!("  ID de Sesión:          {}", paint(&status.session_id, CYAN));
+    println!("  Archivo compartido:    {}", paint(&status.file_path, YELLOW));
+    println!("  Colaboradores:         {}", paint(&status.collaborators.join(" & "), GREEN));
+    if let Some(ref t) = status.active_ticket_id {
+        println!("  Ticket vinculado:      {}", paint(t, BOLD));
+    }
+    println!("  Tamaño del buffer:     {} caracteres\n", status.buffer_length);
+
+    println!("{}", paint("Cursores y Sugerencias de Código (Ghost Text):", BOLD));
+    for c in &status.cursors {
+        println!("  • [{}] Línea {}, Columna {}", paint(&c.client_id, BOLD), c.line, c.character);
+        if let Some(ref ghost) = c.ghost_text {
+            println!("      └─ Ghost text sugerido: {}", paint(ghost, DIM));
+        }
+    }
+    println!("\n  Consejo: Presiona <Tab> en tu editor o ejecuta «antos intent acepta el ghost text» para fusionar.\n");
+
+    Ok(())
+}
+
+// -------------------------------------------------------------------- debug
+
+fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
+    let command = if !args.is_empty() {
+        args.join(" ")
+    } else {
+        "cargo test".to_string()
+    };
+
+    println!("\n{} Conectando adaptador de depuración DAP para: {}", paint("antOS DAP Debugger ·", BOLD), paint(&command, YELLOW));
+    let mut dap = collab::DapServer::new("dap-cli".into(), command.clone());
+    let bp = dap.add_breakpoint("src/main.rs", 1);
+
+    println!("\n{}", paint("Sesión de Depuración Supervisada:", BOLD));
+    println!("  ID de Sesión:          {}", paint(&dap.session_id, CYAN));
+    println!("  Comando en sandbox:    {}", paint(&dap.command, BOLD));
+    println!("  Estado:                {}", paint(&dap.state, GREEN));
+    println!("  Punto de interrupción: {}:{} (verificado: {})\n", bp.file_path, bp.line, bp.verified);
+
+    println!("{}", paint("Pila de Llamadas (Call Stack):", BOLD));
+    for (i, frame) in dap.call_stack.iter().enumerate() {
+        println!("  {}. {}", i + 1, frame);
+    }
+    println!();
+
+    println!("{}", paint("Variables Locales en Alcance:", BOLD));
+    for var in &dap.variables {
+        println!("  • {:<16} ({}) = {}", paint(&var.name, YELLOW), var.type_name, paint(&var.value, CYAN));
+    }
+    println!();
+
     Ok(())
 }
 

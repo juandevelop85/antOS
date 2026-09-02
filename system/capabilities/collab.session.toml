@@ -1,0 +1,14 @@
+name = "collab.session"
+summary = "Inicia o une una sesión interactiva de pair programming con el agente Coder mediante CRDT"
+
+[params]
+file = { type = "text" }
+ticket = { type = "text" }
+
+[effects]
+reads = ["$WORKSPACE"]
+writes = ["$WORKSPACE"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

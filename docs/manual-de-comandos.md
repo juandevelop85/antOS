@@ -639,6 +639,24 @@ antos lsp config emacs
 
 ---
 
+### 4.21 Edición Colaborativa Humano-Agente (CRDT) y Depuración Aislada DAP (`antos pair` / `antos debug`)
+
+Permite programar en pareja en tiempo real con el agente `Coder` mediante cursores virtuales sincronizados y deltas de texto sin conflictos (CRDT), además de inspeccionar procesos bajo el protocolo estándar DAP en sandbox:
+
+```bash
+# Iniciar sesión interactiva de pair programming con el Coder en un archivo o ticket
+antos pair
+antos pair src/main.rs
+antos pair T12.2 Cargo.toml
+
+# Lanzar y supervisar un comando dentro del sandbox con el adaptador DAP aislado
+antos debug
+antos debug cargo test
+antos debug cargo run --bin antos
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

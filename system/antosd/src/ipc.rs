@@ -472,6 +472,27 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 target_file,
             })?;
         }
+        Peticion::IniciarCollabSession { file_path, ticket_id, workspace_path } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let status = crate::collab::CollabEngine::global().start_session(&ws, &file_path, ticket_id)?;
+            enviar(&mut escritura, &Evento::EstadoCollabSession(status))?;
+        }
+        Peticion::ConsultarCollabStatus { session_id, .. } => {
+            if let Some(status) = crate::collab::CollabEngine::global().get_session(&session_id) {
+                enviar(&mut escritura, &Evento::EstadoCollabSession(status))?;
+            } else {
+                enviar(&mut escritura, &Evento::Error(format!("sesión «{session_id}» no encontrada")))?;
+            }
+        }
+        Peticion::IniciarDapSession { command, .. } => {
+            let mut dap = crate::collab::DapServer::new("dap-sess-001".into(), command);
+            dap.add_breakpoint("src/main.rs", 1);
+            enviar(&mut escritura, &Evento::EstadoDapSession(dap.to_status()))?;
+        }
+        Peticion::ConsultarDapStatus { session_id, .. } => {
+            let dap = crate::collab::DapServer::new(session_id, "cargo test".into());
+            enviar(&mut escritura, &Evento::EstadoDapSession(dap.to_status()))?;
+        }
     }
     Ok(())
 }
@@ -641,6 +662,26 @@ pub fn intencion_remota(
             }
             Evento::ConfiguracionLsp { editor, target_file, .. } => {
                 pantalla.nota(&format!("LSP: configuración generada para {:?} ({target_file})", editor))?;
+            }
+            Evento::EstadoCollabSession(status) => {
+                pantalla.nota(&format!("Pair: sesión {} en {} (colaboradores: {})", status.session_id, status.file_path, status.collaborators.len()))?;
+            }
+            Evento::EstadoDapSession(status) => {
+                pantalla.nota(&format!("DAP: sesión {} en estado {} para «{}»", status.session_id, status.state, status.target_command))?;
+            }
+            Evento::ResultadoCollab { action, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ Pair {action}: {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ Pair {action}: {message}"))?;
+                }
+            }
+            Evento::ResultadoDap { action, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ DAP {action}: {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ DAP {action}: {message}"))?;
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

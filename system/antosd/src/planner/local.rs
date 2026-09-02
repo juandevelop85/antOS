@@ -104,6 +104,10 @@ impl Planner for LocalPlanner {
             && !lower.contains("profile")
             && !lower.contains("hotspot")
             && !lower.contains("lsp")
+            && !lower.contains("pair")
+            && !lower.contains("collab")
+            && !lower.contains("dap")
+            && !lower.contains("depura")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -470,6 +474,23 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("lsp.start", &[("mode", &mode)])]));
             }
             return Ok(Propuesta::solo(vec![step("lsp.status", &[])]));
+        }
+
+        // Intenciones de Co-Edición Colaborativa CRDT (T12.2)
+        if lower.contains("pair") || lower.contains("collab") || lower.contains("co-edici") || (lower.contains("programa") && lower.contains("pareja")) {
+            let file = words.iter().find(|w| w.ends_with(".rs") || w.ends_with(".toml") || w.ends_with(".md")).cloned().unwrap_or_else(|| "src/main.rs".into());
+            let ticket = words.iter().find(|w| w.starts_with('T') && w.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false)).cloned();
+            let mut args = vec![("file", file.as_str())];
+            if let Some(ref t) = ticket {
+                args.push(("ticket", t.as_str()));
+            }
+            return Ok(Propuesta::solo(vec![step("collab.session", &args)]));
+        }
+
+        // Intenciones de Depuración Supervisada DAP (T12.2)
+        if lower.contains("dap") || lower.contains("depura") || lower.contains("debugger") {
+            let cmd = after(&words, &["comando", "el", "con", "a"]).unwrap_or_else(|| "cargo test".into());
+            return Ok(Propuesta::solo(vec![step("dap.attach", &[("command", &cmd)])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1011,5 +1032,17 @@ mod tests {
             .expect("plan lsp status");
         assert_eq!(p_lsp_status.steps.len(), 1);
         assert_eq!(p_lsp_status.steps[0].capability, "lsp.status");
+
+        let p_collab = planner
+            .plan("inicia pair programming con coder en src/main.rs para T12.2", &catalog)
+            .expect("plan collab session");
+        assert_eq!(p_collab.steps.len(), 1);
+        assert_eq!(p_collab.steps[0].capability, "collab.session");
+
+        let p_dap = planner
+            .plan("depura con dap el comando cargo test", &catalog)
+            .expect("plan dap attach");
+        assert_eq!(p_dap.steps.len(), 1);
+        assert_eq!(p_dap.steps[0].capability, "dap.attach");
     }
 }

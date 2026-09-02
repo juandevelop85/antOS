@@ -397,6 +397,57 @@ pub struct LspServerStatus {
     pub capabilities: Vec<String>,
 }
 
+// ---------------------------------------------------- Collab & DAP (T12.2)
+
+/// Posición de un cursor virtual en una sesión de co-edición colaborativa.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollabCursor {
+    pub client_id: String,
+    pub line: usize,
+    pub character: usize,
+    pub ghost_text: Option<String>,
+}
+
+/// Estado de una sesión de co-edición en tiempo real (CRDT).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollabSessionStatus {
+    pub session_id: String,
+    pub file_path: String,
+    pub collaborators: Vec<String>,
+    pub cursors: Vec<CollabCursor>,
+    pub buffer_length: usize,
+    pub active_ticket_id: Option<String>,
+}
+
+/// Punto de interrupción en una sesión de depuración aislada DAP.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DapBreakpoint {
+    pub id: usize,
+    pub file_path: String,
+    pub line: usize,
+    pub verified: bool,
+}
+
+/// Variable inspeccionada en tiempo de depuración.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DapVariable {
+    pub name: String,
+    pub value: String,
+    pub type_name: String,
+}
+
+/// Estado de una sesión DAP de depuración aislada en sandbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DapSessionStatus {
+    pub session_id: String,
+    pub target_command: String,
+    pub state: String,
+    pub breakpoints: Vec<DapBreakpoint>,
+    pub current_line: Option<usize>,
+    pub call_stack: Vec<String>,
+    pub variables: Vec<DapVariable>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -866,6 +917,27 @@ pub enum Peticion {
         editor: LspEditorKind,
         workspace_path: String,
     },
+    /// Inicia una sesión interactiva de pair programming y co-edición con el agente Coder (T12.2)
+    IniciarCollabSession {
+        file_path: String,
+        ticket_id: Option<String>,
+        workspace_path: String,
+    },
+    /// Consulta el estado y cursores de la sesión de co-edición activa (T12.2)
+    ConsultarCollabStatus {
+        session_id: String,
+        workspace_path: String,
+    },
+    /// Inicia una sesión de depuración aislada bajo el protocolo DAP en sandbox (T12.2)
+    IniciarDapSession {
+        command: String,
+        workspace_path: String,
+    },
+    /// Consulta el estado, variables y pila de llamadas de la sesión DAP (T12.2)
+    ConsultarDapStatus {
+        session_id: String,
+        workspace_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -973,6 +1045,22 @@ pub enum Evento {
         editor: LspEditorKind,
         config_content: String,
         target_file: String,
+    },
+    /// Estado de la sesión de co-edición y programación en pareja (T12.2)
+    EstadoCollabSession(CollabSessionStatus),
+    /// Estado de la sesión de depuración supervisada DAP (T12.2)
+    EstadoDapSession(DapSessionStatus),
+    /// Resultado de una acción de colaboración o delta CRDT (T12.2)
+    ResultadoCollab {
+        action: String,
+        success: bool,
+        message: String,
+    },
+    /// Resultado de una operación DAP (breakpoint, step, eval) (T12.2)
+    ResultadoDap {
+        action: String,
+        success: bool,
+        message: String,
     },
     Error(String),
 }
@@ -1488,5 +1576,61 @@ mod tests {
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize lsp config ev");
         let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize lsp config ev");
         assert_eq!(ev2, des_ev2);
+    }
+
+    #[test]
+    fn test_serializacion_collab_y_dap() {
+        let cursor = CollabCursor {
+            client_id: "agent-coder".into(),
+            line: 42,
+            character: 10,
+            ghost_text: Some("fn optimize_pipeline() -> Result<()>".into()),
+        };
+        let collab_status = CollabSessionStatus {
+            session_id: "collab-001".into(),
+            file_path: "src/main.rs".into(),
+            collaborators: vec!["developer".into(), "agent-coder".into()],
+            cursors: vec![cursor],
+            buffer_length: 1024,
+            active_ticket_id: Some("T12.2".into()),
+        };
+
+        let req_collab = Peticion::IniciarCollabSession {
+            file_path: "src/main.rs".into(),
+            ticket_id: Some("T12.2".into()),
+            workspace_path: "/workspace".into(),
+        };
+        let json_req = serde_json::to_string(&req_collab).expect("serialize collab req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize collab req");
+        assert_eq!(req_collab, des_req);
+
+        let ev_collab = Evento::EstadoCollabSession(collab_status);
+        let json_ev = serde_json::to_string(&ev_collab).expect("serialize collab ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize collab ev");
+        assert_eq!(ev_collab, des_ev);
+
+        let dap_status = DapSessionStatus {
+            session_id: "dap-001".into(),
+            target_command: "cargo test".into(),
+            state: "paused".into(),
+            breakpoints: vec![DapBreakpoint {
+                id: 1,
+                file_path: "src/main.rs".into(),
+                line: 50,
+                verified: true,
+            }],
+            current_line: Some(50),
+            call_stack: vec!["main()".into(), "test_runner()".into()],
+            variables: vec![DapVariable {
+                name: "counter".into(),
+                value: "42".into(),
+                type_name: "usize".into(),
+            }],
+        };
+
+        let ev_dap = Evento::EstadoDapSession(dap_status);
+        let json_dap = serde_json::to_string(&ev_dap).expect("serialize dap ev");
+        let des_dap: Evento = serde_json::from_str(&json_dap).expect("deserialize dap ev");
+        assert_eq!(ev_dap, des_dap);
     }
 }

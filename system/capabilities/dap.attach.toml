@@ -1,0 +1,12 @@
+name = "dap.attach"
+summary = "Conecta una sesión de depuración supervisada DAP a un proceso dentro del sandbox"
+
+[params]
+command = { type = "text" }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"
