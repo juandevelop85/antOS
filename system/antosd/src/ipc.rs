@@ -519,6 +519,29 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 enviar(&mut escritura, &Evento::Error("Error al registrar alerta en la barra".into()))?;
             }
         }
+        Peticion::ConsultarBootStatus => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let status = crate::boot::BootEngine::global().status(&cwd);
+            enviar(&mut escritura, &Evento::EstadoBoot(status))?;
+        }
+        Peticion::EjecutarBootPipeline { action, .. } => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let engine = crate::boot::BootEngine::global();
+            match action.as_str() {
+                "test" => match engine.test_boot(&cwd) {
+                    Ok(out) => enviar(&mut escritura, &Evento::ResultadoBoot { action, output: out, success: true })?,
+                    Err(e) => enviar(&mut escritura, &Evento::ResultadoBoot { action, output: e.to_string(), success: false })?,
+                },
+                "build" => match engine.build(&cwd) {
+                    Ok(p) => enviar(&mut escritura, &Evento::ResultadoBoot { action, output: format!("Imagen de disco generada: {}", p.display()), success: true })?,
+                    Err(e) => enviar(&mut escritura, &Evento::ResultadoBoot { action, output: e.to_string(), success: false })?,
+                },
+                _ => {
+                    let st = engine.status(&cwd);
+                    enviar(&mut escritura, &Evento::EstadoBoot(st))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -726,6 +749,17 @@ pub fn intencion_remota(
             Evento::AlertaBarra(alert) => {
                 let urg = if alert.urgent { "URGENTE" } else { "INFO" };
                 pantalla.nota(&format!("Alerta en Barra [{urg} - {}]: {}", alert.category, alert.message))?;
+            }
+            Evento::EstadoBoot(st) => {
+                let kb = st.kernel_elf_size_bytes / 1024;
+                let mb = st.bios_image_size_bytes / (1024 * 1024);
+                pantalla.nota(&format!("antOS Boot: Kernel ELF: {} KiB, BIOS IMG: {} MB, QEMU: {}",
+                    kb, mb, if st.qemu_installed { "instalado" } else { "no disponible" }
+                ))?;
+            }
+            Evento::ResultadoBoot { action, output, success } => {
+                let status = if success { "OK" } else { "ERROR" };
+                pantalla.nota(&format!("antOS Boot [{action} - {status}]: {output}"))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

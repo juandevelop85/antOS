@@ -702,6 +702,27 @@ antos barra alert "Intento de violación de sandbox bloqueado por eBPF" --urgent
 
 ---
 
+### 4.24 Pipeline de Arranque Bare Metal y Emulación QEMU (`antos boot`)
+
+Automatización de la compilación cruzada para el target `x86_64-unknown-none`, generación de imágenes de disco arrancables BIOS/MBR y validación en la máquina virtual QEMU:
+
+```bash
+# Diagnosticar estado de los artefactos (kernel ELF, imagen BIOS y disponibilidad de QEMU)
+antos boot status
+antos boot
+
+# Compilar el kernel no_std y generar la imagen arrancable de disco
+antos boot build
+
+# Ejecutar prueba automatizada de arranque en QEMU headless con verificación por serial
+antos boot test
+
+# Lanzar la máquina virtual QEMU de forma interactiva
+antos boot qemu
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

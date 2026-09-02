@@ -1,0 +1,12 @@
+name = "boot.pipeline"
+summary = "Compila el kernel no_std, genera imagen de disco BIOS/UEFI o ejecuta pruebas en QEMU"
+
+[params]
+action = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/kernel/target"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

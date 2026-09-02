@@ -30,6 +30,7 @@ pub mod lsp;
 pub mod collab;
 pub mod desktop;
 pub mod barra;
+pub mod boot;
 mod ipc;
 mod journal;
 mod plan;
@@ -129,6 +130,7 @@ fn run() -> Result<()> {
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
+        "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1914,6 +1916,66 @@ fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
             println!();
+        }
+    }
+    Ok(())
+}
+
+// --------------------------------------------------------------------- boot
+
+fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    let engine = boot::BootEngine::global();
+
+    match sub {
+        "build" | "compile" => {
+            println!("\n{} Compilando kernel no_std y empaquetando imagen BIOS/UEFI...", paint("antOS Boot ·", BOLD));
+            let img = engine.build(&ctx.workspace)?;
+            println!("  {} {}\n", paint("✓ Imagen generada:", GREEN), img.display());
+        }
+        "test" | "check" => {
+            println!("\n{} Ejecutando prueba automatizada de arranque en QEMU (headless)...", paint("antOS Boot ·", BOLD));
+            let res = engine.test_boot(&ctx.workspace)?;
+            println!("{}\n", res);
+        }
+        "qemu" | "run" => {
+            println!("\n{} Iniciando QEMU...", paint("antOS Boot ·", BOLD));
+            let img = engine.build(&ctx.workspace)?;
+            let run_script = ctx.workspace.join("run.sh");
+            if run_script.exists() {
+                let status = std::process::Command::new("bash")
+                    .arg(&run_script)
+                    .status()?;
+                if !status.success() {
+                    bail!("QEMU finalizó con código {:?}", status.code());
+                }
+            } else {
+                let status = std::process::Command::new("qemu-system-x86_64")
+                    .args(["-m", "256M", "-serial", "stdio", "-drive"])
+                    .arg(format!("format=raw,file={}", img.display()))
+                    .status()?;
+                if !status.success() {
+                    bail!("QEMU finalizó con código {:?}", status.code());
+                }
+            }
+        }
+        "status" | _ => {
+            let st = engine.status(&ctx.workspace);
+            println!("\n{} Estado del Pipeline de Arranque Bare Metal:", paint("antOS Boot ·", BOLD));
+            println!("  • Arquitectura:         {}", paint(&st.target_arch, CYAN));
+            println!("  • Binario Kernel ELF:   {} ({})",
+                if st.kernel_elf_exists { paint("Presente", GREEN) } else { paint("No compilado", YELLOW) },
+                if st.kernel_elf_exists { format!("{} KiB", st.kernel_elf_size_bytes / 1024) } else { "0 B".into() }
+            );
+            println!("  • Imagen BIOS/MBR:      {} ({})",
+                if st.bios_image_exists { paint("Presente", GREEN) } else { paint("No generada", YELLOW) },
+                if st.bios_image_exists { format!("{:.1} MB", st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)) } else { "0 B".into() }
+            );
+            println!("  • Emulador QEMU:        {}", if st.qemu_installed { paint("Disponible (qemu-system-x86_64)", GREEN) } else { paint("No instalado", RED) });
+            println!("\n  Uso:");
+            println!("    antos boot build      Compila el kernel no_std y crea la imagen de disco");
+            println!("    antos boot test       Prueba automatizada de arranque en QEMU headless");
+            println!("    antos boot qemu       Lanza la máquina virtual interactiva en QEMU\n");
         }
     }
     Ok(())

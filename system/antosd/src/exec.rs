@@ -237,6 +237,10 @@ pub enum Change {
         message: String,
         urgent: bool,
     },
+    BootPipeline {
+        workspace: PathBuf,
+        action: String,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -328,7 +332,8 @@ impl Pendiente {
             | Change::DesktopSession { .. }
             | Change::DesktopKeys { .. }
             | Change::BarraStatus { .. }
-            | Change::BarraNotify { .. } => {}
+            | Change::BarraNotify { .. }
+            | Change::BootPipeline { .. } => {}
         }
     }
 }
@@ -891,6 +896,14 @@ pub fn changes_for(
                 category,
                 message,
                 urgent,
+            }])
+        }
+
+        "boot.pipeline" => {
+            let action = a.get("action").cloned().unwrap_or_else(|| "status".into());
+            Ok(vec![Change::BootPipeline {
+                workspace: ctx.workspace.clone(),
+                action,
             }])
         }
 
@@ -1637,6 +1650,40 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 crate::barra::BarraManager::global().emit_alert(alert)?;
                 let badge = if *urgent { "URGENTE" } else { "INFO" };
                 output.push(format!("✓ Alerta emitida hacia la barra de escritorio [{badge} - {category}]: {message}"));
+            }
+            Change::BootPipeline { workspace, action } => {
+                let engine = crate::boot::BootEngine::global();
+                match action.as_str() {
+                    "build" => {
+                        let img = engine.build(workspace)?;
+                        output.push(format!("✓ Kernel compilado e imagen de disco creada:\n  {}", img.display()));
+                    }
+                    "test" => {
+                        let report = engine.test_boot(workspace)?;
+                        output.push(report);
+                    }
+                    "qemu" => {
+                        let _ = engine.build(workspace)?;
+                        let report = engine.test_boot(workspace)?;
+                        output.push(report);
+                    }
+                    _ => {
+                        let st = engine.status(workspace);
+                        let mut lines = Vec::new();
+                        lines.push("antOS Boot Pipeline · Estado de Artefactos y Emulación:".into());
+                        lines.push(format!("  • Target:             {}", st.target_arch));
+                        lines.push(format!("  • Kernel ELF:         {} ({})",
+                            if st.kernel_elf_exists { "Presente" } else { "No encontrado" },
+                            if st.kernel_elf_exists { format!("{} KiB", st.kernel_elf_size_bytes / 1024) } else { "0 B".into() }
+                        ));
+                        lines.push(format!("  • Imagen BIOS:        {} ({})",
+                            if st.bios_image_exists { "Presente" } else { "No encontrada" },
+                            if st.bios_image_exists { format!("{:.1} MB", st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)) } else { "0 B".into() }
+                        ));
+                        lines.push(format!("  • Emulador QEMU:      {}", if st.qemu_installed { "Instalado (qemu-system-x86_64)" } else { "No encontrado" }));
+                        output.push(lines.join("\n"));
+                    }
+                }
             }
         }
     }

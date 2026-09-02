@@ -1,4 +1,4 @@
-// syso - kernel x86_64
+// antOS - kernel x86_64
 //
 // Fase 5: espacio de usuario. Anillo 3, llamadas al sistema con syscall/sysret
 // y un ELF cargado en tiempo de ejecución — código que NO PUEDE tocar el
@@ -55,7 +55,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::SERIAL.lock().init();
 
     println!();
-    println!("syso · kernel x86_64");
+    println!("antOS · kernel x86_64");
     println!("═══════════════════════");
 
     // El bootloader nos entrega esto y desaparece. Es todo lo que sabemos
@@ -269,7 +269,7 @@ fn heap_demo() {
     let boxed = Box::new(42u64);
     let numbers: Vec<u64> = (1..=100).collect();
     let total: u64 = numbers.iter().sum();
-    let text = String::from("Box, Vec y String ya existen dentro de syso");
+    let text = String::from("Box, Vec y String ya existen dentro de antOS");
 
     println!("  box          {boxed}");
     println!("  vec          {} elementos, suma {total}", numbers.len());

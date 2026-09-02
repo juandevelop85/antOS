@@ -491,6 +491,19 @@ pub struct BarraTelemetry {
     pub active_notifications_count: usize,
 }
 
+// ------------------------------------------------ Boot Pipeline (T13.2)
+
+/// Estado del pipeline de arranque bare metal y emulación QEMU.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BootPipelineStatus {
+    pub kernel_elf_exists: bool,
+    pub kernel_elf_size_bytes: u64,
+    pub bios_image_exists: bool,
+    pub bios_image_size_bytes: u64,
+    pub qemu_installed: bool,
+    pub target_arch: String,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -993,6 +1006,13 @@ pub enum Peticion {
     ConsultarBarraTelemetry,
     /// Emite una alerta o actualización visual hacia la barra (T13.1)
     EmitirBarraAlert(BarraAlert),
+    /// Consulta el estado del pipeline de arranque bare metal y binarios (T13.2)
+    ConsultarBootStatus,
+    /// Ejecuta una acción del pipeline de arranque (build, qemu, test) (T13.2)
+    EjecutarBootPipeline {
+        action: String,
+        headless: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1125,6 +1145,14 @@ pub enum Evento {
     EstadoBarraTelemetry(BarraTelemetry),
     /// Alerta o notificación visual emitida a la barra (T13.1)
     AlertaBarra(BarraAlert),
+    /// Estado del pipeline de arranque bare metal y binarios (T13.2)
+    EstadoBoot(BootPipelineStatus),
+    /// Resultado de la ejecución del pipeline de arranque (T13.2)
+    ResultadoBoot {
+        action: String,
+        output: String,
+        success: bool,
+    },
     Error(String),
 }
 
@@ -1768,6 +1796,36 @@ mod tests {
         let json_alert = serde_json::to_string(&req_alert).expect("serialize alert req");
         let des_alert: Peticion = serde_json::from_str(&json_alert).expect("deserialize alert req");
         assert_eq!(req_alert, des_alert);
+    }
+
+    #[test]
+    fn test_serializacion_boot_pipeline() {
+        let status = BootPipelineStatus {
+            kernel_elf_exists: true,
+            kernel_elf_size_bytes: 3314112,
+            bios_image_exists: true,
+            bios_image_size_bytes: 35651584,
+            qemu_installed: true,
+            target_arch: "x86_64-unknown-none".into(),
+        };
+
+        let req = Peticion::ConsultarBootStatus;
+        let json_req = serde_json::to_string(&req).expect("serialize boot req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize boot req");
+        assert_eq!(req, des_req);
+
+        let req_exec = Peticion::EjecutarBootPipeline {
+            action: "build".into(),
+            headless: true,
+        };
+        let json_exec = serde_json::to_string(&req_exec).expect("serialize boot exec");
+        let des_exec: Peticion = serde_json::from_str(&json_exec).expect("deserialize boot exec");
+        assert_eq!(req_exec, des_exec);
+
+        let ev = Evento::EstadoBoot(status);
+        let json_ev = serde_json::to_string(&ev).expect("serialize boot ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize boot ev");
+        assert_eq!(ev, des_ev);
     }
 }
 

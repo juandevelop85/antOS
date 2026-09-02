@@ -270,6 +270,9 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let u = if *urgent { "urgente " } else { "" };
                 out.push(Line::Info(format!("emite alerta visual {u}en la barra [{category}]: «{message}»")));
             }
+            Change::BootPipeline { action, .. } => {
+                out.push(Line::Info(format!("ejecuta el pipeline de arranque bare metal (acción: {action})")));
+            }
         }
         pendiente.aplicar(change);
     }

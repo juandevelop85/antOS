@@ -114,6 +114,9 @@ impl Planner for LocalPlanner {
             && !lower.contains("hotkey")
             && !lower.contains("teclado")
             && !lower.contains("barra")
+            && !lower.contains("boot")
+            && !lower.contains("qemu")
+            && !lower.contains("kernel")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -518,6 +521,20 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("barra.notify", &[("category", "alerta"), ("message", &msg), ("urgent", urgent)])]));
             }
             return Ok(Propuesta::solo(vec![step("barra.status", &[])]));
+        }
+
+        // Intenciones de Pipeline de Arranque Bare Metal y QEMU (T13.2)
+        if lower.contains("boot") || lower.contains("arranque") || lower.contains("qemu") || (lower.contains("kernel") && (lower.contains("compila") || lower.contains("construye") || lower.contains("prueba") || lower.contains("test"))) {
+            if lower.contains("test") || lower.contains("prueba") {
+                return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "test")])]));
+            }
+            if lower.contains("compila") || lower.contains("build") || lower.contains("construye") || lower.contains("imagen") {
+                return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "build")])]));
+            }
+            if lower.contains("qemu") || lower.contains("inicia") || lower.contains("arranca") {
+                return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "qemu")])]));
+            }
+            return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "status")])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1102,5 +1119,19 @@ mod tests {
             .expect("plan barra notify");
         assert_eq!(p_barra_notif.steps.len(), 1);
         assert_eq!(p_barra_notif.steps[0].capability, "barra.notify");
+
+        let p_boot_test = planner
+            .plan("prueba el arranque del kernel en qemu", &catalog)
+            .expect("plan boot test");
+        assert_eq!(p_boot_test.steps.len(), 1);
+        assert_eq!(p_boot_test.steps[0].capability, "boot.pipeline");
+        assert_eq!(p_boot_test.steps[0].args.get("action").map(|s| s.as_str()), Some("test"));
+
+        let p_boot_build = planner
+            .plan("compila el kernel y genera la imagen", &catalog)
+            .expect("plan boot build");
+        assert_eq!(p_boot_build.steps.len(), 1);
+        assert_eq!(p_boot_build.steps[0].capability, "boot.pipeline");
+        assert_eq!(p_boot_build.steps[0].args.get("action").map(|s| s.as_str()), Some("build"));
     }
 }
