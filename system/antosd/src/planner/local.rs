@@ -103,6 +103,7 @@ impl Planner for LocalPlanner {
             && !lower.contains("perfil")
             && !lower.contains("profile")
             && !lower.contains("hotspot")
+            && !lower.contains("lsp")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -460,6 +461,15 @@ impl Planner for LocalPlanner {
             }
             let cmd = after(&words, &["ejecuta", "run", "comando", "el", "con"]).unwrap_or_else(|| "cargo test".into());
             return Ok(Propuesta::solo(vec![step("profile.run", &[("command", &cmd)])]));
+        }
+
+        // Intenciones de Servidor LSP Unificado (T12.1)
+        if lower.contains("lsp") || lower.contains("language server") {
+            if lower.contains("inicia") || lower.contains("start") || lower.contains("arranca") || lower.contains("ejecuta") {
+                let mode = after(&words, &["sobre", "en", "modo", "mode"]).unwrap_or_else(|| "stdio".into());
+                return Ok(Propuesta::solo(vec![step("lsp.start", &[("mode", &mode)])]));
+            }
+            return Ok(Propuesta::solo(vec![step("lsp.status", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -989,5 +999,17 @@ mod tests {
             .expect("plan profile analyze");
         assert_eq!(p_prof_an.steps.len(), 1);
         assert_eq!(p_prof_an.steps[0].capability, "profile.analyze");
+
+        let p_lsp_start = planner
+            .plan("inicia el servidor lsp sobre stdio", &catalog)
+            .expect("plan lsp start");
+        assert_eq!(p_lsp_start.steps.len(), 1);
+        assert_eq!(p_lsp_start.steps[0].capability, "lsp.start");
+
+        let p_lsp_status = planner
+            .plan("muestra el estado del servidor lsp", &catalog)
+            .expect("plan lsp status");
+        assert_eq!(p_lsp_status.steps.len(), 1);
+        assert_eq!(p_lsp_status.steps[0].capability, "lsp.status");
     }
 }

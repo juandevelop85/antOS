@@ -458,6 +458,20 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
             enviar(&mut escritura, &Evento::AnalisisProfiler { hotspots, suggestions })?;
         }
+        Peticion::ConsultarLspStatus { workspace_path } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let status = crate::lsp::LspServer::global().get_status(&ws);
+            enviar(&mut escritura, &Evento::EstadoLsp(status))?;
+        }
+        Peticion::ObtenerLspConfig { editor, workspace_path } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let (config_content, target_file) = crate::lsp::LspServer::global().generate_config(editor, &ws);
+            enviar(&mut escritura, &Evento::ConfiguracionLsp {
+                editor,
+                config_content,
+                target_file,
+            })?;
+        }
     }
     Ok(())
 }
@@ -620,6 +634,13 @@ pub fn intencion_remota(
             }
             Evento::AnalisisProfiler { hotspots, suggestions } => {
                 pantalla.nota(&format!("Profiler: {} hotspots y {} recomendaciones formuladas", hotspots.len(), suggestions.len()))?;
+            }
+            Evento::EstadoLsp(status) => {
+                let state_str = if status.running { "Activo" } else { "En espera" };
+                pantalla.nota(&format!("LSP: {state_str} ({}) con {} símbolos indexados", status.transport, status.indexed_symbols_count))?;
+            }
+            Evento::ConfiguracionLsp { editor, target_file, .. } => {
+                pantalla.nota(&format!("LSP: configuración generada para {:?} ({target_file})", editor))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

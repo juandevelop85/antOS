@@ -618,6 +618,27 @@ antos profile list
 
 ---
 
+### 4.20 Servidor Language Server Protocol (LSP) Unificado (`antos lsp`)
+
+Servidor LSP embebido para dotar a editores externos (VS Code, Neovim, Helix, Emacs) de autocompletado semántico enriquecido con el contexto de tickets, símbolos del workspace y capacidades tipadas de antOS:
+
+```bash
+# Iniciar el servidor LSP sobre stdio (utilizado directamente por editores externos)
+antos lsp
+antos lsp stdio
+
+# Consultar el estado del servidor y cantidad de símbolos AST indexados
+antos lsp status
+
+# Generar configuraciones automáticas listas para usar en cada editor
+antos lsp config vscode
+antos lsp config neovim
+antos lsp config helix
+antos lsp config emacs
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

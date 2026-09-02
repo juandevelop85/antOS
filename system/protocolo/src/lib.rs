@@ -350,6 +350,53 @@ pub struct ProfileReport {
     pub suggestions: Vec<ProfileSuggestion>,
 }
 
+// ---------------------------------------------------------------- LSP (T12.1)
+
+/// Tipo de editor o cliente de desarrollo compatible con el servidor LSP de antOS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LspEditorKind {
+    VsCode,
+    Neovim,
+    Helix,
+    Emacs,
+    Generic,
+}
+
+impl LspEditorKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            LspEditorKind::VsCode => "VS Code",
+            LspEditorKind::Neovim => "Neovim",
+            LspEditorKind::Helix => "Helix",
+            LspEditorKind::Emacs => "Emacs",
+            LspEditorKind::Generic => "Generic LSP Client",
+        }
+    }
+
+    pub fn config_filename(&self) -> &'static str {
+        match self {
+            LspEditorKind::VsCode => ".vscode/settings.json",
+            LspEditorKind::Neovim => "init.lua / nvim-lspconfig",
+            LspEditorKind::Helix => "~/.config/helix/languages.toml",
+            LspEditorKind::Emacs => ".dir-locals.el / init.el",
+            LspEditorKind::Generic => "lsp-client.json",
+        }
+    }
+}
+
+/// Estado del servidor LSP embebido de antOS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspServerStatus {
+    pub running: bool,
+    pub transport: String,
+    pub socket_path: Option<String>,
+    pub connected_clients: usize,
+    pub active_workspace: String,
+    pub indexed_symbols_count: usize,
+    pub capabilities: Vec<String>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -810,6 +857,15 @@ pub enum Peticion {
     AnalizarProfilerHotspots {
         workspace_path: String,
     },
+    /// Consulta el estado y capacidades del servidor LSP embebido (T12.1)
+    ConsultarLspStatus {
+        workspace_path: String,
+    },
+    /// Genera la configuración para conectar el editor al servidor LSP de antOS (T12.1)
+    ObtenerLspConfig {
+        editor: LspEditorKind,
+        workspace_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -909,6 +965,14 @@ pub enum Evento {
     AnalisisProfiler {
         hotspots: Vec<ProfileHotspot>,
         suggestions: Vec<ProfileSuggestion>,
+    },
+    /// Estado del servidor LSP embebido de antOS (T12.1)
+    EstadoLsp(LspServerStatus),
+    /// Configuración recomendada para conectar un editor externo al servidor LSP (T12.1)
+    ConfiguracionLsp {
+        editor: LspEditorKind,
+        config_content: String,
+        target_file: String,
     },
     Error(String),
 }
@@ -1385,5 +1449,44 @@ mod tests {
         let json_ev1 = serde_json::to_string(&ev1).expect("serialize report");
         let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize report");
         assert_eq!(ev1, des_ev1);
+    }
+
+    #[test]
+    fn test_serializacion_lsp() {
+        let status = LspServerStatus {
+            running: true,
+            transport: "stdio".into(),
+            socket_path: None,
+            connected_clients: 1,
+            active_workspace: "/Users/juandevelop/Develop/antOS".into(),
+            indexed_symbols_count: 350,
+            capabilities: vec![
+                "textDocument/completion".into(),
+                "textDocument/definition".into(),
+                "textDocument/hover".into(),
+                "textDocument/references".into(),
+            ],
+        };
+
+        let req = Peticion::ConsultarLspStatus {
+            workspace_path: "/Users/juandevelop/Develop/antOS".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize lsp status req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize lsp status req");
+        assert_eq!(req, des_req);
+
+        let ev1 = Evento::EstadoLsp(status);
+        let json_ev1 = serde_json::to_string(&ev1).expect("serialize lsp status ev");
+        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize lsp status ev");
+        assert_eq!(ev1, des_ev1);
+
+        let ev2 = Evento::ConfiguracionLsp {
+            editor: LspEditorKind::Neovim,
+            config_content: "vim.lsp.start({ name = 'antos-lsp', cmd = {'antos', 'lsp'} })".into(),
+            target_file: "init.lua".into(),
+        };
+        let json_ev2 = serde_json::to_string(&ev2).expect("serialize lsp config ev");
+        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize lsp config ev");
+        assert_eq!(ev2, des_ev2);
     }
 }

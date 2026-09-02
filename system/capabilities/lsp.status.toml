@@ -1,0 +1,11 @@
+name = "lsp.status"
+summary = "Diagnostica el estado del servidor LSP y los símbolos indexados para editores"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

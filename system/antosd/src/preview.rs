@@ -243,6 +243,12 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::ProfileAnalyze { .. } => {
                 out.push(Line::Info("analiza cuellos de botella y genera sugerencias técnicas de optimización".into()));
             }
+            Change::LspStart { mode, .. } => {
+                out.push(Line::Info(format!("inicia el servidor Language Server Protocol (LSP) embebido sobre {mode}")));
+            }
+            Change::LspStatus { .. } => {
+                out.push(Line::Info("diagnostica el estado del servidor LSP y símbolos indexados".into()));
+            }
         }
         pendiente.aplicar(change);
     }

@@ -1,0 +1,12 @@
+name = "lsp.start"
+summary = "Inicia el servidor Language Server Protocol (LSP) embebido de antOS"
+
+[params]
+mode = { type = "text" }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -205,6 +205,13 @@ pub enum Change {
     ProfileAnalyze {
         workspace: PathBuf,
     },
+    LspStart {
+        workspace: PathBuf,
+        mode: String,
+    },
+    LspStatus {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -288,7 +295,9 @@ impl Pendiente {
             | Change::EbpfStatus { .. }
             | Change::EbpfAuditLog { .. }
             | Change::ProfileRun { .. }
-            | Change::ProfileAnalyze { .. } => {}
+            | Change::ProfileAnalyze { .. }
+            | Change::LspStart { .. }
+            | Change::LspStatus { .. } => {}
         }
     }
 }
@@ -786,6 +795,20 @@ pub fn changes_for(
 
         "profile.analyze" => {
             Ok(vec![Change::ProfileAnalyze {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "lsp.start" => {
+            let mode = a.get("mode").cloned().unwrap_or_else(|| "stdio".into());
+            Ok(vec![Change::LspStart {
+                workspace: ctx.workspace.clone(),
+                mode,
+            }])
+        }
+
+        "lsp.status" => {
+            Ok(vec![Change::LspStatus {
                 workspace: ctx.workspace.clone(),
             }])
         }
@@ -1441,6 +1464,26 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         }
                     }
                 }
+                output.push(lines.join("\n"));
+            }
+            Change::LspStart { workspace, mode } => {
+                if mode == "stdio" {
+                    output.push("antOS LSP: iniciando servidor sobre transporte stdio...".into());
+                    crate::lsp::LspServer::global().run_stdio(workspace)?;
+                } else {
+                    output.push(format!("antOS LSP: modo «{mode}» configurado"));
+                }
+            }
+            Change::LspStatus { workspace } => {
+                let status = crate::lsp::LspServer::global().get_status(workspace);
+                let mut lines = Vec::new();
+                lines.push("antOS Unified Language Server Protocol (LSP)".into());
+                lines.push(format!("  • Estado:                {}", if status.running { "Activo (En ejecución)" } else { "Listo (En espera de conexiones)" }));
+                lines.push(format!("  • Transporte:            {}", status.transport));
+                lines.push(format!("  • Clientes conectados:   {}", status.connected_clients));
+                lines.push(format!("  • Espacio de trabajo:    {}", status.active_workspace));
+                lines.push(format!("  • Símbolos indexados:    {}", status.indexed_symbols_count));
+                lines.push(format!("  • Capacidades activas:   {}", status.capabilities.join(", ")));
                 output.push(lines.join("\n"));
             }
         }

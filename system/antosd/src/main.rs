@@ -26,6 +26,7 @@ pub mod vfs;
 pub mod vfs_guard;
 pub mod ebpf;
 pub mod profiler;
+pub mod lsp;
 mod ipc;
 mod journal;
 mod plan;
@@ -120,6 +121,7 @@ fn run() -> Result<()> {
         "vfs" | "antfs" => cmd_vfs(&ctx, &rest[1..]),
         "ebpf" | "bpf" => cmd_ebpf(&ctx, &rest[1..]),
         "profile" | "perf" | "profiler" => cmd_profile(&ctx, &rest[1..]),
+        "lsp" => cmd_lsp(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1687,6 +1689,58 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos profile top            Lista los principales puntos calientes (hotspots)");
             println!("    • antos profile analyze        Sintetiza recomendaciones para Coder y QA");
             println!("    • antos profile list           Muestra el histórico de reportes guardados\n");
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------- lsp
+
+fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let server = lsp::LspServer::global();
+    let sub = args.first().map(String::as_str);
+
+    match sub {
+        Some("status" | "info") => {
+            let status = server.get_status(&ctx.workspace);
+            println!("\n{}", paint("antOS · Unified Language Server Protocol (LSP)", BOLD));
+            println!("  Espacio de trabajo:     {}", paint(&ctx.workspace.display().to_string(), DIM));
+            println!("  Estado del servidor:    {}", if status.running { paint("Activo", GREEN) } else { paint("En espera", YELLOW) });
+            println!("  Transporte:             {}", paint(&status.transport, CYAN));
+            println!("  Clientes conectados:    {}", status.connected_clients);
+            println!("  Símbolos AST indexados: {}", paint(&status.indexed_symbols_count.to_string(), BOLD));
+            println!("  Capacidades LSP:        {}\n", paint(&status.capabilities.join(", "), DIM));
+        }
+        Some("config" | "conf") => {
+            let editor_str = args.get(1).map(String::as_str).unwrap_or("vscode");
+            let editor_kind = match editor_str.to_lowercase().as_str() {
+                "vscode" | "code" => antos_protocolo::LspEditorKind::VsCode,
+                "neovim" | "nvim" | "vim" => antos_protocolo::LspEditorKind::Neovim,
+                "helix" | "hx" => antos_protocolo::LspEditorKind::Helix,
+                "emacs" => antos_protocolo::LspEditorKind::Emacs,
+                _ => antos_protocolo::LspEditorKind::Generic,
+            };
+
+            let (snippet, target_file) = server.generate_config(editor_kind, &ctx.workspace);
+            println!("\n{} Configuración de antOS LSP para: {}", paint("antOS LSP ·", BOLD), paint(editor_kind.name(), YELLOW));
+            println!("  Archivo de configuración: {}\n", paint(&target_file, CYAN));
+            println!("{}\n", snippet);
+        }
+        Some("stdio" | "run" | "start") => {
+            server.run_stdio(&ctx.workspace)?;
+        }
+        None => {
+            server.run_stdio(&ctx.workspace)?;
+        }
+        _ => {
+            let status = server.get_status(&ctx.workspace);
+            println!("\n{}", paint("antOS · Unified Language Server Protocol (LSP)", BOLD));
+            println!("  Espacio de trabajo:     {}", paint(&ctx.workspace.display().to_string(), DIM));
+            println!("  Símbolos AST indexados: {}\n", paint(&status.indexed_symbols_count.to_string(), BOLD));
+            println!("  Subcomandos disponibles:");
+            println!("    • antos lsp [stdio]            Inicia el servidor JSON-RPC 2.0 sobre stdio");
+            println!("    • antos lsp status             Diagnostica el estado del servidor y conexiones");
+            println!("    • antos lsp config <editor>    Genera configuración para vscode, neovim, helix, emacs\n");
         }
     }
     Ok(())

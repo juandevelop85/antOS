@@ -3,10 +3,10 @@
 > **El Sistema Operativo Personal para Desarrolladores impulsado por IA y Orquestación Multi-Agente Nativa.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-99%2F99%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-104%2F104%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-26%2F28%20Completados-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-27%2F28%20Completados-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -324,6 +324,8 @@ antos undo --ticket T1.1
 | `ebpf.audit_log` | Lectura del registro en vivo de syscalls y eventos de seguridad eBPF | `auto` (Lectura) |
 | `profile.run` | Ejecución y perfilado en tiempo real de comandos (CPU, RSS, page faults) | `auto` |
 | `profile.analyze` | Análisis de puntos calientes (hotspots) y sugerencias técnicas de optimización | `auto` (Lectura) |
+| `lsp.start` | Inicia el servidor Language Server Protocol (LSP) sobre stdio para editores | `auto` |
+| `lsp.status` | Diagnóstico de conexiones y símbolos indexados en el servidor LSP | `auto` (Lectura) |
 | `project.scaffold` | Creación y andamiaje inicial de proyectos (Rust, TS, Python) | `confirm` |
 | `pkg.declare` | Declaración de dependencias en manifiestos de proyecto | `confirm` |
 | `fs.write` / `fs.delete` | Modificación y eliminación controlada de archivos con instantánea | `confirm` / `grant` |
@@ -363,7 +365,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 10** | [T10.2](docs/tickets/T10.2-interceptores-de-escritura-semántica-con-validación-tipada-previa-a-disco.md) · Interceptores de Escritura Semántica con Validación Tipada Previa a Disco | ✅ Completado |
 | **Fase 11** | [T11.1](docs/tickets/T11.1-supervisor-kernel-ebpf-lsm-para-detección-de-fugas-de-sandbox-y-syscalls-anómalas.md) · Supervisor Kernel eBPF (LSM) para Detección de Fugas de Sandbox y Syscalls | ✅ Completado |
 | **Fase 11** | [T11.2](docs/tickets/T11.2-profiler-continuo-de-cpu-y-memoria-en-runtime-con-sugerencias-de-optimización-para-agentes.md) · Profiler Continuo de CPU y Memoria en Runtime con Sugerencias de Optimización | ✅ Completado |
-| **Fase 12** | [T12.1](docs/tickets/T12.1-servidor-language-server-protocol-lsp-unificado-alimentado-por-la-memoria-semántica.md) · Servidor LSP Unificado Alimentado por la Memoria Semántica | ⏳ Pendiente |
+| **Fase 12** | [T12.1](docs/tickets/T12.1-servidor-language-server-protocol-lsp-unificado-alimentado-por-la-memoria-semántica.md) · Servidor LSP Unificado Alimentado por la Memoria Semántica | ✅ Completado |
 | **Fase 12** | [T12.2](docs/tickets/T12.2-edición-colaborativa-en-vivo-humano-agente-y-protocolo-dap-de-depuración-aislada.md) · Edición Colaborativa en Vivo Humano-Agente y Protocolo DAP de Depuración Aislada | ⏳ Pendiente |
 
 ---
