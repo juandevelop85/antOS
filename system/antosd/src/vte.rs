@@ -34,7 +34,18 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     pub fn new(session_id: &str) -> Self {
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = std::env::var("SHELL")
+            .ok()
+            .filter(|s| std::path::Path::new(s).exists())
+            .unwrap_or_else(|| {
+                if std::path::Path::new("/bin/bash").exists() {
+                    "/bin/bash".into()
+                } else if std::path::Path::new("/bin/sh").exists() {
+                    "/bin/sh".into()
+                } else {
+                    "/bin/zsh".into()
+                }
+            });
         Self {
             session_id: session_id.to_string(),
             active_shell: shell,

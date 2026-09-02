@@ -28,6 +28,15 @@ S=/tmp/tl/debug/antos
 echo "════════ entorno ════════"
 echo "  kernel: $(uname -r) $(uname -m)"
 
+if ! command -v git >/dev/null 2>&1 || ! command -v lsof >/dev/null 2>&1; then
+  echo "  preparando herramientas de sistema (git, lsof, procps)..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq >/dev/null 2>&1
+  apt-get install -y -qq git lsof procps >/dev/null 2>&1
+fi
+git config --global user.name "antOS CI" >/dev/null 2>&1 || true
+git config --global user.email "ci@antos.dev" >/dev/null 2>&1 || true
+
 echo
 echo "════════ compilar y probar ════════"
 cargo build -p antosd --target-dir /tmp/tl 2>&1 | tail -3

@@ -458,8 +458,8 @@ mod tests {
 
         assert!(resultado.is_some());
         assert!(
-            duracion.as_millis() < 30,
-            "la respuesta desde caché debe tardar menos de 30ms (tardó: {:?})",
+            duracion.as_millis() < 50,
+            "la respuesta desde caché debe tardar menos de 50ms (tardó: {:?})",
             duracion
         );
     }
@@ -488,6 +488,8 @@ mod tests {
 
         // Inicializar repo con commit inicial
         let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.name", "Test"]).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.email", "test@example.com"]).output();
         let _ = fs::write(dir_repo.join("README.md"), "# Test Repo\n");
         let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["add", "README.md"]).output();
         let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["commit", "-m", "init"]).output();

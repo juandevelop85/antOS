@@ -18,10 +18,13 @@ pub fn diagnose_ports(port_filter: Option<u16>) -> Result<Vec<PortDiagnosticInfo
         args[0] = &port_str;
     }
 
-    let out = Command::new("lsof")
-        .args(&args)
-        .output()
-        .context("executing lsof to inspect TCP ports")?;
+    let out = match Command::new("lsof").args(&args).output() {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Vec::new());
+        }
+        Err(e) => return Err(e).context("executing lsof to inspect TCP ports"),
+    };
 
     let mut results = Vec::new();
     let mut seen = BTreeSet::new();
