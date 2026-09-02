@@ -1,0 +1,13 @@
+name = "ui.screenshot"
+summary = "Captura la pantalla completa o ventana de una aplicación Wayland"
+
+[params]
+target = { type = "text", optional = true }
+path = { type = "path", optional = true }
+
+[effects]
+writes = ["$WORKSPACE"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"

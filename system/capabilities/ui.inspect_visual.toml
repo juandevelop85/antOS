@@ -1,0 +1,12 @@
+name = "ui.inspect_visual"
+summary = "Ejecuta una auditoría de interfaz visual mediante el agente multimodal VisualQA"
+
+[params]
+target = { type = "text" }
+criteria = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

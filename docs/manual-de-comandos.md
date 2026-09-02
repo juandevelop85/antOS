@@ -744,6 +744,24 @@ antos plugin run json-validator validate schema=strict.json
 
 ---
 
+### 4.26 Captura de Pantalla Wayland e Inspección Visual Multimodal (`antos screenshot` / `antos qa visual`)
+
+Herramientas para captura gráfica (`wlr-screencopy` / `grim` / portal Wayland) y auditoría de interfaces con el rol especializado `VisualQA` de antFlow mediante LLMs de visión (Llava, Moondream, MiniCPM-V vía Ollama) o análisis heurístico determinista:
+
+```bash
+# Capturar la pantalla completa o una ventana activa
+antos screenshot antos-barra capturas/barra.png
+antos screenshot capturas/escritorio.bmp
+
+# Lanzar una inspección de calidad visual (VisualQA) contra criterios de diseño
+antos qa visual antos-barra "verificar_contraste_accesible" "comprobar_alineacion_geométrica"
+
+# Inspección visual con criterios por defecto
+antos qa visual desktop
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

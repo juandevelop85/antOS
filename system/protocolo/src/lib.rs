@@ -528,6 +528,42 @@ pub struct PluginResult {
     pub error: Option<String>,
 }
 
+// ------------------------------------------------ Visual QA & Screencopy (T14.2)
+
+/// Hallazgo específico detectado durante la inspección visual multimodal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualFinding {
+    pub category: String,
+    pub severity: String,
+    pub description: String,
+    pub coordinates: Option<String>,
+    pub recommendation: String,
+}
+
+/// Reporte consolidado de auditoría de interfaz gráfica generado por VisualQA.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualQAReport {
+    pub target: String,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub image_size_bytes: usize,
+    pub findings: Vec<VisualFinding>,
+    pub pass: bool,
+    pub summary: String,
+}
+
+/// Resultado de una captura de pantalla Wayland.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenshotResult {
+    pub target: String,
+    pub width: u32,
+    pub height: u32,
+    pub format: String,
+    pub base64_data: String,
+    pub size_bytes: usize,
+    pub saved_path: Option<String>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -699,6 +735,7 @@ pub enum AgentRole {
     Coder,
     QA,
     Auditor,
+    VisualQA,
 }
 
 impl AgentRole {
@@ -708,6 +745,7 @@ impl AgentRole {
             AgentRole::Coder => "Coder",
             AgentRole::QA => "QA / Tester",
             AgentRole::Auditor => "Security Auditor",
+            AgentRole::VisualQA => "Visual QA",
         }
     }
 
@@ -717,6 +755,7 @@ impl AgentRole {
             AgentRole::Coder => "Coder",
             AgentRole::QA => "QA / Tester",
             AgentRole::Auditor => "Auditor de Seguridad",
+            AgentRole::VisualQA => "QA Visual",
         }
     }
 
@@ -726,6 +765,7 @@ impl AgentRole {
             AgentRole::Coder => "Modular implementation of changes and refactoring in the worktree.",
             AgentRole::QA => "Automated test suite generation and execution in sandbox.",
             AgentRole::Auditor => "Review of diffs, security, style and blast radius.",
+            AgentRole::VisualQA => "Multimodal inspection of GUI windows, screenshots and visual regression testing.",
         }
     }
 
@@ -735,6 +775,7 @@ impl AgentRole {
             AgentRole::Coder => "Implementación modular de cambios y refactorización en el worktree.",
             AgentRole::QA => "Generación y ejecución de pruebas automatizadas en sandbox.",
             AgentRole::Auditor => "Revisión de diffs, seguridad, estilo y radio de impacto.",
+            AgentRole::VisualQA => "Inspección visual multimodal de interfaces gráficas, capturas de pantalla y regresión visual.",
         }
     }
 
@@ -759,6 +800,11 @@ impl AgentRole {
                 "You are the Auditor Agent of antOS. Your goal is to audit generated diffs, \
                  verify that the blast radius does not exceed limits, and ensure all \
                  acceptance criteria are met before merging."
+            }
+            AgentRole::VisualQA => {
+                "You are the Visual QA Agent of antOS. Your goal is to inspect user interface \
+                 screenshots, verify layout fidelity, color contrast, typography alignment, \
+                 and detect visual glitches or errors in Wayland graphical applications."
             }
         }
     }
@@ -1049,6 +1095,16 @@ pub enum Peticion {
     InstalarPlugin {
         source_path: String,
     },
+    /// Captura una pantalla o ventana Wayland (T14.2)
+    CapturarPantalla {
+        target: Option<String>,
+        save_path: Option<String>,
+    },
+    /// Ejecuta inspección visual multimodal con VisualQA (T14.2)
+    InspeccionarVisualQA {
+        target: String,
+        criteria: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1193,6 +1249,10 @@ pub enum Evento {
     ListaPlugins(Vec<PluginSummary>),
     /// Resultado de la ejecución de una acción de plugin WASM (T14.1)
     ResultadoPlugin(PluginResult),
+    /// Resultado de la captura de pantalla Wayland (T14.2)
+    ResultadoCaptura(ScreenshotResult),
+    /// Reporte de auditoría visual multimodal de VisualQA (T14.2)
+    ReporteVisualQA(VisualQAReport),
     Error(String),
 }
 
@@ -1912,6 +1972,41 @@ mod tests {
         let json_ev = serde_json::to_string(&ev).expect("serialize result ev");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize result ev");
         assert_eq!(ev, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_visual_qa() {
+        assert_eq!(AgentRole::VisualQA.name(), "Visual QA");
+        assert_eq!(AgentRole::VisualQA.nombre(), "QA Visual");
+
+        let req_cap = Peticion::CapturarPantalla {
+            target: Some("firefox".into()),
+            save_path: Some("/tmp/screenshot.png".into()),
+        };
+        let json_cap = serde_json::to_string(&req_cap).expect("serialize cap req");
+        let des_cap: Peticion = serde_json::from_str(&json_cap).expect("deserialize cap req");
+        assert_eq!(req_cap, des_cap);
+
+        let report = VisualQAReport {
+            target: "antOS-Barra".into(),
+            image_width: 1920,
+            image_height: 1080,
+            image_size_bytes: 204800,
+            findings: vec![VisualFinding {
+                category: "alignment".into(),
+                severity: "warning".into(),
+                description: "Margen derecho desfasado 4px en badge de eBPF".into(),
+                coordinates: Some("x: 1840, y: 12, w: 60, h: 24".into()),
+                recommendation: "Alinear padding-right a 8px en estilo.css".into(),
+            }],
+            pass: false,
+            summary: "1 advertencia visual detectada".into(),
+        };
+
+        let ev_rep = Evento::ReporteVisualQA(report);
+        let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
+        let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
+        assert_eq!(ev_rep, des_rep);
     }
 }
 

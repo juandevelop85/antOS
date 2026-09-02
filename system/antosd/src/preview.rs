@@ -282,6 +282,14 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::PluginInstall { source_path, .. } => {
                 out.push(Line::Info(format!("instala el plugin WebAssembly desde «{}»", source_path.display())));
             }
+            Change::UiScreenshot { target, path, .. } => {
+                let tgt = target.as_deref().unwrap_or("pantalla completa");
+                let dest = path.as_ref().map(|p| format!(" guardando en «{}»", p.display())).unwrap_or_default();
+                out.push(Line::Info(format!("captura la imagen de «{tgt}»{dest}")));
+            }
+            Change::UiInspectVisual { target, .. } => {
+                out.push(Line::Info(format!("ejecuta inspección visual multimodal de «{target}» con el agente VisualQA")));
+            }
         }
         pendiente.aplicar(change);
     }

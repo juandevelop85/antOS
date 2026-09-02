@@ -254,6 +254,16 @@ pub enum Change {
         workspace: PathBuf,
         source_path: PathBuf,
     },
+    UiScreenshot {
+        workspace: PathBuf,
+        target: Option<String>,
+        path: Option<PathBuf>,
+    },
+    UiInspectVisual {
+        workspace: PathBuf,
+        target: String,
+        criteria: Vec<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -349,7 +359,9 @@ impl Pendiente {
             | Change::BootPipeline { .. }
             | Change::PluginList { .. }
             | Change::PluginRun { .. }
-            | Change::PluginInstall { .. } => {}
+            | Change::PluginInstall { .. }
+            | Change::UiScreenshot { .. }
+            | Change::UiInspectVisual { .. } => {}
         }
     }
 }
@@ -951,6 +963,28 @@ pub fn changes_for(
             Ok(vec![Change::PluginInstall {
                 workspace: ctx.workspace.clone(),
                 source_path: ctx.workspace.join(p),
+            }])
+        }
+
+        "ui.screenshot" => {
+            let target = a.get("target").cloned();
+            let path = a.get("path").map(|p| ctx.workspace.join(p));
+            Ok(vec![Change::UiScreenshot {
+                workspace: ctx.workspace.clone(),
+                target,
+                path,
+            }])
+        }
+
+        "ui.inspect_visual" => {
+            let target = a.get("target").cloned().unwrap_or_else(|| "desktop".into());
+            let criteria = a.get("criteria")
+                .map(|c| c.split(';').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+            Ok(vec![Change::UiInspectVisual {
+                workspace: ctx.workspace.clone(),
+                target,
+                criteria,
             }])
         }
 
@@ -1767,6 +1801,37 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(format!("✓ Plugin «{}» v{} instalado con éxito en {}",
                     installed.name, installed.version, p_dir.display()
                 ));
+            }
+            Change::UiScreenshot { target, path, .. } => {
+                let engine = crate::vision::VisionEngine::global();
+                let res = engine.capture_screen(target.as_deref(), path.as_deref())?;
+                let saved = res.saved_path.unwrap_or_else(|| "en memoria".into());
+                output.push(format!("✓ Captura de pantalla completada para «{}» ({}):\n  Dimensiones: {}x{} píxeles\n  Tamaño: {} KiB",
+                    res.target, saved, res.width, res.height, res.size_bytes / 1024
+                ));
+            }
+            Change::UiInspectVisual { target, criteria, .. } => {
+                let engine = crate::vision::VisionEngine::global();
+                let report = engine.inspect_visual(target, criteria, None)?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Visual QA Report · Objetivo: «{}» [Resultado: {}]",
+                    report.target, if report.pass { "APROBADO" } else { "RECHAZADO" }
+                ));
+                lines.push(format!("  • Resumen: {}", report.summary));
+                lines.push(format!("  • Resolución evaluada: {}x{} ({} KiB)", report.image_width, report.image_height, report.image_size_bytes / 1024));
+                for f in report.findings {
+                    let sev = match f.severity.as_str() {
+                        "critical" => "CRÍTICO",
+                        "warning" => "ADVERTENCIA",
+                        _ => "INFO",
+                    };
+                    lines.push(format!("  • [{sev}] {}: {}", f.category, f.description));
+                    if let Some(coords) = f.coordinates {
+                        lines.push(format!("    Coordenadas: {coords}"));
+                    }
+                    lines.push(format!("    Recomendación: {}", f.recommendation));
+                }
+                output.push(lines.join("\n"));
             }
         }
     }

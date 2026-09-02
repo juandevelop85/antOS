@@ -507,6 +507,7 @@ mod tests {
             AgentRole::Coder,
             AgentRole::QA,
             AgentRole::Auditor,
+            AgentRole::VisualQA,
         ];
         for r in roles {
             assert!(!r.nombre().is_empty());

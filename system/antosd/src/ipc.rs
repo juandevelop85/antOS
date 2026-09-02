@@ -563,6 +563,19 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
+        Peticion::CapturarPantalla { target, save_path } => {
+            let p_opt = save_path.map(std::path::PathBuf::from);
+            match crate::vision::VisionEngine::global().capture_screen(target.as_deref(), p_opt.as_deref()) {
+                Ok(res) => enviar(&mut escritura, &Evento::ResultadoCaptura(res))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Peticion::InspeccionarVisualQA { target, criteria } => {
+            match crate::vision::VisionEngine::global().inspect_visual(&target, &criteria, None) {
+                Ok(rep) => enviar(&mut escritura, &Evento::ReporteVisualQA(rep))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -802,6 +815,29 @@ pub fn intencion_remota(
                 } else {
                     let err = res.error.unwrap_or_else(|| "Error desconocido".into());
                     bail!("Fallo en plugin [{}:{}]: {}", res.plugin, res.action, err);
+                }
+            }
+            Evento::ResultadoCaptura(cap) => {
+                let ruta = cap.saved_path.unwrap_or_else(|| "en memoria".into());
+                pantalla.nota(&format!("✓ Captura de pantalla «{}» ({}) [{}x{}, {} KiB]",
+                    cap.target, ruta, cap.width, cap.height, cap.size_bytes / 1024
+                ))?;
+            }
+            Evento::ReporteVisualQA(rep) => {
+                let status = if rep.pass { "APROBADO" } else { "RECHAZADO" };
+                pantalla.nota(&format!("antOS Visual QA [{}] · {}:", rep.target, status))?;
+                pantalla.nota(&format!("  {}", rep.summary))?;
+                for f in rep.findings {
+                    let sev = match f.severity.as_str() {
+                        "critical" => "CRÍTICO",
+                        "warning" => "ADVERTENCIA",
+                        _ => "INFO",
+                    };
+                    pantalla.nota(&format!("  • [{sev}] {}: {}", f.category, f.description))?;
+                    if let Some(coords) = f.coordinates {
+                        pantalla.nota(&format!("    Coordenadas: {coords}"))?;
+                    }
+                    pantalla.nota(&format!("    Recomendación: {}", f.recommendation))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),

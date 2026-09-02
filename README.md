@@ -3,10 +3,10 @@
 > **El Sistema Operativo Personal para Desarrolladores impulsado por IA y Orquestación Multi-Agente Nativa.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-124%2F124%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-129%2F129%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-32%2F34%20Completados-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-33%2F34%20Completados-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -373,7 +373,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 13** | [T13.1](docs/tickets/T13.1-integracion-de-telemetria-ebpf-profiler-y-pair-programming-en-la-barra-wayland-gtk4.md) · Telemetría eBPF, Profiler y Pair Programming en Barra Wayland | ✅ Completado |
 | **Fase 13** | [T13.2](docs/tickets/T13.2-pipeline-de-arranque-bare-metal-compilacion-cruzada-de-kernel-y-disco-bios-uefi-en-qemu.md) · Pipeline de Arranque Bare Metal, Kernel y QEMU | ✅ Completado |
 | **Fase 14** | [T14.1](docs/tickets/T14.1-motor-de-capacidades-y-plugins-en-webassembly-wasi-con-aislamiento-de-memoria.md) · Motor de Capacidades y Plugins en WebAssembly (WASI) | ✅ Completado |
-| **Fase 14** | [T14.2](docs/tickets/T14.2-agente-multimodal-con-captura-de-pantalla-wayland-para-inspeccion-y-qa-visual.md) · Agente Multimodal con Captura Wayland e Inspección Visual | ⏳ Pendiente |
+| **Fase 14** | [T14.2](docs/tickets/T14.2-agente-multimodal-con-captura-de-pantalla-wayland-para-inspeccion-y-qa-visual.md) · Agente Multimodal con Captura Wayland e Inspección Visual | ✅ Completado |
 | **Fase 14** | [T14.3](docs/tickets/T14.3-generador-de-live-iso-autonoma-empaquetado-release-y-distribucion-v0.1.0.md) · Generador de Live ISO Autónoma y Empaquetado Release v0.1.0 | ⏳ Pendiente |
 
 ---

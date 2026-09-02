@@ -556,6 +556,23 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("plugin.list", &[])]));
         }
 
+        // Intenciones de Captura de Pantalla e Inspección Visual QA (T14.2)
+        if lower.contains("captura") || lower.contains("screenshot") || lower.contains("screencopy") {
+            let target = after(&words, &["de", "ventana", "target"]).unwrap_or_else(|| "desktop".into());
+            let path = after(&words, &["guardando", "hacia", "path"]);
+            let mut args = vec![("target", target.as_str())];
+            let p_str;
+            if let Some(ref p) = path {
+                p_str = p.as_str();
+                args.push(("path", p_str));
+            }
+            return Ok(Propuesta::solo(vec![step("ui.screenshot", &args)]));
+        }
+        if lower.contains("visual") || lower.contains("qa visual") {
+            let target = after(&words, &["de", "sobre", "en", "target"]).unwrap_or_else(|| "desktop".into());
+            return Ok(Propuesta::solo(vec![step("ui.inspect_visual", &[("target", &target)])]));
+        }
+
         // Intenciones de secretos y concesiones (T5.2)
         if (!lower.contains("busca") && !lower.contains("search"))
             && (lower.contains("secreto")
@@ -1164,5 +1181,17 @@ mod tests {
             .expect("plan plugin run");
         assert_eq!(p_plugin_run.steps.len(), 1);
         assert_eq!(p_plugin_run.steps[0].capability, "plugin.run");
+
+        let p_screenshot = planner
+            .plan("captura la pantalla de la ventana barra guardando en /tmp/bar.png", &catalog)
+            .expect("plan screenshot");
+        assert_eq!(p_screenshot.steps.len(), 1);
+        assert_eq!(p_screenshot.steps[0].capability, "ui.screenshot");
+
+        let p_visual = planner
+            .plan("inspecciona el diseño visual de la ventana antos-barra", &catalog)
+            .expect("plan visual inspection");
+        assert_eq!(p_visual.steps.len(), 1);
+        assert_eq!(p_visual.steps[0].capability, "ui.inspect_visual");
     }
 }

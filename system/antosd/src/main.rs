@@ -32,6 +32,7 @@ pub mod desktop;
 pub mod barra;
 pub mod boot;
 pub mod wasm;
+pub mod vision;
 mod ipc;
 mod journal;
 mod plan;
@@ -133,6 +134,8 @@ fn run() -> Result<()> {
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
         "plugin" | "plugins" | "wasm" => cmd_plugin(&ctx, &rest[1..]),
+        "screenshot" | "captura" => cmd_screenshot(&ctx, &rest[1..]),
+        "qa" => cmd_qa(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -2054,6 +2057,105 @@ fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos plugin list                   Enumera plugins instalados");
             println!("    antos plugin install <directorio>   Instala un plugin con plugin.toml");
             println!("    antos plugin run <nombre> [accion]  Ejecuta una acción en sandbox WASM\n");
+        }
+    }
+    Ok(())
+}
+
+// -------------------------------------------------------- screenshot & visual qa
+
+fn cmd_screenshot(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let target = args.first().map(String::as_str);
+    let path = if args.len() > 1 {
+        Some(ctx.workspace.join(&args[1]))
+    } else if let Some(t) = target {
+        if t.ends_with(".png") || t.ends_with(".bmp") {
+            Some(ctx.workspace.join(t))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let actual_target = if let Some(t) = target {
+        if t.ends_with(".png") || t.ends_with(".bmp") {
+            None
+        } else {
+            Some(t)
+        }
+    } else {
+        None
+    };
+
+    println!("\n{} Captura de Pantalla Wayland:", paint("antOS Screencopy ·", BOLD));
+    let engine = vision::VisionEngine::global();
+    let res = engine.capture_screen(actual_target, path.as_deref())?;
+
+    let saved = res.saved_path.as_deref().unwrap_or("en memoria");
+    println!("  {} Captura completada para «{}»", paint("✓", GREEN), res.target);
+    println!("    Destino:      {}", saved);
+    println!("    Resolución:   {}x{} píxeles ({})", res.width, res.height, res.format.to_uppercase());
+    println!("    Tamaño:       {} KiB ({} bytes)\n", res.size_bytes / 1024, res.size_bytes);
+    Ok(())
+}
+
+fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let _ = ctx;
+    let sub = args.first().map(String::as_str);
+    match sub {
+        Some("visual" | "vis" | "ui") => {
+            let target = args.get(1).map(String::as_str).unwrap_or("desktop");
+            let criteria: Vec<String> = if args.len() > 2 {
+                args[2..].iter().map(|s| s.replace('_', " ")).collect()
+            } else {
+                vec![
+                    "Verificar contraste de color accesible".to_string(),
+                    "Comprobar márgenes y alineación de elementos".to_string(),
+                    "Verificar ausencia de desbordamientos visuales".to_string(),
+                ]
+            };
+
+            println!("\n{} Agente Multimodal VisualQA:", paint("antOS QA Visual ·", BOLD));
+            println!("  Objetivo: {}", paint(target, CYAN));
+            println!("  Criterios evaluados: {}\n", criteria.len());
+
+            let engine = vision::VisionEngine::global();
+            let report = engine.inspect_visual(target, &criteria, None)?;
+
+            let status_badge = if report.pass {
+                paint("APROBADO", GREEN)
+            } else {
+                paint("RECHAZADO", RED)
+            };
+
+            println!("  {} {}", paint("Resultado:", BOLD), status_badge);
+            println!("  Resumen:     {}", report.summary);
+            println!("  Resolución:  {}x{} píxeles ({} KiB)\n", report.image_width, report.image_height, report.image_size_bytes / 1024);
+
+            println!("  {}:", paint("Hallazgos de Inspección", BOLD));
+            for f in &report.findings {
+                let sev = match f.severity.as_str() {
+                    "critical" => paint("[CRÍTICO]", RED),
+                    "warning" => paint("[ADVERTENCIA]", YELLOW),
+                    _ => paint("[INFO]", CYAN),
+                };
+                println!("    • {} {}: {}", sev, paint(&f.category, BOLD), f.description);
+                if let Some(ref coords) = f.coordinates {
+                    println!("      Coordenadas:   {}", coords);
+                }
+                println!("      Recomendación: {}", f.recommendation);
+            }
+            println!();
+
+            if !report.pass {
+                bail!("Inspección visual rechazada debido a fallos críticos");
+            }
+        }
+        _ => {
+            println!("\n{} Inspección de Calidad Visual (antFlow QA):", paint("antOS QA ·", BOLD));
+            println!("  Uso:");
+            println!("    antos qa visual [target] [criterios...]  Auditoría visual con agente multimodal\n");
         }
     }
     Ok(())
