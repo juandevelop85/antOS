@@ -3,10 +3,10 @@
 > **El Sistema Operativo Personal para Desarrolladores impulsado por IA y Orquestación Multi-Agente Nativa.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-78%2F78%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-82%2F82%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-21%2F28%20Completados-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-22%2F28%20Completados-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -313,6 +313,8 @@ antos undo --ticket T1.1
 | `mesh.status` | Muestra el estado del nodo local y los peers en la red P2P antMesh | `auto` (Lectura) |
 | `mesh.connect` | Conecta a un nodo peer remoto mediante IP o multiaddr (QUIC) | `confirm` |
 | `mesh.pair` | Genera un token seguro de emparejamiento con 15m de expiración | `auto` |
+| `flow.swarm_status` | Inspección de nodos y matriz de distribución de agentes en el Swarm | `auto` (Lectura) |
+| `flow.dispatch_remote` | Despacho distribuido de roles antFlow a nodos con sincronización de worktrees | `confirm` |
 | `project.scaffold` | Creación y andamiaje inicial de proyectos (Rust, TS, Python) | `confirm` |
 | `pkg.declare` | Declaración de dependencias en manifiestos de proyecto | `confirm` |
 | `fs.write` / `fs.delete` | Modificación y eliminación controlada de archivos con instantánea | `confirm` / `grant` |
@@ -347,7 +349,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 8** | [T8.1](docs/tickets/T8.1-visor-de-diffs-interactivo-y-terminal-embebido-en-wayland.md) · Visor de Diffs Interactivo y Terminal Embebido en Wayland | ✅ Completado |
 | **Fase 8** | [T8.2](docs/tickets/T8.2-bandeja-de-notificaciones-y-aprobaciones-asíncronas-para-agentes.md) · Bandeja de Notificaciones y Aprobaciones Asíncronas para Agentes | ✅ Completado |
 | **Fase 9** | [T9.1](docs/tickets/T9.1-protocolo-de-red-p2p-cifrado-antmesh-con-descubrimiento-mdns-y-quic.md) · Protocolo de Red P2P Cifrado (antMesh) con Descubrimiento mDNS y QUIC | ✅ Completado |
-| **Fase 9** | [T9.2](docs/tickets/T9.2-despacho-distribuido-de-roles-antflow-a-nodos-de-gpu-y-sincronización-de-worktrees.md) · Despacho Distribuido de Roles antFlow a Nodos de GPU y Sincronización | ⏳ Pendiente |
+| **Fase 9** | [T9.2](docs/tickets/T9.2-despacho-distribuido-de-roles-antflow-a-nodos-de-gpu-y-sincronización-de-worktrees.md) · Despacho Distribuido de Roles antFlow a Nodos de GPU y Sincronización | ✅ Completado |
 | **Fase 10** | [T10.1](docs/tickets/T10.1-sistema-de-ficheros-virtual-fuse-para-inspección-de-ast-símbolos-y-diffs-antfs.md) · Sistema de Ficheros Virtual FUSE para Inspección de AST, Símbolos y Diffs (/antfs) | ⏳ Pendiente |
 | **Fase 10** | [T10.2](docs/tickets/T10.2-interceptores-de-escritura-semántica-con-validación-tipada-previa-a-disco.md) · Interceptores de Escritura Semántica con Validación Tipada Previa a Disco | ⏳ Pendiente |
 | **Fase 11** | [T11.1](docs/tickets/T11.1-supervisor-kernel-ebpf-lsm-para-detección-de-fugas-de-sandbox-y-syscalls-anómalas.md) · Supervisor Kernel eBPF (LSM) para Detección de Fugas de Sandbox y Syscalls | ⏳ Pendiente |

@@ -21,6 +21,7 @@ pub mod diff_view;
 pub mod vte;
 pub mod notification;
 pub mod mesh;
+pub mod distributed;
 mod ipc;
 mod journal;
 mod plan;
@@ -39,7 +40,7 @@ use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
 use planner::{claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner, Planner};
-use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW, BLUE};
+use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW, BLUE, CYAN};
 
 #[derive(Default)]
 struct Opts {
@@ -110,7 +111,8 @@ fn run() -> Result<()> {
         "diff" | "diffs" => cmd_diff(&ctx, &rest[1..]),
         "vte" | "term" | "terminal" => cmd_terminal(&rest[1..]),
         "notify" | "notif" | "notificaciones" => cmd_notify(&ctx, &rest[1..]),
-        "mesh" | "p2p" | "swarm" => cmd_mesh(&ctx, &rest[1..]),
+        "mesh" | "p2p" => cmd_mesh(&ctx, &rest[1..]),
+        "swarm" => cmd_swarm(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1158,7 +1160,7 @@ fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
                         antos_protocolo::NotificationKind::TaskFinished => paint("✓ TAREA COMPLETADA", GREEN),
                         antos_protocolo::NotificationKind::QAFailed => paint("✗ QA FALLIDO", RED),
                         antos_protocolo::NotificationKind::SecurityAlert => paint("🛡️ ALERTA SEGURIDAD", RED),
-                        antos_protocolo::NotificationKind::System => paint("ℹ️ SISTEMA", CYAN_COLOR),
+                        antos_protocolo::NotificationKind::System => paint("ℹ️ SISTEMA", CYAN),
                     };
 
                     println!("  {} [{}] {} — {}", mark, paint(&n.id, BOLD), kind_badge, paint(&n.ticket_id, BOLD));
@@ -1251,6 +1253,75 @@ fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+// -------------------------------------------------------------------- swarm
+
+fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let engine = distributed::SwarmEngine::global();
+    let sub = args.first().map(String::as_str);
+
+    match sub {
+        Some("dispatch" | "despacha") => {
+            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos swarm dispatch <TID> [--role <coder|qa>] [--node <ID>]"))?;
+            let role = if args.iter().any(|a| a == "--qa") {
+                antos_protocolo::AgentRole::QA
+            } else {
+                antos_protocolo::AgentRole::Coder
+            };
+            let node_target = args.iter().position(|a| a == "--node" || a == "-n").and_then(|i| args.get(i + 1)).map(String::as_str);
+            let task = engine.dispatch_remote_role(&ctx.workspace, ticket_id, role, node_target)?;
+            println!("\n{} Tarea distribuida despachada al Swarm.", paint("✓", GREEN));
+            println!("  • Tarea ID:   {}", paint(&task.task_id, BOLD));
+            println!("  • Ticket:     {}", paint(&task.ticket_id, YELLOW));
+            println!("  • Rol:        {}", paint(task.role.nombre(), BOLD));
+            println!("  • Nodo:       {}", paint(&task.assigned_node_id, GREEN));
+            println!("  • Rama:       {}", paint(&task.worktree_branch, DIM));
+            if let Some(m) = task.target_model {
+                println!("  • Modelo LLM: {}", paint(&m, CYAN));
+            }
+            println!();
+        }
+        _ => {
+            let status = engine.status(&ctx.workspace)?;
+            println!("\n{}", paint("antOS · Centro de Control Swarm Multi-Nodo (T9.2)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            println!("  Nodos en el clúster: {} · Tareas activas: {}\n",
+                paint(&status.nodes.len().to_string(), BOLD),
+                paint(&status.total_tasks.to_string(), GREEN)
+            );
+
+            for n in &status.nodes {
+                let badge = if n.is_local { paint("● LOCAL", GREEN) } else { paint("🌐 REMOTO", CYAN) };
+                let vram_str = n.vram_available_mb.map(|v| format!("{} MB VRAM", v)).unwrap_or_else(|| "N/A".into());
+                println!("  {} [{}] {} · {} ({} CPUs · {})",
+                    badge,
+                    paint(&n.node_id, BOLD),
+                    paint(&n.hostname, BOLD),
+                    paint(&n.address, YELLOW),
+                    n.cpu_cores,
+                    vram_str
+                );
+
+                if n.running_tasks.is_empty() {
+                    println!("     {} Sin tareas en ejecución.", paint("○", DIM));
+                } else {
+                    for t in &n.running_tasks {
+                        println!("     └─ Tarea {}: rol {:?} en rama {} [{}]",
+                            paint(&t.task_id, BOLD),
+                            t.role,
+                            paint(&t.worktree_branch, DIM),
+                            paint(&t.status, YELLOW)
+                        );
+                    }
+                }
+                println!();
+            }
+            println!("  Usa «antos swarm dispatch <TID> [--node <ID>]» para delegar trabajo a un nodo.\n");
+        }
+    }
     Ok(())
 }
 
@@ -1453,8 +1524,15 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
         "run" => {
             let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto]"))?;
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
+            let node_target = args.iter().position(|a| a == "--node" || a == "-n" || a == "--remote").and_then(|i| args.get(i + 1));
 
             println!("\n{}", paint(&format!("antOS · Orquestador antFlow para {ticket_id}"), BOLD));
+
+            if let Some(target) = node_target {
+                println!("  {} Despachando rol a nodo remoto Swarm: {}", paint("🌐", CYAN), paint(target, BOLD));
+                let _ = distributed::SwarmEngine::global().dispatch_remote_role(&ctx.workspace, ticket_id, antos_protocolo::AgentRole::Coder, Some(target))?;
+            }
+
             let engine = flow::FlowEngine::global();
 
             let task = if auto {
@@ -1535,8 +1613,11 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
+        "swarm" => {
+            cmd_swarm(ctx, &args[1..])?;
+        }
         _ => {
-            bail!("subcomando desconocido para agent. Usa: antos agent run <ticket_id> | antos agent status [ticket_id] | antos agents");
+            bail!("subcomando desconocido para agent. Usa: antos agent run <ticket_id> [--node <id>] | antos agent status [ticket_id] | antos agent swarm | antos agents");
         }
     }
     Ok(())
@@ -1555,7 +1636,7 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  {} Servicio:      {}", paint("●", GREEN), paint(&info.name, BOLD));
             println!("  {} Puerto:        {}", paint("●", GREEN), paint(&info.port.to_string(), YELLOW));
             println!("  {} Estado:        {}", paint("●", GREEN), paint(&info.status, GREEN));
-            println!("  {} Variable .env: {}={}", paint("●", GREEN), paint(&info.env_var_key, BOLD), paint(&info.env_var_value, CYAN_COLOR));
+            println!("  {} Variable .env: {}={}", paint("●", GREEN), paint(&info.env_var_key, BOLD), paint(&info.env_var_value, CYAN));
             println!("  {} Almacenamiento: {}\n", paint("●", GREEN), paint(&info.data_dir, DIM));
         }
         "down" | "stop" => {
@@ -1602,8 +1683,6 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
     Ok(())
 }
-
-const CYAN_COLOR: &str = "\x1b[36m";
 
 fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     if let Some(pos) = args.iter().position(|a| a == "--dispatch" || a == "-d") {

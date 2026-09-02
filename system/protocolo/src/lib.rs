@@ -189,6 +189,37 @@ pub struct MeshStatus {
     pub peers: Vec<PeerNode>,
 }
 
+// ----------------------------------------------------------- swarm distribuido (T9.2)
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmTaskAssignment {
+    pub task_id: String,
+    pub ticket_id: String,
+    pub role: AgentRole,
+    pub assigned_node_id: String,
+    pub target_model: Option<String>,
+    pub worktree_branch: String,
+    pub status: String,
+    pub started_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmNodeStatus {
+    pub node_id: String,
+    pub hostname: String,
+    pub address: String,
+    pub is_local: bool,
+    pub vram_available_mb: Option<u64>,
+    pub cpu_cores: usize,
+    pub running_tasks: Vec<SwarmTaskAssignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmStatus {
+    pub nodes: Vec<SwarmNodeStatus>,
+    pub total_tasks: usize,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -585,6 +616,17 @@ pub enum Peticion {
     GenerarTokenEmparejamiento {
         workspace_path: String,
     },
+    /// Consulta el estado de distribución de tareas del Swarm multi-agente (T9.2)
+    ConsultarSwarm {
+        workspace_path: String,
+    },
+    /// Despacha un rol específico de un ticket a un nodo remoto o auto-seleccionado (T9.2)
+    DespacharRolRemoto {
+        workspace_path: String,
+        ticket_id: String,
+        role: AgentRole,
+        node_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -633,6 +675,16 @@ pub enum Evento {
     /// Resultado de la conexión a un nodo peer (T9.1)
     ResultadoConexionPeer {
         address: String,
+        success: bool,
+        message: String,
+    },
+    /// Respuesta con el estado del clúster Swarm y roles asignados (T9.2)
+    EstadoSwarm(SwarmStatus),
+    /// Resultado del despacho de un rol a un nodo Swarm (T9.2)
+    ResultadoDespachoSwarm {
+        ticket_id: String,
+        role: AgentRole,
+        assigned_node_id: String,
         success: bool,
         message: String,
     },
@@ -916,6 +968,50 @@ mod tests {
         let event = Evento::EstadoMesh(status.clone());
         let json_ev = serde_json::to_string(&event).expect("serialize mesh event");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize mesh event");
+        assert_eq!(event, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_swarm() {
+        let task = SwarmTaskAssignment {
+            task_id: "task-001".into(),
+            ticket_id: "T9.2".into(),
+            role: AgentRole::Coder,
+            assigned_node_id: "node-gpu-1".into(),
+            target_model: Some("deepseek-coder:33b".into()),
+            worktree_branch: "agent/T9.2/coder".into(),
+            status: "Running".into(),
+            started_at: 1700000000,
+        };
+
+        let node = SwarmNodeStatus {
+            node_id: "node-gpu-1".into(),
+            hostname: "cluster-rig-01".into(),
+            address: "10.0.0.5:9042".into(),
+            is_local: false,
+            vram_available_mb: Some(49152),
+            cpu_cores: 32,
+            running_tasks: vec![task.clone()],
+        };
+
+        let swarm_status = SwarmStatus {
+            nodes: vec![node],
+            total_tasks: 1,
+        };
+
+        let req = Peticion::DespacharRolRemoto {
+            workspace_path: "/ws".into(),
+            ticket_id: "T9.2".into(),
+            role: AgentRole::Coder,
+            node_id: Some("node-gpu-1".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize swarm req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize swarm req");
+        assert_eq!(req, des_req);
+
+        let event = Evento::EstadoSwarm(swarm_status.clone());
+        let json_ev = serde_json::to_string(&event).expect("serialize swarm event");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize swarm event");
         assert_eq!(event, des_ev);
     }
 }

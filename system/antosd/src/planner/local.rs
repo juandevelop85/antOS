@@ -94,6 +94,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("peer")
             && !lower.contains("p2p")
             && !lower.contains("malla")
+            && !lower.contains("swarm")
+            && !lower.contains("enjambre")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -371,6 +373,32 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("mesh.status", &[])]));
         }
 
+        // Intenciones de Swarm y despacho distribuido de agentes (T9.2)
+        if lower.contains("swarm") || lower.contains("enjambre") || lower.contains("despacha") || lower.contains("dispatch") || (lower.contains("agente") && (lower.contains("distribu") || lower.contains("remoto"))) {
+            if lower.contains("despacha") || lower.contains("dispatch") || lower.contains("envia") || lower.contains("asigna") {
+                let ticket_id = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
+                    .cloned()
+                    .unwrap_or_else(|| "T1.1".into())
+                    .to_uppercase();
+
+                let role = if lower.contains("qa") || lower.contains("test") {
+                    "qa"
+                } else if lower.contains("auditor") {
+                    "auditor"
+                } else {
+                    "coder"
+                };
+
+                let node_target = after(&words, &["nodo", "node"]);
+                let mut args = vec![("ticket_id", ticket_id.as_str()), ("role", role)];
+                if let Some(ref n) = node_target {
+                    args.push(("node", n.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("flow.dispatch_remote", &args)]));
+            }
+            return Ok(Propuesta::solo(vec![step("flow.swarm_status", &[])]));
+        }
+
         // Intenciones de secretos y concesiones (T5.2)
         if (!lower.contains("busca") && !lower.contains("search"))
             && (lower.contains("secreto")
@@ -415,6 +443,9 @@ impl Planner for LocalPlanner {
         // Intenciones de tickets y especificaciones
         if (lower.contains("ticket") || lower.contains("especificación") || lower.contains("especificacion"))
             && !lower.contains("grafo")
+            && !lower.contains("despacha")
+            && !lower.contains("dispatch")
+            && !lower.contains("swarm")
         {
             if lower.contains("crea") || lower.contains("nuevo") || lower.contains("agrega") || lower.contains("new") {
                 let id_cand = words.iter().find(|w| w.starts_with('t') && w.chars().nth(1).map(|c| c.is_numeric()).unwrap_or(false))
@@ -812,5 +843,27 @@ mod tests {
             .expect("plan mesh pair");
         assert_eq!(p_pair.steps.len(), 1);
         assert_eq!(p_pair.steps[0].capability, "mesh.pair");
+    }
+
+    #[test]
+    fn test_plan_swarm_distribuido() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_status = planner
+            .plan("muestra el estado del swarm", &catalog)
+            .expect("plan swarm status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "flow.swarm_status");
+
+        let p_disp = planner
+            .plan("despacha el rol coder del ticket T9.2 al nodo node-gpu-01", &catalog)
+            .expect("plan swarm dispatch");
+        assert_eq!(p_disp.steps.len(), 1);
+        assert_eq!(p_disp.steps[0].capability, "flow.dispatch_remote");
+        assert_eq!(p_disp.steps[0].args.get("ticket_id").map(String::as_str), Some("T9.2"));
+        assert_eq!(p_disp.steps[0].args.get("role").map(String::as_str), Some("coder"));
+        assert_eq!(p_disp.steps[0].args.get("node").map(String::as_str), Some("node-gpu-01"));
     }
 }

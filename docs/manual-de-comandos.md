@@ -30,6 +30,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.13 Inferencia LLM Local con Ollama (`antos llm`)](#413-inferencia-llm-local-con-ollama-antos-llm)
    - [4.14 Bitácora Inmutable y Reversión Atómica (`antos log`, `antos undo`)](#414-bitácora-inmutable-y-reversión-atómica-antos-log-antos-undo)
    - [4.15 Red P2P Cifrada antMesh (`antos mesh`)](#415-red-p2p-cifrada-antmesh-antos-mesh)
+   - [4.16 Swarm Multi-Nodo y Despacho Distribuido (`antos swarm`)](#416-swarm-multi-nodo-y-despacho-distribuido-antos-swarm)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -222,6 +223,13 @@ antos agent run T1.1
 
 # Ejecutar el ticket en modo completamente automatizado (auto-reintento en QA)
 antos agent run T1.1 --auto
+
+# Despachar el ticket delegando roles a un nodo remoto específico o clúster de cómputo
+antos agent run T9.2 --node node-gpu-01
+antos agent run T9.2 --remote
+
+# Consultar el estado del Swarm distribuido desde el subcomando de agentes
+antos agent swarm
 
 # Consultar el estado actual, worktree asignado e historial de transiciones del ticket
 antos agent status T1.1
@@ -501,6 +509,26 @@ antos mesh pair
 # Conectar a un nodo peer remoto mediante dirección IP/puerto o multiaddr
 antos mesh connect 192.168.1.50:9042
 antos mesh connect /ip4/192.168.1.50/udp/9042/quic
+```
+
+---
+
+### 4.16 Swarm Multi-Nodo y Despacho Distribuido (`antos swarm`)
+
+Centro de control para orquestación de agentes distribuidos y sincronización transparente de worktrees:
+
+```bash
+# Visualizar la matriz de nodos del clúster Swarm, cores de CPU, VRAM y tareas activas
+antos swarm
+
+# Despachar una subtarea de desarrollo delegándola a un nodo remoto específico
+antos swarm dispatch T9.2 --node node-3b95c1d25f
+
+# Despachar delegando el rol de QA a un nodo con múltiples cores de CPU
+antos swarm dispatch T9.2 --qa --node node-cpu-cluster
+
+# Sincronización automática de worktrees efímeros mediante bundles Git sobre la malla
+antos swarm dispatch T1.1
 ```
 
 ---

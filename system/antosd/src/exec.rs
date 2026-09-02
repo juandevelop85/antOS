@@ -161,6 +161,15 @@ pub enum Change {
     MeshPair {
         workspace: PathBuf,
     },
+    SwarmStatus {
+        workspace: PathBuf,
+    },
+    SwarmDispatch {
+        workspace: PathBuf,
+        ticket_id: String,
+        role: antos_protocolo::AgentRole,
+        node: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -233,7 +242,9 @@ impl Pendiente {
             | Change::NotifyAction { .. }
             | Change::MeshStatus { .. }
             | Change::MeshConnect { .. }
-            | Change::MeshPair { .. } => {}
+            | Change::MeshPair { .. }
+            | Change::SwarmStatus { .. }
+            | Change::SwarmDispatch { .. } => {}
         }
     }
 }
@@ -630,6 +641,30 @@ pub fn changes_for(
         "mesh.pair" => {
             Ok(vec![Change::MeshPair {
                 workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "flow.swarm_status" => {
+            Ok(vec![Change::SwarmStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "flow.dispatch_remote" => {
+            let ticket_id = a.get("ticket_id").cloned().unwrap_or_else(|| "T1.1".into());
+            let role_str = a.get("role").map(String::as_str).unwrap_or("coder");
+            let role = match role_str {
+                "arquitecto" | "architect" => antos_protocolo::AgentRole::Arquitecto,
+                "qa" | "tester" => antos_protocolo::AgentRole::QA,
+                "auditor" => antos_protocolo::AgentRole::Auditor,
+                _ => antos_protocolo::AgentRole::Coder,
+            };
+            let node = a.get("node").cloned();
+            Ok(vec![Change::SwarmDispatch {
+                workspace: ctx.workspace.clone(),
+                ticket_id,
+                role,
+                node,
             }])
         }
 
@@ -1118,6 +1153,26 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::MeshPair { workspace } => {
                 let token = crate::mesh::MeshEngine::global().generate_pairing_token(workspace)?;
                 output.push(format!("token de emparejamiento generado: {} (nodo {})", token.token, token.node_id));
+            }
+            Change::SwarmStatus { workspace } => {
+                let status = crate::distributed::SwarmEngine::global().status(workspace)?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Swarm: {} nodos activos, {} tareas en curso", status.nodes.len(), status.total_tasks));
+                for n in status.nodes {
+                    let loc_str = if n.is_local { "[Local]" } else { "[Remoto]" };
+                    lines.push(format!("  • {} {} ({}) - {} cores, VRAM: {:?}", n.hostname, loc_str, n.address, n.cpu_cores, n.vram_available_mb));
+                    for t in n.running_tasks {
+                        lines.push(format!("      └─ Tarea {}: rol {:?}, rama {}", t.ticket_id, t.role, t.worktree_branch));
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::SwarmDispatch { workspace, ticket_id, role, node } => {
+                let task = crate::distributed::SwarmEngine::global()
+                    .dispatch_remote_role(workspace, ticket_id, *role, node.as_deref())?;
+                output.push(format!("rol {:?} del ticket {} despachado al nodo {} (rama {})",
+                    task.role, task.ticket_id, task.assigned_node_id, task.worktree_branch
+                ));
             }
         }
     }

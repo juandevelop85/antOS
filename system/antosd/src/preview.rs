@@ -205,6 +205,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::MeshPair { .. } => {
                 out.push(Line::Info("genera un token criptográfico de emparejamiento con 15m de expiración".into()));
             }
+            Change::SwarmStatus { .. } => {
+                out.push(Line::Info("consulta la matriz de distribución de agentes y tareas en el Swarm".into()));
+            }
+            Change::SwarmDispatch { ticket_id, role, node, .. } => {
+                let n_str = node.as_deref().unwrap_or("auto");
+                out.push(Line::Info(format!("despacha el rol «{:?}» del ticket {ticket_id} al nodo «{n_str}»", role)));
+            }
         }
         pendiente.aplicar(change);
     }

@@ -1,0 +1,11 @@
+name = "flow.swarm_status"
+summary = "Visualiza la matriz de distribución de agentes y tareas en ejecución en el Swarm"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE/.antos"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

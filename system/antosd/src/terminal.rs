@@ -16,6 +16,7 @@ pub const RED: &str = "31";
 pub const GREEN: &str = "32";
 pub const YELLOW: &str = "33";
 pub const BLUE: &str = "34";
+pub const CYAN: &str = "36";
 
 pub fn tier_color(tier: Tier) -> &'static str {
     match tier {

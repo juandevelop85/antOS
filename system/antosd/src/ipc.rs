@@ -323,6 +323,40 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ConsultarSwarm { workspace_path } => {
+            let ws = Path::new(&workspace_path);
+            match crate::distributed::SwarmEngine::global().status(ws) {
+                Ok(status) => {
+                    enviar(&mut escritura, &Evento::EstadoSwarm(status))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
+        Peticion::DespacharRolRemoto { workspace_path, ticket_id, role, node_id } => {
+            let ws = Path::new(&workspace_path);
+            match crate::distributed::SwarmEngine::global().dispatch_remote_role(ws, &ticket_id, role, node_id.as_deref()) {
+                Ok(task) => {
+                    enviar(&mut escritura, &Evento::ResultadoDespachoSwarm {
+                        ticket_id,
+                        role,
+                        assigned_node_id: task.assigned_node_id,
+                        success: true,
+                        message: format!("tarea {} despachada con éxito en nodo {}", task.task_id, task.status),
+                    })?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::ResultadoDespachoSwarm {
+                        ticket_id,
+                        role,
+                        assigned_node_id: node_id.unwrap_or_else(|| "unknown".into()),
+                        success: false,
+                        message: format!("{e:#}"),
+                    })?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -425,6 +459,16 @@ pub fn intencion_remota(
                     pantalla.nota(&format!("✓ peer {address}: {message}"))?;
                 } else {
                     pantalla.nota(&format!("✗ peer {address}: {message}"))?;
+                }
+            }
+            Evento::EstadoSwarm(status) => {
+                pantalla.nota(&format!("antOS Swarm: {} nodos ({} tareas activas)", status.nodes.len(), status.total_tasks))?;
+            }
+            Evento::ResultadoDespachoSwarm { ticket_id, role, assigned_node_id, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                } else {
+                    pantalla.nota(&format!("✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),

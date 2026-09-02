@@ -1,0 +1,14 @@
+name = "flow.dispatch_remote"
+summary = "Delega un rol de agente antFlow a un nodo de GPU o computación de la malla antMesh"
+
+[params]
+ticket_id = { type = "text" }
+role = { type = "text" }
+node = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/.antos/swarm_tasks.json", "$WORKSPACE/.antos/bundles"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"
