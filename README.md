@@ -3,10 +3,10 @@
 > **El Sistema Operativo Personal para Desarrolladores impulsado por IA y Orquestación Multi-Agente Nativa.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-86%2F86%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-92%2F92%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-23%2F28%20Completados-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-24%2F28%20Completados-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -318,6 +318,8 @@ antos undo --ticket T1.1
 | `vfs.query` | Consulta símbolos, nodos del AST o diffs proyectados en /antfs | `auto` (Lectura) |
 | `vfs.mount` | Monta la proyección del sistema de ficheros virtual /antfs en el workspace | `confirm` |
 | `vfs.unmount` | Desmonta y limpia el punto de montaje virtual /antfs | `confirm` |
+| `vfs.validate_write` | Intercepta y valida sintaxis de archivos en memoria previa a disco | `auto` |
+| `vfs.guard_status` | Métricas y estado del interceptor de escrituras semánticas | `auto` (Lectura) |
 | `project.scaffold` | Creación y andamiaje inicial de proyectos (Rust, TS, Python) | `confirm` |
 | `pkg.declare` | Declaración de dependencias en manifiestos de proyecto | `confirm` |
 | `fs.write` / `fs.delete` | Modificación y eliminación controlada de archivos con instantánea | `confirm` / `grant` |
@@ -354,7 +356,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 9** | [T9.1](docs/tickets/T9.1-protocolo-de-red-p2p-cifrado-antmesh-con-descubrimiento-mdns-y-quic.md) · Protocolo de Red P2P Cifrado (antMesh) con Descubrimiento mDNS y QUIC | ✅ Completado |
 | **Fase 9** | [T9.2](docs/tickets/T9.2-despacho-distribuido-de-roles-antflow-a-nodos-de-gpu-y-sincronización-de-worktrees.md) · Despacho Distribuido de Roles antFlow a Nodos de GPU y Sincronización | ✅ Completado |
 | **Fase 10** | [T10.1](docs/tickets/T10.1-sistema-de-ficheros-virtual-fuse-para-inspección-de-ast-símbolos-y-diffs-antfs.md) · Sistema de Ficheros Virtual FUSE para Inspección de AST, Símbolos y Diffs (/antfs) | ✅ Completado |
-| **Fase 10** | [T10.2](docs/tickets/T10.2-interceptores-de-escritura-semántica-con-validación-tipada-previa-a-disco.md) · Interceptores de Escritura Semántica con Validación Tipada Previa a Disco | ⏳ Pendiente |
+| **Fase 10** | [T10.2](docs/tickets/T10.2-interceptores-de-escritura-semántica-con-validación-tipada-previa-a-disco.md) · Interceptores de Escritura Semántica con Validación Tipada Previa a Disco | ✅ Completado |
 | **Fase 11** | [T11.1](docs/tickets/T11.1-supervisor-kernel-ebpf-lsm-para-detección-de-fugas-de-sandbox-y-syscalls-anómalas.md) · Supervisor Kernel eBPF (LSM) para Detección de Fugas de Sandbox y Syscalls | ⏳ Pendiente |
 | **Fase 11** | [T11.2](docs/tickets/T11.2-profiler-continuo-de-cpu-y-memoria-en-runtime-con-sugerencias-de-optimización-para-agentes.md) · Profiler Continuo de CPU y Memoria en Runtime con Sugerencias de Optimización | ⏳ Pendiente |
 | **Fase 12** | [T12.1](docs/tickets/T12.1-servidor-language-server-protocol-lsp-unificado-alimentado-por-la-memoria-semántica.md) · Servidor LSP Unificado Alimentado por la Memoria Semántica | ⏳ Pendiente |

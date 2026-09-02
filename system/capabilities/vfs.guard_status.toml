@@ -1,0 +1,11 @@
+name = "vfs.guard_status"
+summary = "Consulta las métricas y estado del interceptor de escrituras semánticas"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

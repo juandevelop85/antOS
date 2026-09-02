@@ -1,0 +1,13 @@
+name = "vfs.validate_write"
+summary = "Intercepta y valida sintácticamente un buffer de código antes de persistir a disco"
+
+[params]
+file_path = { type = "text" }
+content = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

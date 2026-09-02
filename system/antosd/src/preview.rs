@@ -224,6 +224,12 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let m = mount_point.as_deref().unwrap_or(".antos/mnt/antfs");
                 out.push(Line::Info(format!("desmonta y limpia el punto de montaje «{m}»")));
             }
+            Change::VfsValidateWrite { file_path, .. } => {
+                out.push(Line::Info(format!("intercepta y valida sintaxis del archivo «{file_path}» antes de persistir")));
+            }
+            Change::VfsGuardStatus { .. } => {
+                out.push(Line::Info("consulta métricas del interceptor sintáctico VFS Guard".into()));
+            }
         }
         pendiente.aplicar(change);
     }

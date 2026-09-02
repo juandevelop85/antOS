@@ -182,6 +182,14 @@ pub enum Change {
         workspace: PathBuf,
         mount_point: Option<String>,
     },
+    VfsValidateWrite {
+        workspace: PathBuf,
+        file_path: String,
+        content: Option<String>,
+    },
+    VfsGuardStatus {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -259,7 +267,9 @@ impl Pendiente {
             | Change::SwarmDispatch { .. }
             | Change::VfsQuery { .. }
             | Change::VfsMount { .. }
-            | Change::VfsUnmount { .. } => {}
+            | Change::VfsUnmount { .. }
+            | Change::VfsValidateWrite { .. }
+            | Change::VfsGuardStatus { .. } => {}
         }
     }
 }
@@ -707,6 +717,22 @@ pub fn changes_for(
             }])
         }
 
+        "vfs.validate_write" => {
+            let file_path = a.get("file_path").cloned().unwrap_or_default();
+            let content = a.get("content").cloned();
+            Ok(vec![Change::VfsValidateWrite {
+                workspace: ctx.workspace.clone(),
+                file_path,
+                content,
+            }])
+        }
+
+        "vfs.guard_status" => {
+            Ok(vec![Change::VfsGuardStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
         other => bail!("no hay implementación para la capacidad «{other}»"),
     }
 }
@@ -716,6 +742,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
     for change in changes {
         match change {
             Change::Write { path, content } => {
+                let guard = crate::vfs_guard::VfsGuardEngine::global();
+                let val = guard.intercept_write(&path.display().to_string(), content)?;
+                if !val.is_valid {
+                    let err_msgs: Vec<String> = val.errors.iter().map(|e| format!("  • L{}:{}: {}", e.line, e.column, e.message)).collect();
+                    bail!("escritura rechazada por el interceptor sintáctico VFS ({}):\n{}", path.display(), err_msgs.join("\n"));
+                }
                 if let Some(parent) = path.parent() {
                     std::fs::create_dir_all(parent)
                         .with_context(|| format!("creando el directorio {}", parent.display()))?;
@@ -1236,6 +1268,42 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::VfsUnmount { workspace, mount_point } => {
                 crate::vfs::VfsEngine::global().unmount(workspace, mount_point.as_deref())?;
                 output.push("sistema de ficheros virtual /antfs desmontado correctamente".into());
+            }
+            Change::VfsValidateWrite { workspace, file_path, content } => {
+                let target_path = workspace.join(file_path);
+                let text = match content {
+                    Some(c) => c.clone(),
+                    None => {
+                        if target_path.exists() {
+                            std::fs::read_to_string(&target_path)?
+                        } else {
+                            bail!("el archivo {} no existe en el workspace", target_path.display());
+                        }
+                    }
+                };
+                let res = crate::vfs_guard::VfsGuardEngine::global().validate_content(file_path, &text);
+                let mut lines = Vec::new();
+                if res.is_valid {
+                    lines.push(format!("✓ archivo «{}» sintácticamente correcto (lenguaje: {}, {} líneas)", file_path, res.language, res.line_count));
+                } else {
+                    lines.push(format!("✗ archivo «{}» contiene {} error(es) sintáctico(s) (lenguaje: {}):", file_path, res.errors.len(), res.language));
+                    for err in res.errors {
+                        lines.push(format!("    • L{}:{}: {}", err.line, err.column, err.message));
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::VfsGuardStatus { .. } => {
+                let status = crate::vfs_guard::VfsGuardEngine::global().status()?;
+                let mut lines = Vec::new();
+                let state_str = if status.enabled { "ACTIVO" } else { "INACTIVO" };
+                lines.push(format!("antOS VFS Guard: [{state_str}]"));
+                lines.push(format!("  • Escrituras interceptadas: {}", status.total_intercepted));
+                lines.push(format!("  • Escrituras rechazadas:    {}", status.total_rejected));
+                if !status.rejected_paths.is_empty() {
+                    lines.push(format!("  • Ficheros protegidos contra corrupción: {}", status.rejected_paths.join(", ")));
+                }
+                output.push(lines.join("\n"));
             }
         }
     }

@@ -560,6 +560,13 @@ antos vfs mount .antos/mnt/antfs
 
 # Desmontar y limpiar el punto de montaje virtual
 antos vfs unmount
+
+# Validar la integridad sintáctica de un fichero antes de persistir (T10.2)
+antos vfs validate src/main.rs
+antos vfs validate frontend/index.ts
+
+# Consultar el estado y estadísticas del interceptor de escrituras semánticas (T10.2)
+antos vfs guard
 ```
 
 ---

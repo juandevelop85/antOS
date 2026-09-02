@@ -23,6 +23,7 @@ pub mod notification;
 pub mod mesh;
 pub mod distributed;
 pub mod vfs;
+pub mod vfs_guard;
 mod ipc;
 mod journal;
 mod plan;
@@ -1379,9 +1380,47 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
+        Some("validate" | "check" | "valida") => {
+            let rel = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos vfs validate <archivo> (ej. src/main.rs)"))?;
+            let abs_path = ctx.workspace.join(rel);
+            if !abs_path.exists() {
+                bail!("el archivo «{}» no existe en el espacio de trabajo", abs_path.display());
+            }
+            let text = std::fs::read_to_string(&abs_path)?;
+            let guard = vfs_guard::VfsGuardEngine::global();
+            let res = guard.validate_content(rel, &text);
+            println!("\n{} Validación de integridad sintáctica VFS", paint("antOS ·", BOLD));
+            println!("  Archivo:  {}", paint(rel, YELLOW));
+            println!("  Lenguaje: {} ({} líneas)\n", paint(&res.language, BOLD), res.line_count);
+            if res.is_valid {
+                println!("  {} El archivo es sintácticamente válido y seguro para persistir.\n", paint("✓ Aprobado:", GREEN));
+            } else {
+                println!("  {} Se detectaron {} problema(s) sintáctico(s):", paint("✗ Rechazado:", RED), res.errors.len());
+                for err in res.errors {
+                    println!("    • Línea {}, columna {}: {}", paint(&err.line.to_string(), YELLOW), err.column, err.message);
+                }
+                println!();
+            }
+        }
+        Some("guard" | "guardia" | "interceptor") => {
+            let guard = vfs_guard::VfsGuardEngine::global();
+            let status = guard.status()?;
+            println!("\n{}", paint("antOS VFS · Interceptor de Escrituras Semánticas (T10.2)", BOLD));
+            let state_str = if status.enabled { paint("● ACTIVO (ENFORCING)", GREEN) } else { paint("○ INACTIVO", DIM) };
+            println!("  Estado del interceptor:   {}", state_str);
+            println!("  Escrituras interceptadas: {}", paint(&status.total_intercepted.to_string(), BOLD));
+            println!("  Escrituras rechazadas:    {}", paint(&status.total_rejected.to_string(), if status.total_rejected > 0 { RED } else { GREEN }));
+            if !status.rejected_paths.is_empty() {
+                println!("\n  Ficheros protegidos contra corrupción sintáctica:");
+                for p in status.rejected_paths {
+                    println!("    • {}", paint(&p, YELLOW));
+                }
+            }
+            println!("\n  Usa «antos vfs validate <archivo>» para probar validación previa.\n");
+        }
         _ => {
             let status = engine.status(&ctx.workspace)?;
-            println!("\n{}", paint("antOS · Sistema de Ficheros Virtual FUSE (/antfs) - T10.1", BOLD));
+            println!("\n{}", paint("antOS · Sistema de Ficheros Virtual FUSE (/antfs) - T10.1 & T10.2", BOLD));
             println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
 
             let mnt_badge = if status.is_mounted { paint("● MONTADO", GREEN) } else { paint("○ NO MONTADO", DIM) };
@@ -1397,7 +1436,9 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos vfs ls [ruta]        Explora la jerarquía /antfs (symbols, graph, git)");
             println!("    • antos vfs read <ruta>      Lee el código o diff de un inodo virtual");
             println!("    • antos vfs mount [ruta]     Proyecta /antfs en el disco local");
-            println!("    • antos vfs unmount [ruta]   Desmonta la proyección /antfs\n");
+            println!("    • antos vfs unmount [ruta]   Desmonta la proyección /antfs");
+            println!("    • antos vfs validate <file>  Valida la integridad sintáctica antes de persistir");
+            println!("    • antos vfs guard            Muestra métricas del interceptor de escrituras\n");
         }
     }
     Ok(())

@@ -239,6 +239,33 @@ pub struct VfsStatus {
     pub total_modules: usize,
 }
 
+// --------------------------------------------------- vfs interceptor guard (T10.2)
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyntaxValidationError {
+    pub line: usize,
+    pub column: usize,
+    pub message: String,
+    pub severity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub is_valid: bool,
+    pub language: String,
+    pub errors: Vec<SyntaxValidationError>,
+    pub line_count: usize,
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VfsGuardStatus {
+    pub enabled: bool,
+    pub total_intercepted: usize,
+    pub total_rejected: usize,
+    pub rejected_paths: Vec<String>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -661,6 +688,15 @@ pub enum Peticion {
         workspace_path: String,
         mount_point: Option<String>,
     },
+    /// Intercepta y valida sintácticamente un buffer de código antes de persistir (T10.2)
+    ValidarEscrituraVfs {
+        file_path: String,
+        content: String,
+    },
+    /// Consulta el estado del interceptor de escrituras semánticas (T10.2)
+    ConsultarGuardVfs {
+        workspace_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -738,6 +774,10 @@ pub enum Evento {
         success: bool,
         message: String,
     },
+    /// Resultado de la validación sintáctica previa a disco (T10.2)
+    ResultadoValidacionVfs(ValidationResult),
+    /// Estado del interceptor de escrituras semánticas (T10.2)
+    EstadoGuardVfs(VfsGuardStatus),
     Error(String),
 }
 
@@ -1090,5 +1130,46 @@ mod tests {
         let json_ev = serde_json::to_string(&event).expect("serialize vfs event");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize vfs event");
         assert_eq!(event, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_vfs_guard() {
+        let err = SyntaxValidationError {
+            line: 42,
+            column: 15,
+            message: "unclosed delimiter `{`".into(),
+            severity: "error".into(),
+        };
+        let val_res = ValidationResult {
+            is_valid: false,
+            language: "rust".into(),
+            errors: vec![err],
+            line_count: 50,
+            file_path: "src/main.rs".into(),
+        };
+        let guard_status = VfsGuardStatus {
+            enabled: true,
+            total_intercepted: 14,
+            total_rejected: 2,
+            rejected_paths: vec!["src/main.rs".into()],
+        };
+
+        let req = Peticion::ValidarEscrituraVfs {
+            file_path: "src/lib.rs".into(),
+            content: "fn main() {}".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize guard req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize guard req");
+        assert_eq!(req, des_req);
+
+        let ev1 = Evento::ResultadoValidacionVfs(val_res);
+        let json_ev1 = serde_json::to_string(&ev1).expect("serialize val res");
+        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize val res");
+        assert_eq!(ev1, des_ev1);
+
+        let ev2 = Evento::EstadoGuardVfs(guard_status);
+        let json_ev2 = serde_json::to_string(&ev2).expect("serialize guard status");
+        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize guard status");
+        assert_eq!(ev2, des_ev2);
     }
 }

@@ -418,6 +418,14 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ValidarEscrituraVfs { file_path, content } => {
+            let res = crate::vfs_guard::VfsGuardEngine::global().intercept_write(&file_path, &content)?;
+            enviar(&mut escritura, &Evento::ResultadoValidacionVfs(res))?;
+        }
+        Peticion::ConsultarGuardVfs { .. } => {
+            let status = crate::vfs_guard::VfsGuardEngine::global().status()?;
+            enviar(&mut escritura, &Evento::EstadoGuardVfs(status))?;
+        }
     }
     Ok(())
 }
@@ -544,6 +552,16 @@ pub fn intencion_remota(
                 } else {
                     pantalla.nota(&format!("✗ VFS {action}: {message}"))?;
                 }
+            }
+            Evento::ResultadoValidacionVfs(res) => {
+                if res.is_valid {
+                    pantalla.nota(&format!("✓ VFS Guard: «{}» es sintácticamente válido ({} líneas)", res.file_path, res.line_count))?;
+                } else {
+                    pantalla.nota(&format!("✗ VFS Guard: «{}» tiene {} errores sintácticos", res.file_path, res.errors.len()))?;
+                }
+            }
+            Evento::EstadoGuardVfs(status) => {
+                pantalla.nota(&format!("VFS Guard: {} escrituras interceptadas ({} rechazadas)", status.total_intercepted, status.total_rejected))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

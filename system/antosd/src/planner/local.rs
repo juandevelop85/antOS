@@ -419,6 +419,13 @@ impl Planner for LocalPlanner {
                 }
                 return Ok(Propuesta::solo(vec![step("vfs.mount", &args)]));
             }
+            if lower.contains("valida") || lower.contains("validate") || lower.contains("check") || lower.contains("sintaxis") {
+                let file = after(&words, &["archivo", "fichero", "de", "file", "valida"]).unwrap_or_else(|| "src/main.rs".into());
+                return Ok(Propuesta::solo(vec![step("vfs.validate_write", &[("file_path", &file)])]));
+            }
+            if lower.contains("guard") || lower.contains("interceptor") || lower.contains("guardia") {
+                return Ok(Propuesta::solo(vec![step("vfs.guard_status", &[])]));
+            }
             let path = words.iter().find(|w| w.starts_with("/antfs") || w.starts_with("symbols/") || w.starts_with("/symbols")).cloned();
             let mut args = Vec::new();
             if let Some(ref p) = path {
@@ -918,5 +925,17 @@ mod tests {
             .expect("plan vfs query");
         assert_eq!(p_query.steps.len(), 1);
         assert_eq!(p_query.steps[0].capability, "vfs.query");
+
+        let p_val = planner
+            .plan("valida la sintaxis del archivo src/lib.rs en vfs", &catalog)
+            .expect("plan vfs validate");
+        assert_eq!(p_val.steps.len(), 1);
+        assert_eq!(p_val.steps[0].capability, "vfs.validate_write");
+
+        let p_guard = planner
+            .plan("muestra el estado del guard vfs", &catalog)
+            .expect("plan vfs guard status");
+        assert_eq!(p_guard.steps.len(), 1);
+        assert_eq!(p_guard.steps[0].capability, "vfs.guard_status");
     }
 }
