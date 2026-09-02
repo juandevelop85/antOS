@@ -1,0 +1,11 @@
+name = "mesh.pair"
+summary = "Genera un token seguro de emparejamiento con expiración para incorporar un nuevo nodo a antMesh"
+
+[params]
+
+[effects]
+writes = ["$WORKSPACE/.antos/pairing_tokens.json"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

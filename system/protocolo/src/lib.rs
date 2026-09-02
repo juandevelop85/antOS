@@ -155,6 +155,40 @@ pub struct NotificationItem {
     pub actions: Vec<NotificationAction>,
 }
 
+// ----------------------------------------------------------- red p2p / antMesh (T9.1)
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeResources {
+    pub cpu_cores: usize,
+    pub memory_mb: u64,
+    pub vram_mb: Option<u64>,
+    pub available_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeerNode {
+    pub id: String,
+    pub hostname: String,
+    pub address: String,
+    pub latency_ms: u64,
+    pub connected: bool,
+    pub resources: NodeResources,
+    pub last_seen_secs: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairingToken {
+    pub token: String,
+    pub node_id: String,
+    pub expires_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MeshStatus {
+    pub local_node: PeerNode,
+    pub peers: Vec<PeerNode>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -538,6 +572,19 @@ pub enum Peticion {
         notification_id: String,
         action: NotificationAction,
     },
+    /// Consulta el estado de la red P2P antMesh y los peers conocidos (T9.1)
+    ConsultarMesh {
+        workspace_path: String,
+    },
+    /// Conecta a un nodo peer por dirección IP/puerto o multiaddr (T9.1)
+    ConectarPeer {
+        workspace_path: String,
+        address: String,
+    },
+    /// Genera un token seguro de emparejamiento con expiración (T9.1)
+    GenerarTokenEmparejamiento {
+        workspace_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -576,6 +623,16 @@ pub enum Evento {
     /// Respuesta al ejecutar una acción sobre una notificación (T8.2)
     ResultadoNotificacion {
         id: String,
+        success: bool,
+        message: String,
+    },
+    /// Respuesta con el estado de la malla antMesh y lista de peers (T9.1)
+    EstadoMesh(MeshStatus),
+    /// Token de emparejamiento generado para un nuevo nodo (T9.1)
+    TokenEmparejamientoGenerado(PairingToken),
+    /// Resultado de la conexión a un nodo peer (T9.1)
+    ResultadoConexionPeer {
+        address: String,
         success: bool,
         message: String,
     },
@@ -823,6 +880,42 @@ mod tests {
         let event = Evento::ListaNotificaciones(vec![notif.clone()]);
         let json_ev = serde_json::to_string(&event).expect("serialize event notif");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event notif");
+        assert_eq!(event, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_antmesh() {
+        let peer = PeerNode {
+            id: "node-e4f812".into(),
+            hostname: "workstation-gpu".into(),
+            address: "192.168.1.50:9042".into(),
+            latency_ms: 12,
+            connected: true,
+            resources: NodeResources {
+                cpu_cores: 16,
+                memory_mb: 65536,
+                vram_mb: Some(24576),
+                available_models: vec!["qwen2.5-coder:7b".into(), "deepseek-coder:33b".into()],
+            },
+            last_seen_secs: 1700000000,
+        };
+
+        let status = MeshStatus {
+            local_node: peer.clone(),
+            peers: vec![peer.clone()],
+        };
+
+        let req = Peticion::ConectarPeer {
+            workspace_path: "/ws".into(),
+            address: "192.168.1.50:9042".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize mesh req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize mesh req");
+        assert_eq!(req, des_req);
+
+        let event = Evento::EstadoMesh(status.clone());
+        let json_ev = serde_json::to_string(&event).expect("serialize mesh event");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize mesh event");
         assert_eq!(event, des_ev);
     }
 }

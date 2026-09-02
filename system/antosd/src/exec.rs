@@ -151,6 +151,16 @@ pub enum Change {
         notification_id: String,
         action: antos_protocolo::NotificationAction,
     },
+    MeshStatus {
+        workspace: PathBuf,
+    },
+    MeshConnect {
+        workspace: PathBuf,
+        address: String,
+    },
+    MeshPair {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -220,7 +230,10 @@ impl Pendiente {
             | Change::UiDiffViewer { .. }
             | Change::UiTerminal { .. }
             | Change::NotifyList { .. }
-            | Change::NotifyAction { .. } => {}
+            | Change::NotifyAction { .. }
+            | Change::MeshStatus { .. }
+            | Change::MeshConnect { .. }
+            | Change::MeshPair { .. } => {}
         }
     }
 }
@@ -597,6 +610,26 @@ pub fn changes_for(
                 workspace: ctx.workspace.clone(),
                 notification_id: id,
                 action,
+            }])
+        }
+
+        "mesh.status" => {
+            Ok(vec![Change::MeshStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "mesh.connect" => {
+            let address = a.get("address").cloned().unwrap_or_else(|| "127.0.0.1:9042".into());
+            Ok(vec![Change::MeshConnect {
+                workspace: ctx.workspace.clone(),
+                address,
+            }])
+        }
+
+        "mesh.pair" => {
+            Ok(vec![Change::MeshPair {
+                workspace: ctx.workspace.clone(),
             }])
         }
 
@@ -1057,6 +1090,34 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 } else {
                     output.push(format!("falló la acción sobre la notificación: {msg}"));
                 }
+            }
+            Change::MeshStatus { workspace } => {
+                let status = crate::mesh::MeshEngine::global().status(workspace)?;
+                let mut lines = Vec::new();
+                lines.push(format!("nodo local: {} ({}) en {}", status.local_node.id, status.local_node.hostname, status.local_node.address));
+                lines.push(format!("  recursos: {} cores, {} MB RAM, VRAM: {:?}, modelos: {}",
+                    status.local_node.resources.cpu_cores,
+                    status.local_node.resources.memory_mb,
+                    status.local_node.resources.vram_mb,
+                    status.local_node.resources.available_models.join(", ")
+                ));
+                if status.peers.is_empty() {
+                    lines.push("no hay nodos peers conectados en la malla".into());
+                } else {
+                    lines.push(format!("peers conocidos ({}):", status.peers.len()));
+                    for p in status.peers {
+                        lines.push(format!("  • {} [{}] {}ms latencia (modelos: {})", p.hostname, p.address, p.latency_ms, p.resources.available_models.join(", ")));
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::MeshConnect { workspace, address } => {
+                let peer = crate::mesh::MeshEngine::global().connect_peer(workspace, address)?;
+                output.push(format!("conectado al peer {} [{}] con {}ms de latencia", peer.id, peer.address, peer.latency_ms));
+            }
+            Change::MeshPair { workspace } => {
+                let token = crate::mesh::MeshEngine::global().generate_pairing_token(workspace)?;
+                output.push(format!("token de emparejamiento generado: {} (nodo {})", token.token, token.node_id));
             }
         }
     }

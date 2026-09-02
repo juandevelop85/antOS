@@ -28,7 +28,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 7** | [T7.2](T7.2-control-de-cuotas-de-cpu-y-memoria-para-sandboxes-de-agentes.md) | Control de Cuotas de CPU y Memoria para Sandboxes de Agentes | ✅ Completado |
 | **Fase 8** | [T8.1](T8.1-visor-de-diffs-interactivo-y-terminal-embebido-en-wayland.md) | Visor de Diffs Interactivo y Terminal Embebido en Wayland | ✅ Completado |
 | **Fase 8** | [T8.2](T8.2-bandeja-de-notificaciones-y-aprobaciones-asíncronas-para-agentes.md) | Bandeja de Notificaciones y Aprobaciones Asíncronas para Agentes | ✅ Completado |
-| **Fase 9** | [T9.1](T9.1-protocolo-de-red-p2p-cifrado-antmesh-con-descubrimiento-mdns-y-quic.md) | Protocolo de Red P2P Cifrado (antMesh) con Descubrimiento mDNS y QUIC | ⏳ Pendiente |
+| **Fase 9** | [T9.1](T9.1-protocolo-de-red-p2p-cifrado-antmesh-con-descubrimiento-mdns-y-quic.md) | Protocolo de Red P2P Cifrado (antMesh) con Descubrimiento mDNS y QUIC | ✅ Completado |
 | **Fase 9** | [T9.2](T9.2-despacho-distribuido-de-roles-antflow-a-nodos-de-gpu-y-sincronización-de-worktrees.md) | Despacho Distribuido de Roles antFlow a Nodos de GPU y Sincronización de Worktrees | ⏳ Pendiente |
 | **Fase 10** | [T10.1](T10.1-sistema-de-ficheros-virtual-fuse-para-inspección-de-ast-símbolos-y-diffs-antfs.md) | Sistema de Ficheros Virtual FUSE para Inspección de AST, Símbolos y Diffs (/antfs) | ⏳ Pendiente |
 | **Fase 10** | [T10.2](T10.2-interceptores-de-escritura-semántica-con-validación-tipada-previa-a-disco.md) | Interceptores de Escritura Semántica con Validación Tipada Previa a Disco | ⏳ Pendiente |

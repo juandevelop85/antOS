@@ -1,0 +1,11 @@
+name = "mesh.status"
+summary = "Muestra el estado del nodo local y los peers conectados en la red P2P antMesh"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE/.antos"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

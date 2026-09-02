@@ -1,0 +1,13 @@
+name = "mesh.connect"
+summary = "Conecta a un nodo peer remoto en la malla antMesh mediante IP o multiaddr"
+
+[params]
+address = { type = "text" }
+
+[effects]
+writes = ["$WORKSPACE/.antos/peers.json"]
+net = ["$address"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"

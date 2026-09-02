@@ -282,6 +282,47 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ConsultarMesh { workspace_path } => {
+            let ws = Path::new(&workspace_path);
+            match crate::mesh::MeshEngine::global().status(ws) {
+                Ok(status) => {
+                    enviar(&mut escritura, &Evento::EstadoMesh(status))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
+        Peticion::ConectarPeer { workspace_path, address } => {
+            let ws = Path::new(&workspace_path);
+            match crate::mesh::MeshEngine::global().connect_peer(ws, &address) {
+                Ok(peer) => {
+                    enviar(&mut escritura, &Evento::ResultadoConexionPeer {
+                        address: peer.address,
+                        success: true,
+                        message: format!("conectado con éxito al peer {} ({}ms)", peer.id, peer.latency_ms),
+                    })?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::ResultadoConexionPeer {
+                        address,
+                        success: false,
+                        message: format!("{e:#}"),
+                    })?;
+                }
+            }
+        }
+        Peticion::GenerarTokenEmparejamiento { workspace_path } => {
+            let ws = Path::new(&workspace_path);
+            match crate::mesh::MeshEngine::global().generate_pairing_token(ws) {
+                Ok(token) => {
+                    enviar(&mut escritura, &Evento::TokenEmparejamientoGenerado(token))?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -371,6 +412,19 @@ pub fn intencion_remota(
                     pantalla.nota(&format!("✓ {message}"))?;
                 } else {
                     pantalla.nota(&format!("✗ {message}"))?;
+                }
+            }
+            Evento::EstadoMesh(status) => {
+                pantalla.nota(&format!("antMesh local: {} (peers: {})", status.local_node.id, status.peers.len()))?;
+            }
+            Evento::TokenEmparejamientoGenerado(tok) => {
+                pantalla.nota(&format!("token de emparejamiento generado: {}", tok.token))?;
+            }
+            Evento::ResultadoConexionPeer { address, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ peer {address}: {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ peer {address}: {message}"))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),

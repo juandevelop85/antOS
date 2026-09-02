@@ -29,6 +29,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.12 Diagnóstico del Sistema y Red (`antos doctor`, `antos ports`)](#412-diagnóstico-del-sistema-y-red-antos-doctor-antos-ports)
    - [4.13 Inferencia LLM Local con Ollama (`antos llm`)](#413-inferencia-llm-local-con-ollama-antos-llm)
    - [4.14 Bitácora Inmutable y Reversión Atómica (`antos log`, `antos undo`)](#414-bitácora-inmutable-y-reversión-atómica-antos-log-antos-undo)
+   - [4.15 Red P2P Cifrada antMesh (`antos mesh`)](#415-red-p2p-cifrada-antmesh-antos-mesh)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -481,6 +482,25 @@ antos undo
 # Revertir todos los commits y cambios generados a lo largo de un ticket técnico
 antos undo --ticket T1.1
 antos undo --ticket T3.2
+```
+
+---
+
+### 4.15 Red P2P Cifrada antMesh (`antos mesh`)
+
+Gestión de la malla peer-to-peer cifrada para clústeres de desarrollo y delegación remota:
+
+```bash
+# Consultar el estado del nodo local y los peers vecinos conectados
+antos mesh
+antos mesh status
+
+# Generar un token seguro de emparejamiento con 15 minutos de expiración
+antos mesh pair
+
+# Conectar a un nodo peer remoto mediante dirección IP/puerto o multiaddr
+antos mesh connect 192.168.1.50:9042
+antos mesh connect /ip4/192.168.1.50/udp/9042/quic
 ```
 
 ---

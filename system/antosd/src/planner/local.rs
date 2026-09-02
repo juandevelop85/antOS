@@ -90,6 +90,10 @@ impl Planner for LocalPlanner {
             && !lower.contains("notifica")
             && !lower.contains("alerta")
             && !lower.contains("bandeja")
+            && !lower.contains("mesh")
+            && !lower.contains("peer")
+            && !lower.contains("p2p")
+            && !lower.contains("malla")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -351,6 +355,20 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("notify.action", &[("id", &id), ("action", "reject")])]));
             }
             return Ok(Propuesta::solo(vec![step("notify.list", &[])]));
+        }
+
+        // Intenciones de red P2P y antMesh (T9.1)
+        if lower.contains("mesh") || lower.contains("p2p") || lower.contains("peer") || lower.contains("malla") || lower.contains("empareja") {
+            if lower.contains("conecta") || lower.contains("connect") || lower.contains("une") || lower.contains("unir") {
+                let addr = words.iter().find(|w| w.contains(':') || (w.contains('.') && w.chars().any(|c| c.is_ascii_digit())))
+                    .cloned()
+                    .unwrap_or_else(|| "127.0.0.1:9042".into());
+                return Ok(Propuesta::solo(vec![step("mesh.connect", &[("address", &addr)])]));
+            }
+            if lower.contains("pair") || lower.contains("token") || lower.contains("empareja") || lower.contains("invita") {
+                return Ok(Propuesta::solo(vec![step("mesh.pair", &[])]));
+            }
+            return Ok(Propuesta::solo(vec![step("mesh.status", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -768,5 +786,31 @@ mod tests {
         assert_eq!(p_approve.steps.len(), 1);
         assert_eq!(p_approve.steps[0].capability, "notify.action");
         assert_eq!(p_approve.steps[0].args.get("action").map(String::as_str), Some("approve"));
+    }
+
+    #[test]
+    fn test_plan_antmesh_p2p() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_status = planner
+            .plan("muestra el estado de la red mesh", &catalog)
+            .expect("plan mesh status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "mesh.status");
+
+        let p_conn = planner
+            .plan("conecta al nodo peer 192.168.1.50:9042", &catalog)
+            .expect("plan mesh connect");
+        assert_eq!(p_conn.steps.len(), 1);
+        assert_eq!(p_conn.steps[0].capability, "mesh.connect");
+        assert_eq!(p_conn.steps[0].args.get("address").map(String::as_str), Some("192.168.1.50:9042"));
+
+        let p_pair = planner
+            .plan("genera un token para emparejar nuevo dispositivo", &catalog)
+            .expect("plan mesh pair");
+        assert_eq!(p_pair.steps.len(), 1);
+        assert_eq!(p_pair.steps[0].capability, "mesh.pair");
     }
 }

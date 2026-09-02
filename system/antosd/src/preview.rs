@@ -196,6 +196,15 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 };
                 out.push(Line::Info(format!("ejecuta «{act_str}» sobre la notificación «{notification_id}»")));
             }
+            Change::MeshStatus { .. } => {
+                out.push(Line::Info("consulta el estado del nodo y los peers en la malla P2P antMesh".into()));
+            }
+            Change::MeshConnect { address, .. } => {
+                out.push(Line::Info(format!("conecta al nodo peer remoto «{address}» mediante QUIC")));
+            }
+            Change::MeshPair { .. } => {
+                out.push(Line::Info("genera un token criptográfico de emparejamiento con 15m de expiración".into()));
+            }
         }
         pendiente.aplicar(change);
     }
