@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  antOS Desktop · Declarative Wayland Compositor Configuration (Labwc)
+  Ticket: T13.0
+  Provides ultra-lightweight (~30-40 MB RAM) window management,
+  wlr-layer-shell anchor support for antos-barra, wlr-screencopy,
+  and native antOS developer hotkeys.
+-->
+<labwc_config>
+  <core>
+    <gap>4</gap>
+  </core>
+
+  <!-- Window Decoration and Theme -->
+  <theme>
+    <name>antOS-Dark</name>
+    <cornerRadius>6</cornerRadius>
+    <font name="monospace" size="10"/>
+  </theme>
+
+  <!-- Keyboard and Global Hotkeys -->
+  <keyboard>
+    <default/>
+
+    <!-- antOS Core Developer Keybindings -->
+
+    <!-- Super + Space: Focus / Toggle antOS Intent Bar -->
+    <keybind key="W-space">
+      <action name="Execute" command="antos intent 'enfocar barra'"/>
+    </keybind>
+
+    <!-- Super + A: Agent Control Center and Ticket Board -->
+    <keybind key="W-a">
+      <action name="Execute" command="antos intent 'abre el centro de control de agentes'"/>
+    </keybind>
+
+    <!-- Super + Return: Interactive Virtual Terminal (vte) -->
+    <keybind key="W-Return">
+      <action name="Execute" command="antos vte"/>
+    </keybind>
+
+    <!-- Super + D: Interactive Diff Viewer & Rollback -->
+    <keybind key="W-d">
+      <action name="Execute" command="antos intent 'ver diffs'"/>
+    </keybind>
+
+    <!-- Window Management Shortcuts -->
+    <!-- Super + Q: Close Active Window -->
+    <keybind key="W-q">
+      <action name="Close"/>
+    </keybind>
+
+    <!-- Alt + Tab: Window Switcher -->
+    <keybind key="A-Tab">
+      <action name="NextWindow"/>
+    </keybind>
+    <keybind key="A-S-Tab">
+      <action name="PreviousWindow"/>
+    </keybind>
+
+    <!-- Super + F: Toggle Fullscreen -->
+    <keybind key="W-f">
+      <action name="ToggleFullscreen"/>
+    </keybind>
+
+    <!-- Super + Shift + E: Exit Desktop Session -->
+    <keybind key="W-S-e">
+      <action name="Exit"/>
+    </keybind>
+  </keyboard>
+
+  <!-- Window Rules -->
+  <windowRules>
+    <!-- antOS Intent Bar and Notification Windows: Floating / Borderless -->
+    <windowRule identifier="antos-barra" serverDecoration="no" skipTaskbar="yes"/>
+    <!-- Agent Center Dialog: Centered Floating -->
+    <windowRule identifier="antos-agent-center" openFloating="yes" serverDecoration="yes"/>
+    <!-- Diff Viewer Dialog: Centered Floating with Min Size -->
+    <windowRule identifier="antos-diff-view" openFloating="yes" serverDecoration="yes"/>
+  </windowRules>
+</labwc_config>

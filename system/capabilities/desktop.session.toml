@@ -1,0 +1,12 @@
+name = "desktop.session"
+summary = "Inicia o diagnostica el estado de la sesión de escritorio Wayland y compositor"
+
+[params]
+action = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

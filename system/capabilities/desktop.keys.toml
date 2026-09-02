@@ -1,0 +1,10 @@
+name = "desktop.keys"
+summary = "Muestra y consulta los atajos de teclado globales registrados en el entorno de escritorio"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

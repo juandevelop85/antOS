@@ -1,0 +1,18 @@
+# antOS Desktop · Wayland Environment Configuration
+# Standard variables for Wayland sessions, toolkit backends and desktop identification.
+
+export XDG_CURRENT_DESKTOP=antOS
+export XDG_SESSION_DESKTOP=antOS
+export XDG_SESSION_TYPE=wayland
+
+# Toolkit backends (prefer Wayland native)
+export GDK_BACKEND="wayland,x11,*"
+export QT_QPA_PLATFORM="wayland;xcb"
+export SDL_VIDEODRIVER=wayland
+export CLUTTER_BACKEND=wayland
+export MOZ_ENABLE_WAYLAND=1
+export _JAVA_AWT_WM_NONREPARENTING=1
+
+# antOS Specific Environment
+export ANTOS_DESKTOP=1
+export ANTOS_COMPOSITOR=labwc

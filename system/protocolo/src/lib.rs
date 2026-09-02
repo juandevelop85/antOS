@@ -448,6 +448,26 @@ pub struct DapSessionStatus {
     pub variables: Vec<DapVariable>,
 }
 
+// ------------------------------------------------ Desktop Session (T13.0)
+
+/// Atajo de teclado global del escritorio antOS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopHotkey {
+    pub key: String,
+    pub action: String,
+    pub description: String,
+}
+
+/// Estado del entorno de escritorio gráfico Wayland.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSessionStatus {
+    pub running: bool,
+    pub compositor_name: String,
+    pub wayland_display: Option<String>,
+    pub active_clients_count: usize,
+    pub registered_hotkeys: Vec<DesktopHotkey>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -938,6 +958,14 @@ pub enum Peticion {
         session_id: String,
         workspace_path: String,
     },
+    /// Consulta el estado del compositor y entorno de escritorio Wayland (T13.0)
+    ConsultarDesktopStatus,
+    /// Obtiene los atajos de teclado globales registrados en el escritorio (T13.0)
+    ListarDesktopHotkeys,
+    /// Inicia la sesión de escritorio Wayland de antOS (T13.0)
+    IniciarDesktopSession {
+        nested: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1062,6 +1090,10 @@ pub enum Evento {
         success: bool,
         message: String,
     },
+    /// Estado del entorno de escritorio gráfico Wayland (T13.0)
+    EstadoDesktop(DesktopSessionStatus),
+    /// Listado de atajos de teclado del escritorio (T13.0)
+    ListaDesktopHotkeys(Vec<DesktopHotkey>),
     Error(String),
 }
 
@@ -1633,4 +1665,44 @@ mod tests {
         let des_dap: Evento = serde_json::from_str(&json_dap).expect("deserialize dap ev");
         assert_eq!(ev_dap, des_dap);
     }
+
+    #[test]
+    fn test_serializacion_desktop() {
+        let hotkeys = vec![
+            DesktopHotkey {
+                key: "Super+Space".into(),
+                action: "toggle_intent_bar".into(),
+                description: "Abrir o enfocar la barra de intenciones".into(),
+            },
+            DesktopHotkey {
+                key: "Super+A".into(),
+                action: "toggle_agent_center".into(),
+                description: "Abrir Centro de Control de Agentes".into(),
+            },
+        ];
+
+        let status = DesktopSessionStatus {
+            running: true,
+            compositor_name: "labwc".into(),
+            wayland_display: Some("wayland-0".into()),
+            active_clients_count: 3,
+            registered_hotkeys: hotkeys.clone(),
+        };
+
+        let req_status = Peticion::ConsultarDesktopStatus;
+        let json_req = serde_json::to_string(&req_status).expect("serialize desktop req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize desktop req");
+        assert_eq!(req_status, des_req);
+
+        let ev_status = Evento::EstadoDesktop(status);
+        let json_ev = serde_json::to_string(&ev_status).expect("serialize desktop ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize desktop ev");
+        assert_eq!(ev_status, des_ev);
+
+        let ev_keys = Evento::ListaDesktopHotkeys(hotkeys);
+        let json_keys = serde_json::to_string(&ev_keys).expect("serialize keys ev");
+        let des_keys: Evento = serde_json::from_str(&json_keys).expect("deserialize keys ev");
+        assert_eq!(ev_keys, des_keys);
+    }
 }
+

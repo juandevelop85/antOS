@@ -221,6 +221,13 @@ pub enum Change {
         workspace: PathBuf,
         command: String,
     },
+    DesktopSession {
+        workspace: PathBuf,
+        action: Option<String>,
+    },
+    DesktopKeys {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -308,7 +315,9 @@ impl Pendiente {
             | Change::LspStart { .. }
             | Change::LspStatus { .. }
             | Change::CollabSession { .. }
-            | Change::DapAttach { .. } => {}
+            | Change::DapAttach { .. }
+            | Change::DesktopSession { .. }
+            | Change::DesktopKeys { .. } => {}
         }
     }
 }
@@ -839,6 +848,20 @@ pub fn changes_for(
             Ok(vec![Change::DapAttach {
                 workspace: ctx.workspace.clone(),
                 command,
+            }])
+        }
+
+        "desktop.session" => {
+            let action = a.get("action").cloned();
+            Ok(vec![Change::DesktopSession {
+                workspace: ctx.workspace.clone(),
+                action,
+            }])
+        }
+
+        "desktop.keys" => {
+            Ok(vec![Change::DesktopKeys {
+                workspace: ctx.workspace.clone(),
             }])
         }
 
@@ -1535,6 +1558,32 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push(format!("  • Estado:                {}", dap.state));
                 lines.push(format!("  • Punto de interrupción: {}:{} (verificado: {})", bp.file_path, bp.line, bp.verified));
                 lines.push(format!("  • Pila de llamadas:      {}", dap.call_stack.join(" -> ")));
+                output.push(lines.join("\n"));
+            }
+            Change::DesktopSession { workspace, action } => {
+                let _ = crate::desktop::DesktopManager::sync_configuration(workspace);
+                if action.as_deref() == Some("start") {
+                    let run_out = crate::desktop::DesktopManager::start_session(workspace, true)?;
+                    output.push(run_out);
+                } else {
+                    let status = crate::desktop::DesktopManager::get_status();
+                    let mut lines = Vec::new();
+                    let st = if status.running { "En ejecución" } else { "Inactivo / Headless" };
+                    lines.push(format!("antOS Desktop · Sesión Wayland [{st}]"));
+                    lines.push(format!("  • Compositor:         {}", status.compositor_name));
+                    lines.push(format!("  • WAYLAND_DISPLAY:    {}", status.wayland_display.as_deref().unwrap_or("ninguno")));
+                    lines.push(format!("  • Clientes de capa:   {}", status.active_clients_count));
+                    lines.push(format!("  • Atajos globales:    {} registrados", status.registered_hotkeys.len()));
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::DesktopKeys { .. } => {
+                let hotkeys = crate::desktop::DesktopManager::get_hotkeys();
+                let mut lines = Vec::new();
+                lines.push("antOS Desktop · Atajos de Teclado Globales Registrados:".into());
+                for hk in hotkeys {
+                    lines.push(format!("  • {:<14} -> {:<22} ({})", hk.key, hk.action, hk.description));
+                }
                 output.push(lines.join("\n"));
             }
         }

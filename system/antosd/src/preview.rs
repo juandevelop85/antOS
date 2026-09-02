@@ -256,6 +256,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::DapAttach { command, .. } => {
                 out.push(Line::Info(format!("conecta una sesión de depuración supervisada DAP al comando «{command}»")));
             }
+            Change::DesktopSession { action, .. } => {
+                let act_str = action.as_deref().unwrap_or("status");
+                out.push(Line::Info(format!("inicia o diagnostica la sesión gráfica de escritorio Wayland (acción: {act_str})")));
+            }
+            Change::DesktopKeys { .. } => {
+                out.push(Line::Info("muestra los atajos de teclado globales registrados en el entorno de escritorio".into()));
+            }
         }
         pendiente.aplicar(change);
     }

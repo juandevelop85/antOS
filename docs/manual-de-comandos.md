@@ -655,6 +655,33 @@ antos debug cargo test
 antos debug cargo run --bin antos
 ```
 
+### 4.21 Entorno de Escritorio Wayland y Atajos Globales (`antos desktop`)
+
+Orquestación del compositor gráfico Wayland ultraligero (~30-40 MB RAM) basado en Labwc, soporte nativo de layer-shell para la barra de antOS y atajos de teclado globales.
+
+```bash
+# Diagnosticar estado de la sesión gráfica, compositor activo y clientes
+antos desktop status
+antos desktop
+
+# Arrancar la sesión gráfica de escritorio de antOS
+antos desktop start
+antos desktop start --nested      # Iniciar dentro de una ventana de desarrollo anidada
+
+# Mostrar la guía de atajos de teclado globales registrados
+antos desktop keys
+```
+
+**Atajos de Teclado Globales Registrados:**
+* `Super + Space`: Abre o enfoca la barra de intenciones de antOS (`antos-barra`).
+* `Super + A`: Despliega el Centro de Agentes y Tablero de Tickets.
+* `Super + Return`: Lanza la terminal virtual interactiva integrada (`vte`).
+* `Super + D`: Abre el visor interactivo de diffs y reversión (`diff_view`).
+* `Super + Q`: Cierra la ventana enfocada actualmente.
+* `Alt + Tab`: Conmuta a la siguiente ventana.
+* `Super + F`: Alterna modo pantalla completa.
+* `Super + Shift + E`: Finaliza la sesión gráfica de escritorio.
+
 ---
 
 ## 5. Recetas y Combinaciones de Uso Avanzadas

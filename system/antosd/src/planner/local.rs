@@ -108,6 +108,11 @@ impl Planner for LocalPlanner {
             && !lower.contains("collab")
             && !lower.contains("dap")
             && !lower.contains("depura")
+            && !lower.contains("desktop")
+            && !lower.contains("escritorio")
+            && !lower.contains("atajo")
+            && !lower.contains("hotkey")
+            && !lower.contains("teclado")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -491,6 +496,17 @@ impl Planner for LocalPlanner {
         if lower.contains("dap") || lower.contains("depura") || lower.contains("debugger") {
             let cmd = after(&words, &["comando", "el", "con", "a"]).unwrap_or_else(|| "cargo test".into());
             return Ok(Propuesta::solo(vec![step("dap.attach", &[("command", &cmd)])]));
+        }
+
+        // Intenciones de Escritorio Wayland y Atajos (T13.0)
+        if lower.contains("desktop") || lower.contains("escritorio") || lower.contains("wayland") || lower.contains("atajos") || lower.contains("hotkeys") {
+            if lower.contains("atajo") || lower.contains("hotkey") || lower.contains("teclado") {
+                return Ok(Propuesta::solo(vec![step("desktop.keys", &[])]));
+            }
+            if lower.contains("inicia") || lower.contains("arranca") || lower.contains("start") {
+                return Ok(Propuesta::solo(vec![step("desktop.session", &[("action", "start")])]));
+            }
+            return Ok(Propuesta::solo(vec![step("desktop.session", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1044,5 +1060,24 @@ mod tests {
             .expect("plan dap attach");
         assert_eq!(p_dap.steps.len(), 1);
         assert_eq!(p_dap.steps[0].capability, "dap.attach");
+
+        let p_desk_status = planner
+            .plan("consulta el estado del escritorio wayland", &catalog)
+            .expect("plan desktop session status");
+        assert_eq!(p_desk_status.steps.len(), 1);
+        assert_eq!(p_desk_status.steps[0].capability, "desktop.session");
+
+        let p_desk_start = planner
+            .plan("inicia el escritorio wayland", &catalog)
+            .expect("plan desktop session start");
+        assert_eq!(p_desk_start.steps.len(), 1);
+        assert_eq!(p_desk_start.steps[0].capability, "desktop.session");
+        assert_eq!(p_desk_start.steps[0].args.get("action").map(|s| s.as_str()), Some("start"));
+
+        let p_desk_keys = planner
+            .plan("muestra los atajos de teclado del escritorio", &catalog)
+            .expect("plan desktop keys");
+        assert_eq!(p_desk_keys.steps.len(), 1);
+        assert_eq!(p_desk_keys.steps[0].capability, "desktop.keys");
     }
 }

@@ -28,6 +28,7 @@ pub mod ebpf;
 pub mod profiler;
 pub mod lsp;
 pub mod collab;
+pub mod desktop;
 mod ipc;
 mod journal;
 mod plan;
@@ -125,6 +126,7 @@ fn run() -> Result<()> {
         "lsp" => cmd_lsp(&ctx, &rest[1..]),
         "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
+        "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1819,6 +1821,46 @@ fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
     }
     println!();
 
+    Ok(())
+}
+
+// ------------------------------------------------------------------ desktop
+
+fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    match sub {
+        "start" | "iniciar" | "run" => {
+            let nested = args.iter().any(|a| a == "--nested" || a == "-n");
+            println!("\n{} Inicializando entorno gráfico Wayland de antOS...", paint("antOS Desktop ·", BOLD));
+            let _ = desktop::DesktopManager::sync_configuration(&ctx.workspace)?;
+            let out = desktop::DesktopManager::start_session(&ctx.workspace, nested)?;
+            println!("{out}");
+        }
+        "keys" | "hotkeys" | "atajos" => {
+            let keys = desktop::DesktopManager::get_hotkeys();
+            println!("\n{} Atajos de Teclado Globales del Entorno de Escritorio:", paint("antOS Desktop ·", BOLD));
+            println!("  {:<16} {:<24} {}", paint("ATAJO", BOLD), paint("ACCIÓN", BOLD), paint("DESCRIPCIÓN", BOLD));
+            println!("  {}", "─".repeat(78));
+            for k in keys {
+                println!("  {:<16} {:<24} {}", paint(&k.key, CYAN), paint(&k.action, YELLOW), k.description);
+            }
+            println!();
+        }
+        "status" | "estado" | _ => {
+            let status = desktop::DesktopManager::get_status();
+            let st = if status.running { paint("En ejecución", GREEN) } else { paint("Inactivo / Headless", DIM) };
+            println!("\n{} Diagnóstico de Sesión Gráfica Wayland:", paint("antOS Desktop ·", BOLD));
+            println!("  Estado:                {}", st);
+            println!("  Compositor:            {}", paint(&status.compositor_name, CYAN));
+            println!("  WAYLAND_DISPLAY:       {}", paint(status.wayland_display.as_deref().unwrap_or("ninguno"), YELLOW));
+            println!("  Clientes de capa:      {}", status.active_clients_count);
+            println!("  Atajos registrados:    {} combinaciones globales\n", status.registered_hotkeys.len());
+            println!("  Uso:");
+            println!("    antos desktop start       Arranca la sesión de escritorio");
+            println!("    antos desktop keys        Muestra todos los atajos de teclado globales");
+            println!("    antos desktop status      Diagnostica la sesión activa\n");
+        }
+    }
     Ok(())
 }
 

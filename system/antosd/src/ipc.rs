@@ -493,6 +493,20 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let dap = crate::collab::DapServer::new(session_id, "cargo test".into());
             enviar(&mut escritura, &Evento::EstadoDapSession(dap.to_status()))?;
         }
+        Peticion::ConsultarDesktopStatus => {
+            let status = crate::desktop::DesktopManager::get_status();
+            enviar(&mut escritura, &Evento::EstadoDesktop(status))?;
+        }
+        Peticion::ListarDesktopHotkeys => {
+            let hotkeys = crate::desktop::DesktopManager::get_hotkeys();
+            enviar(&mut escritura, &Evento::ListaDesktopHotkeys(hotkeys))?;
+        }
+        Peticion::IniciarDesktopSession { .. } => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let _ = crate::desktop::DesktopManager::sync_configuration(&cwd);
+            let status = crate::desktop::DesktopManager::get_status();
+            enviar(&mut escritura, &Evento::EstadoDesktop(status))?;
+        }
     }
     Ok(())
 }
@@ -682,6 +696,13 @@ pub fn intencion_remota(
                 } else {
                     pantalla.nota(&format!("✗ DAP {action}: {message}"))?;
                 }
+            }
+            Evento::EstadoDesktop(status) => {
+                let state_str = if status.running { "Activa" } else { "Detenida / Headless" };
+                pantalla.nota(&format!("Escritorio antOS [{state_str}]: Compositor {} (Display: {:?})", status.compositor_name, status.wayland_display))?;
+            }
+            Evento::ListaDesktopHotkeys(keys) => {
+                pantalla.nota(&format!("Escritorio antOS: {} atajos globales registrados", keys.len()))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }
