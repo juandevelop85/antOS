@@ -3,10 +3,11 @@
 > **El Sistema Operativo Personal para Desarrolladores impulsado por IA y Orquestación Multi-Agente Nativa.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-46%2F46%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-66%2F66%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-14%2F14%20Completados-success.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-20%2F20%20Completados-success.svg)](docs/tickets/README.md)
+[![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
 
@@ -15,11 +16,14 @@
 Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados bajo paradigmas de los años 70 y 90: solo entienden flujos de bytes planos, otorgan **autoridad ambiental total** a cualquier script o agente de IA, y carecen por completo de contexto sobre repositorios Git, puertos de red, pruebas o dependencias de software.
 
 **antOS** es un sistema operativo diseñado desde sus cimientos para el **desarrollador de software**. Transforma la máquina en un entorno donde:
-1. **El repositorio y el proyecto son ciudadanos de primera clase:** El sistema comprende ramas activas, diffs en tiempo real, linters y suites de prueba en segundo plano.
+1. **El repositorio y el proyecto son ciudadanos de primera clase:** El sistema comprende ramas activas, diffs en tiempo real, linters, memoria semántica vectorial y grafos de contexto.
 2. **Orquestación Multi-Agente Nativa (`antFlow`):** Un equipo de roles especializados (*Arquitecto 📐, Coder 💻, QA 🧪, Auditor 🛡️*) opera localmente como demonios del sistema operativo sobre *Git Worktrees* efímeros y aislados.
 3. **Cero Autoridad Ambiental y Recinto de Seguridad (*Sandboxing*):** La IA no ejecuta comandos ciegos en Bash. Planifica contra un catálogo de **capacidades tipadas**, calcula su **radio de impacto (*Blast Radius*)** antes de tocar el disco, opera bajo restricciones del kernel (*Landlock* en Linux / *Seatbelt* en macOS) y protege credenciales `.env`/SSH con **concesiones temporales explícitas (`grants`)**.
-4. **Reversibilidad Nativa (`undo`):** Cada plan, commit o ciclo de desarrollo genera una instantánea atómica previa, permitiendo revertir cualquier cambio con `antos undo` o `antos undo --ticket <id>`.
-5. **Superficie de Escritorio Moderna:** Shell Wayland GTK4 de latencia ultra-baja con barra de intenciones contextual y panel de control Kanban (`Super + A`).
+4. **Cuotas y Límites de Recursos en Tiempo Real:** Supervisión mediante *Cgroups v2* en Linux y supervisor de procesos con límites duros de memoria RSS y timeout en macOS.
+5. **Reversibilidad Nativa (`undo`):** Cada plan, commit o ciclo de desarrollo genera una instantánea atómica previa, permitiendo revertir cualquier cambio con `antos undo` o `antos undo --ticket <id>`.
+6. **Superficie de Escritorio Moderna:** Shell Wayland GTK4 de latencia ultra-baja con barra de intenciones contextual, panel de control Kanban (`Super + A`), visor interactivo de diffs sintácticos, consola terminal VTE y bandeja de notificaciones asíncronas.
+
+> 📖 **Para una referencia completa de comandos, banderas y opciones de arranque, consulta el [Manual Completo de Comandos y Métodos de Arranque](docs/manual-de-comandos.md).**
 
 ---
 
@@ -28,21 +32,27 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
  │                         SUPERFICIE DE ESCRITORIO                            │
- │  HUD de Intenciones · Tablero Kanban (Super + A) · Diffs · Insignias Git    │
+ │  HUD de Intenciones · Tablero Kanban (Super + A) · Diffs · Consola VTE      │
+ │  Bandeja de Notificaciones y Aprobaciones Asíncronas · Insignias Git en Vivo│
  └──────────────────────────────────────┬──────────────────────────────────────┘
                                         │ IPC Tipado (antos-protocolo)
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
  │                      MOTOR DE CONTEXTO Y MULTI-AGENTE                       │
  │  - Orquestador de Agentes antFlow (Arquitecto, Coder, QA, Auditor)          │
  │  - Spec Engine: Parser nativo de tickets Markdown (docs/tickets/)           │
- │  - Analizador de Repositorios Git con caché mtime & Worktrees Efímeros      │
+ │  - Memoria Semántica (SQLite Vectorial) & Grafo de Contexto del Proyecto    │
+ │  - Motor de Inferencia LLM Local con Ollama (Qwen2.5-Coder) & Fallback      │
+ │  - Gestor Declarativo de Entornos y Toolchains (Nix / Devbox)               │
+ │  - Analizador Git con caché mtime & Worktrees Efímeros Aislados             │
  │  - Gestor de Servicios Efímeros (Postgres, Redis, MariaDB) & Puertos        │
  │  - Bóveda de Secretos (vault.json) & Sistema de Concesiones (grants)        │
+ │  - Bandeja de Notificaciones & Rollback Asíncrono por Ticket                │
  └──────────────────────────────────────┬──────────────────────────────────────┘
                                         │ Capacidades Tipadas & Sandboxing
  ┌──────────────────────────────────────▼──────────────────────────────────────┐
  │                   NÚCLEO DE EJECUCIÓN AISLADA (antosd)                      │
- │  Planificador IA (Local/Claude) · Cálculo Blast Radius · Landlock/Seatbelt  │
+ │  Planificador IA (Local/Ollama/Claude) · Cálculo Blast Radius               │
+ │  Recinto Sandbox (Landlock LSM / macOS Seatbelt) & Control de Cuotas        │
  │  Bitácora Inmutable (journal.jsonl) · Instantáneas & Reversión Atómica      │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -50,10 +60,10 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 ### Estructura del Workspace (Crates de Rust)
 
 * **[`system/protocolo`](system/protocolo):** Crate `antos-protocolo` con tipos puros de intercambio IPC, serializables con `serde`. Cero dependencias pesadas de I/O.
-* **[`system/antosd`](system/antosd):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/remoto, orquestador `antFlow`, analizador Git, cálculo de radio de impacto, recinto sandbox y motor de ejecución.
+* **[`system/antosd`](system/antosd):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/Ollama/Claude, orquestador `antFlow`, memoria semántica, gestor de cuotas, recinto sandbox y motor de ejecución.
 * **[`system/capabilities`](system/capabilities):** Manifiestos TOML tipados que definen contratos, parámetros, efectos y niveles de riesgo de cada capacidad del desarrollador.
-* **[`system/barra`](system/barra):** Shell de escritorio Wayland / GTK4 Layer Shell con barra flotante de intenciones, insignias en vivo y centro de control Kanban.
-* **[`kernel`](kernel):** Núcleo `no_std` en Rust para arranque en metal desnudo.
+* **[`system/barra`](system/barra):** Shell de escritorio Wayland / GTK4 Layer Shell con barra flotante de intenciones, insignias en vivo, visor de diffs, consola VTE y centro de control Kanban.
+* **[`kernel`](kernel):** Núcleo `no_std` en Rust para arranque en metal desnudo x86_64.
 * **[`builder`](builder):** Ensamblador de imágenes de arranque.
 * **[`docs/tickets`](docs/tickets):** Backlog y especificaciones técnicas maestro (*Spec-Driven Development*).
 
@@ -65,13 +75,15 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 
 * **Rust Toolchain:** `rustc` y `cargo` (1.75 o superior).
 * **Git:** 2.30 o superior.
+* **Ollama (Opcional para inferencia LLM local offline):** [ollama.com](https://ollama.com) con modelos como `qwen2.5-coder:7b`.
+* **Nix / Devbox (Opcional para entornos declarativos):** Para aprovisionar toolchains reproducibles.
 * **QEMU / Podman / Docker (Opcional para VM y Kernel):** `qemu-system-x86_64`, `podman` o `docker`.
-* **(Opcional para Claude):** Variable de entorno `ANTHROPIC_API_KEY` para planificación avanzada con LLM.
+* **(Opcional para Claude):** Variable de entorno `ANTHROPIC_API_KEY` para planificación en la nube.
 * **(Opcional para Desktop Wayland):** `gtk4` y `gtk4-layer-shell`.
 
 ### 2. Compilación del Workspace y Verificación
 
-Compila todos los crates del workspace y verifica la suite de pruebas (46+ pruebas automatizadas):
+Compila todos los crates del workspace y verifica la suite de pruebas (**66/66 pruebas automatizadas en verde**):
 
 ```bash
 # Compilar todo el workspace
@@ -95,133 +107,153 @@ alias antos="$(pwd)/target/debug/antos"
 
 #### Variables de Entorno de antOS
 
-antOS autodescubre el contexto, pero puedes personalizar su comportamiento con variables de entorno:
+antOS autodescubre el contexto, pero puedes personalizar su comportamiento:
 
 | Variable | Descripción | Valor por Defecto |
 | :--- | :--- | :--- |
-| `ANTOS_WORKSPACE` | Raíz del proyecto en el que opera antOS | Directorio actual (`pwd`) o raíz del repositorio Git |
+| `ANTOS_WORKSPACE` | Raíz del proyecto en el que opera antOS | Raíz del repositorio Git actual o `pwd` |
 | `ANTOS_STATE` | Directorio de estado (bitácora, servicios, bóveda de secretos) | `.antos/` en el workspace o `~/.local/state/antos/` |
-| `ANTOS_CAPABILITIES` | Directorio con los manifiestos TOML de capacidades | `system/capabilities/` del repositorio |
-| `ANTHROPIC_API_KEY` | Clave de API de Anthropic para el planificador Claude | `~/.config/antos/anthropic.key` o vacía (usa planificador `local`) |
+| `ANTOS_SOCKET` | Ruta del socket UNIX del demonio | `$ANTOS_STATE/antos.sock` |
+| `ANTOS_CAPABILITIES` | Directorio con los manifiestos TOML de capacidades | `system/capabilities/` |
+| `OLLAMA_HOST` | URL del servidor Ollama para inferencia local | `http://localhost:11434` |
+| `ANTHROPIC_API_KEY` | Clave de API de Anthropic para el planificador Claude | `~/.config/antos/anthropic.key` |
 
 ---
 
 ## 🕹️ Modos de Ejecutar e Iniciar antOS
 
-antOS está diseñado para probarse y ejecutarse en múltiples niveles según tu objetivo:
+antOS cuenta con **6 métodos de arranque** adaptados a cada escenario:
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
- │                       4 FORMAS DE INICIAR antOS                             │
+ │                       6 FORMAS DE INICIAR antOS                             │
  ├─────────────────────────────────────────────────────────────────────────────┤
- │ 1. CLI y Demonio Host (macOS / Linux): Ejecución directa en desarrollo      │
- │ 2. Escritorio Wayland (antos-barra): Shell GTK4 con HUD y Tablero Kanban    │
- │ 3. Contenedor Linux (Landlock Sandbox): Verificación de aislamiento kernel  │
- │ 4. Máquina Virtual NixOS (QEMU): Sistema operativo completo con servicios   │
- │ 5. Kernel Bare-Metal (QEMU): Núcleo no_std x86_64 arrancable desde BIOS     │
+ │ 1. CLI y Centro de Control (Host): Desarrollo diario en macOS y Linux       │
+ │ 2. Demonio IPC en Segundo Plano: Escucha en socket UNIX y atiende clientes  │
+ │ 3. Shell Gráfico Wayland (GTK4): HUD contextual flotante y Kanban (Super+A) │
+ │ 4. Contenedor Linux (Landlock LSM): Verificación de aislamiento kernel      │
+ │ 5. Máquina Virtual NixOS en QEMU: Sistema operativo completo y servicios    │
+ │ 6. Kernel Bare-Metal no_std en QEMU: Arranque x86_64 directo en firmware    │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Modo 1: CLI y Centro de Control en Terminal (macOS / Linux)
-
-El modo principal para trabajar en tu día a día en cualquier sistema (macOS o Linux):
-
-```bash
-# Ejecutar un comando o intención directamente
-cargo run --bin antos -- "crea un proyecto rust llamado demo"
-
-# Ver el Tablero Kanban y monitor de agentes directamente en la terminal (Super + A)
-cargo run --bin antos -- panel
-
-# Iniciar el demonio en segundo plano escuchando en socket IPC (/tmp/antos.sock)
-cargo run --bin antos -- escucha
-```
-
-### Modo 2: Interfaz Gráfica de Escritorio Wayland (`antos-barra` en Linux)
-
-> **Nota para macOS:** `antos-barra` utiliza **GTK4 Layer Shell**, una biblioteca nativa de **Wayland (Linux)**. En macOS o terminal se utiliza `antos panel` (Modo 1). Para ejecutar la interfaz gráfica GTK4, se corre en Linux con Wayland o dentro de la máquina virtual de antOS (Modo 4):
-
-```bash
-# Desde un entorno Linux con GTK4 y Wayland (o dentro de la VM):
-cd system/barra && cargo run
-
-# Lanzar directamente el Centro de Misión y Tablero Kanban gráfico en Wayland:
-cd system/barra && cargo run -- --panel
-```
-
-### Modo 3: Verificación Confinada en Linux con Landlock (`verificar-linux.sh`)
-
-Permite validar las políticas de seguridad del kernel Linux (*Landlock LSM*) atacando el recinto desde un contenedor:
-
-```bash
-# Requiere Podman o Docker
-./system/verificar-linux.sh
-```
-
-Este script prueba automáticamente:
-* Compilación y pruebas de `antosd` en Linux.
-* Diagnóstico de `antos doctor` contra el recinto.
-* Bloqueo estricto de lectura a `/root/.ssh/id_rsa`.
-* Ciclo de vida completo: intención ➡️ diff ➡️ ejecución ➡️ undo.
-
-### Modo 4: Máquina Virtual antOS Completa en QEMU (`arrancar-vm.sh`)
-
-Construye una imagen NixOS con antOS integrado como demonio de sistema y la arranca en QEMU:
-
-```bash
-# Construye la VM y arranca QEMU (Ctrl-a x para salir)
-./system/arrancar-vm.sh
-```
-
-### Modo 5: Núcleo Bare-Metal x86_64 en QEMU (`run.sh`)
-
-Compila el kernel `no_std` en Rust, genera la imagen de disco con `builder` y la arranca en QEMU:
-
-```bash
-# Compilar kernel bare-metal y arrancar en QEMU
-./run.sh
-```
+> 📖 **Para conocer todas las combinaciones de banderas y opciones avanzadas, consulta el [Manual Completo de Comandos y Métodos de Arranque](docs/manual-de-comandos.md).**
 
 ---
 
-## 🛠️ Guía Práctica de 0 a 100: Cómo Usar `antos`
+## 🛠️ Guía Rápida de Comandos por Subsistema
 
-Sigue este recorrido interactivo para probar todas las capacidades del sistema:
-
-### Paso 1: Autodiagnóstico del Sistema (`doctor`)
-Verifica que el recinto sandbox del kernel esté activo y confinando lecturas/escrituras:
+### 1. Planificación e Intenciones en Lenguaje Natural
 ```bash
-antos doctor
-```
-
-### Paso 2: Explorar el Catálogo de Capacidades (`caps`)
-Lista todas las herramientas tipadas registradas en el sistema con sus niveles de riesgo (*Auto*, *Confirmación*, *Concesión*):
-```bash
-antos caps
-```
-
-### Paso 3: Planificar sin Ejecutar (`-n` o `--dry-run`)
-Observa el plan de ejecución y el radio de impacto antes de tocar el disco:
-```bash
-antos -n "crea un proyecto rust llamado api-service"
-```
-
-### Paso 4: Ejecutar una Intención con Confirmación
-```bash
+# Ejecución interactiva con cálculo de radio de impacto
 antos "crea un proyecto rust llamado api-service"
-```
-*antOS calculará el diff, presentará la previsualización interactiva y solicitará tu confirmación (`s/N`).*
 
-### Paso 5: Diagnóstico y Liberación de Puertos
+# Modo simulación (dry-run): inspecciona el diff y plan sin modificar nada
+antos -n "actualiza las dependencias de cargo y compila"
+
+# Usar el modelo LLM local Ollama
+antos -p ollama "optimiza las consultas del módulo memory.rs"
+```
+
+### 2. Orquestador Multi-Agente (`antFlow`) y Tablero Kanban
 ```bash
-# Ver puertos de desarrollo ocupados y PIDs asociados
-antos ports
+# Consultar el equipo de agentes especializados del sistema operativo
+antos agents
 
-# Liberar un puerto específico ocupado
-antos "libera el puerto 3000"
+# Despachar un ticket técnico (Arquitecto -> Coder -> QA -> Auditor)
+antos agent run T1.1 --auto
+
+# Consultar el estado y worktree activo del ticket
+antos agent status T1.1
+
+# Abrir el Tablero Kanban y monitor de agentes en consola
+antos panel
 ```
 
-### Paso 6: Aprovisionamiento de Servicios Locales Efímeros
+### 3. Visor de Diffs Interactivo y Consola VTE
+```bash
+# Inspeccionar diffs sintácticos coloreados con números de línea dobles
+antos diff
+
+# Comparar contra una rama o commit específico
+antos diff main
+
+# Consola terminal interactiva VTE embebida
+antos terminal
+antos terminal "cargo check"
+```
+
+### 4. Bandeja de Notificaciones y Aprobaciones Asíncronas
+```bash
+# Consultar la bandeja de alertas y revisiones pendientes
+antos notify
+
+# Aprobar cambios y fusionar el worktree del agente
+antos notify approve notif-t8-2
+
+# Rechazar y ejecutar rollback inmediato del worktree
+antos notify reject notif-t8-2
+
+# Limpiar notificaciones leídas
+antos notify clear
+```
+
+### 5. Memoria Semántica y Grafo de Contexto
+```bash
+# Indexar el proyecto con vectores de términos y dependencias
+antos memory index
+
+# Búsqueda semántica por similitud coseno
+antos memory search "orquestación multi-agente en worktrees"
+
+# Visualizar el grafo de dependencias bidireccional
+antos memory graph system/antosd/src/main.rs
+```
+
+### 6. Perfiles Declarativos Nix y Devbox
+```bash
+# Diagnosticar toolchains instaladas en el workspace
+antos env status
+
+# Inicializar un perfil de lenguaje (.antos/env.toml, devbox.json, flake.nix)
+antos env init rust
+antos env init python
+
+# Sincronizar toolchains y dependencias
+antos env sync
+```
+
+### 7. Cuotas y Límites de Recursos para Sandboxes
+```bash
+# Ver límites actuales de CPU, memoria RAM, PIDs y timeout
+antos quota status
+
+# Configurar límites estrictos para tareas de agentes
+antos quota set --timeout 60 --memory 1024 --cpu 80 --pids 128
+
+# Restablecer cuotas por defecto
+antos quota reset
+```
+
+### 8. Bóveda de Secretos y Concesiones (Zero Environmental Authority)
+```bash
+# Guardar un secreto de forma segura (cifrado / 0600)
+antos secret set GITHUB_TOKEN ghp_1122334455
+
+# Listar secretos (lectura bloqueada sin concesión)
+antos secrets
+
+# Otorgar una concesión temporal con justificación
+antos grant secret.GITHUB_TOKEN --minutos 15 --para "sincronizar releases"
+
+# Leer el secreto concedido
+antos secret get GITHUB_TOKEN
+
+# Revocar el acceso
+antos revoke secret.GITHUB_TOKEN
+```
+
+### 9. Servicios Locales Efímeros (PostgreSQL / Redis / MariaDB)
 ```bash
 # Levantar PostgreSQL local efímero
 antos service up postgres
@@ -233,183 +265,18 @@ antos services
 antos service down postgres
 ```
 
-### Paso 7: Bóveda de Secretos y Concesiones Temporales (Zero Environmental Authority)
+### 10. Reversión Atómica Instantánea (`undo`)
 ```bash
-# Guardar un secreto de forma segura
-antos secret set GITHUB_TOKEN ghp_1122334455
-
-# Consultar la bóveda (aparecerá protegido con requerimiento de concesión)
-antos secrets
-
-# Intentar leerlo (bloqueado por Zero Environmental Authority)
-antos secret get GITHUB_TOKEN
-
-# Conceder acceso temporal con motivo de auditoría
-antos grant secret.GITHUB_TOKEN --minutos 10 --para "sincronizar releases"
-
-# Leer el secreto concedido
-antos secret get GITHUB_TOKEN
-
-# Revocar el acceso
-antos revoke secret.GITHUB_TOKEN
-```
-
-### Paso 8: Orquestación Multi-Agente antFlow y Tablero Kanban
-```bash
-# Ver el equipo de agentes especializados del sistema operativo
-antos agents
-
-# Despachar un ticket técnico al equipo (Arquitecto -> Coder -> QA -> Auditor) en worktree aislado
-antos agent run T1.1
-
-# Ver el estado del ciclo de vida del ticket
-antos agent status T1.1
-
-# Visualizar el tablero Kanban completo de tickets
-antos panel
-```
-
-### Paso 9: Consultar la Bitácora Transaccional (`log`)
-Revisa el historial inmutable de intenciones, planes y snapshots generados:
-```bash
-antos log
-```
-
-### Paso 10: Reversión Atómica Instantánea (`undo`)
-```bash
-# Revertir la última acción ejecutada
+# Revertir la última transacción ejecutada restaurando el snapshot atómico
 antos undo
 
-# O revertir todos los cambios asociados a un ticket específico
+# Revertir todos los commits y cambios asociados a un ticket técnico
 antos undo --ticket T1.1
 ```
 
 ---
 
-## 💻 Referencia Rápida de Comandos CLI `antos`
-
-### 2. Git Semántico e Introspección
-
-```bash
-# Crear commits convencionales automáticos analizando el contexto
-antos "haz commit con los cambios de autenticación"
-
-# Crear o cambiar de rama
-antos "crea rama feature/login-oauth"
-```
-
-### 3. Diagnóstico y Liberación de Puertos de Red
-
-```bash
-# Diagnosticar puertos de desarrollo en escucha y procesos asociados
-antos ports
-
-# Diagnosticar o liberar un puerto específico en colisión
-antos ports 3000
-antos "libera el puerto 3000"
-```
-
-### 4. Servicios Locales Efímeros (Bases de Datos / Nix)
-
-Aprovisiona servicios auxiliares aislados en `$STATE/services/<servicio>` con inyección automática de variables de conexión (`DATABASE_URL`, `REDIS_URL`) en el `.env` del workspace:
-
-```bash
-# Levantar PostgreSQL local efímero
-antos service up postgres
-
-# Levantar Redis en puerto específico
-antos service up redis 6379
-
-# Consultar tabla de servicios activos y variables de conexión
-antos services
-
-# Detener y limpiar un servicio
-antos service down postgres
-```
-
-### 5. Bóveda de Secretos y Cero Autoridad Ambiental (Zero Environmental Authority)
-
-Las credenciales (`.env*`, claves SSH, tokens de API) están blindadas a nivel de kernel y denegadas por defecto a sub-agentes y procesos no autorizados:
-
-```bash
-# Almacenar un secreto de forma segura en la bóveda ($STATE/vault.json con permisos 0600)
-antos secret set STRIPE_API_KEY sk_live_9988776655
-
-# Listar secretos y estado de concesiones
-antos secrets
-
-# Intentar leer un secreto (bloqueado por Zero Environmental Authority si no hay concesión)
-antos secret get STRIPE_API_KEY
-
-# Otorgar una concesión explícita temporal con motivo de auditoría
-antos grant secret.STRIPE_API_KEY --minutos 10 --para "despliegue en staging"
-
-# Leer el secreto concedido
-antos secret get STRIPE_API_KEY
-
-# Revocar la concesión inmediatamente
-antos revoke secret.STRIPE_API_KEY
-```
-
-### 6. Orquestador Multi-Agente (`antFlow`)
-
-Coordina el ciclo de vida de desarrollo delegando tareas a roles especializados en *Git Worktrees* aislados en segundo plano:
-
-```bash
-# Ver los roles especializados del sistema operativo y sus directivas
-antos agents
-
-# Ejecutar un ticket técnico con la cadena Arquitecto 📐 -> Coder 💻 -> QA 🧪 -> Auditor 🛡️
-antos agent run T1.1
-
-# Consultar estado, rol activo y traza de ejecución de los agentes
-antos agent status T1.1
-```
-
-### 7. Centro de Control y Tablero Kanban (`antos panel`)
-
-Visualiza el estado del backlog de tickets en 4 columnas (*Backlog, En Progreso, Revisión, Completado*) y el monitor de agentes en vivo:
-
-```bash
-# Mostrar el tablero Kanban y monitor de agentes en terminal
-antos panel
-
-# Despachar un ticket directamente al equipo de agentes desde el tablero
-antos panel --dispatch T1.2
-```
-
-### 8. Reversión Granular e Instantánea (`antos undo`)
-
-```bash
-# Revertir el último plan ejecutado restaurando la instantánea atómica
-antos undo
-
-# Revertir todos los commits, cambios y transacciones originados por un ticket
-antos undo --ticket T2.1
-```
-
----
-
-## 🖥️ Interfaz de Escritorio Wayland (`antos-barra`)
-
-antOS incluye un shell de escritorio nativo acelerado por GPU construido sobre Wayland Layer Shell y GTK4:
-
-```bash
-# Lanzar la barra de intenciones contextual
-cargo run -p antos-barra --bin antos-barra
-
-# Lanzar directamente el Centro de Misión y Tablero Kanban
-cargo run -p antos-barra --bin antos-barra -- --panel
-```
-
-### Atajos Globales de Teclado
-* **`Super + Espacio`:** Abre el HUD flotante de intenciones rápidas con insignias de Git en vivo y diffs sintácticos coloreados.
-* **`Super + A`:** Despliega el Centro de Misión con el monitor de roles activos `antFlow` y el Tablero Kanban de tickets sincronizado con `docs/tickets/`.
-* **`Escape`:** Cierra la ventana activa.
-
----
-
-## 📋 Catálogo de Capacidades del Sistema (`system/capabilities/`)
+## 📋 Catálogo Completo de Capacidades (`system/capabilities/`)
 
 | Capacidad | Descripción | Nivel de Riesgo |
 | :--- | :--- | :--- |
@@ -429,6 +296,20 @@ cargo run -p antos-barra --bin antos-barra -- --panel
 | `secret.grant` | Concesión explícita temporal de acceso a un secreto o `.env` | `grant` |
 | `secret.revoke` | Revocación inmediata de una concesión activa | `confirm` |
 | `secret.list` | Listado de secretos y estado de concesiones activas | `auto` (Lectura) |
+| `llm.status` | Diagnóstico del motor de inferencia LLM local Ollama | `auto` (Lectura) |
+| `llm.list` | Listado de modelos LLM locales disponibles | `auto` (Lectura) |
+| `memory.index` | Indexación sintáctica y vectorial del workspace en SQLite | `confirm` |
+| `memory.search` | Búsqueda semántica por similitud coseno en memoria local | `auto` (Lectura) |
+| `memory.graph` | Consulta del grafo de dependencias y contexto del proyecto | `auto` (Lectura) |
+| `env.init` | Inicialización de perfiles de entorno declarativo (Nix/Devbox) | `confirm` |
+| `env.sync` | Sincronización y validación de toolchains del proyecto | `confirm` |
+| `env.profile_status` | Diagnóstico de perfiles y toolchains activas | `auto` (Lectura) |
+| `quota.status` | Inspección de cuotas de CPU, memoria y timeouts de sandbox | `auto` (Lectura) |
+| `quota.set` | Configuración de límites y cuotas de confinamiento | `confirm` |
+| `ui.diff_viewer` | Visor interactivo de diffs estructurados y coloreados sintácticamente | `auto` (Lectura) |
+| `ui.terminal` | Consola terminal interactiva VTE embebida | `auto` |
+| `notify.list` | Consulta de la bandeja de notificaciones y aprobaciones de agentes | `auto` (Lectura) |
+| `notify.action` | Ejecución de acciones de aprobación, rechazo o rollback | `confirm` |
 | `project.scaffold` | Creación y andamiaje inicial de proyectos (Rust, TS, Python) | `confirm` |
 | `pkg.declare` | Declaración de dependencias en manifiestos de proyecto | `confirm` |
 | `fs.write` / `fs.delete` | Modificación y eliminación controlada de archivos con instantánea | `confirm` / `grant` |
@@ -436,9 +317,9 @@ cargo run -p antos-barra --bin antos-barra -- --panel
 
 ---
 
-## 🗺️ Hoja de Ruta y Backlog de Desarrollo
+## 🗺️ Hoja de Ruta y Backlog de Desarrollo (100% Completado)
 
-El proyecto se desarrolla bajo la metodología **Spec-Driven Development**, donde cada hito se desglosa en especificaciones técnicas formales dentro de [`docs/tickets/`](docs/tickets/).
+El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Development** en [`docs/tickets/`](docs/tickets/):
 
 | Fase | Título | Estado |
 | :--- | :--- | :--- |
@@ -456,14 +337,21 @@ El proyecto se desarrolla bajo la metodología **Spec-Driven Development**, dond
 | **Fase 4** | [T4.2](docs/tickets/T4.2-panel-centro-de-agentes-y-tickets.md) · Centro de control de agentes y tablero de tickets (`Super + A`) | ✅ Completado |
 | **Fase 5** | [T5.1](docs/tickets/T5.1-servicios-locales-efimeros-nix.md) · Aprovisionamiento declarativo de servicios efímeros (Postgres, Redis) | ✅ Completado |
 | **Fase 5** | [T5.2](docs/tickets/T5.2-boveda-segura-de-secretos-y-grants.md) · Bóveda de secretos y blindaje de `.env`/claves SSH con concesiones | ✅ Completado |
+| **Fase 6** | [T6.1](docs/tickets/T6.1-motor-de-inferencia-llm-local-con-ollama-y-fallback-offline.md) · Motor de Inferencia LLM Local con Ollama y Fallback Offline | ✅ Completado |
+| **Fase 6** | [T6.2](docs/tickets/T6.2-memoria-semántica-y-grafo-de-contexto-del-proyecto-con-sqlite-vectorial.md) · Memoria Semántica y Grafo de Contexto del Proyecto con SQLite Vectorial | ✅ Completado |
+| **Fase 7** | [T7.1](docs/tickets/T7.1-gestor-de-perfiles-de-entorno-declarativo-nix-y-devbox-por-proyecto.md) · Gestor de Perfiles de Entorno Declarativo Nix y Devbox por Proyecto | ✅ Completado |
+| **Fase 7** | [T7.2](docs/tickets/T7.2-control-de-cuotas-de-cpu-y-memoria-para-sandboxes-de-agentes.md) · Control de Cuotas de CPU y Memoria para Sandboxes de Agentes | ✅ Completado |
+| **Fase 8** | [T8.1](docs/tickets/T8.1-visor-de-diffs-interactivo-y-terminal-embebido-en-wayland.md) · Visor de Diffs Interactivo y Terminal Embebido en Wayland | ✅ Completado |
+| **Fase 8** | [T8.2](docs/tickets/T8.2-bandeja-de-notificaciones-y-aprobaciones-asíncronas-para-agentes.md) · Bandeja de Notificaciones y Aprobaciones Asíncronas para Agentes | ✅ Completado |
 
 ---
 
 ## 🛡️ Seguridad y Filosofía de Privacidad
 
-* **Cero Filtración de Memoria o Variables Ambientales:** Los subprocesos y agentes nacen limpios; las claves de API no se heredan en variables de entorno globales.
-* **Aislamiento por Hardware y Kernel:** Si una capacidad no declara que escribe en una ruta o contacta un dominio de red, el kernel deniega la operación devolviendo `EPERM`.
-* **Privacidad Local:** Whisper corre localmente para voz; los analizadores semánticos y el motor de tickets operan 100% en local sin enviar código fuente a la nube a menos que el usuario active explícitamente un planificador externo.
+* **Cero Filtración de Memoria o Variables Ambientales:** Los subprocesos y agentes nacen limpios; las credenciales no se heredan en variables globales.
+* **Aislamiento por Kernel:** Restricciones de lectura/escritura mediante *Landlock LSM* en Linux y *Seatbelt* en macOS.
+* **Control de Recursos:** Cgroups v2 y supervisor watchdog evitando procesos desbocados o fugas de memoria.
+* **Privacidad y Soberanía Local:** Inferencia con modelos LLM locales mediante Ollama, memoria vectorial en SQLite local y ejecución offline por defecto.
 
 ---
 
