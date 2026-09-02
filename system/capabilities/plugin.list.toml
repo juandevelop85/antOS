@@ -1,0 +1,10 @@
+name = "plugin.list"
+summary = "Enumera los plugins WebAssembly (WASM) instalados y sus capacidades disponibles"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

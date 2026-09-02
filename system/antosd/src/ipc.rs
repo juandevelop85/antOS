@@ -542,6 +542,27 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ListarPlugins => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
+            let summaries = crate::wasm::PluginManager::list_plugins(&plugins_dir);
+            enviar(&mut escritura, &Evento::ListaPlugins(summaries))?;
+        }
+        Peticion::EjecutarPlugin { plugin_name, action, params } => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
+            let res = crate::wasm::PluginManager::run_plugin(&plugins_dir, &plugin_name, &action, &params);
+            enviar(&mut escritura, &Evento::ResultadoPlugin(res))?;
+        }
+        Peticion::InstalarPlugin { source_path } => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
+            let src = std::path::PathBuf::from(&source_path);
+            match crate::wasm::PluginManager::install_plugin(&plugins_dir, &src) {
+                Ok(summary) => enviar(&mut escritura, &Evento::ListaPlugins(vec![summary]))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -760,6 +781,28 @@ pub fn intencion_remota(
             Evento::ResultadoBoot { action, output, success } => {
                 let status = if success { "OK" } else { "ERROR" };
                 pantalla.nota(&format!("antOS Boot [{action} - {status}]: {output}"))?;
+            }
+            Evento::ListaPlugins(list) => {
+                if list.is_empty() {
+                    pantalla.nota("No hay plugins WASM instalados en antOS.")?;
+                } else {
+                    pantalla.nota(&format!("antOS Plugins ({} activos):", list.len()))?;
+                    for p in list {
+                        pantalla.nota(&format!("  • {} v{} - {} (acciones: {})",
+                            p.name, p.version, p.description, p.capabilities.join(", ")
+                        ))?;
+                    }
+                }
+            }
+            Evento::ResultadoPlugin(res) => {
+                if res.success {
+                    pantalla.nota(&format!("✓ Plugin [{}:{}] ejecutado con éxito ({} ciclos, {} KiB memoria):\n{}",
+                        res.plugin, res.action, res.fuel_consumed, res.memory_allocated_bytes / 1024, res.output
+                    ))?;
+                } else {
+                    let err = res.error.unwrap_or_else(|| "Error desconocido".into());
+                    bail!("Fallo en plugin [{}:{}]: {}", res.plugin, res.action, err);
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

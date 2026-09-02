@@ -1,0 +1,13 @@
+name = "plugin.run"
+summary = "Ejecuta una acción dentro de un plugin WebAssembly aislado con cuota de memoria y fuel"
+
+[params]
+plugin = { type = "text" }
+action = { type = "text", optional = true }
+params = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

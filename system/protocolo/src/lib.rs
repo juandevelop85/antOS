@@ -504,6 +504,30 @@ pub struct BootPipelineStatus {
     pub target_arch: String,
 }
 
+// ------------------------------------------------ WASM Plugins (T14.1)
+
+/// Resumen de un plugin WebAssembly instalado en antOS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginSummary {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub capabilities: Vec<String>,
+    pub wasm_size_bytes: u64,
+}
+
+/// Resultado de la ejecución de una acción en un plugin WASM.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginResult {
+    pub plugin: String,
+    pub action: String,
+    pub output: String,
+    pub fuel_consumed: u64,
+    pub memory_allocated_bytes: usize,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -1013,6 +1037,18 @@ pub enum Peticion {
         action: String,
         headless: bool,
     },
+    /// Lista los plugins WebAssembly instalados (T14.1)
+    ListarPlugins,
+    /// Ejecuta una acción dentro de un plugin WASM (T14.1)
+    EjecutarPlugin {
+        plugin_name: String,
+        action: String,
+        params: std::collections::BTreeMap<String, String>,
+    },
+    /// Instala un plugin WASM desde un directorio o manifiesto (T14.1)
+    InstalarPlugin {
+        source_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1153,6 +1189,10 @@ pub enum Evento {
         output: String,
         success: bool,
     },
+    /// Listado de plugins WebAssembly disponibles (T14.1)
+    ListaPlugins(Vec<PluginSummary>),
+    /// Resultado de la ejecución de una acción de plugin WASM (T14.1)
+    ResultadoPlugin(PluginResult),
     Error(String),
 }
 
@@ -1825,6 +1865,52 @@ mod tests {
         let ev = Evento::EstadoBoot(status);
         let json_ev = serde_json::to_string(&ev).expect("serialize boot ev");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize boot ev");
+        assert_eq!(ev, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_wasm_plugins() {
+        let summary = PluginSummary {
+            name: "markdown-formatter".into(),
+            version: "1.0.0".into(),
+            description: "Formatea tablas y encabezados Markdown".into(),
+            capabilities: vec!["format".into(), "lint".into()],
+            wasm_size_bytes: 40960,
+        };
+
+        let ev_list = Evento::ListaPlugins(vec![summary]);
+        let json_ev_list = serde_json::to_string(&ev_list).expect("serialize list ev");
+        let des_ev_list: Evento = serde_json::from_str(&json_ev_list).expect("deserialize list ev");
+        assert_eq!(ev_list, des_ev_list);
+
+        let req_list = Peticion::ListarPlugins;
+        let json_req_list = serde_json::to_string(&req_list).expect("serialize list plugins");
+        let des_req_list: Peticion = serde_json::from_str(&json_req_list).expect("deserialize list plugins");
+        assert_eq!(req_list, des_req_list);
+
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("target".into(), "README.md".into());
+        let req_run = Peticion::EjecutarPlugin {
+            plugin_name: "markdown-formatter".into(),
+            action: "format".into(),
+            params,
+        };
+        let json_run = serde_json::to_string(&req_run).expect("serialize run plugin");
+        let des_run: Peticion = serde_json::from_str(&json_run).expect("deserialize run plugin");
+        assert_eq!(req_run, des_run);
+
+        let result = PluginResult {
+            plugin: "markdown-formatter".into(),
+            action: "format".into(),
+            output: "Formateo exitoso".into(),
+            fuel_consumed: 1250,
+            memory_allocated_bytes: 65536,
+            success: true,
+            error: None,
+        };
+        let ev = Evento::ResultadoPlugin(result);
+        let json_ev = serde_json::to_string(&ev).expect("serialize result ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize result ev");
         assert_eq!(ev, des_ev);
     }
 }

@@ -117,6 +117,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("boot")
             && !lower.contains("qemu")
             && !lower.contains("kernel")
+            && !lower.contains("plugin")
+            && !lower.contains("wasm")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -535,6 +537,23 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "qemu")])]));
             }
             return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "status")])]));
+        }
+
+        // Intenciones de Plugins WebAssembly (WASM) (T14.1)
+        if lower.contains("plugin") || lower.contains("wasm") {
+            if lower.contains("lista") || lower.contains("list") || lower.contains("instalados") || lower.contains("instaladas") {
+                return Ok(Propuesta::solo(vec![step("plugin.list", &[])]));
+            }
+            if lower.contains("instala") || lower.contains("install") {
+                let path = after(&words, &["instala", "install", "plugin", "desde", "en"]).unwrap_or_else(|| ".".into());
+                return Ok(Propuesta::solo(vec![step("plugin.install", &[("path", &path)])]));
+            }
+            if lower.contains("ejecuta") || lower.contains("run") {
+                let plugin = after(&words, &["ejecuta", "run", "plugin"]).unwrap_or_default();
+                let action = after(&words, &["con", "accion", "acción"]).unwrap_or_else(|| "run".into());
+                return Ok(Propuesta::solo(vec![step("plugin.run", &[("plugin", &plugin), ("action", &action)])]));
+            }
+            return Ok(Propuesta::solo(vec![step("plugin.list", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1133,5 +1152,17 @@ mod tests {
         assert_eq!(p_boot_build.steps.len(), 1);
         assert_eq!(p_boot_build.steps[0].capability, "boot.pipeline");
         assert_eq!(p_boot_build.steps[0].args.get("action").map(|s| s.as_str()), Some("build"));
+
+        let p_plugin_list = planner
+            .plan("lista los plugins wasm instalados", &catalog)
+            .expect("plan plugin list");
+        assert_eq!(p_plugin_list.steps.len(), 1);
+        assert_eq!(p_plugin_list.steps[0].capability, "plugin.list");
+
+        let p_plugin_run = planner
+            .plan("ejecuta el plugin json-parser con accion format", &catalog)
+            .expect("plan plugin run");
+        assert_eq!(p_plugin_run.steps.len(), 1);
+        assert_eq!(p_plugin_run.steps[0].capability, "plugin.run");
     }
 }

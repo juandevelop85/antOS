@@ -31,6 +31,7 @@ pub mod collab;
 pub mod desktop;
 pub mod barra;
 pub mod boot;
+pub mod wasm;
 mod ipc;
 mod journal;
 mod plan;
@@ -131,6 +132,7 @@ fn run() -> Result<()> {
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
+        "plugin" | "plugins" | "wasm" => cmd_plugin(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1976,6 +1978,82 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos boot build      Compila el kernel no_std y crea la imagen de disco");
             println!("    antos boot test       Prueba automatizada de arranque en QEMU headless");
             println!("    antos boot qemu       Lanza la máquina virtual interactiva en QEMU\n");
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------------- plugins
+
+fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+    let plugins_dir = wasm::PluginManager::get_plugins_dir(&ctx.workspace);
+
+    match sub {
+        "list" | "ls" => {
+            let list = wasm::PluginManager::list_plugins(&plugins_dir);
+            println!("\n{} Plugins WebAssembly (WASM) Registrados:", paint("antOS ·", BOLD));
+            if list.is_empty() {
+                println!("  (no hay plugins instalados en {})\n", plugins_dir.display());
+            } else {
+                for p in list {
+                    let kb = (p.wasm_size_bytes + 1023) / 1024;
+                    println!("  • {} v{} ({} KiB) - {}",
+                        paint(&p.name, GREEN),
+                        paint(&p.version, CYAN),
+                        kb,
+                        p.description
+                    );
+                    println!("    Acciones disponibles: {}", p.capabilities.join(", "));
+                }
+                println!();
+            }
+        }
+        "install" => {
+            let path_str = args.get(1).map(String::as_str).unwrap_or(".");
+            let src = ctx.workspace.join(path_str);
+            println!("\n{} Instalando plugin desde {}...", paint("antOS ·", BOLD), src.display());
+            let summary = wasm::PluginManager::install_plugin(&plugins_dir, &src)?;
+            println!("  {} {} v{} (acciones: {})\n",
+                paint("✓ Plugin instalado:", GREEN),
+                summary.name,
+                summary.version,
+                summary.capabilities.join(", ")
+            );
+        }
+        "run" => {
+            let name = args.get(1).map(String::as_str).unwrap_or("");
+            if name.is_empty() {
+                bail!("Uso: antos plugin run <nombre> [accion] [clave=valor...]");
+            }
+            let action = args.get(2).map(String::as_str).unwrap_or("run");
+            let mut params = std::collections::BTreeMap::new();
+            for arg in args.iter().skip(3) {
+                if let Some((k, v)) = arg.split_once('=') {
+                    params.insert(k.to_string(), v.to_string());
+                }
+            }
+
+            println!("\n{} Ejecutando plugin [{}:{}] en sandbox aislado WASM...",
+                paint("antOS ·", BOLD), name, action
+            );
+            let res = wasm::PluginManager::run_plugin(&plugins_dir, name, action, &params);
+            if res.success {
+                println!("  {} {}", paint("✓ Resultado:", GREEN), res.output);
+                println!("    Ciclos de instrucción:  {}", res.fuel_consumed);
+                println!("    Memoria lineal:         {} KiB (cuota máx: 64 MB)\n", res.memory_allocated_bytes / 1024);
+            } else {
+                let err = res.error.unwrap_or_else(|| "Error desconocido".into());
+                println!("  {} {}\n", paint("✗ Error:", RED), err);
+                bail!("Fallo durante ejecución en sandbox WASM");
+            }
+        }
+        _ => {
+            println!("\n{} Gestor de Plugins WebAssembly (WASM):", paint("antOS Plugins ·", BOLD));
+            println!("  Uso:");
+            println!("    antos plugin list                   Enumera plugins instalados");
+            println!("    antos plugin install <directorio>   Instala un plugin con plugin.toml");
+            println!("    antos plugin run <nombre> [accion]  Ejecuta una acción en sandbox WASM\n");
         }
     }
     Ok(())

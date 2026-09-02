@@ -1,0 +1,12 @@
+name = "plugin.install"
+summary = "Instala un nuevo plugin WebAssembly validando su manifiesto y binario .wasm"
+
+[params]
+path = { type = "path" }
+
+[effects]
+writes = ["~/.antos/plugins"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"

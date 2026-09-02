@@ -241,6 +241,19 @@ pub enum Change {
         workspace: PathBuf,
         action: String,
     },
+    PluginList {
+        workspace: PathBuf,
+    },
+    PluginRun {
+        workspace: PathBuf,
+        plugin: String,
+        action: String,
+        params: std::collections::BTreeMap<String, String>,
+    },
+    PluginInstall {
+        workspace: PathBuf,
+        source_path: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -333,7 +346,10 @@ impl Pendiente {
             | Change::DesktopKeys { .. }
             | Change::BarraStatus { .. }
             | Change::BarraNotify { .. }
-            | Change::BootPipeline { .. } => {}
+            | Change::BootPipeline { .. }
+            | Change::PluginList { .. }
+            | Change::PluginRun { .. }
+            | Change::PluginInstall { .. } => {}
         }
     }
 }
@@ -904,6 +920,37 @@ pub fn changes_for(
             Ok(vec![Change::BootPipeline {
                 workspace: ctx.workspace.clone(),
                 action,
+            }])
+        }
+
+        "plugin.list" => Ok(vec![Change::PluginList {
+            workspace: ctx.workspace.clone(),
+        }]),
+
+        "plugin.run" => {
+            let plugin = a.get("plugin").cloned().unwrap_or_default();
+            let action = a.get("action").cloned().unwrap_or_else(|| "run".into());
+            let mut params = std::collections::BTreeMap::new();
+            if let Some(p_str) = a.get("params") {
+                for pair in p_str.split(',') {
+                    if let Some((k, v)) = pair.split_once('=') {
+                        params.insert(k.trim().to_string(), v.trim().to_string());
+                    }
+                }
+            }
+            Ok(vec![Change::PluginRun {
+                workspace: ctx.workspace.clone(),
+                plugin,
+                action,
+                params,
+            }])
+        }
+
+        "plugin.install" => {
+            let p = a.get("path").cloned().unwrap_or_else(|| ".".into());
+            Ok(vec![Change::PluginInstall {
+                workspace: ctx.workspace.clone(),
+                source_path: ctx.workspace.join(p),
             }])
         }
 
@@ -1684,6 +1731,42 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         output.push(lines.join("\n"));
                     }
                 }
+            }
+            Change::PluginList { workspace } => {
+                let p_dir = crate::wasm::PluginManager::get_plugins_dir(workspace);
+                let list = crate::wasm::PluginManager::list_plugins(&p_dir);
+                if list.is_empty() {
+                    output.push("antOS Plugins: No hay plugins WASM instalados.".into());
+                } else {
+                    let mut lines = Vec::new();
+                    lines.push(format!("antOS Plugins ({} instalados):", list.len()));
+                    for p in list {
+                        let kb = (p.wasm_size_bytes + 1023) / 1024;
+                        lines.push(format!("  • {} v{} ({} KiB) - {} [acciones: {}]",
+                            p.name, p.version, kb, p.description, p.capabilities.join(", ")
+                        ));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::PluginRun { workspace, plugin, action, params } => {
+                let p_dir = crate::wasm::PluginManager::get_plugins_dir(workspace);
+                let res = crate::wasm::PluginManager::run_plugin(&p_dir, plugin, action, params);
+                if res.success {
+                    output.push(format!("✓ Plugin [{}:{}] ejecutado en sandbox WASM:\n  Salida: {}\n  Ciclos de instrucción: {}\n  Memoria asignada: {} KiB",
+                        res.plugin, res.action, res.output, res.fuel_consumed, res.memory_allocated_bytes / 1024
+                    ));
+                } else {
+                    let err = res.error.unwrap_or_else(|| "Error desconocido".into());
+                    bail!("Fallo en plugin [{}:{}]: {}", res.plugin, res.action, err);
+                }
+            }
+            Change::PluginInstall { workspace, source_path } => {
+                let p_dir = crate::wasm::PluginManager::get_plugins_dir(workspace);
+                let installed = crate::wasm::PluginManager::install_plugin(&p_dir, source_path)?;
+                output.push(format!("✓ Plugin «{}» v{} instalado con éxito en {}",
+                    installed.name, installed.version, p_dir.display()
+                ));
             }
         }
     }

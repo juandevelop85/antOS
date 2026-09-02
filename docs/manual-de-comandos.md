@@ -723,6 +723,27 @@ antos boot qemu
 
 ---
 
+### 4.25 Motor de Capacidades y Plugins WebAssembly (`antos plugin`)
+
+Arquitectura de extensibilidad modular en WebAssembly (WASM / WASI) con aislamiento de memoria lineal (cuota configurable de hasta 64 MB), limitación de ciclos de instrucción (*fuel metering*) e integración segura con llamadas de antOS:
+
+```bash
+# Listar los plugins WebAssembly instalados y sus capacidades
+antos plugin list
+antos plugin
+
+# Instalar un nuevo plugin desde un directorio que contenga plugin.toml y el binario .wasm
+antos plugin install ./mis-plugins/markdown-formatter
+
+# Ejecutar una acción dentro de un plugin WASM en entorno aislado
+antos plugin run markdown-formatter format target=README.md
+
+# Ejecutar con parámetros clave=valor
+antos plugin run json-validator validate schema=strict.json
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

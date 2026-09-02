@@ -273,6 +273,15 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::BootPipeline { action, .. } => {
                 out.push(Line::Info(format!("ejecuta el pipeline de arranque bare metal (acción: {action})")));
             }
+            Change::PluginList { .. } => {
+                out.push(Line::Info("lista los plugins WebAssembly (WASM) instalados y sus capacidades".into()));
+            }
+            Change::PluginRun { plugin, action, .. } => {
+                out.push(Line::Info(format!("ejecuta la acción «{action}» en el plugin WASM «{plugin}» en sandbox aislado")));
+            }
+            Change::PluginInstall { source_path, .. } => {
+                out.push(Line::Info(format!("instala el plugin WebAssembly desde «{}»", source_path.display())));
+            }
         }
         pendiente.aplicar(change);
     }
