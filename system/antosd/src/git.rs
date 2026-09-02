@@ -446,20 +446,29 @@ mod tests {
 
     #[test]
     fn test_rendimiento_cache_menor_30ms() {
-        let cwd = std::env::current_dir().expect("cwd");
+        let dir_repo = tempfile_simple("cache_bench_repo");
+        let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.name", "Test"]).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.email", "test@example.com"]).output();
+        let _ = fs::write(dir_repo.join("README.md"), "# Bench\n");
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["add", "README.md"]).output();
+        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["commit", "-m", "init"]).output();
+
         let analyzer = GitAnalyzer::global();
         // Primer acceso para calentar caché
-        let _ = analyzer.consultar_estado(&cwd);
+        let _ = analyzer.consultar_estado(&dir_repo);
 
         // Segundo acceso desde caché
         let t0 = std::time::Instant::now();
-        let resultado = analyzer.consultar_estado(&cwd).expect("consulta en cache");
+        let resultado = analyzer.consultar_estado(&dir_repo).expect("consulta en cache");
         let duracion = t0.elapsed();
+
+        let _ = fs::remove_dir_all(&dir_repo);
 
         assert!(resultado.is_some());
         assert!(
-            duracion.as_millis() < 50,
-            "la respuesta desde caché debe tardar menos de 50ms (tardó: {:?})",
+            duracion.as_millis() < 30,
+            "la respuesta desde caché debe tardar menos de 30ms (tardó: {:?})",
             duracion
         );
     }
