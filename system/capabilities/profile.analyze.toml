@@ -1,0 +1,11 @@
+name = "profile.analyze"
+summary = "Analiza puntos calientes y genera recomendaciones técnicas de optimización"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

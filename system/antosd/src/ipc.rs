@@ -442,6 +442,22 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 message: format!("evento {} generado con éxito (acción: {:?})", event.id, event.action_taken),
             })?;
         }
+        Peticion::EjecutarProfiler { workspace_path, command } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let report = crate::profiler::ProfilerEngine::global().run_and_profile(&ws, &command)?;
+            enviar(&mut escritura, &Evento::ReporteProfiler(report))?;
+        }
+        Peticion::ConsultarProfilerReportes { workspace_path, limit } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let mut reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
+            reports.truncate(limit);
+            enviar(&mut escritura, &Evento::ListaReportesProfiler(reports))?;
+        }
+        Peticion::AnalizarProfilerHotspots { workspace_path } => {
+            let ws = std::path::PathBuf::from(workspace_path);
+            let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
+            enviar(&mut escritura, &Evento::AnalisisProfiler { hotspots, suggestions })?;
+        }
     }
     Ok(())
 }
@@ -594,6 +610,16 @@ pub fn intencion_remota(
                 } else {
                     pantalla.nota(&format!("✗ eBPF {action}: {message}"))?;
                 }
+            }
+            Evento::ReporteProfiler(report) => {
+                let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
+                pantalla.nota(&format!("✓ Profiler: «{}» en {} ms (Memoria pico: {:.2} MB RSS)", report.command, report.duration_ms, peak_mb))?;
+            }
+            Evento::ListaReportesProfiler(reports) => {
+                pantalla.nota(&format!("Profiler: {} reportes históricos disponibles", reports.len()))?;
+            }
+            Evento::AnalisisProfiler { hotspots, suggestions } => {
+                pantalla.nota(&format!("Profiler: {} hotspots y {} recomendaciones formuladas", hotspots.len(), suggestions.len()))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

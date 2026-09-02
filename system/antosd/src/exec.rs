@@ -198,6 +198,13 @@ pub enum Change {
         limit: usize,
         pid: Option<u32>,
     },
+    ProfileRun {
+        workspace: PathBuf,
+        command: String,
+    },
+    ProfileAnalyze {
+        workspace: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -279,7 +286,9 @@ impl Pendiente {
             | Change::VfsValidateWrite { .. }
             | Change::VfsGuardStatus { .. }
             | Change::EbpfStatus { .. }
-            | Change::EbpfAuditLog { .. } => {}
+            | Change::EbpfAuditLog { .. }
+            | Change::ProfileRun { .. }
+            | Change::ProfileAnalyze { .. } => {}
         }
     }
 }
@@ -761,6 +770,23 @@ pub fn changes_for(
                 workspace: ctx.workspace.clone(),
                 limit,
                 pid,
+            }])
+        }
+
+        "profile.run" => {
+            let command = a
+                .get("command")
+                .cloned()
+                .unwrap_or_else(|| "cargo test".into());
+            Ok(vec![Change::ProfileRun {
+                workspace: ctx.workspace.clone(),
+                command,
+            }])
+        }
+
+        "profile.analyze" => {
+            Ok(vec![Change::ProfileAnalyze {
+                workspace: ctx.workspace.clone(),
             }])
         }
 
@@ -1368,6 +1394,50 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         ));
                         if let Some(ref r) = ev.violation_reason {
                             lines.push(format!("      └─ Motivo: {r}"));
+                        }
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::ProfileRun { workspace, command } => {
+                let report = crate::profiler::ProfilerEngine::global().run_and_profile(workspace, command)?;
+                let mut lines = Vec::new();
+                let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
+                lines.push(format!("antOS Profiler: «{}» completado en {} ms (código {})", report.command, report.duration_ms, report.exit_code));
+                lines.push(format!("  • CPU: {} ms usuario, {} ms sistema | Memoria pico: {:.2} MB RSS | Page faults: {}",
+                    report.cpu_user_ms, report.cpu_sys_ms, peak_mb, report.page_faults
+                ));
+                if !report.hotspots.is_empty() {
+                    lines.push("  • Puntos calientes identificados:".into());
+                    for h in &report.hotspots {
+                        lines.push(format!("      - {:<32} {:.1}% CPU, {:.1}% Mem ({} llamadas)", h.name, h.percentage_cpu, h.percentage_memory, h.calls_or_samples));
+                    }
+                }
+                if !report.suggestions.is_empty() {
+                    lines.push("  • Recomendaciones de optimización para agentes:".into());
+                    for s in &report.suggestions {
+                        lines.push(format!("      ★ [{}] {}: {}", s.potential_impact, s.title, s.description));
+                    }
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::ProfileAnalyze { workspace } => {
+                let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(workspace);
+                let mut lines = Vec::new();
+                lines.push("antOS Profiler: Análisis Agregado de Rendimiento".into());
+                if hotspots.is_empty() && suggestions.is_empty() {
+                    lines.push("  (sin métricas registradas; ejecuta «antos profile run <cmd>» para generar datos)".into());
+                } else {
+                    if !hotspots.is_empty() {
+                        lines.push("  • Top cuellos de botella (Hotspots):".into());
+                        for h in &hotspots {
+                            lines.push(format!("      - {:<32} {:.1}% CPU, {:.1}% Mem", h.name, h.percentage_cpu, h.percentage_memory));
+                        }
+                    }
+                    if !suggestions.is_empty() {
+                        lines.push("  • Sugerencias técnicas para Coder / QA:".into());
+                        for s in &suggestions {
+                            lines.push(format!("      ★ [{}] {}: {}", s.potential_impact, s.title, s.description));
                         }
                     }
                 }

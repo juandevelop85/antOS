@@ -597,6 +597,27 @@ antos ebpf simulate bprm /bin/nc
 
 ---
 
+### 4.19 Profiler Continuo de CPU y Memoria (`antos profile`)
+
+Telemetría de rendimiento y profiling en tiempo de ejecución para detección de cuellos de botella y sugerencias de optimización para agentes Coder y QA:
+
+```bash
+# Ejecutar y perfilar cualquier comando en tiempo real midiendo CPU, memoria RSS y page faults
+antos profile run "cargo check"
+antos profile run "cargo test"
+
+# Ver los puntos calientes (hotspots) consolidados en la ejecución
+antos profile top
+
+# Analizar la telemetría agregada y obtener sugerencias técnicas de optimización
+antos profile analyze
+
+# Consultar el histórico de reportes guardados
+antos profile list
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

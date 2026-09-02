@@ -25,6 +25,7 @@ pub mod distributed;
 pub mod vfs;
 pub mod vfs_guard;
 pub mod ebpf;
+pub mod profiler;
 mod ipc;
 mod journal;
 mod plan;
@@ -109,7 +110,7 @@ fn run() -> Result<()> {
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
         "llm" | "models" | "model" => cmd_llm(&rest[1..]),
         "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
-        "env" | "profile" => cmd_env(&ctx, &rest[1..]),
+        "env" | "perfil" => cmd_env(&ctx, &rest[1..]),
         "quota" | "cuota" | "cuotas" | "limits" => cmd_quota(&ctx, &rest[1..]),
         "diff" | "diffs" => cmd_diff(&ctx, &rest[1..]),
         "vte" | "term" | "terminal" => cmd_terminal(&rest[1..]),
@@ -118,6 +119,7 @@ fn run() -> Result<()> {
         "swarm" => cmd_swarm(&ctx, &rest[1..]),
         "vfs" | "antfs" => cmd_vfs(&ctx, &rest[1..]),
         "ebpf" | "bpf" => cmd_ebpf(&ctx, &rest[1..]),
+        "profile" | "perf" | "profiler" => cmd_profile(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1566,6 +1568,125 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos ebpf trace [pid]       Traza de llamadas al sistema en tiempo real");
             println!("    • antos ebpf audit [limit]     Registro de auditoría del ring buffer");
             println!("    • antos ebpf simulate <tipo>   Simula evasión (file|socket|bprm) y alerta\n");
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------------- profile
+
+fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let engine = profiler::ProfilerEngine::global();
+    let sub = args.first().map(String::as_str);
+
+    match sub {
+        Some("run" | "ejecutar") => {
+            let command = if args.len() > 1 {
+                args[1..].join(" ")
+            } else {
+                "cargo test".to_string()
+            };
+            println!("\n{} Ejecutando perfilado continuo para: {}", paint("antOS Profiler ·", BOLD), paint(&command, YELLOW));
+            let report = engine.run_and_profile(&ctx.workspace, &command)?;
+
+            let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
+            let status_badge = if report.exit_code == 0 {
+                paint("EXIT 0 (Éxito)", GREEN)
+            } else {
+                paint(&format!("EXIT {}", report.exit_code), RED)
+            };
+
+            println!("\n{}", paint("Resultado del Perfilado:", BOLD));
+            println!("  Estado del comando:       {}", status_badge);
+            println!("  Duración de Wall-Clock:   {} ms", paint(&report.duration_ms.to_string(), BOLD));
+            println!("  Tiempo de CPU:            {} ms usuario, {} ms sistema", report.cpu_user_ms, report.cpu_sys_ms);
+            println!("  Memoria Pico (RSS):       {} MB", paint(&format!("{peak_mb:.2}"), CYAN));
+            println!("  Fallas de Página (Faults): {}\n", report.page_faults);
+
+            if !report.hotspots.is_empty() {
+                println!("{}", paint("  Puntos Calientes de Ejecución (Hotspots):", BOLD));
+                for h in report.hotspots {
+                    println!("    • {:<32} CPU: {:>4.1}% | Mem: {:>4.1}% ({} muestras)",
+                        paint(&h.name, YELLOW), h.percentage_cpu, h.percentage_memory, h.calls_or_samples
+                    );
+                }
+                println!();
+            }
+
+            if !report.suggestions.is_empty() {
+                println!("{}", paint("  Recomendaciones de Optimización para Agentes Coder / QA:", BOLD));
+                for s in report.suggestions {
+                    let impact_color = if s.potential_impact.contains("Alto") { RED } else { YELLOW };
+                    println!("    ★ [{}] {}", paint(&s.potential_impact, impact_color), paint(&s.title, BOLD));
+                    println!("      └─ {}", paint(&s.description, DIM));
+                    if let Some(target) = s.target_symbol_or_path {
+                        println!("         Objetivo: {}", paint(&target, CYAN));
+                    }
+                }
+                println!();
+            }
+        }
+        Some("top" | "hotspots" | "cuellos") => {
+            let (hotspots, _) = engine.analyze_aggregate(&ctx.workspace);
+            println!("\n{}", paint("antOS Profiler · Top Cuellos de Botella (Hotspots)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            if hotspots.is_empty() {
+                println!("  (no hay hotspots registrados; ejecuta «antos profile run <comando>»)\n");
+            } else {
+                for (idx, h) in hotspots.iter().enumerate() {
+                    println!("  {}. {:<32} CPU: {:>5.1}% | Mem: {:>5.1}% ({} llamadas)",
+                        idx + 1, paint(&h.name, YELLOW), h.percentage_cpu, h.percentage_memory, h.calls_or_samples
+                    );
+                }
+                println!();
+            }
+        }
+        Some("analyze" | "analiza" | "sugerencias") => {
+            let (hotspots, suggestions) = engine.analyze_aggregate(&ctx.workspace);
+            println!("\n{}", paint("antOS Profiler · Análisis y Recomendaciones Técnicas", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            if suggestions.is_empty() {
+                println!("  (sin recomendaciones activas; ejecuta «antos profile run <comando>»)\n");
+            } else {
+                println!("  Puntos calientes consolidados: {}\n", hotspots.len());
+                for s in suggestions {
+                    let impact_color = if s.potential_impact.contains("Alto") { RED } else { YELLOW };
+                    println!("  ★ [{}] {}", paint(&s.potential_impact, impact_color), paint(&s.title, BOLD));
+                    println!("    └─ {}", paint(&s.description, DIM));
+                }
+                println!();
+            }
+        }
+        Some("list" | "reports" | "reportes" | "historial") => {
+            let reports = engine.load_reports(&ctx.workspace);
+            println!("\n{}", paint("antOS Profiler · Histórico de Reportes de Rendimiento", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+
+            if reports.is_empty() {
+                println!("  (no hay reportes guardados)\n");
+            } else {
+                for r in reports {
+                    let peak_mb = r.peak_memory_bytes as f64 / (1024.0 * 1024.0);
+                    println!("  • [{}] «{}» — {} ms | {:.1} MB RSS (código {})",
+                        paint(&r.id, DIM), paint(&r.command, BOLD), r.duration_ms, peak_mb, r.exit_code
+                    );
+                }
+                println!();
+            }
+        }
+        _ => {
+            let reports = engine.load_reports(&ctx.workspace);
+            println!("\n{}", paint("antOS · Profiler Continuo de Runtime (T11.2)", BOLD));
+            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!("  Reportes registrados:   {}", paint(&reports.len().to_string(), BOLD));
+
+            println!("  Subcomandos disponibles:");
+            println!("    • antos profile run <cmd>      Ejecuta y perfila un comando en tiempo real");
+            println!("    • antos profile top            Lista los principales puntos calientes (hotspots)");
+            println!("    • antos profile analyze        Sintetiza recomendaciones para Coder y QA");
+            println!("    • antos profile list           Muestra el histórico de reportes guardados\n");
         }
     }
     Ok(())

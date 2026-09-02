@@ -1,0 +1,12 @@
+name = "profile.run"
+summary = "Ejecuta un comando bajo el profiler de runtime generando un informe de rendimiento"
+
+[params]
+command = { type = "text" }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

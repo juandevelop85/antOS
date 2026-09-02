@@ -308,6 +308,48 @@ pub struct EbpfStatus {
     pub ring_buffer_utilization: usize,
 }
 
+// --------------------------------------------- profiler continuo de runtime (T11.2)
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProfileSuggestionKind {
+    MemoryOptimization,
+    CpuOptimization,
+    IoOptimization,
+    ConcurrencyOptimization,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileHotspot {
+    pub name: String,
+    pub percentage_cpu: f32,
+    pub percentage_memory: f32,
+    pub calls_or_samples: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileSuggestion {
+    pub kind: ProfileSuggestionKind,
+    pub title: String,
+    pub description: String,
+    pub potential_impact: String,
+    pub target_symbol_or_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileReport {
+    pub id: String,
+    pub command: String,
+    pub duration_ms: u64,
+    pub cpu_user_ms: u64,
+    pub cpu_sys_ms: u64,
+    pub peak_memory_bytes: u64,
+    pub page_faults: u64,
+    pub exit_code: i32,
+    pub hotspots: Vec<ProfileHotspot>,
+    pub suggestions: Vec<ProfileSuggestion>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -754,9 +796,23 @@ pub enum Peticion {
         hook: EbpfHookKind,
         target_resource: String,
     },
+    /// Ejecuta un comando bajo el profiler de rendimiento continuo (T11.2)
+    EjecutarProfiler {
+        workspace_path: String,
+        command: String,
+    },
+    /// Consulta el histórico de reportes del profiler (T11.2)
+    ConsultarProfilerReportes {
+        workspace_path: String,
+        limit: usize,
+    },
+    /// Analiza puntos calientes y genera recomendaciones para agentes (T11.2)
+    AnalizarProfilerHotspots {
+        workspace_path: String,
+    },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Evento {
     Inicio { intencion: String, planificador: String },
     Nota(String),
@@ -844,6 +900,15 @@ pub enum Evento {
         action: String,
         success: bool,
         message: String,
+    },
+    /// Reporte detallado de ejecución bajo el profiler (T11.2)
+    ReporteProfiler(ProfileReport),
+    /// Histórico de reportes de profiling (T11.2)
+    ListaReportesProfiler(Vec<ProfileReport>),
+    /// Diagnóstico de puntos calientes y sugerencias para agentes (T11.2)
+    AnalisisProfiler {
+        hotspots: Vec<ProfileHotspot>,
+        suggestions: Vec<ProfileSuggestion>,
     },
     Error(String),
 }
@@ -1278,5 +1343,47 @@ mod tests {
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize ebpf log");
         let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize ebpf log");
         assert_eq!(ev2, des_ev2);
+    }
+
+    #[test]
+    fn test_serializacion_profiler() {
+        let hotspot = ProfileHotspot {
+            name: "calculate_embeddings".into(),
+            percentage_cpu: 64.5,
+            percentage_memory: 32.1,
+            calls_or_samples: 150,
+        };
+        let suggestion = ProfileSuggestion {
+            kind: ProfileSuggestionKind::CpuOptimization,
+            title: "Evitar clonado superfluo en cálculo de embeddings".into(),
+            description: "El buffer se clona dentro del bucle de cálculo. Reemplazar por paso por referencia (&[f32]).".into(),
+            potential_impact: "Alto (-45% CPU)".into(),
+            target_symbol_or_path: Some("system/antosd/src/memory.rs".into()),
+        };
+        let report = ProfileReport {
+            id: "prof-001".into(),
+            command: "cargo test".into(),
+            duration_ms: 1250,
+            cpu_user_ms: 820,
+            cpu_sys_ms: 110,
+            peak_memory_bytes: 48 * 1024 * 1024,
+            page_faults: 340,
+            exit_code: 0,
+            hotspots: vec![hotspot],
+            suggestions: vec![suggestion],
+        };
+
+        let req = Peticion::EjecutarProfiler {
+            workspace_path: "/ws".into(),
+            command: "cargo test".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize profiler req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize profiler req");
+        assert_eq!(req, des_req);
+
+        let ev1 = Evento::ReporteProfiler(report);
+        let json_ev1 = serde_json::to_string(&ev1).expect("serialize report");
+        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize report");
+        assert_eq!(ev1, des_ev1);
     }
 }

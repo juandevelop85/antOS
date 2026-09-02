@@ -100,6 +100,9 @@ impl Planner for LocalPlanner {
             && !lower.contains("antfs")
             && !lower.contains("ebpf")
             && !lower.contains("bpf")
+            && !lower.contains("perfil")
+            && !lower.contains("profile")
+            && !lower.contains("hotspot")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -285,7 +288,7 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de perfiles de entorno y flakes (T7.1)
-        if lower.contains("entorno") || lower.contains("toolchain") || lower.contains("devbox") || lower.contains("flake") || lower.contains("perfil") {
+        if lower.contains("entorno") || lower.contains("toolchain") || lower.contains("devbox") || lower.contains("flake") || (lower.contains("perfil") && !lower.contains("perfila") && !lower.contains("profil") && !lower.contains("rendimiento") && !lower.contains("hotspot")) {
             if lower.contains("init") || lower.contains("configura") || lower.contains("crea") || lower.contains("inicializa") {
                 let prof = words.iter().find_map(|w| {
                     match w.as_str() {
@@ -448,6 +451,15 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("ebpf.audit_log", &args)]));
             }
             return Ok(Propuesta::solo(vec![step("ebpf.status", &[])]));
+        }
+
+        // Intenciones de Profiler Continuo y Rendimiento (T11.2)
+        if lower.contains("profil") || lower.contains("perfila") || lower.contains("hotspot") || lower.contains("cuello") || (lower.contains("rendimiento") && !lower.contains("git")) {
+            if lower.contains("analiz") || lower.contains("sugerencia") || lower.contains("top") || lower.contains("hotspot") || lower.contains("cuello") {
+                return Ok(Propuesta::solo(vec![step("profile.analyze", &[])]));
+            }
+            let cmd = after(&words, &["ejecuta", "run", "comando", "el", "con"]).unwrap_or_else(|| "cargo test".into());
+            return Ok(Propuesta::solo(vec![step("profile.run", &[("command", &cmd)])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -965,5 +977,17 @@ mod tests {
             .expect("plan ebpf audit");
         assert_eq!(p_audit.steps.len(), 1);
         assert_eq!(p_audit.steps[0].capability, "ebpf.audit_log");
+
+        let p_prof_run = planner
+            .plan("perfila el comando cargo test", &catalog)
+            .expect("plan profile run");
+        assert_eq!(p_prof_run.steps.len(), 1);
+        assert_eq!(p_prof_run.steps[0].capability, "profile.run");
+
+        let p_prof_an = planner
+            .plan("analiza los hotspots de rendimiento y cuellos de botella", &catalog)
+            .expect("plan profile analyze");
+        assert_eq!(p_prof_an.steps.len(), 1);
+        assert_eq!(p_prof_an.steps[0].capability, "profile.analyze");
     }
 }

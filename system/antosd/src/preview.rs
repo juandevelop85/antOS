@@ -237,6 +237,12 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let p_str = pid.map(|p| format!(" para PID {p}")).unwrap_or_default();
                 out.push(Line::Info(format!("inspecciona el registro de auditoría de syscalls de eBPF (hasta {limit} eventos{p_str})")));
             }
+            Change::ProfileRun { command, .. } => {
+                out.push(Line::Info(format!("ejecuta y perfila el comando «{command}» monitoreando CPU y memoria pico")));
+            }
+            Change::ProfileAnalyze { .. } => {
+                out.push(Line::Info("analiza cuellos de botella y genera sugerencias técnicas de optimización".into()));
+            }
         }
         pendiente.aplicar(change);
     }
