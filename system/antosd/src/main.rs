@@ -35,7 +35,7 @@ use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
 use planner::{claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner, Planner};
-use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW};
+use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW, BLUE};
 
 #[derive(Default)]
 struct Opts {
@@ -102,6 +102,7 @@ fn run() -> Result<()> {
         "llm" | "models" | "model" => cmd_llm(&rest[1..]),
         "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
         "env" | "profile" => cmd_env(&ctx, &rest[1..]),
+        "quota" | "cuota" | "cuotas" | "limits" => cmd_quota(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -409,6 +410,7 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         dirs: vec![ctx.workspace.clone()],
         network: false,
         allowed_secrets: vec![],
+        quota: None,
     };
 
     // 1) escribir fuera de lo declarado
@@ -479,7 +481,7 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
 
     // 4) red. Se prueba en los dos sentidos para no confundir «bloqueada»
     //    con «esta máquina no tiene internet».
-    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![] };
+    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![], quota: None };
     let alcanzable_declarando = sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
     let alcanzable_sin_declarar = sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
 
@@ -957,6 +959,81 @@ fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!("\n  Usa antos env init [{det_str}] para inicializar devbox.json y flake.nix.\n");
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+// ------------------------------------------------------------------ quota
+
+fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "set" => {
+            let mut q = sandbox::quota::load_quota(&ctx.workspace)?;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--timeout" | "-t" => {
+                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
+                            q.timeout_secs = val;
+                            i += 1;
+                        }
+                    }
+                    "--memory" | "-m" => {
+                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
+                            q.max_memory_mb = val;
+                            i += 1;
+                        }
+                    }
+                    "--cpu" | "-c" => {
+                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
+                            q.cpu_quota_percent = val;
+                            i += 1;
+                        }
+                    }
+                    "--pids" | "-p" => {
+                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
+                            q.max_pids = val;
+                            i += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            sandbox::quota::save_quota(&ctx.workspace, &q)?;
+            println!("\n{} Cuotas de recursos de sandbox actualizadas.", paint("✓", GREEN));
+            println!("  • Timeout:   {}s", paint(&q.timeout_secs.to_string(), BOLD));
+            println!("  • Memoria:   {} MB", paint(&q.max_memory_mb.to_string(), BOLD));
+            println!("  • CPU:       {}%", paint(&q.cpu_quota_percent.to_string(), BOLD));
+            println!("  • Max PIDs:  {} procesos\n", paint(&q.max_pids.to_string(), BOLD));
+        }
+        "reset" => {
+            let def = sandbox::quota::ResourceQuota::default();
+            sandbox::quota::save_quota(&ctx.workspace, &def)?;
+            println!("\n{} Cuotas de sandbox restablecidas a los valores por defecto del sistema.\n", paint("✓", GREEN));
+        }
+        "status" | _ => {
+            println!("\n{}", paint("antOS · Cuotas y Límites de Recursos para Sandboxes (T7.2)", BOLD));
+            let q = sandbox::quota::load_quota(&ctx.workspace)?;
+            let cgroup_avail = sandbox::quota::CgroupV2Manager::is_available();
+
+            let backend = if cgroup_avail {
+                paint("● cgroups v2 (Linux)", GREEN)
+            } else {
+                paint("● Seatbelt + Supervisor de Procesos (macOS)", BLUE)
+            };
+
+            println!("  Mecanismo:          {backend}");
+            println!("  Timeout de agente:  {}", paint(&format!("{}s", q.timeout_secs), GREEN));
+            println!("  Límite de memoria:  {}", paint(&format!("{} MB", q.max_memory_mb), GREEN));
+            println!("  Cuota de CPU:       {}", paint(&format!("{}%", q.cpu_quota_percent), GREEN));
+            println!("  Límite de procesos: {}\n", paint(&format!("{} PIDs", q.max_pids), GREEN));
+            println!("  Usa antos quota set [--timeout N] [--memory N] [--cpu N] para modificar.\n");
         }
     }
 

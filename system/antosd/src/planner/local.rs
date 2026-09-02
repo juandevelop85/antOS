@@ -82,6 +82,9 @@ impl Planner for LocalPlanner {
         if (lower.contains("lee") || lower.contains("muestra") || lower.contains("enseña"))
             && !lower.contains("grafo")
             && !lower.contains("memoria")
+            && !lower.contains("cuota")
+            && !lower.contains("limite")
+            && !lower.contains("límite")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -182,7 +185,7 @@ impl Planner for LocalPlanner {
             || lower.contains("meilisearch")
             || lower.contains("rabbitmq")
             || lower.contains("base de datos")
-            || lower.contains("db")
+            || words.iter().any(|w| w == "db")
         {
             let svc = if lower.contains("redis") {
                 "redis"
@@ -283,6 +286,37 @@ impl Planner for LocalPlanner {
             }
 
             return Ok(Propuesta::solo(vec![step("env.profile_status", &[])]));
+        }
+
+        // Intenciones de cuotas y límites de recursos para sandboxes (T7.2)
+        if lower.contains("cuota") || lower.contains("cuotas") || lower.contains("límite") || lower.contains("limite") || lower.contains("timeout") {
+            if lower.contains("establece") || lower.contains("configura") || lower.contains("pon") || lower.contains("cambia") || lower.contains("limita") {
+                let mut args = Vec::new();
+                for (i, w) in words.iter().enumerate() {
+                    if (w.contains("timeout") || w.contains("tiempo")) && words.len() > i + 1 {
+                        let digits: String = words[i + 1].chars().filter(|c| c.is_ascii_digit()).collect();
+                        if !digits.is_empty() {
+                            args.push(("timeout", digits));
+                        }
+                    }
+                    if (w.contains("memoria") || w.contains("ram")) && words.len() > i + 1 {
+                        let digits: String = words[i + 1].chars().filter(|c| c.is_ascii_digit()).collect();
+                        if !digits.is_empty() {
+                            args.push(("memory", digits));
+                        }
+                    }
+                    if w.contains("cpu") && words.len() > i + 1 {
+                        let digits: String = words[i + 1].chars().filter(|c| c.is_ascii_digit()).collect();
+                        if !digits.is_empty() {
+                            args.push(("cpu", digits));
+                        }
+                    }
+                }
+                let arg_refs: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                return Ok(Propuesta::solo(vec![step("quota.set", &arg_refs)]));
+            }
+
+            return Ok(Propuesta::solo(vec![step("quota.status", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -640,5 +674,26 @@ mod tests {
             .expect("plan sync");
         assert_eq!(p_sync.steps.len(), 1);
         assert_eq!(p_sync.steps[0].capability, "env.sync");
+    }
+
+    #[test]
+    fn test_plan_quota_status_y_set() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_status = planner
+            .plan("muestra las cuotas de recursos del sandbox", &catalog)
+            .expect("plan status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "quota.status");
+
+        let p_set = planner
+            .plan("establece timeout 60 y memoria 512", &catalog)
+            .expect("plan set");
+        assert_eq!(p_set.steps.len(), 1);
+        assert_eq!(p_set.steps[0].capability, "quota.set");
+        assert_eq!(p_set.steps[0].args.get("timeout").map(String::as_str), Some("60"));
+        assert_eq!(p_set.steps[0].args.get("memory").map(String::as_str), Some("512"));
     }
 }

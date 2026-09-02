@@ -129,6 +129,13 @@ pub enum Change {
     EnvProfileStatus {
         workspace: PathBuf,
     },
+    QuotaStatus {
+        workspace: PathBuf,
+    },
+    QuotaSet {
+        workspace: PathBuf,
+        quota: crate::sandbox::quota::ResourceQuota,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -192,7 +199,9 @@ impl Pendiente {
             | Change::MemoryGraph { .. }
             | Change::EnvProfileInit { .. }
             | Change::EnvProfileSync { .. }
-            | Change::EnvProfileStatus { .. } => {}
+            | Change::EnvProfileStatus { .. }
+            | Change::QuotaStatus { .. }
+            | Change::QuotaSet { .. } => {}
         }
     }
 }
@@ -505,6 +514,33 @@ pub fn changes_for(
         "env.profile_status" => {
             Ok(vec![Change::EnvProfileStatus {
                 workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "quota.status" => {
+            Ok(vec![Change::QuotaStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "quota.set" => {
+            let mut current = crate::sandbox::quota::load_quota(&ctx.workspace).unwrap_or_default();
+            if let Some(t) = a.get("timeout").and_then(|v| v.parse::<u64>().ok()) {
+                current.timeout_secs = t;
+            }
+            if let Some(m) = a.get("memory").and_then(|v| v.parse::<u64>().ok()) {
+                current.max_memory_mb = m;
+            }
+            if let Some(c) = a.get("cpu").and_then(|v| v.parse::<u32>().ok()) {
+                current.cpu_quota_percent = c;
+            }
+            if let Some(p) = a.get("pids").and_then(|v| v.parse::<u32>().ok()) {
+                current.max_pids = p;
+            }
+
+            Ok(vec![Change::QuotaSet {
+                workspace: ctx.workspace.clone(),
+                quota: current,
             }])
         }
 
@@ -894,6 +930,25 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     }
                 }
                 output.push(lines.join("\n"));
+            }
+            Change::QuotaStatus { workspace } => {
+                let q = crate::sandbox::quota::load_quota(workspace)?;
+                let cgroup_supported = crate::sandbox::quota::CgroupV2Manager::is_available();
+                let cgroup_str = if cgroup_supported { "activo (cgroups v2)" } else { "modo proceso/watchdog" };
+                let mut lines = Vec::new();
+                lines.push(format!("cuotas y límites de sandbox ({cgroup_str}):"));
+                lines.push(format!("  • Timeout máximo:   {}s", q.timeout_secs));
+                lines.push(format!("  • Memoria máxima:   {} MB", q.max_memory_mb));
+                lines.push(format!("  • Cuota de CPU:     {}%", q.cpu_quota_percent));
+                lines.push(format!("  • Límite de PIDs:   {} procesos", q.max_pids));
+                output.push(lines.join("\n"));
+            }
+            Change::QuotaSet { workspace, quota } => {
+                crate::sandbox::quota::save_quota(workspace, quota)?;
+                output.push(format!(
+                    "cuotas de sandbox actualizadas: timeout={}s, memoria={}MB, cpu={}%",
+                    quota.timeout_secs, quota.max_memory_mb, quota.cpu_quota_percent
+                ));
             }
         }
     }

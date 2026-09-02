@@ -1,0 +1,15 @@
+name = "quota.set"
+summary = "Configura cuotas de recursos para ejecuciones de agentes (timeout, memoria, CPU, PIDs)"
+
+[params]
+timeout = { type = "text", optional = true }
+memory = { type = "text", optional = true }
+cpu = { type = "text", optional = true }
+pids = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/.antos/quota.toml"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

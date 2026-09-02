@@ -1,0 +1,11 @@
+name = "quota.status"
+summary = "Muestra las cuotas y límites de recursos activos para sandboxes de agentes (CPU, memoria, timeout, PIDs)"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE/.antos/quota.toml"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

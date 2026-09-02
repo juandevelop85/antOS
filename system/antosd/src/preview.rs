@@ -166,6 +166,16 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::EnvProfileStatus { .. } => {
                 out.push(Line::Info("consulta el estado del perfil de entorno del proyecto".into()));
             }
+            Change::QuotaStatus { .. } => {
+                out.push(Line::Info("consulta cuotas y límites de recursos para sandboxes".into()));
+            }
+            Change::QuotaSet { quota, .. } => {
+                out.push(Line::Info(format!(
+                    "establece límites de sandbox: {}s timeout, {}MB memoria, {}% CPU",
+                    quota.timeout_secs, quota.max_memory_mb, quota.cpu_quota_percent
+                )));
+                out.push(Line::Add("  + actualizar configuración en .antos/quota.toml".into()));
+            }
         }
         pendiente.aplicar(change);
     }

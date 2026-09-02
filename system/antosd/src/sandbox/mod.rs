@@ -18,6 +18,7 @@
 pub mod landlock;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
+pub mod quota;
 
 use crate::blast::Blast;
 use crate::exec::Change;
@@ -47,6 +48,9 @@ pub struct Policy {
     /// Rutas sensibles explícitamente permitidas por una concesión (grant) activa (T5.2)
     #[serde(default)]
     pub allowed_secrets: Vec<PathBuf>,
+    /// Cuotas y límites de recursos para sandboxes de agentes (T7.2)
+    #[serde(default)]
+    pub quota: Option<quota::ResourceQuota>,
 }
 
 impl Policy {
@@ -57,6 +61,7 @@ impl Policy {
             dirs: blast.dirs.iter().cloned().collect(),
             network: !blast.network.is_empty(),
             allowed_secrets: Vec::new(),
+            quota: None,
         }
     }
 
@@ -69,6 +74,12 @@ impl Policy {
                 self.allowed_secrets.push(PathBuf::from(home).join(".ssh"));
             }
         }
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn with_quota(mut self, quota: quota::ResourceQuota) -> Self {
+        self.quota = Some(quota);
         self
     }
 }
@@ -157,7 +168,10 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
         .expect("stdin canalizado")
         .write_all(&orden)?;
 
-    let out = child.wait_with_output()?;
+    let quota = policy.quota.clone().unwrap_or_default();
+    let mut watchdog = quota::ProcessWatchdog::new(quota);
+    let _ = watchdog.attach_child(child.id());
+    let out = watchdog.supervise_output(child)?;
     let stdout = String::from_utf8_lossy(&out.stdout);
 
     let resp: Respuesta = serde_json::from_str(stdout.trim()).with_context(|| {

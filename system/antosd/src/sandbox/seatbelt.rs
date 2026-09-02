@@ -88,6 +88,7 @@ mod tests {
             dirs: vec![PathBuf::from("/ws/demo")],
             network: false,
             allowed_secrets: vec![],
+            quota: None,
         };
         let profile = sbpl(&policy);
 
@@ -105,6 +106,7 @@ mod tests {
             dirs: vec![],
             network: false,
             allowed_secrets: vec![PathBuf::from("/ws/.env")],
+            quota: None,
         };
         let profile = sbpl(&policy);
 
@@ -113,7 +115,7 @@ mod tests {
 
     #[test]
     fn la_red_se_permite_solo_si_esta_declarada() {
-        let policy = Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![] };
+        let policy = Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![], quota: None };
         assert!(!sbpl(&policy).contains("(deny network*)"));
     }
 
@@ -127,6 +129,7 @@ mod tests {
             dirs: vec![],
             network: false,
             allowed_secrets: vec![],
+            quota: None,
         };
         assert!(sbpl(&policy).contains("\"/ws/ma\\\"lo\""));
     }
