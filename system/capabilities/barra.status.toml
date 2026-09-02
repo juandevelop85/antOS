@@ -1,0 +1,11 @@
+name = "barra.status"
+summary = "Consulta el estado consolidado de la barra y telemetría de seguridad, profiler y pair"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

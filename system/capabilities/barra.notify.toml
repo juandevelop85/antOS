@@ -1,0 +1,13 @@
+name = "barra.notify"
+summary = "Emite una alerta o badge visual en tiempo real hacia la barra de escritorio"
+
+[params]
+category = { type = "text", optional = true }
+message = { type = "text" }
+urgent = { type = "boolean", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

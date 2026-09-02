@@ -113,6 +113,7 @@ impl Planner for LocalPlanner {
             && !lower.contains("atajo")
             && !lower.contains("hotkey")
             && !lower.contains("teclado")
+            && !lower.contains("barra")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -364,7 +365,7 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de bandeja de notificaciones y aprobaciones asíncronas (T8.2)
-        if lower.contains("notifica") || lower.contains("alerta") || lower.contains("bandeja") {
+        if (lower.contains("notifica") || lower.contains("alerta") || lower.contains("bandeja")) && !lower.contains("barra") {
             if lower.contains("aprueba") || lower.contains("approve") {
                 let id = words.iter().find(|w| w.starts_with("notif-")).cloned().unwrap_or_else(|| "notif-1".into());
                 return Ok(Propuesta::solo(vec![step("notify.action", &[("id", &id), ("action", "approve")])]));
@@ -507,6 +508,16 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("desktop.session", &[("action", "start")])]));
             }
             return Ok(Propuesta::solo(vec![step("desktop.session", &[])]));
+        }
+
+        // Intenciones de Telemetría y Alertas de la Barra (T13.1)
+        if lower.contains("barra") && (lower.contains("telemetr") || lower.contains("estado") || lower.contains("status") || lower.contains("alerta") || lower.contains("notifica")) {
+            if lower.contains("alerta") || lower.contains("notifica") {
+                let msg = intent.split_once(':').map(|(_, c)| c.trim().to_string()).unwrap_or_else(|| "Alerta de sistema para la barra".into());
+                let urgent = if lower.contains("urgente") { "true" } else { "false" };
+                return Ok(Propuesta::solo(vec![step("barra.notify", &[("category", "alerta"), ("message", &msg), ("urgent", urgent)])]));
+            }
+            return Ok(Propuesta::solo(vec![step("barra.status", &[])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1079,5 +1090,17 @@ mod tests {
             .expect("plan desktop keys");
         assert_eq!(p_desk_keys.steps.len(), 1);
         assert_eq!(p_desk_keys.steps[0].capability, "desktop.keys");
+
+        let p_barra_status = planner
+            .plan("consulta la telemetría de la barra", &catalog)
+            .expect("plan barra status");
+        assert_eq!(p_barra_status.steps.len(), 1);
+        assert_eq!(p_barra_status.steps[0].capability, "barra.status");
+
+        let p_barra_notif = planner
+            .plan("envia una alerta a la barra: Violacion detectada", &catalog)
+            .expect("plan barra notify");
+        assert_eq!(p_barra_notif.steps.len(), 1);
+        assert_eq!(p_barra_notif.steps[0].capability, "barra.notify");
     }
 }

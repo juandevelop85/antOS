@@ -655,7 +655,7 @@ antos debug cargo test
 antos debug cargo run --bin antos
 ```
 
-### 4.21 Entorno de Escritorio Wayland y Atajos Globales (`antos desktop`)
+### 4.22 Entorno de Escritorio Wayland y Atajos Globales (`antos desktop`)
 
 Orquestación del compositor gráfico Wayland ultraligero (~30-40 MB RAM) basado en Labwc, soporte nativo de layer-shell para la barra de antOS y atajos de teclado globales.
 
@@ -681,6 +681,24 @@ antos desktop keys
 * `Alt + Tab`: Conmuta a la siguiente ventana.
 * `Super + F`: Alterna modo pantalla completa.
 * `Super + Shift + E`: Finaliza la sesión gráfica de escritorio.
+
+---
+
+### 4.23 Telemetría en Tiempo Real y Alertas Visuales en la Barra (`antos barra`)
+
+Consolidación en vivo del estado del supervisor eBPF LSM, telemetría de memoria RSS y CPU del Profiler, sesiones activas de Pair Programming con el Coder, conectividad P2P y emisión de alertas visuales hacia la barra de escritorio:
+
+```bash
+# Diagnosticar telemetría consolidada de la barra
+antos barra status
+antos barra
+
+# Emitir una alerta informativa a la shell de escritorio
+antos barra alert "Sincronización de worktrees completada"
+
+# Emitir una alerta visual urgente
+antos barra alert "Intento de violación de sandbox bloqueado por eBPF" --urgent
+```
 
 ---
 

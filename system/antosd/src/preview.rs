@@ -263,6 +263,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::DesktopKeys { .. } => {
                 out.push(Line::Info("muestra los atajos de teclado globales registrados en el entorno de escritorio".into()));
             }
+            Change::BarraStatus { .. } => {
+                out.push(Line::Info("consulta la telemetría en tiempo real y el estado de la barra de escritorio".into()));
+            }
+            Change::BarraNotify { category, message, urgent, .. } => {
+                let u = if *urgent { "urgente " } else { "" };
+                out.push(Line::Info(format!("emite alerta visual {u}en la barra [{category}]: «{message}»")));
+            }
         }
         pendiente.aplicar(change);
     }

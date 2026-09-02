@@ -83,6 +83,22 @@ fn build_ui(app: &Application) {
     git_badge.add_css_class("git-badge");
     header_bar.append(&git_badge);
 
+    let ebpf_badge = make_label("🛡️ eBPF", "badge");
+    ebpf_badge.add_css_class("ebpf-badge");
+    header_bar.append(&ebpf_badge);
+
+    let profiler_badge = make_label("⚡ RSS", "badge");
+    profiler_badge.add_css_class("profiler-badge");
+    header_bar.append(&profiler_badge);
+
+    let pair_badge = make_label("👥 Coder", "badge");
+    pair_badge.add_css_class("pair-badge");
+    header_bar.append(&pair_badge);
+
+    let mesh_badge = make_label("🌐 Mesh", "badge");
+    mesh_badge.add_css_class("mesh-badge");
+    header_bar.append(&mesh_badge);
+
     let planner_btn = Button::with_label("⚡ local");
     planner_btn.add_css_class("badge-button");
     header_bar.append(&planner_btn);
@@ -110,9 +126,10 @@ fn build_ui(app: &Application) {
 
     let suggestions = [
         ("📊 Panel", "panel"),
-        ("🚀 T5.1", "desarrolla ticket T5.1"),
-        ("🔍 ports", "diagnostica puertos"),
-        ("🌿 branch", "crea rama feature/auth"),
+        ("🛡️ eBPF", "muestra las alertas de seguridad ebpf"),
+        ("⚡ Profiler", "analiza el rendimiento y hotspots"),
+        ("👥 Pair", "inicia pair programming con coder"),
+        ("🌐 Mesh", "muestra el estado de la red mesh"),
         ("↩️ undo", "deshacer ultimo cambio"),
     ];
 
@@ -181,8 +198,21 @@ fn build_ui(app: &Application) {
         });
     }
 
-    // Query initial git status for header badge
+    // Query initial git status and system telemetry
     query_git_status_async(git_badge.clone());
+    query_telemetry_async(ebpf_badge.clone(), profiler_badge.clone(), pair_badge.clone(), mesh_badge.clone());
+
+    // Schedule periodic telemetry refresh (every 3 seconds)
+    {
+        let eb = ebpf_badge.clone();
+        let pb = profiler_badge.clone();
+        let prb = pair_badge.clone();
+        let mb = mesh_badge.clone();
+        gtk4::glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
+            query_telemetry_async(eb.clone(), pb.clone(), prb.clone(), mb.clone());
+            gtk4::glib::ControlFlow::Continue
+        });
+    }
 
     // Connect input activation
     {
@@ -316,6 +346,92 @@ fn update_git_badge(badge: &Label, status: &GitRepoStatus) {
     } else {
         badge.set_text(&format!("🌿 {branch} *{dirty_count}"));
         badge.add_css_class("dirty");
+    }
+}
+
+/// Asynchronously queries consolidated system telemetry (eBPF, Profiler, Pair, Mesh).
+fn query_telemetry_async(
+    ebpf_badge: Label,
+    profiler_badge: Label,
+    pair_badge: Label,
+    mesh_badge: Label,
+) {
+    std::thread::spawn(move || {
+        let path = socket_path();
+        let Ok(mut stream) = UnixStream::connect(&path) else {
+            return;
+        };
+
+        let req = Peticion::ConsultarBarraTelemetry;
+        if let Ok(json) = serde_json::to_string(&req) {
+            let _ = writeln!(stream, "{json}");
+            let _ = stream.flush();
+
+            let mut reader = BufReader::new(stream);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_ok() {
+                if let Ok(Evento::EstadoBarraTelemetry(t)) = serde_json::from_str::<Evento>(line.trim()) {
+                    let eb = ebpf_badge.clone();
+                    let pb = profiler_badge.clone();
+                    let prb = pair_badge.clone();
+                    let mb = mesh_badge.clone();
+                    gtk4::glib::idle_add_local(move || {
+                        update_telemetry_badges(&eb, &pb, &prb, &mb, &t);
+                        gtk4::glib::ControlFlow::Break
+                    });
+                }
+            }
+        }
+    });
+}
+
+fn update_telemetry_badges(
+    ebpf_badge: &Label,
+    profiler_badge: &Label,
+    pair_badge: &Label,
+    mesh_badge: &Label,
+    telemetry: &antos_protocolo::BarraTelemetry,
+) {
+    // 1. eBPF LSM Guard
+    if telemetry.ebpf_violations_count > 0 {
+        ebpf_badge.set_text(&format!("🛡️ eBPF: !{}", telemetry.ebpf_violations_count));
+        ebpf_badge.remove_css_class("active");
+        ebpf_badge.add_css_class("alert");
+    } else if telemetry.ebpf_lsm_active {
+        ebpf_badge.set_text("🛡️ LSM");
+        ebpf_badge.remove_css_class("alert");
+        ebpf_badge.add_css_class("active");
+    } else {
+        ebpf_badge.set_text("🛡️ eBPF");
+        ebpf_badge.remove_css_class("alert");
+        ebpf_badge.remove_css_class("active");
+    }
+
+    // 2. Profiler Memory & CPU
+    let rss_mb = telemetry.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
+    profiler_badge.set_text(&format!("⚡ {:.0}M", rss_mb));
+    if telemetry.profiler_cpu_percent > 50.0 {
+        profiler_badge.add_css_class("alert");
+    } else {
+        profiler_badge.remove_css_class("alert");
+    }
+
+    // 3. Pair Programming / Coder
+    if let Some(ref session) = telemetry.active_pair_session {
+        pair_badge.set_text(&format!("👥 Coder ({session})"));
+        pair_badge.add_css_class("active");
+    } else {
+        pair_badge.set_text("👥 Coder");
+        pair_badge.remove_css_class("active");
+    }
+
+    // 4. antMesh P2P Nodes
+    if telemetry.mesh_peers_count > 0 {
+        mesh_badge.set_text(&format!("🌐 {} peers", telemetry.mesh_peers_count));
+        mesh_badge.add_css_class("active");
+    } else {
+        mesh_badge.set_text("🌐 Mesh");
+        mesh_badge.remove_css_class("active");
     }
 }
 

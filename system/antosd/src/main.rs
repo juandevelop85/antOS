@@ -29,6 +29,7 @@ pub mod profiler;
 pub mod lsp;
 pub mod collab;
 pub mod desktop;
+pub mod barra;
 mod ipc;
 mod journal;
 mod plan;
@@ -127,6 +128,7 @@ fn run() -> Result<()> {
         "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
+        "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
         _ => cmd_intent(&ctx, &catalog, &rest.join(" "), &opts),
@@ -1859,6 +1861,59 @@ fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos desktop start       Arranca la sesión de escritorio");
             println!("    antos desktop keys        Muestra todos los atajos de teclado globales");
             println!("    antos desktop status      Diagnostica la sesión activa\n");
+        }
+    }
+    Ok(())
+}
+
+// -------------------------------------------------------------------- barra
+
+fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    let manager = barra::BarraManager::global();
+
+    match sub {
+        "alert" | "notif" | "notify" | "alerta" => {
+            let clean_parts: Vec<&str> = args[1..]
+                .iter()
+                .filter(|a| *a != "--urgent" && *a != "-u")
+                .map(|s| s.as_str())
+                .collect();
+            let msg = if clean_parts.is_empty() {
+                "Prueba de alerta visual".to_string()
+            } else {
+                clean_parts.join(" ")
+            };
+            let alert = antos_protocolo::BarraAlert {
+                category: "cli".into(),
+                message: msg.clone(),
+                urgent: args.iter().any(|a| a == "--urgent" || a == "-u"),
+            };
+            manager.emit_alert(alert)?;
+            println!("\n{} Alerta visual emitida a la barra de escritorio: «{}»\n", paint("antOS Barra ·", BOLD), paint(&msg, GREEN));
+        }
+        "status" | "telemetry" | "telemetria" | _ => {
+            let t = manager.get_telemetry();
+            let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
+            println!("\n{} Telemetría en Tiempo Real de la Barra de Escritorio:", paint("antOS Barra ·", BOLD));
+            println!("  • eBPF LSM Guard:       {}", if t.ebpf_lsm_active { paint("Activo", GREEN) } else { paint("Auditoría", YELLOW) });
+            println!("  • Violaciones LSM:      {}", if t.ebpf_violations_count > 0 { paint(&t.ebpf_violations_count.to_string(), RED) } else { paint("0", GREEN) });
+            println!("  • Consumo RSS Pico:     {:.2} MB", mb);
+            println!("  • CPU Estimada:         {:.1}%", t.profiler_cpu_percent);
+            println!("  • Sesión de Pair:       {}", paint(t.active_pair_session.as_deref().unwrap_or("inactiva"), CYAN));
+            println!("  • Nodos antMesh:        {} vecinos descubiertos", t.mesh_peers_count);
+            println!("  • Notificaciones:       {} pendientes", t.active_notifications_count);
+            println!("\n  Alertas recientes en cola:");
+            let alerts = manager.get_alerts(3);
+            if alerts.is_empty() {
+                println!("    (sin alertas recientes)");
+            } else {
+                for a in alerts {
+                    let u = if a.urgent { paint("[URGENTE]", RED) } else { paint("[INFO]", CYAN) };
+                    println!("    • {u} {}: {}", a.category, a.message);
+                }
+            }
+            println!();
         }
     }
     Ok(())

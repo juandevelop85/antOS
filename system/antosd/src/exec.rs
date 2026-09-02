@@ -228,6 +228,15 @@ pub enum Change {
     DesktopKeys {
         workspace: PathBuf,
     },
+    BarraStatus {
+        workspace: PathBuf,
+    },
+    BarraNotify {
+        workspace: PathBuf,
+        category: String,
+        message: String,
+        urgent: bool,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -317,7 +326,9 @@ impl Pendiente {
             | Change::CollabSession { .. }
             | Change::DapAttach { .. }
             | Change::DesktopSession { .. }
-            | Change::DesktopKeys { .. } => {}
+            | Change::DesktopKeys { .. }
+            | Change::BarraStatus { .. }
+            | Change::BarraNotify { .. } => {}
         }
     }
 }
@@ -862,6 +873,24 @@ pub fn changes_for(
         "desktop.keys" => {
             Ok(vec![Change::DesktopKeys {
                 workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "barra.status" => {
+            Ok(vec![Change::BarraStatus {
+                workspace: ctx.workspace.clone(),
+            }])
+        }
+
+        "barra.notify" => {
+            let category = a.get("category").cloned().unwrap_or_else(|| "general".into());
+            let message = a.get("message").cloned().unwrap_or_else(|| "Notificación de sistema".into());
+            let urgent = a.get("urgent").map(|v| v == "true").unwrap_or(false);
+            Ok(vec![Change::BarraNotify {
+                workspace: ctx.workspace.clone(),
+                category,
+                message,
+                urgent,
             }])
         }
 
@@ -1585,6 +1614,29 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     lines.push(format!("  • {:<14} -> {:<22} ({})", hk.key, hk.action, hk.description));
                 }
                 output.push(lines.join("\n"));
+            }
+            Change::BarraStatus { .. } => {
+                let t = crate::barra::BarraManager::global().get_telemetry();
+                let mut lines = Vec::new();
+                let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
+                lines.push("antOS Barra · Telemetría Consolidada de Escritorio:".into());
+                lines.push(format!("  • eBPF LSM:              {}", if t.ebpf_lsm_active { "Activo" } else { "Auditoría" }));
+                lines.push(format!("  • Bloqueos de seguridad:  {}", t.ebpf_violations_count));
+                lines.push(format!("  • Consumo RSS / CPU:      {:.2} MB / {:.1}%", mb, t.profiler_cpu_percent));
+                lines.push(format!("  • Sesión de Pair:        {}", t.active_pair_session.as_deref().unwrap_or("ninguna")));
+                lines.push(format!("  • Nodos antMesh P2P:     {}", t.mesh_peers_count));
+                lines.push(format!("  • Notificaciones activas: {}", t.active_notifications_count));
+                output.push(lines.join("\n"));
+            }
+            Change::BarraNotify { category, message, urgent, .. } => {
+                let alert = antos_protocolo::BarraAlert {
+                    category: category.clone(),
+                    message: message.clone(),
+                    urgent: *urgent,
+                };
+                crate::barra::BarraManager::global().emit_alert(alert)?;
+                let badge = if *urgent { "URGENTE" } else { "INFO" };
+                output.push(format!("✓ Alerta emitida hacia la barra de escritorio [{badge} - {category}]: {message}"));
             }
         }
     }

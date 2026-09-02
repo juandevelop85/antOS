@@ -41,6 +41,46 @@ window.fondo {
   color: #8195A7;
 }
 
+.ebpf-badge {
+  color: #56BCA0;
+  border-color: #274D42;
+}
+
+.ebpf-badge.alert {
+  color: #E06C75;
+  border-color: #7A262C;
+}
+
+.profiler-badge {
+  color: #E5C07B;
+  border-color: #5C431F;
+}
+
+.profiler-badge.alert {
+  color: #E06C75;
+  border-color: #7A262C;
+}
+
+.pair-badge {
+  color: #C678DD;
+  border-color: #532C66;
+}
+
+.pair-badge.active {
+  color: #61AFEF;
+  border-color: #264B6E;
+}
+
+.mesh-badge {
+  color: #61AFEF;
+  border-color: #264B6E;
+}
+
+.mesh-badge.active {
+  color: #56BCA0;
+  border-color: #274D42;
+}
+
 button.badge-button {
   font-family: monospace;
   font-size: 11px;

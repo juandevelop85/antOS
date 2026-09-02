@@ -468,6 +468,29 @@ pub struct DesktopSessionStatus {
     pub registered_hotkeys: Vec<DesktopHotkey>,
 }
 
+// ------------------------------------------------ Barra Telemetry (T13.1)
+
+/// Alerta o notificación visual emitida hacia la barra de escritorio.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BarraAlert {
+    pub category: String,
+    pub message: String,
+    pub urgent: bool,
+}
+
+/// Telemetría consolidada en tiempo real para la barra de escritorio antOS.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BarraTelemetry {
+    pub ebpf_lsm_active: bool,
+    pub ebpf_violations_count: usize,
+    pub profiler_rss_bytes: u64,
+    pub profiler_cpu_percent: f32,
+    pub active_pair_session: Option<String>,
+    pub active_ghost_text_count: usize,
+    pub mesh_peers_count: usize,
+    pub active_notifications_count: usize,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -966,6 +989,10 @@ pub enum Peticion {
     IniciarDesktopSession {
         nested: bool,
     },
+    /// Consulta el estado consolidado de telemetría de fondo para la barra (T13.1)
+    ConsultarBarraTelemetry,
+    /// Emite una alerta o actualización visual hacia la barra (T13.1)
+    EmitirBarraAlert(BarraAlert),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1094,6 +1121,10 @@ pub enum Evento {
     EstadoDesktop(DesktopSessionStatus),
     /// Listado de atajos de teclado del escritorio (T13.0)
     ListaDesktopHotkeys(Vec<DesktopHotkey>),
+    /// Estado consolidado de telemetría para la barra de escritorio (T13.1)
+    EstadoBarraTelemetry(BarraTelemetry),
+    /// Alerta o notificación visual emitida a la barra (T13.1)
+    AlertaBarra(BarraAlert),
     Error(String),
 }
 
@@ -1703,6 +1734,40 @@ mod tests {
         let json_keys = serde_json::to_string(&ev_keys).expect("serialize keys ev");
         let des_keys: Evento = serde_json::from_str(&json_keys).expect("deserialize keys ev");
         assert_eq!(ev_keys, des_keys);
+    }
+
+    #[test]
+    fn test_serializacion_barra_telemetry() {
+        let telemetry = BarraTelemetry {
+            ebpf_lsm_active: true,
+            ebpf_violations_count: 1,
+            profiler_rss_bytes: 45 * 1024 * 1024,
+            profiler_cpu_percent: 3.4,
+            active_pair_session: Some("pair-001".into()),
+            active_ghost_text_count: 2,
+            mesh_peers_count: 3,
+            active_notifications_count: 4,
+        };
+
+        let req = Peticion::ConsultarBarraTelemetry;
+        let json_req = serde_json::to_string(&req).expect("serialize barra req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize barra req");
+        assert_eq!(req, des_req);
+
+        let ev = Evento::EstadoBarraTelemetry(telemetry);
+        let json_ev = serde_json::to_string(&ev).expect("serialize barra ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize barra ev");
+        assert_eq!(ev, des_ev);
+
+        let alert = BarraAlert {
+            category: "ebpf".into(),
+            message: "Acceso denegado a /root/.ssh/id_rsa".into(),
+            urgent: true,
+        };
+        let req_alert = Peticion::EmitirBarraAlert(alert.clone());
+        let json_alert = serde_json::to_string(&req_alert).expect("serialize alert req");
+        let des_alert: Peticion = serde_json::from_str(&json_alert).expect("deserialize alert req");
+        assert_eq!(req_alert, des_alert);
     }
 }
 

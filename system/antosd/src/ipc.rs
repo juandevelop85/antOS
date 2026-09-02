@@ -507,6 +507,18 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let status = crate::desktop::DesktopManager::get_status();
             enviar(&mut escritura, &Evento::EstadoDesktop(status))?;
         }
+        Peticion::ConsultarBarraTelemetry => {
+            let telemetry = crate::barra::BarraManager::global().get_telemetry();
+            enviar(&mut escritura, &Evento::EstadoBarraTelemetry(telemetry))?;
+        }
+        Peticion::EmitirBarraAlert(alert) => {
+            let res = crate::barra::BarraManager::global().emit_alert(alert.clone());
+            if res.is_ok() {
+                enviar(&mut escritura, &Evento::AlertaBarra(alert))?;
+            } else {
+                enviar(&mut escritura, &Evento::Error("Error al registrar alerta en la barra".into()))?;
+            }
+        }
     }
     Ok(())
 }
@@ -703,6 +715,17 @@ pub fn intencion_remota(
             }
             Evento::ListaDesktopHotkeys(keys) => {
                 pantalla.nota(&format!("Escritorio antOS: {} atajos globales registrados", keys.len()))?;
+            }
+            Evento::EstadoBarraTelemetry(t) => {
+                let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
+                pantalla.nota(&format!("Barra antOS: eBPF: {}, Profiler: {:.1} MB ({:.1}%), Mesh: {} nodos, Notificaciones: {}",
+                    if t.ebpf_lsm_active { "LSM Activo" } else { "Auditoría" },
+                    mb, t.profiler_cpu_percent, t.mesh_peers_count, t.active_notifications_count
+                ))?;
+            }
+            Evento::AlertaBarra(alert) => {
+                let urg = if alert.urgent { "URGENTE" } else { "INFO" };
+                pantalla.nota(&format!("Alerta en Barra [{urg} - {}]: {}", alert.category, alert.message))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }
