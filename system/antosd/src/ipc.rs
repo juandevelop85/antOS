@@ -357,6 +357,67 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
+        Peticion::ConsultarVfs { workspace_path, virtual_path } => {
+            let ws = Path::new(&workspace_path);
+            let engine = crate::vfs::VfsEngine::global();
+            if virtual_path.ends_with('/') || virtual_path == "/antfs" || virtual_path == "/antfs/symbols" || virtual_path.starts_with("/antfs/symbols/") && !virtual_path.split('/').skip(3).any(|p| !p.is_empty()) {
+                match engine.list_dir(ws, &virtual_path) {
+                    Ok(entries) => {
+                        enviar(&mut escritura, &Evento::ListadoVfs { virtual_path, entries })?;
+                    }
+                    Err(e) => {
+                        enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                    }
+                }
+            } else {
+                match engine.read_path(ws, &virtual_path) {
+                    Ok(content) => {
+                        enviar(&mut escritura, &Evento::ContenidoVfs { virtual_path, content })?;
+                    }
+                    Err(e) => {
+                        enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
+                    }
+                }
+            }
+        }
+        Peticion::MontarVfs { workspace_path, mount_point } => {
+            let ws = Path::new(&workspace_path);
+            match crate::vfs::VfsEngine::global().mount(ws, mount_point.as_deref()) {
+                Ok(path) => {
+                    enviar(&mut escritura, &Evento::ResultadoVfs {
+                        action: "mount".into(),
+                        success: true,
+                        message: format!("montado en {}", path.display()),
+                    })?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::ResultadoVfs {
+                        action: "mount".into(),
+                        success: false,
+                        message: format!("{e:#}"),
+                    })?;
+                }
+            }
+        }
+        Peticion::DesmontarVfs { workspace_path, mount_point } => {
+            let ws = Path::new(&workspace_path);
+            match crate::vfs::VfsEngine::global().unmount(ws, mount_point.as_deref()) {
+                Ok(_) => {
+                    enviar(&mut escritura, &Evento::ResultadoVfs {
+                        action: "unmount".into(),
+                        success: true,
+                        message: "desmontado correctamente".into(),
+                    })?;
+                }
+                Err(e) => {
+                    enviar(&mut escritura, &Evento::ResultadoVfs {
+                        action: "unmount".into(),
+                        success: false,
+                        message: format!("{e:#}"),
+                    })?;
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -469,6 +530,19 @@ pub fn intencion_remota(
                     pantalla.nota(&format!("✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
                 } else {
                     pantalla.nota(&format!("✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                }
+            }
+            Evento::ListadoVfs { virtual_path, entries } => {
+                pantalla.nota(&format!("VFS {virtual_path}: {} entradas encontradas", entries.len()))?;
+            }
+            Evento::ContenidoVfs { virtual_path, content } => {
+                pantalla.salida(&format!("{virtual_path}:\n{content}"))?;
+            }
+            Evento::ResultadoVfs { action, success, message } => {
+                if success {
+                    pantalla.nota(&format!("✓ VFS {action}: {message}"))?;
+                } else {
+                    pantalla.nota(&format!("✗ VFS {action}: {message}"))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),

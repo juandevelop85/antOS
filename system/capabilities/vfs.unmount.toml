@@ -1,0 +1,12 @@
+name = "vfs.unmount"
+summary = "Desmonta y limpia el punto de montaje virtual /antfs"
+
+[params]
+mount_point = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/.antos/mnt"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"

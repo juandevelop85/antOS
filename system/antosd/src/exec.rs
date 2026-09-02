@@ -170,6 +170,18 @@ pub enum Change {
         role: antos_protocolo::AgentRole,
         node: Option<String>,
     },
+    VfsQuery {
+        workspace: PathBuf,
+        path: Option<String>,
+    },
+    VfsMount {
+        workspace: PathBuf,
+        mount_point: Option<String>,
+    },
+    VfsUnmount {
+        workspace: PathBuf,
+        mount_point: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -244,7 +256,10 @@ impl Pendiente {
             | Change::MeshConnect { .. }
             | Change::MeshPair { .. }
             | Change::SwarmStatus { .. }
-            | Change::SwarmDispatch { .. } => {}
+            | Change::SwarmDispatch { .. }
+            | Change::VfsQuery { .. }
+            | Change::VfsMount { .. }
+            | Change::VfsUnmount { .. } => {}
         }
     }
 }
@@ -665,6 +680,30 @@ pub fn changes_for(
                 ticket_id,
                 role,
                 node,
+            }])
+        }
+
+        "vfs.query" => {
+            let path = a.get("path").cloned();
+            Ok(vec![Change::VfsQuery {
+                workspace: ctx.workspace.clone(),
+                path,
+            }])
+        }
+
+        "vfs.mount" => {
+            let mount_point = a.get("mount_point").cloned();
+            Ok(vec![Change::VfsMount {
+                workspace: ctx.workspace.clone(),
+                mount_point,
+            }])
+        }
+
+        "vfs.unmount" => {
+            let mount_point = a.get("mount_point").cloned();
+            Ok(vec![Change::VfsUnmount {
+                workspace: ctx.workspace.clone(),
+                mount_point,
             }])
         }
 
@@ -1173,6 +1212,30 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(format!("rol {:?} del ticket {} despachado al nodo {} (rama {})",
                     task.role, task.ticket_id, task.assigned_node_id, task.worktree_branch
                 ));
+            }
+            Change::VfsQuery { workspace, path } => {
+                let vpath = path.as_deref().unwrap_or("/antfs");
+                if vpath == "/antfs" || vpath.ends_with('/') || vpath == "/antfs/symbols" || vpath == "/antfs/git" || vpath == "/antfs/symbols/structs" || vpath == "/antfs/symbols/functions" {
+                    let entries = crate::vfs::VfsEngine::global().list_dir(workspace, vpath)?;
+                    let mut lines = Vec::new();
+                    lines.push(format!("entradas en {vpath} ({}):", entries.len()));
+                    for e in entries {
+                        let mark = if e.is_dir { "📁" } else { "📄" };
+                        lines.push(format!("  {mark} {:<24} ({}, {} bytes)", e.name, e.node_type, e.size));
+                    }
+                    output.push(lines.join("\n"));
+                } else {
+                    let content = crate::vfs::VfsEngine::global().read_path(workspace, vpath)?;
+                    output.push(content);
+                }
+            }
+            Change::VfsMount { workspace, mount_point } => {
+                let mnt = crate::vfs::VfsEngine::global().mount(workspace, mount_point.as_deref())?;
+                output.push(format!("sistema de ficheros virtual /antfs montado en {}", mnt.display()));
+            }
+            Change::VfsUnmount { workspace, mount_point } => {
+                crate::vfs::VfsEngine::global().unmount(workspace, mount_point.as_deref())?;
+                output.push("sistema de ficheros virtual /antfs desmontado correctamente".into());
             }
         }
     }

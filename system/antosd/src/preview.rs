@@ -212,6 +212,18 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let n_str = node.as_deref().unwrap_or("auto");
                 out.push(Line::Info(format!("despacha el rol «{:?}» del ticket {ticket_id} al nodo «{n_str}»", role)));
             }
+            Change::VfsQuery { path, .. } => {
+                let p = path.as_deref().unwrap_or("/antfs");
+                out.push(Line::Info(format!("consulta la ruta semántica «{p}» en el sistema virtual /antfs")));
+            }
+            Change::VfsMount { mount_point, .. } => {
+                let m = mount_point.as_deref().unwrap_or(".antos/mnt/antfs");
+                out.push(Line::Info(format!("monta la jerarquía de símbolos y diffs de /antfs en «{m}»")));
+            }
+            Change::VfsUnmount { mount_point, .. } => {
+                let m = mount_point.as_deref().unwrap_or(".antos/mnt/antfs");
+                out.push(Line::Info(format!("desmonta y limpia el punto de montaje «{m}»")));
+            }
         }
         pendiente.aplicar(change);
     }

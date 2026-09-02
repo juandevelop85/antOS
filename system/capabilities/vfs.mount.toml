@@ -1,0 +1,12 @@
+name = "vfs.mount"
+summary = "Monta la proyección del sistema de ficheros virtual /antfs en el espacio de trabajo"
+
+[params]
+mount_point = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE/.antos/mnt"]
+
+[policy]
+tier = "confirm"
+reversible = "unnecessary"

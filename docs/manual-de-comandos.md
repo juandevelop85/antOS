@@ -31,6 +31,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.14 Bitácora Inmutable y Reversión Atómica (`antos log`, `antos undo`)](#414-bitácora-inmutable-y-reversión-atómica-antos-log-antos-undo)
    - [4.15 Red P2P Cifrada antMesh (`antos mesh`)](#415-red-p2p-cifrada-antmesh-antos-mesh)
    - [4.16 Swarm Multi-Nodo y Despacho Distribuido (`antos swarm`)](#416-swarm-multi-nodo-y-despacho-distribuido-antos-swarm)
+   - [4.17 Sistema de Ficheros Virtual Semántico (`antos vfs`)](#417-sistema-de-ficheros-virtual-semántico-antos-vfs)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -529,6 +530,36 @@ antos swarm dispatch T9.2 --qa --node node-cpu-cluster
 
 # Sincronización automática de worktrees efímeros mediante bundles Git sobre la malla
 antos swarm dispatch T1.1
+```
+
+---
+
+### 4.17 Sistema de Ficheros Virtual Semántico (`antos vfs`)
+
+Proyección virtual del código como jerarquías navegables de símbolos AST, grafo de dependencias y diffs de Git:
+
+```bash
+# Consultar el estado del VFS, punto de montaje y total de símbolos indexados
+antos vfs
+
+# Listar todos los símbolos descubiertos agrupados por categoría (structs, functions, enums, traits)
+antos vfs symbols
+
+# Explorar la jerarquía virtual de directorios en /antfs
+antos vfs ls /antfs
+antos vfs ls /antfs/symbols/structs
+antos vfs ls /antfs/git/uncommitted
+
+# Leer el código o diff de un inodo virtual específico
+antos vfs read /antfs/symbols/structs/MeshStatus
+antos vfs read /antfs/git/status
+
+# Montar la proyección de /antfs en el disco local para inspección con herramientas nativas (ls, cat, find)
+antos vfs mount
+antos vfs mount .antos/mnt/antfs
+
+# Desmontar y limpiar el punto de montaje virtual
+antos vfs unmount
 ```
 
 ---

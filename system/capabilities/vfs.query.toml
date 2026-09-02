@@ -1,0 +1,12 @@
+name = "vfs.query"
+summary = "Consulta símbolos, nodos del AST o diffs proyectados en el sistema de ficheros virtual /antfs"
+
+[params]
+path = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

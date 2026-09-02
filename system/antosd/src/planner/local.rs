@@ -96,6 +96,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("malla")
             && !lower.contains("swarm")
             && !lower.contains("enjambre")
+            && !lower.contains("vfs")
+            && !lower.contains("antfs")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -397,6 +399,32 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("flow.dispatch_remote", &args)]));
             }
             return Ok(Propuesta::solo(vec![step("flow.swarm_status", &[])]));
+        }
+
+        // Intenciones de Sistema de Ficheros Virtual Semántico /antfs (T10.1)
+        if lower.contains("vfs") || lower.contains("antfs") || (lower.contains("sistema") && lower.contains("virtual")) {
+            if lower.contains("desmonta") || lower.contains("unmount") || lower.contains("umount") {
+                let mnt = after(&words, &["en", "de", "ruta", "mount"]);
+                let mut args = Vec::new();
+                if let Some(ref m) = mnt {
+                    args.push(("mount_point", m.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("vfs.unmount", &args)]));
+            }
+            if lower.contains("monta") || lower.contains("mount") {
+                let mnt = after(&words, &["en", "a", "ruta", "mount"]);
+                let mut args = Vec::new();
+                if let Some(ref m) = mnt {
+                    args.push(("mount_point", m.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("vfs.mount", &args)]));
+            }
+            let path = words.iter().find(|w| w.starts_with("/antfs") || w.starts_with("symbols/") || w.starts_with("/symbols")).cloned();
+            let mut args = Vec::new();
+            if let Some(ref p) = path {
+                args.push(("path", p.as_str()));
+            }
+            return Ok(Propuesta::solo(vec![step("vfs.query", &args)]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -865,5 +893,30 @@ mod tests {
         assert_eq!(p_disp.steps[0].args.get("ticket_id").map(String::as_str), Some("T9.2"));
         assert_eq!(p_disp.steps[0].args.get("role").map(String::as_str), Some("coder"));
         assert_eq!(p_disp.steps[0].args.get("node").map(String::as_str), Some("node-gpu-01"));
+    }
+
+    #[test]
+    fn test_plan_vfs_semantico() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_mount = planner
+            .plan("monta el sistema de ficheros virtual antfs", &catalog)
+            .expect("plan vfs mount");
+        assert_eq!(p_mount.steps.len(), 1);
+        assert_eq!(p_mount.steps[0].capability, "vfs.mount");
+
+        let p_unmount = planner
+            .plan("desmonta el sistema virtual antfs", &catalog)
+            .expect("plan vfs unmount");
+        assert_eq!(p_unmount.steps.len(), 1);
+        assert_eq!(p_unmount.steps[0].capability, "vfs.unmount");
+
+        let p_query = planner
+            .plan("consulta los símbolos en vfs /antfs/symbols/structs", &catalog)
+            .expect("plan vfs query");
+        assert_eq!(p_query.steps.len(), 1);
+        assert_eq!(p_query.steps[0].capability, "vfs.query");
     }
 }

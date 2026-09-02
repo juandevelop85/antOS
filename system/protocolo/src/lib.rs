@@ -220,6 +220,25 @@ pub struct SwarmStatus {
     pub total_tasks: usize,
 }
 
+// ----------------------------------------------------------- vfs semantico (T10.1)
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VfsEntry {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub size: usize,
+    pub node_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VfsStatus {
+    pub mount_point: Option<String>,
+    pub is_mounted: bool,
+    pub total_symbols: usize,
+    pub total_modules: usize,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -627,6 +646,21 @@ pub enum Peticion {
         role: AgentRole,
         node_id: Option<String>,
     },
+    /// Consulta una ruta virtual o lista un directorio en /antfs (T10.1)
+    ConsultarVfs {
+        workspace_path: String,
+        virtual_path: String,
+    },
+    /// Monta la proyección virtual de /antfs en el punto de montaje indicado (T10.1)
+    MontarVfs {
+        workspace_path: String,
+        mount_point: Option<String>,
+    },
+    /// Desmonta la proyección virtual de /antfs (T10.1)
+    DesmontarVfs {
+        workspace_path: String,
+        mount_point: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -685,6 +719,22 @@ pub enum Evento {
         ticket_id: String,
         role: AgentRole,
         assigned_node_id: String,
+        success: bool,
+        message: String,
+    },
+    /// Listado de entradas virtuales en un directorio de /antfs (T10.1)
+    ListadoVfs {
+        virtual_path: String,
+        entries: Vec<VfsEntry>,
+    },
+    /// Contenido virtual de un nodo semántico o diff en /antfs (T10.1)
+    ContenidoVfs {
+        virtual_path: String,
+        content: String,
+    },
+    /// Resultado de montar, desmontar o consultar el VFS (T10.1)
+    ResultadoVfs {
+        action: String,
         success: bool,
         message: String,
     },
@@ -1012,6 +1062,33 @@ mod tests {
         let event = Evento::EstadoSwarm(swarm_status.clone());
         let json_ev = serde_json::to_string(&event).expect("serialize swarm event");
         let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize swarm event");
+        assert_eq!(event, des_ev);
+    }
+
+    #[test]
+    fn test_serializacion_vfs() {
+        let entry = VfsEntry {
+            path: "/antfs/symbols/structs/MeshStatus".into(),
+            name: "MeshStatus".into(),
+            is_dir: false,
+            size: 420,
+            node_type: "Symbol".into(),
+        };
+
+        let req = Peticion::ConsultarVfs {
+            workspace_path: "/ws".into(),
+            virtual_path: "/antfs/symbols".into(),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize vfs req");
+        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize vfs req");
+        assert_eq!(req, des_req);
+
+        let event = Evento::ListadoVfs {
+            virtual_path: "/antfs/symbols".into(),
+            entries: vec![entry],
+        };
+        let json_ev = serde_json::to_string(&event).expect("serialize vfs event");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize vfs event");
         assert_eq!(event, des_ev);
     }
 }
