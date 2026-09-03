@@ -9,6 +9,7 @@
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
 [![Tickets Backlog](https://img.shields.io/badge/Backlog-49%2F49%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
+[![Guía UTM y VirtualBox](https://img.shields.io/badge/Gu%C3%ADa-UTM%20%26%20VirtualBox-blue.svg)](docs/guia-emulacion-utm-virtualbox.md)
 
 ---
 
@@ -316,6 +317,8 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic -kernel kernel/target/aar
 # Convertir imagen BIOS a VDI y desactivar 'Habilitar EFI' en Sistema -> Placa Base:
 VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos.vdi --format VDI
 ```
+
+> 📖 **Para una guía detallada paso a paso con resolución de problemas y capturas, consulta la [Guía de Emulación en UTM, VirtualBox y QEMU](docs/guia-emulacion-utm-virtualbox.md).**
 
 ---
 

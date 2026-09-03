@@ -223,6 +223,8 @@ cargo run -p builder -- <ruta-al-kernel.elf> [--arch x86_64|aarch64] [--format a
 
 #### D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)
 
+> 📖 **Para la guía completa ilustrada con resolución de problemas y capturas, consulta la [Guía de Emulación y Ejecución en UTM, VirtualBox y QEMU](guia-emulacion-utm-virtualbox.md).**
+
 ##### 1. Ejecución en UTM (macOS Apple Silicon e Intel)
 
 UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitectura ARM64 como x86_64.
