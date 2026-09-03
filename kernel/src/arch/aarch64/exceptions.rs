@@ -220,6 +220,17 @@ pub fn trigger_breakpoint() {
 /// Dispatches all exceptions routed through `VBAR_EL1`.
 #[no_mangle]
 pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_id: u64) {
+    // Handle IRQs first (Vectors 1, 5, 9, 13).
+    // ESR_EL1 is only updated on synchronous exceptions, not on IRQs.
+    if vector_id == 5 || vector_id == 1 || vector_id == 9 || vector_id == 13 {
+        let irq_id = crate::arch::aarch64::gic::acknowledge();
+        if irq_id == crate::arch::aarch64::timer::TIMER_IRQ {
+            crate::arch::aarch64::timer::handle_timer_interrupt();
+        }
+        crate::arch::aarch64::gic::end_of_interrupt(irq_id);
+        return;
+    }
+
     let esr: u64;
     let far: u64;
     unsafe {
@@ -236,12 +247,6 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         let _ = writeln!(serial, "  breakpoint   manejado (brk #0) en AArch64 · reanudando...");
         // Skip over the 4-byte brk instruction
         ctx.elr_el1 += 4;
-        return;
-    }
-
-    // Handle IRQs (Vector 1, 5, 9, 13)
-    if vector_id == 5 || vector_id == 1 || vector_id == 9 {
-        // Will be routed to GIC in T18.3
         return;
     }
 

@@ -30,11 +30,8 @@ pub use arch::current::{gdt, interrupts, port, serial, userspace};
 #[cfg(target_arch = "aarch64")]
 pub use arch::current::{entry, exceptions, mmu, pl011, serial, syscall};
 
-#[cfg(target_arch = "x86_64")]
 use alloc::boxed::Box;
-#[cfg(target_arch = "x86_64")]
 use alloc::string::String;
-#[cfg(target_arch = "x86_64")]
 use alloc::vec::Vec;
 #[cfg(target_arch = "x86_64")]
 use bootloader_api::config::{BootloaderConfig, Mapping};
@@ -46,6 +43,10 @@ use bootloader_api::{entry_point, BootInfo};
 use task::Task;
 use core::fmt::Write;
 use core::panic::PanicInfo;
+
+#[cfg(target_arch = "aarch64")]
+#[link_section = ".bss.heap"]
+static mut AARCH64_HEAP: [u8; 512 * 1024] = [0; 512 * 1024];
 
 #[cfg(target_arch = "x86_64")]
 const CONFIG: BootloaderConfig = {
@@ -77,8 +78,42 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     arch::aarch64::exceptions::trigger_breakpoint();
     println!("  breakpoint   manejado y ejecución reanudada");
 
+    println!();
+    println!("memoria virtual (MMU)");
+    arch::aarch64::mmu::init();
+    println!("  mmu          activa · gránulos de 4 KiB, tablas L0/L1/L2");
+    println!("  caches       d-cache e i-cache habilitadas");
+
+    // Inicializar asignador dinámico de memoria sobre RAM mapeada por la MMU
+    unsafe {
+        allocator::init(core::ptr::addr_of_mut!(AARCH64_HEAP) as usize, 512 * 1024);
+    }
+    let boxed = Box::new(42u64);
+    let mut numbers = Vec::new();
+    for i in 1..=5 {
+        numbers.push(i);
+    }
+    let text = String::from("antOS heap dinámico en AArch64");
+    println!("  asignador    {} B usados · Box({boxed}), Vec({numbers:?}), String('{}')",
+        allocator::used(), text);
+
+    println!();
+    println!("controlador de interrupciones y temporizador");
+    arch::aarch64::gic::init();
+    println!("  gicv2        distribuidor y cpu interface activos");
+
+    arch::aarch64::timer::init();
+    println!("  temporizador virtual configurado a 100 Hz (IRQ 27)");
+
     arch::aarch64::exceptions::enable_irq();
-    println!("  daif         irq habilitadas");
+    println!("  daif         irq habilitadas · recibiendo pulsos...");
+
+    // Esperar 5 pulsos de reloj para certificar la entrega de interrupciones
+    let start_ticks = arch::aarch64::timer::ticks();
+    while arch::aarch64::timer::ticks() < start_ticks + 5 {
+        arch::aarch64::exceptions::wait_for_interrupt();
+    }
+    println!("  ticks        {} pulsos de temporizador verificados con éxito", arch::aarch64::timer::ticks());
 
     println!();
     println!("sistema operativo listo (AArch64 bare metal)");

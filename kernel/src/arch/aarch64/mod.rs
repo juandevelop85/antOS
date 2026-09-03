@@ -2,9 +2,11 @@
 
 pub mod entry;
 pub mod exceptions;
+pub mod gic;
 pub mod mmu;
 pub mod pl011;
 pub mod syscall;
+pub mod timer;
 
 pub use pl011 as serial;
 
