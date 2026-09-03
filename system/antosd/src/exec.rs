@@ -149,7 +149,7 @@ pub enum Change {
     NotifyAction {
         workspace: PathBuf,
         notification_id: String,
-        action: antos_protocolo::NotificationAction,
+        action: antos_protocol::NotificationAction,
     },
     MeshStatus {
         workspace: PathBuf,
@@ -167,7 +167,7 @@ pub enum Change {
     SwarmDispatch {
         workspace: PathBuf,
         ticket_id: String,
-        role: antos_protocolo::AgentRole,
+        role: antos_protocol::AgentRole,
         node: Option<String>,
     },
     VfsQuery {
@@ -284,7 +284,7 @@ pub enum Change {
     },
     InstallDeploy {
         workspace: PathBuf,
-        config: antos_protocolo::InstallConfig,
+        config: antos_protocol::InstallConfig,
     },
     BootloaderProbe {
         workspace: PathBuf,
@@ -292,7 +292,7 @@ pub enum Change {
     },
     BootloaderInstall {
         workspace: PathBuf,
-        config: antos_protocolo::BootloaderConfig,
+        config: antos_protocol::BootloaderConfig,
     },
 }
 
@@ -766,10 +766,10 @@ pub fn changes_for(
             let id = a.get("id").cloned().unwrap_or_default();
             let action_str = a.get("action").map(String::as_str).unwrap_or("dismiss");
             let action = match action_str {
-                "approve" | "aprobar" => antos_protocolo::NotificationAction::Approve,
-                "reject" | "rechazar" | "rollback" => antos_protocolo::NotificationAction::Reject,
-                "diff" | "view_diff" => antos_protocolo::NotificationAction::ViewDiff,
-                _ => antos_protocolo::NotificationAction::Dismiss,
+                "approve" | "aprobar" => antos_protocol::NotificationAction::Approve,
+                "reject" | "rechazar" | "rollback" => antos_protocol::NotificationAction::Reject,
+                "diff" | "view_diff" => antos_protocol::NotificationAction::ViewDiff,
+                _ => antos_protocol::NotificationAction::Dismiss,
             };
             Ok(vec![Change::NotifyAction {
                 workspace: ctx.workspace.clone(),
@@ -808,10 +808,10 @@ pub fn changes_for(
             let ticket_id = a.get("ticket_id").cloned().unwrap_or_else(|| "T1.1".into());
             let role_str = a.get("role").map(String::as_str).unwrap_or("coder");
             let role = match role_str {
-                "arquitecto" | "architect" => antos_protocolo::AgentRole::Arquitecto,
-                "qa" | "tester" => antos_protocolo::AgentRole::QA,
-                "auditor" => antos_protocolo::AgentRole::Auditor,
-                _ => antos_protocolo::AgentRole::Coder,
+                "arquitecto" | "architect" => antos_protocol::AgentRole::Arquitecto,
+                "qa" | "tester" => antos_protocol::AgentRole::QA,
+                "auditor" => antos_protocol::AgentRole::Auditor,
+                _ => antos_protocol::AgentRole::Coder,
             };
             let node = a.get("node").cloned();
             Ok(vec![Change::SwarmDispatch {
@@ -1065,7 +1065,7 @@ pub fn changes_for(
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
             let username = a.get("username").cloned().unwrap_or_else(|| "antos".into());
             let hostname = a.get("hostname").cloned().unwrap_or_else(|| "antos-box".into());
-            let config = antos_protocolo::InstallConfig {
+            let config = antos_protocol::InstallConfig {
                 target_device,
                 clean_install,
                 target_mount: "/mnt/antos".into(),
@@ -1094,7 +1094,7 @@ pub fn changes_for(
             let efi_partition = a.get("efi_partition").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
             let timeout_seconds = a.get("timeout").and_then(|v| v.parse::<u32>().ok()).unwrap_or(5);
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
-            let config = antos_protocolo::BootloaderConfig {
+            let config = antos_protocol::BootloaderConfig {
                 esp_mount,
                 target_device,
                 efi_partition,
@@ -1377,10 +1377,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 workspace,
             } => {
                 let st = match status.to_lowercase().as_str() {
-                    "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completado,
-                    "progreso" | "en_progreso" | "in_progress" => antos_protocolo::TicketStatus::EnProgreso,
-                    "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::EnRevision,
-                    _ => antos_protocolo::TicketStatus::Pendiente,
+                    "completado" | "done" | "hecho" => antos_protocol::TicketStatus::Completado,
+                    "progreso" | "en_progreso" | "in_progress" => antos_protocol::TicketStatus::EnProgreso,
+                    "revision" | "revisión" | "review" => antos_protocol::TicketStatus::EnRevision,
+                    _ => antos_protocol::TicketStatus::Pendiente,
                 };
                 let engine = crate::spec::SpecEngine::global();
                 engine.update_ticket_status(workspace, ticket_id, st)?;
@@ -1704,9 +1704,9 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 } else {
                     for ev in events {
                         let action_mark = match ev.action_taken {
-                            antos_protocolo::EbpfSecurityAction::Allowed => "✓ PERMITIDO",
-                            antos_protocolo::EbpfSecurityAction::Blocked => "⛔ BLOQUEADO",
-                            antos_protocolo::EbpfSecurityAction::Audited => "👁 AUDITADO",
+                            antos_protocol::EbpfSecurityAction::Allowed => "✓ PERMITIDO",
+                            antos_protocol::EbpfSecurityAction::Blocked => "⛔ BLOQUEADO",
+                            antos_protocol::EbpfSecurityAction::Audited => "👁 AUDITADO",
                         };
                         lines.push(format!("  {} [{}] PID {}:{} ➔ {} ({:?})",
                             action_mark, ev.id, ev.pid, ev.comm, ev.target_resource, ev.hook
@@ -1844,7 +1844,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(lines.join("\n"));
             }
             Change::BarraNotify { category, message, urgent, .. } => {
-                let alert = antos_protocolo::BarraAlert {
+                let alert = antos_protocol::BarraAlert {
                     category: category.clone(),
                     message: message.clone(),
                     urgent: *urgent,
@@ -1989,7 +1989,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(report);
             }
             Change::InstallPrepare { target_device, target_mount, .. } => {
-                let mut cfg = antos_protocolo::InstallConfig::default();
+                let mut cfg = antos_protocol::InstallConfig::default();
                 cfg.target_device = target_device.clone();
                 if let Some(ref m) = target_mount {
                     cfg.target_mount = m.clone();

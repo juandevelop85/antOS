@@ -3,7 +3,7 @@
 //! Parses unified git diffs into structured file hunks, performs syntax highlighting,
 //! renders side-by-side or unified views with line numbers, and allows granular patch applications.
 
-use antos_protocolo::{DiffFile, DiffHunk, DiffLine, DiffLineKind, SyntaxToken, SyntaxTokenType};
+use antos_protocol::{DiffFile, DiffHunk, DiffLine, DiffLineKind, SyntaxToken, SyntaxTokenType};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::Path;
@@ -34,8 +34,16 @@ impl DiffEngine {
 
                 // Parse paths from "diff --git a/path b/path"
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                let old_path = parts.get(2).unwrap_or(&"a/unknown").trim_start_matches("a/").to_string();
-                let new_path = parts.get(3).unwrap_or(&"b/unknown").trim_start_matches("b/").to_string();
+                let old_path = parts
+                    .get(2)
+                    .unwrap_or(&"a/unknown")
+                    .trim_start_matches("a/")
+                    .to_string();
+                let new_path = parts
+                    .get(3)
+                    .unwrap_or(&"b/unknown")
+                    .trim_start_matches("b/")
+                    .to_string();
 
                 current_file = Some(DiffFile {
                     old_path,
@@ -74,7 +82,8 @@ impl DiffEngine {
             }
 
             if let Some(ref mut hunk) = current_hunk {
-                let ext = current_file.as_ref()
+                let ext = current_file
+                    .as_ref()
                     .and_then(|f| Path::new(&f.new_path).extension())
                     .and_then(|e| e.to_str())
                     .unwrap_or("rs");
@@ -147,10 +156,12 @@ impl DiffEngine {
                 out.push_str(&format!("  \x1b[34m{}\x1b[0m\n", hunk.header));
 
                 for line in &hunk.lines {
-                    let old_str = line.old_line_num
+                    let old_str = line
+                        .old_line_num
                         .map(|n| format!("{n:>4}"))
                         .unwrap_or_else(|| "    ".into());
-                    let new_str = line.new_line_num
+                    let new_str = line
+                        .new_line_num
                         .map(|n| format!("{n:>4}"))
                         .unwrap_or_else(|| "    ".into());
 
@@ -193,7 +204,11 @@ impl DiffEngine {
         let orig_lines: Vec<&str> = original.lines().collect();
 
         let mut result_lines = Vec::new();
-        let target_idx = if hunk.old_start > 0 { hunk.old_start - 1 } else { 0 };
+        let target_idx = if hunk.old_start > 0 {
+            hunk.old_start - 1
+        } else {
+            0
+        };
 
         for (i, line) in orig_lines.iter().enumerate() {
             if i == target_idx {
@@ -247,19 +262,36 @@ fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
 pub fn highlight_syntax(line: &str, ext: &str) -> Vec<SyntaxToken> {
     let keywords: &[&str] = match ext {
         "rs" => &[
-            "fn", "let", "pub", "struct", "enum", "impl", "trait", "match", "if", "else",
-            "return", "mut", "use", "mod", "async", "await", "self", "Self", "where", "for",
-            "loop", "while", "break", "continue", "unsafe", "const", "static", "type",
+            "fn", "let", "pub", "struct", "enum", "impl", "trait", "match", "if", "else", "return",
+            "mut", "use", "mod", "async", "await", "self", "Self", "where", "for", "loop", "while",
+            "break", "continue", "unsafe", "const", "static", "type",
         ],
         "py" => &[
             "def", "class", "import", "from", "return", "if", "elif", "else", "for", "while",
             "try", "except", "with", "as", "async", "await", "pass", "yield", "lambda",
         ],
         "ts" | "js" => &[
-            "function", "const", "let", "var", "import", "export", "class", "interface",
-            "type", "return", "if", "else", "async", "await", "for", "while", "new",
+            "function",
+            "const",
+            "let",
+            "var",
+            "import",
+            "export",
+            "class",
+            "interface",
+            "type",
+            "return",
+            "if",
+            "else",
+            "async",
+            "await",
+            "for",
+            "while",
+            "new",
         ],
-        _ => &["fn", "def", "func", "function", "let", "var", "const", "return"],
+        _ => &[
+            "fn", "def", "func", "function", "let", "var", "const", "return",
+        ],
     };
 
     let mut tokens = Vec::new();
@@ -273,7 +305,9 @@ pub fn highlight_syntax(line: &str, ext: &str) -> Vec<SyntaxToken> {
         return tokens;
     }
 
-    let words: Vec<&str> = line.split_inclusive(|c: char| !c.is_alphanumeric() && c != '_').collect();
+    let words: Vec<&str> = line
+        .split_inclusive(|c: char| !c.is_alphanumeric() && c != '_')
+        .collect();
 
     for w in words {
         let clean_word = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
@@ -354,7 +388,9 @@ index 1234567..89abcdef 100644
     #[test]
     fn test_syntax_highlighting() {
         let tokens = highlight_syntax("pub fn init_workspace() -> Result<()> {", "rs");
-        let has_keyword = tokens.iter().any(|t| t.token_type == SyntaxTokenType::Keyword);
+        let has_keyword = tokens
+            .iter()
+            .any(|t| t.token_type == SyntaxTokenType::Keyword);
         let has_type = tokens.iter().any(|t| t.token_type == SyntaxTokenType::Type);
         assert!(has_keyword, "debe detectar keywords como pub y fn");
         assert!(has_type, "debe detectar tipos como Result");

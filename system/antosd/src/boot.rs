@@ -4,7 +4,7 @@
 //! `x86_64-unknown-none`, la invocación de `builder` para generar la imagen de disco BIOS/UEFI
 //! y la ejecución supervisada de `qemu-system-x86_64`.
 
-use antos_protocolo::BootPipelineStatus;
+use antos_protocol::BootPipelineStatus;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;

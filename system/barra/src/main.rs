@@ -3,9 +3,9 @@
 //! Provides the primary desktop interface for developer intentions, semantic git context,
 //! rich diff inspections, multi-agent antFlow state visualizations, and the Kanban Ticket Board (`Super + A`).
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol as antos_protocol;
 
-use antos_protocolo::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Request, Propuesta, TicketStatus, TicketSummary, Tier};
+use antos_protocol::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Request, Propuesta, TicketStatus, TicketSummary, Tier};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
@@ -392,7 +392,7 @@ fn update_telemetry_badges(
     profiler_badge: &Label,
     pair_badge: &Label,
     mesh_badge: &Label,
-    telemetry: &antos_protocolo::BarraTelemetry,
+    telemetry: &antos_protocol::BarraTelemetry,
 ) {
     // 1. eBPF LSM Guard
     if telemetry.ebpf_violations_count > 0 {

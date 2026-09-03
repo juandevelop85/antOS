@@ -3,7 +3,7 @@
 //! Enables delegating heavy agent workloads (e.g. Coder with 70B parameter models,
 //! QA with large test suites) across antMesh peer nodes with automated worktree delta synchronization.
 
-use antos_protocolo::{AgentRole, PeerNode, SwarmNodeStatus, SwarmStatus, SwarmTaskAssignment};
+use antos_protocol::{AgentRole, PeerNode, SwarmNodeStatus, SwarmStatus, SwarmTaskAssignment};
 use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -39,7 +39,11 @@ impl SwarmEngine {
         let mut nodes = Vec::new();
 
         // Local node
-        let local_tasks: Vec<_> = tasks.iter().filter(|t| t.assigned_node_id == mesh_status.local_node.id).cloned().collect();
+        let local_tasks: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.assigned_node_id == mesh_status.local_node.id)
+            .cloned()
+            .collect();
         nodes.push(SwarmNodeStatus {
             node_id: mesh_status.local_node.id.clone(),
             hostname: mesh_status.local_node.hostname.clone(),
@@ -52,7 +56,11 @@ impl SwarmEngine {
 
         // Remote peer nodes
         for peer in &mesh_status.peers {
-            let peer_tasks: Vec<_> = tasks.iter().filter(|t| t.assigned_node_id == peer.id).cloned().collect();
+            let peer_tasks: Vec<_> = tasks
+                .iter()
+                .filter(|t| t.assigned_node_id == peer.id)
+                .cloned()
+                .collect();
             nodes.push(SwarmNodeStatus {
                 node_id: peer.id.clone(),
                 hostname: peer.hostname.clone(),
@@ -65,21 +73,30 @@ impl SwarmEngine {
         }
 
         let total_tasks = tasks.len();
-        Ok(SwarmStatus {
-            nodes,
-            total_tasks,
-        })
+        Ok(SwarmStatus { nodes, total_tasks })
     }
 
     /// Selects the optimal node for an agent role based on resources and network latency.
-    pub fn select_best_node(&self, workspace: &Path, role: AgentRole, preferred: Option<&str>) -> Result<PeerNode> {
+    pub fn select_best_node(
+        &self,
+        workspace: &Path,
+        role: AgentRole,
+        preferred: Option<&str>,
+    ) -> Result<PeerNode> {
         let mesh_status = crate::mesh::MeshEngine::global().status(workspace)?;
 
         if let Some(target) = preferred {
-            if target == "local" || target == mesh_status.local_node.id || target == mesh_status.local_node.hostname {
+            if target == "local"
+                || target == mesh_status.local_node.id
+                || target == mesh_status.local_node.hostname
+            {
                 return Ok(mesh_status.local_node);
             }
-            if let Some(p) = mesh_status.peers.iter().find(|p| p.id == target || p.hostname == target || p.address.starts_with(target)) {
+            if let Some(p) = mesh_status
+                .peers
+                .iter()
+                .find(|p| p.id == target || p.hostname == target || p.address.starts_with(target))
+            {
                 return Ok(p.clone());
             }
             bail!("nodo «{target}» no encontrado entre los peers de antMesh");
@@ -96,12 +113,16 @@ impl SwarmEngine {
                 candidates.sort_by(|a, b| {
                     let vram_b = b.resources.vram_mb.unwrap_or(0);
                     let vram_a = a.resources.vram_mb.unwrap_or(0);
-                    vram_b.cmp(&vram_a).then_with(|| a.latency_ms.cmp(&b.latency_ms))
+                    vram_b
+                        .cmp(&vram_a)
+                        .then_with(|| a.latency_ms.cmp(&b.latency_ms))
                 });
             }
             AgentRole::QA => {
                 candidates.sort_by(|a, b| {
-                    b.resources.cpu_cores.cmp(&a.resources.cpu_cores)
+                    b.resources
+                        .cpu_cores
+                        .cmp(&a.resources.cpu_cores)
                         .then_with(|| a.latency_ms.cmp(&b.latency_ms))
                 });
             }
@@ -115,7 +136,10 @@ impl SwarmEngine {
         let local = &mesh_status.local_node;
 
         match role {
-            AgentRole::Coder if local.resources.vram_mb.unwrap_or(0) >= best_remote.resources.vram_mb.unwrap_or(0) => {
+            AgentRole::Coder
+                if local.resources.vram_mb.unwrap_or(0)
+                    >= best_remote.resources.vram_mb.unwrap_or(0) =>
+            {
                 Ok(local.clone())
             }
             AgentRole::QA if local.resources.cpu_cores >= best_remote.resources.cpu_cores => {
@@ -134,14 +158,22 @@ impl SwarmEngine {
         preferred_node: Option<&str>,
     ) -> Result<SwarmTaskAssignment> {
         let node = self.select_best_node(workspace, role, preferred_node)?;
-        let worktree_branch = format!("agent/{}/{}", ticket_id.to_lowercase(), role.name().to_lowercase().replace(' ', "_"));
+        let worktree_branch = format!(
+            "agent/{}/{}",
+            ticket_id.to_lowercase(),
+            role.name().to_lowercase().replace(' ', "_")
+        );
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let task_id = format!("swarm-{}-{}", ticket_id.to_lowercase(), &format!("{:x}", now)[..6]);
+        let task_id = format!(
+            "swarm-{}-{}",
+            ticket_id.to_lowercase(),
+            &format!("{:x}", now)[..6]
+        );
 
         // Select the primary model on the designated node
         let target_model = node.resources.available_models.first().cloned();
@@ -193,7 +225,14 @@ impl SwarmEngine {
 
         // If git repository, try to generate bundle, otherwise write manifest stub
         let status = Command::new("git")
-            .args(["bundle", "create", bundle_path.to_str().unwrap_or(""), "HEAD", "-n", "1"])
+            .args([
+                "bundle",
+                "create",
+                bundle_path.to_str().unwrap_or(""),
+                "HEAD",
+                "-n",
+                "1",
+            ])
             .current_dir(workspace)
             .output();
 
@@ -237,7 +276,9 @@ mod tests {
         fs::create_dir_all(&temp).unwrap();
 
         let engine = SwarmEngine::global();
-        let best = engine.select_best_node(&temp, AgentRole::Coder, None).unwrap();
+        let best = engine
+            .select_best_node(&temp, AgentRole::Coder, None)
+            .unwrap();
         assert!(best.id.starts_with("node-"));
 
         let _ = fs::remove_dir_all(&temp);
@@ -250,10 +291,14 @@ mod tests {
         fs::create_dir_all(&temp).unwrap();
 
         // Register a high-vram peer
-        let peer = crate::mesh::MeshEngine::global().connect_peer(&temp, "10.0.0.99:9042").unwrap();
+        let peer = crate::mesh::MeshEngine::global()
+            .connect_peer(&temp, "10.0.0.99:9042")
+            .unwrap();
 
         let engine = SwarmEngine::global();
-        let task = engine.dispatch_remote_role(&temp, "T9.2", AgentRole::Coder, Some(&peer.id)).unwrap();
+        let task = engine
+            .dispatch_remote_role(&temp, "T9.2", AgentRole::Coder, Some(&peer.id))
+            .unwrap();
 
         assert_eq!(task.ticket_id, "T9.2");
         assert_eq!(task.assigned_node_id, peer.id);

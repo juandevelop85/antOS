@@ -6,7 +6,7 @@
 //! utilizando caché en memoria invalidada por las marcas de tiempo (`mtime`) de
 //! `.git/HEAD` y `.git/index`.
 
-use antos_protocolo::{GitFileDiffSummary, GitFileStatus, GitRepoStatus};
+use antos_protocol::{GitFileDiffSummary, GitFileStatus, GitRepoStatus};
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs;

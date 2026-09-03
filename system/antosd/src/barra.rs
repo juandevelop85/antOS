@@ -4,7 +4,7 @@
 //! rendimiento de procesos (Profiler), sesiones activas de Pair Programming,
 //! conectividad P2P (antMesh) y despacha alertas visuales a la shell de escritorio.
 
-use antos_protocolo::{BarraAlert, BarraTelemetry};
+use antos_protocol::{BarraAlert, BarraTelemetry};
 use anyhow::Result;
 use std::sync::{Mutex, OnceLock};
 

@@ -3,8 +3,10 @@
 //! Provides conflict-free concurrent editing (CRDT), agent cursor and ghost-text
 //! projection, and an isolated Debug Adapter Protocol (DAP) supervisor for sandbox processes.
 
+use antos_protocol::{
+    CollabCursor, CollabSessionStatus, DapBreakpoint, DapSessionStatus, DapVariable,
+};
 use anyhow::{bail, Result};
-use antos_protocolo::{CollabCursor, CollabSessionStatus, DapBreakpoint, DapSessionStatus, DapVariable};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -66,12 +68,19 @@ impl CrdtDocument {
         // Locate origin index
         let insert_idx = match &origin_left {
             Some(orig) => {
-                let mut idx = self.chars.iter().position(|c| &c.id == orig).map(|p| p + 1).unwrap_or(0);
+                let mut idx = self
+                    .chars
+                    .iter()
+                    .position(|c| &c.id == orig)
+                    .map(|p| p + 1)
+                    .unwrap_or(0);
                 // Scan forward past concurrently inserted characters with higher priority
                 while idx < self.chars.len() {
                     let next = &self.chars[idx];
                     if next.origin_left.as_ref() == origin_left.as_ref() {
-                        if id.client > next.id.client || (id.client == next.id.client && id.seq > next.id.seq) {
+                        if id.client > next.id.client
+                            || (id.client == next.id.client && id.seq > next.id.seq)
+                        {
                             idx += 1;
                         } else {
                             break;
@@ -87,7 +96,9 @@ impl CrdtDocument {
                 while idx < self.chars.len() {
                     let next = &self.chars[idx];
                     if next.origin_left.is_none() {
-                        if id.client > next.id.client || (id.client == next.id.client && id.seq > next.id.seq) {
+                        if id.client > next.id.client
+                            || (id.client == next.id.client && id.seq > next.id.seq)
+                        {
                             idx += 1;
                         } else {
                             break;
@@ -129,7 +140,11 @@ impl CrdtDocument {
 
     /// Returns the last CharId for subsequent sequential inserts.
     pub fn last_visible_id(&self) -> Option<CharId> {
-        self.chars.iter().rev().find(|c| !c.deleted).map(|c| c.id.clone())
+        self.chars
+            .iter()
+            .rev()
+            .find(|c| !c.deleted)
+            .map(|c| c.id.clone())
     }
 }
 
@@ -146,7 +161,12 @@ pub struct CollabSession {
 }
 
 impl CollabSession {
-    pub fn new(id: String, file_path: PathBuf, initial_text: &str, ticket_id: Option<String>) -> Self {
+    pub fn new(
+        id: String,
+        file_path: PathBuf,
+        initial_text: &str,
+        ticket_id: Option<String>,
+    ) -> Self {
         let doc = CrdtDocument::from_str(initial_text, "server");
         let mut session = Self {
             id,
@@ -176,7 +196,9 @@ impl CollabSession {
                 client_id: "agent-coder".into(),
                 line: 1,
                 character: 0,
-                ghost_text: Some("// antOS Pair: Implementación colaborativa guiada por ticket".into()),
+                ghost_text: Some(
+                    "// antOS Pair: Implementación colaborativa guiada por ticket".into(),
+                ),
             },
         );
 
@@ -195,7 +217,13 @@ impl CollabSession {
     }
 
     /// Updates cursor position and optional ghost text for a participant.
-    pub fn update_cursor(&mut self, client: &str, line: usize, character: usize, ghost_text: Option<String>) {
+    pub fn update_cursor(
+        &mut self,
+        client: &str,
+        line: usize,
+        character: usize,
+        ghost_text: Option<String>,
+    ) {
         if let Some(c) = self.cursors.get_mut(client) {
             c.line = line;
             c.character = character;
@@ -275,7 +303,8 @@ impl CollabEngine {
             workspace.join(file_path_str)
         };
 
-        let initial_text = std::fs::read_to_string(&abs_path).unwrap_or_else(|_| "// Nuevo archivo antOS\n".into());
+        let initial_text = std::fs::read_to_string(&abs_path)
+            .unwrap_or_else(|_| "// Nuevo archivo antOS\n".into());
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -426,7 +455,8 @@ impl DapServer {
                 })
             }
             "setBreakpoints" => {
-                let lines = val.get("arguments")
+                let lines = val
+                    .get("arguments")
                     .and_then(|a| a.get("lines"))
                     .and_then(|l| l.as_array())
                     .cloned()
@@ -464,14 +494,19 @@ impl DapServer {
                 })
             }
             "stackTrace" => {
-                let frames: Vec<Value> = self.call_stack.iter().enumerate().map(|(idx, f)| {
-                    json!({
-                        "id": idx + 1,
-                        "name": f,
-                        "line": self.current_line.unwrap_or(1),
-                        "column": 1
+                let frames: Vec<Value> = self
+                    .call_stack
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, f)| {
+                        json!({
+                            "id": idx + 1,
+                            "name": f,
+                            "line": self.current_line.unwrap_or(1),
+                            "column": 1
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 json!({
                     "seq": seq + 1,
@@ -483,13 +518,17 @@ impl DapServer {
                 })
             }
             "variables" => {
-                let vars: Vec<Value> = self.variables.iter().map(|v| {
-                    json!({
-                        "name": v.name,
-                        "value": v.value,
-                        "type": v.type_name
+                let vars: Vec<Value> = self
+                    .variables
+                    .iter()
+                    .map(|v| {
+                        json!({
+                            "name": v.name,
+                            "value": v.value,
+                            "type": v.type_name
+                        })
                     })
-                }).collect();
+                    .collect();
 
                 json!({
                     "seq": seq + 1,
@@ -512,7 +551,8 @@ impl DapServer {
                 })
             }
             "evaluate" => {
-                let expr = val.get("arguments")
+                let expr = val
+                    .get("arguments")
                     .and_then(|a| a.get("expression"))
                     .and_then(|e| e.as_str())
                     .unwrap_or("");
@@ -568,18 +608,31 @@ mod tests {
 
         // Developer inserts " world" at the end
         let prev = doc1.last_visible_id();
-        let dev_id1 = CharId { client: "dev".into(), seq: 1 };
+        let dev_id1 = CharId {
+            client: "dev".into(),
+            seq: 1,
+        };
         doc1.insert(dev_id1.clone(), prev.clone(), ' ');
-        let dev_id2 = CharId { client: "dev".into(), seq: 2 };
+        let dev_id2 = CharId {
+            client: "dev".into(),
+            seq: 2,
+        };
         doc1.insert(dev_id2.clone(), Some(dev_id1.clone()), 'A');
 
         // Agent inserts "!" at the end concurrently
-        let agent_id1 = CharId { client: "agent".into(), seq: 1 };
+        let agent_id1 = CharId {
+            client: "agent".into(),
+            seq: 1,
+        };
         doc2.insert(agent_id1.clone(), prev.clone(), '!');
 
         // Cross-replicate deltas to both documents
         doc1.insert(agent_id1.clone(), prev, '!');
-        let prev_orig = doc2.chars.iter().find(|c| c.id.client == "origin" && c.ch == 'o').map(|c| c.id.clone());
+        let prev_orig = doc2
+            .chars
+            .iter()
+            .find(|c| c.id.client == "origin" && c.ch == 'o')
+            .map(|c| c.id.clone());
         doc2.insert(dev_id1.clone(), prev_orig, ' ');
         doc2.insert(dev_id2, Some(dev_id1), 'A');
 
@@ -601,7 +654,9 @@ mod tests {
         assert_eq!(status.collaborators.len(), 2);
         assert!(status.cursors.iter().any(|c| c.client_id == "agent-coder"));
 
-        let updated_text = engine.accept_ghost_text(&status.session_id).expect("accept ghost");
+        let updated_text = engine
+            .accept_ghost_text(&status.session_id)
+            .expect("accept ghost");
         assert!(!updated_text.is_empty());
     }
 
@@ -611,7 +666,9 @@ mod tests {
 
         // 1. Initialize
         let init_req = json!({ "seq": 1, "type": "request", "command": "initialize" });
-        let resp_raw = dap.handle_request(&init_req.to_string()).expect("init resp");
+        let resp_raw = dap
+            .handle_request(&init_req.to_string())
+            .expect("init resp");
         let resp_val: Value = serde_json::from_str(&resp_raw).expect("parse init");
         assert_eq!(resp_val["success"], true);
 
@@ -624,11 +681,16 @@ mod tests {
         });
         let resp_bp = dap.handle_request(&bp_req.to_string()).expect("bp resp");
         let resp_bp_val: Value = serde_json::from_str(&resp_bp).expect("parse bp");
-        assert_eq!(resp_bp_val["body"]["breakpoints"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            resp_bp_val["body"]["breakpoints"].as_array().unwrap().len(),
+            2
+        );
 
         // 3. Step Next
         let next_req = json!({ "seq": 3, "type": "request", "command": "next" });
-        let resp_next = dap.handle_request(&next_req.to_string()).expect("next resp");
+        let resp_next = dap
+            .handle_request(&next_req.to_string())
+            .expect("next resp");
         let resp_next_val: Value = serde_json::from_str(&resp_next).expect("parse next");
         assert_eq!(resp_next_val["body"]["line"], 2);
 
@@ -636,6 +698,9 @@ mod tests {
         let var_req = json!({ "seq": 4, "type": "request", "command": "variables" });
         let resp_var = dap.handle_request(&var_req.to_string()).expect("var resp");
         let resp_var_val: Value = serde_json::from_str(&resp_var).expect("parse var");
-        assert!(!resp_var_val["body"]["variables"].as_array().unwrap().is_empty());
+        assert!(!resp_var_val["body"]["variables"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 }

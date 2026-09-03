@@ -1,7 +1,7 @@
 //! Motor de Instalación y Despliegue de Sistema Base (T15.2).
 
 use super::disk::DiskManager;
-use antos_protocolo::{InstallConfig, InstallReport, InstallStep};
+use antos_protocol::{InstallConfig, InstallReport, InstallStep};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

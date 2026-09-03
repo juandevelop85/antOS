@@ -4,7 +4,7 @@
 //! to disk, preventing truncated or syntactically broken code from entering the repository.
 
 use anyhow::Result;
-use antos_protocolo::{SyntaxValidationError, ValidationResult, VfsGuardStatus};
+use antos_protocol::{SyntaxValidationError, ValidationResult, VfsGuardStatus};
 use std::path::Path;
 use std::sync::Mutex;
 

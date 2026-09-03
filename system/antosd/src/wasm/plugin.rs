@@ -2,7 +2,7 @@
 
 use super::parser::WasmModule;
 use super::vm::WasmInstance;
-use antos_protocolo::{PluginResult, PluginSummary};
+use antos_protocol::{PluginResult, PluginSummary};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};

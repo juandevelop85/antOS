@@ -1,6 +1,6 @@
 //! Captura de pantalla Wayland e inspección visual multimodal para antOS (T14.2).
 
-use antos_protocolo::{ScreenshotResult, VisualFinding, VisualQAReport};
+use antos_protocol::{ScreenshotResult, VisualFinding, VisualQAReport};
 use anyhow::Result;
 use std::fs;
 use std::path::Path;

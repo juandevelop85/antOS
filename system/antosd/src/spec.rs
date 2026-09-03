@@ -5,7 +5,7 @@
 //! alcance técnico y criterios de aceptación para el CLI (`antos tickets`),
 //! el demonio IPC y el centro de control de agentes.
 
-use antos_protocolo::{TicketDetail, TicketStatus, TicketSummary};
+use antos_protocol::{TicketDetail, TicketStatus, TicketSummary};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::fs;
@@ -84,7 +84,11 @@ impl SpecEngine {
     }
 
     /// Obtiene el detalle completo de un ticket específico.
-    pub fn get_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
+    pub fn get_ticket(
+        &self,
+        workspace_path: &Path,
+        ticket_id: &str,
+    ) -> Result<Option<TicketDetail>> {
         let dir_tickets = find_tickets_dir(workspace_path);
         let Some(dir) = dir_tickets else {
             return Ok(None);
@@ -101,7 +105,11 @@ impl SpecEngine {
 
         if let Ok(guard) = self.cache.lock() {
             if let Some(entry) = guard.get(&dir) {
-                if let Some(t) = entry.tickets.iter().find(|t| t.id.to_uppercase() == id_normalizado) {
+                if let Some(t) = entry
+                    .tickets
+                    .iter()
+                    .find(|t| t.id.to_uppercase() == id_normalizado)
+                {
                     ruta_archivo = Some(PathBuf::from(&t.ruta_archivo));
                     estado_ticket = t.estado;
                 }
@@ -137,7 +145,9 @@ impl SpecEngine {
         // Guardar en caché
         if let Ok(mut guard) = self.cache.lock() {
             if let Some(entry) = guard.get_mut(&dir) {
-                entry.detalles.insert(id_normalizado, (file_mtime, detalle.clone()));
+                entry
+                    .detalles
+                    .insert(id_normalizado, (file_mtime, detalle.clone()));
             }
         }
 
@@ -145,7 +155,11 @@ impl SpecEngine {
     }
 
     /// Alias compatible.
-    pub fn obtener_ticket(&self, workspace_path: &Path, ticket_id: &str) -> Result<Option<TicketDetail>> {
+    pub fn obtener_ticket(
+        &self,
+        workspace_path: &Path,
+        ticket_id: &str,
+    ) -> Result<Option<TicketDetail>> {
         self.get_ticket(workspace_path, ticket_id)
     }
 
@@ -195,7 +209,9 @@ impl SpecEngine {
         if readme_path.exists() {
             let mut readme_content = fs::read_to_string(&readme_path).unwrap_or_default();
             if readme_content.contains("| :--- |") || readme_content.contains("| Estado |") {
-                let new_row = format!("| **{phase_str}** | [{id_clean}]({filename}) | {title} | ⏳ Pendiente |\n");
+                let new_row = format!(
+                    "| **{phase_str}** | [{id_clean}]({filename}) | {title} | ⏳ Pendiente |\n"
+                );
                 readme_content.push_str(&new_row);
                 let _ = fs::write(&readme_path, readme_content);
             }
@@ -255,7 +271,9 @@ impl SpecEngine {
             if let Ok(content) = fs::read_to_string(&readme_path) {
                 let mut new_lines = Vec::new();
                 for line in content.lines() {
-                    if line.contains(&format!("[{id_upper}]")) || line.contains(&format!(" {id_upper} ")) {
+                    if line.contains(&format!("[{id_upper}]"))
+                        || line.contains(&format!(" {id_upper} "))
+                    {
                         let parts: Vec<&str> = line.split('|').collect();
                         if parts.len() >= 5 {
                             let mut updated_parts = parts.clone();
@@ -309,7 +327,9 @@ pub fn find_or_create_tickets_dir(inicio: &Path) -> Result<PathBuf> {
 
 /// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`).
 pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
-    let mut actual = inicio.canonicalize().unwrap_or_else(|_| inicio.to_path_buf());
+    let mut actual = inicio
+        .canonicalize()
+        .unwrap_or_else(|_| inicio.to_path_buf());
 
     loop {
         let candidatos = [
@@ -339,7 +359,9 @@ pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
 }
 
 /// Indexa el directorio de tickets leyendo `README.md` (si existe) y los ficheros individuales.
-fn indexar_directorio_tickets(dir: &Path) -> Result<(Vec<TicketSummary>, HashMap<String, TicketStatus>)> {
+fn indexar_directorio_tickets(
+    dir: &Path,
+) -> Result<(Vec<TicketSummary>, HashMap<String, TicketStatus>)> {
     let mut estados_map = HashMap::new();
 
     // 1. Parsear README.md si existe para extraer estados consolidados de la tabla
@@ -352,7 +374,8 @@ fn indexar_directorio_tickets(dir: &Path) -> Result<(Vec<TicketSummary>, HashMap
 
     // 2. Leer archivos en el directorio
     let mut summaries = Vec::new();
-    let entries = fs::read_dir(dir).with_context(|| format!("leyendo directorio {}", dir.display()))?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("leyendo directorio {}", dir.display()))?;
 
     let mut archivos_tickets: Vec<PathBuf> = Vec::new();
     for entry in entries.flatten() {
@@ -470,11 +493,17 @@ fn parsear_summary_ticket(
 }
 
 /// Parsea el detalle completo de un archivo Markdown de ticket.
-pub fn parsear_archivo_ticket(ruta: &Path, estado_override: Option<TicketStatus>) -> Result<TicketDetail> {
+pub fn parsear_archivo_ticket(
+    ruta: &Path,
+    estado_override: Option<TicketStatus>,
+) -> Result<TicketDetail> {
     let contenido = fs::read_to_string(ruta)
         .with_context(|| format!("no se pudo leer el archivo de ticket {}", ruta.display()))?;
 
-    let file_name = ruta.file_name().and_then(|n| n.to_str()).unwrap_or("ticket.md");
+    let file_name = ruta
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("ticket.md");
     let id = extraer_id_de_nombre_o_contenido(file_name, &contenido)
         .unwrap_or_else(|| "T0.0".to_string());
 
@@ -525,7 +554,13 @@ pub fn parsear_archivo_ticket(ruta: &Path, estado_override: Option<TicketStatus>
                 }
             }
             "alcance" => {
-                if l.starts_with('*') || l.starts_with('-') || l.starts_with("1.") || l.starts_with("2.") || l.starts_with("3.") || l.starts_with("4.") {
+                if l.starts_with('*')
+                    || l.starts_with('-')
+                    || l.starts_with("1.")
+                    || l.starts_with("2.")
+                    || l.starts_with("3.")
+                    || l.starts_with("4.")
+                {
                     let limpio = limpiar_item_markdown(l);
                     if !limpio.is_empty() {
                         alcance_tecnico.push(limpio);
@@ -533,7 +568,12 @@ pub fn parsear_archivo_ticket(ruta: &Path, estado_override: Option<TicketStatus>
                 }
             }
             "criterios" => {
-                if l.starts_with('*') || l.starts_with('-') || l.starts_with("1.") || l.starts_with("2.") || l.starts_with("3.") {
+                if l.starts_with('*')
+                    || l.starts_with('-')
+                    || l.starts_with("1.")
+                    || l.starts_with("2.")
+                    || l.starts_with("3.")
+                {
                     let limpio = limpiar_item_markdown(l);
                     if !limpio.is_empty() {
                         criterios_aceptacion.push(limpio);
@@ -559,7 +599,11 @@ pub fn parsear_archivo_ticket(ruta: &Path, estado_override: Option<TicketStatus>
 }
 
 fn limpiar_item_markdown(linea: &str) -> String {
-    let sin_prefijo = linea.trim_start_matches(|c: char| c.is_numeric() || c == '.' || c == '*' || c == '-' || c.is_whitespace()).trim();
+    let sin_prefijo = linea
+        .trim_start_matches(|c: char| {
+            c.is_numeric() || c == '.' || c == '*' || c == '-' || c.is_whitespace()
+        })
+        .trim();
     sin_prefijo.replace("**", "").trim().to_string()
 }
 
@@ -594,7 +638,10 @@ mod tests {
     fn test_encontrar_directorio_tickets_ant_os() {
         let cwd = std::env::current_dir().expect("cwd");
         let dir = encontrar_directorio_tickets(&cwd);
-        assert!(dir.is_some(), "debe encontrar docs/tickets en el repo actual");
+        assert!(
+            dir.is_some(),
+            "debe encontrar docs/tickets en el repo actual"
+        );
         let path = dir.unwrap();
         assert!(path.join("README.md").exists());
     }
@@ -605,27 +652,49 @@ mod tests {
         let engine = SpecEngine::global();
         let tickets = engine.listar_tickets(&cwd).expect("listar tickets");
 
-        assert!(!tickets.is_empty(), "debe encontrar los tickets en docs/tickets");
-        
+        assert!(
+            !tickets.is_empty(),
+            "debe encontrar los tickets en docs/tickets"
+        );
+
         // Verificar que T0.1, T1.1 y T1.2 están completados y T1.3 está indexado
-        let t01 = tickets.iter().find(|t| t.id == "T0.1").expect("T0.1 debe existir");
+        let t01 = tickets
+            .iter()
+            .find(|t| t.id == "T0.1")
+            .expect("T0.1 debe existir");
         assert_eq!(t01.estado, TicketStatus::Completado);
 
-        let t11 = tickets.iter().find(|t| t.id == "T1.1").expect("T1.1 debe existir");
+        let t11 = tickets
+            .iter()
+            .find(|t| t.id == "T1.1")
+            .expect("T1.1 debe existir");
         assert_eq!(t11.estado, TicketStatus::Completado);
 
-        let t12 = tickets.iter().find(|t| t.id == "T1.2").expect("T1.2 debe existir");
+        let t12 = tickets
+            .iter()
+            .find(|t| t.id == "T1.2")
+            .expect("T1.2 debe existir");
         assert_eq!(t12.estado, TicketStatus::Completado);
 
-        let t13 = tickets.iter().find(|t| t.id == "T1.3").expect("T1.3 debe existir");
-        assert!(t13.titulo.contains("Indexador y Parser") || t13.titulo.contains("Spec-Engine") || t13.titulo.contains("tickets"));
+        let t13 = tickets
+            .iter()
+            .find(|t| t.id == "T1.3")
+            .expect("T1.3 debe existir");
+        assert!(
+            t13.titulo.contains("Indexador y Parser")
+                || t13.titulo.contains("Spec-Engine")
+                || t13.titulo.contains("tickets")
+        );
     }
 
     #[test]
     fn test_obtener_detalle_ticket_t13() {
         let cwd = std::env::current_dir().expect("cwd");
         let engine = SpecEngine::global();
-        let detalle = engine.obtener_ticket(&cwd, "T1.3").expect("obtener ticket").expect("detalle T1.3");
+        let detalle = engine
+            .obtener_ticket(&cwd, "T1.3")
+            .expect("obtener ticket")
+            .expect("detalle T1.3");
 
         assert_eq!(detalle.id, "T1.3");
         assert_eq!(detalle.fase, "Fase 1");
@@ -643,13 +712,15 @@ mod tests {
         let engine = SpecEngine::global();
 
         // 1. Crear ticket en nuevo workspace
-        let path = engine.create_ticket(
-            &ws,
-            "T99.1",
-            "Módulo de Prueba Dinámica",
-            Some("Prueba de creación dinámica"),
-            Some("Fase 99"),
-        ).expect("crear ticket");
+        let path = engine
+            .create_ticket(
+                &ws,
+                "T99.1",
+                "Módulo de Prueba Dinámica",
+                Some("Prueba de creación dinámica"),
+                Some("Fase 99"),
+            )
+            .expect("crear ticket");
 
         assert!(path.exists());
         let content = fs::read_to_string(&path).expect("read ticket");
@@ -663,8 +734,13 @@ mod tests {
         assert_eq!(tickets[0].estado, TicketStatus::Pendiente);
 
         // 3. Actualizar estado
-        engine.update_ticket_status(&ws, "T99.1", TicketStatus::Completado).expect("update");
-        let detalle = engine.get_ticket(&ws, "T99.1").expect("get").expect("exists");
+        engine
+            .update_ticket_status(&ws, "T99.1", TicketStatus::Completado)
+            .expect("update");
+        let detalle = engine
+            .get_ticket(&ws, "T99.1")
+            .expect("get")
+            .expect("exists");
         assert_eq!(detalle.estado, TicketStatus::Completado);
 
         let _ = fs::remove_dir_all(&ws);

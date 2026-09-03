@@ -8,7 +8,7 @@
 //! Provides CLI querying, in-memory resolution, and lightweight filesystem projection
 //! under `.antos/mnt/antfs` for inspection with native tools (`ls`, `cat`, `find`).
 
-use antos_protocolo::{VfsEntry, VfsStatus};
+use antos_protocol::{VfsEntry, VfsStatus};
 use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ impl VfsEngine {
         workspace.join(".antos").join("mnt").join("antfs")
     }
 
-    fn get_uncommitted_diffs(&self, workspace: &Path) -> Vec<antos_protocolo::DiffFile> {
+    fn get_uncommitted_diffs(&self, workspace: &Path) -> Vec<antos_protocol::DiffFile> {
         let out = std::process::Command::new("git")
             .args(["diff", "HEAD"])
             .current_dir(workspace)
@@ -79,7 +79,10 @@ impl VfsEngine {
 
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default();
 
             if name.starts_with('.') || name == "target" || name == "node_modules" {
                 continue;
@@ -318,7 +321,11 @@ impl VfsEngine {
                     // List modified files
                     let diffs = self.get_uncommitted_diffs(workspace);
                     for d in diffs {
-                        let p = if !d.new_path.is_empty() { &d.new_path } else { &d.old_path };
+                        let p = if !d.new_path.is_empty() {
+                            &d.new_path
+                        } else {
+                            &d.old_path
+                        };
                         let name = Path::new(p)
                             .file_name()
                             .and_then(|n| n.to_str())
@@ -359,7 +366,8 @@ impl VfsEngine {
                     let cat = parts[1];
                     let name = parts[2];
                     let symbols = self.discover_symbols(workspace)?;
-                    if let Some(sym) = symbols.iter().find(|s| s.category == cat && s.name == name) {
+                    if let Some(sym) = symbols.iter().find(|s| s.category == cat && s.name == name)
+                    {
                         return Ok(format!(
                             "// antOS Semantic Symbol: {} ({})\n// Source: {}:{}\n// Signature: {}\n\n{}",
                             sym.name, sym.category, sym.file_path, sym.line_number, sym.signature, sym.body
@@ -371,10 +379,15 @@ impl VfsEngine {
             }
             "git" => {
                 if parts.len() == 2 && parts[1] == "status" {
-                    if let Ok(Some(status)) = crate::git::GitAnalyzer::global().get_status(workspace) {
+                    if let Ok(Some(status)) =
+                        crate::git::GitAnalyzer::global().get_status(workspace)
+                    {
                         return Ok(format!(
                             "Branch: {}\nClean: {}\nModified: {}\nStaged: {}\n",
-                            status.rama.as_deref().unwrap_or("detached"), status.is_clean(), status.modificados.len(), status.staged.len()
+                            status.rama.as_deref().unwrap_or("detached"),
+                            status.is_clean(),
+                            status.modificados.len(),
+                            status.staged.len()
                         ));
                     }
                     return Ok("Git status unavailable.\n".into());
@@ -382,7 +395,10 @@ impl VfsEngine {
                 if parts.len() >= 3 && parts[1] == "uncommitted" {
                     let fname = parts[2];
                     let diffs = self.get_uncommitted_diffs(workspace);
-                    if let Some(d) = diffs.iter().find(|d| d.new_path.ends_with(fname) || d.old_path.ends_with(fname)) {
+                    if let Some(d) = diffs
+                        .iter()
+                        .find(|d| d.new_path.ends_with(fname) || d.old_path.ends_with(fname))
+                    {
                         return Ok(crate::diff_view::DiffEngine::render_terminal(&[d.clone()]));
                     }
                     bail!("diff no encontrado para «{fname}»");
@@ -394,7 +410,9 @@ impl VfsEngine {
                 if let Ok(store) = crate::memory::MemoryEngine::load(&db_path) {
                     Ok(format!(
                         "antOS Context Graph\nTotal Chunks: {}\nTotal Nodes: {}\nTotal Edges: {}\n",
-                        store.chunks.len(), store.graph.nodes.len(), store.graph.edges.len()
+                        store.chunks.len(),
+                        store.graph.nodes.len(),
+                        store.graph.edges.len()
                     ))
                 } else {
                     Ok("antOS Context Graph: memoria semántica no indexada aún.\n".into())
@@ -410,7 +428,11 @@ impl VfsEngine {
         let target = match mount_point {
             Some(p) => {
                 let pb = PathBuf::from(p);
-                if pb.is_absolute() { pb } else { workspace.join(pb) }
+                if pb.is_absolute() {
+                    pb
+                } else {
+                    workspace.join(pb)
+                }
             }
             None => Self::mount_dir(workspace),
         };
@@ -445,7 +467,11 @@ impl VfsEngine {
 
         let diffs = self.get_uncommitted_diffs(workspace);
         for d in diffs {
-            let p = if !d.new_path.is_empty() { &d.new_path } else { &d.old_path };
+            let p = if !d.new_path.is_empty() {
+                &d.new_path
+            } else {
+                &d.old_path
+            };
             let name = Path::new(p)
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -464,7 +490,11 @@ impl VfsEngine {
         let target = match mount_point {
             Some(p) => {
                 let pb = PathBuf::from(p);
-                if pb.is_absolute() { pb } else { workspace.join(pb) }
+                if pb.is_absolute() {
+                    pb
+                } else {
+                    workspace.join(pb)
+                }
             }
             None => Self::mount_dir(workspace),
         };
@@ -483,7 +513,11 @@ impl VfsEngine {
         let symbols = self.discover_symbols(workspace)?;
 
         Ok(VfsStatus {
-            mount_point: if is_mounted { Some(dir.display().to_string()) } else { None },
+            mount_point: if is_mounted {
+                Some(dir.display().to_string())
+            } else {
+                None
+            },
             is_mounted,
             total_symbols: symbols.len(),
             total_modules: 8,
@@ -532,7 +566,9 @@ pub fn start_service(name: &str) -> bool {
         assert_eq!(entries[0].name, "NetworkNode");
 
         // Test reading node
-        let content = engine.read_path(&temp, "/antfs/symbols/structs/NetworkNode").unwrap();
+        let content = engine
+            .read_path(&temp, "/antfs/symbols/structs/NetworkNode")
+            .unwrap();
         assert!(content.contains("NetworkNode"));
         assert!(content.contains("pub struct NetworkNode"));
 
@@ -554,7 +590,11 @@ pub fn start_service(name: &str) -> bool {
         let engine = VfsEngine::global();
         let mnt = engine.mount(&temp, None).unwrap();
         assert!(mnt.exists());
-        assert!(mnt.join("symbols").join("structs").join("VirtualFile.rs").exists());
+        assert!(mnt
+            .join("symbols")
+            .join("structs")
+            .join("VirtualFile.rs")
+            .exists());
 
         let status = engine.status(&temp).unwrap();
         assert!(status.is_mounted);

@@ -1,6 +1,6 @@
 //! Gestor de Arranque UEFI y Dual Boot Automatizado (T15.3).
 
-use antos_protocolo::{BootloaderConfig, BootloaderReport, OsEntry};
+use antos_protocol::{BootloaderConfig, BootloaderReport, OsEntry};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

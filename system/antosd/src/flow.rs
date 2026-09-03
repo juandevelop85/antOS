@@ -6,7 +6,7 @@
 //! - QA / Tester: Ejecución de pruebas y validación en sandbox confinado.
 //! - Auditor: Análisis de radio de impacto, seguridad y diffs para aprobación final.
 
-use antos_protocolo::{AgentRole, FlowState, FlowTask, FlowTransition};
+use antos_protocol::{AgentRole, FlowState, FlowTask, FlowTransition};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::path::Path;

@@ -4,11 +4,11 @@
 //! eBPF LSM probes (`bprm_check_security`, `file_open`, `socket_connect`) and
 //! high-throughput in-memory ring buffer tracing with zero latency overhead (<1%).
 
-use anyhow::Result;
-use antos_protocolo::{
+use antos_protocol::{
     EbpfHookKind, EbpfSecurityAction, EbpfSecurityEvent, EbpfStatus, NotificationAction,
     NotificationItem, NotificationKind,
 };
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs;
@@ -217,7 +217,8 @@ impl EbpfSentinelEngine {
 
         // If blocked, trigger asynchronous alert to notification inbox (T8.2)
         if action_taken == EbpfSecurityAction::Blocked {
-            let reason_str = violation_reason.unwrap_or("Intento de violación de sandbox detectado por eBPF");
+            let reason_str =
+                violation_reason.unwrap_or("Intento de violación de sandbox detectado por eBPF");
             let notif = NotificationItem {
                 id: format!("ebpf-notif-{}", now),
                 ticket_id: "EBPF-LSM".into(),
@@ -235,7 +236,11 @@ impl EbpfSentinelEngine {
     }
 
     /// Simulates an unauthorized access attempt to test sentinel detection and alerts.
-    pub fn simulate_violation(&self, hook: EbpfHookKind, target_resource: &str) -> EbpfSecurityEvent {
+    pub fn simulate_violation(
+        &self,
+        hook: EbpfHookKind,
+        target_resource: &str,
+    ) -> EbpfSecurityEvent {
         let (comm, reason) = match hook {
             EbpfHookKind::SocketConnect => (
                 "curl",

@@ -5,7 +5,7 @@
 //! suggestions for Coder and QA agents.
 
 use anyhow::{Context, Result};
-use antos_protocolo::{ProfileHotspot, ProfileReport, ProfileSuggestion, ProfileSuggestionKind};
+use antos_protocol::{ProfileHotspot, ProfileReport, ProfileSuggestion, ProfileSuggestionKind};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -3,7 +3,7 @@
 //! Manages cryptographic node identity, local mDNS / UDP presence announcements,
 //! encrypted QUIC peer connections, pairing token lifecycle, and routing tables.
 
-use antos_protocolo::{MeshStatus, NodeResources, PairingToken, PeerNode};
+use antos_protocol::{MeshStatus, NodeResources, PairingToken, PeerNode};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;

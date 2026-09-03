@@ -3,7 +3,7 @@
 //! Manages desktop and daemon notifications, alerts for multi-agent flow transitions,
 //! and handles direct one-click approvals, rejections, and worktree rollbacks.
 
-use antos_protocolo::{NotificationAction, NotificationItem, NotificationKind};
+use antos_protocol::{NotificationAction, NotificationItem, NotificationKind};
 use anyhow::{bail, Result};
 use std::fs;
 use std::path::{Path, PathBuf};

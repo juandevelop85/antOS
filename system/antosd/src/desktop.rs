@@ -4,7 +4,7 @@
 //! activos compatibles con wlroots/layer-shell (Labwc, Sway), expone los atajos de teclado
 //! globales del sistema y gestiona la generación declarativa de configuraciones.
 
-use antos_protocolo::{DesktopHotkey, DesktopSessionStatus};
+use antos_protocol::{DesktopHotkey, DesktopSessionStatus};
 use anyhow::{Context, Result};
 use std::env;
 use std::fs;

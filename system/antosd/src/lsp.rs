@@ -6,7 +6,7 @@
 //! (VS Code, Neovim, Helix, Emacs).
 
 use anyhow::Result;
-use antos_protocolo::{LspEditorKind, LspServerStatus, TicketStatus};
+use antos_protocol::{LspEditorKind, LspServerStatus, TicketStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Read, Write};

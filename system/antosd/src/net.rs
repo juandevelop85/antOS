@@ -4,7 +4,7 @@
 //! de desarrollo (ej. 3000, 5173, 8080, 5432) y liberar puertos en colisión
 //! mediante terminación segura de procesos huérfanos o desatendidos.
 
-use antos_protocolo::PortDiagnosticInfo;
+use antos_protocol::PortDiagnosticInfo;
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeSet;
 use std::process::Command;

@@ -1,6 +1,6 @@
 //! Motor de Inspección de Almacenamiento y Particionamiento GPT (T15.1).
 
-use antos_protocolo::{DiskDevice, DiskPartition, PartitionPlan};
+use antos_protocol::{DiskDevice, DiskPartition, PartitionPlan};
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
