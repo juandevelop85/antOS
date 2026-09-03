@@ -115,25 +115,20 @@ impl<T> Drop for SpinGuard<'_, T> {
     }
 }
 
-/// El bit 9 de RFLAGS (IF) dice si la CPU atiende interrupciones.
+/// Comprueba si la CPU tiene las interrupciones habilitadas.
 pub(crate) fn interrupts_enabled() -> bool {
-    let flags: u64;
-    // SAFETY: solo lee el registro de banderas a través de la pila.
-    unsafe {
-        core::arch::asm!("pushfq", "pop {}", out(reg) flags, options(preserves_flags));
-    }
-    flags & (1 << 9) != 0
+    use crate::arch::traits::ArchInterrupts;
+    crate::arch::current::Interrupts::are_enabled()
 }
 
 pub(crate) fn disable_interrupts() {
-    // SAFETY: `cli` solo baja IF. No preserves_flags, precisamente porque
-    // modificar las banderas es lo único que hace.
-    unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
+    use crate::arch::traits::ArchInterrupts;
+    crate::arch::current::Interrupts::disable();
 }
 
 pub(crate) fn enable_interrupts() {
-    // SAFETY: `sti` sube IF. Solo se llama para restaurar un estado previo.
-    unsafe { core::arch::asm!("sti", options(nomem, nostack)) };
+    use crate::arch::traits::ArchInterrupts;
+    crate::arch::current::Interrupts::enable();
 }
 
 /// Estado global que solo se toca durante la inicialización.

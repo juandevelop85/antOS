@@ -115,6 +115,16 @@ pub fn enable() {
     unsafe { core::arch::asm!("sti", options(nomem, nostack)) };
 }
 
+/// Deshabilita la entrega de interrupciones enmascarables en la CPU.
+pub fn disable() {
+    unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
+}
+
+/// Provoca un punto de interrupción por software para depuración (`int3` en x86).
+pub fn trigger_breakpoint() {
+    unsafe { core::arch::asm!("int3", options(nomem, nostack)) };
+}
+
 // ------------------------------------------------------------- excepciones
 
 /// Los dos bits bajos del selector de código apilado son el nivel de

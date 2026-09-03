@@ -100,8 +100,8 @@ impl Executor {
         disable_interrupts();
 
         if self.ready.lock().is_empty() {
-            // SAFETY: el par es indivisible por diseño de la arquitectura.
-            unsafe { core::arch::asm!("sti; hlt", options(nomem, nostack)) };
+            use crate::arch::traits::ArchInterrupts;
+            crate::arch::current::Interrupts::enable_and_halt();
         } else {
             enable_interrupts();
         }

@@ -74,12 +74,10 @@ impl Mapper {
         unsafe { (self.virtual_of(table) as *mut u64).add(index) }
     }
 
-    /// La tabla de nivel 4 en uso, según CR3.
+    /// La tabla de nivel raíz en uso, obtenida a través de la capa de abstracción HAL.
     fn level4_table(&self) -> u64 {
-        let cr3: u64;
-        // SAFETY: leer CR3 no tiene efectos secundarios.
-        unsafe { core::arch::asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack)) };
-        cr3 & ADDRESS_MASK
+        use crate::arch::traits::ArchMmu;
+        crate::arch::current::mmu::CurrentMmu::read_root_table()
     }
 
     /// Recorre las tablas y devuelve la dirección física a la que apunta una
@@ -167,11 +165,9 @@ impl Mapper {
         unsafe { *entry = frame | flags | PRESENT };
 
         // La TLB cachea traducciones. Cambiar una tabla sin invalidar su
-        // entrada deja a la CPU usando la traducción vieja — un bug que
-        // aparece "a veces", que son los peores.
-        unsafe {
-            core::arch::asm!("invlpg [{}]", in(reg) virtual_address, options(nostack, preserves_flags))
-        };
+        // entrada deja a la CPU usando la traducción vieja.
+        use crate::arch::traits::ArchMmu;
+        crate::arch::current::mmu::CurrentMmu::flush_tlb(virtual_address);
         Ok(())
     }
 }

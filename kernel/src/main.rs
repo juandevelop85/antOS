@@ -9,22 +9,24 @@
 // La razón concreta por la que este proyecto usa nightly: sin esta convención
 // de llamada habría que escribir a mano el prólogo y el epílogo de cada
 // manejador de interrupción en ensamblador.
-#![feature(abi_x86_interrupt)]
+#![cfg_attr(target_arch = "x86_64", feature(abi_x86_interrupt))]
 
 // El crate `alloc` trae Box, Vec, String y compañía. No forma parte de core,
 // pero tampoco necesita sistema operativo: solo un #[global_allocator].
 extern crate alloc;
 
 mod allocator;
+pub mod arch;
 mod elf;
-mod gdt;
-mod interrupts;
 mod memory;
-mod port;
-mod serial;
 mod sync;
 mod task;
-mod userspace;
+
+#[cfg(target_arch = "x86_64")]
+pub use arch::current::{gdt, interrupts, port, serial, userspace};
+
+#[cfg(target_arch = "aarch64")]
+pub use arch::current::{exceptions, mmu, pl011, syscall};
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -81,7 +83,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Prueba de que una excepción puede manejarse y CONTINUAR: `int3` salta
     // al manejador de breakpoint, que imprime y retorna aquí mismo.
-    unsafe { core::arch::asm!("int3", options(nomem, nostack)) };
+    interrupts::trigger_breakpoint();
     println!("  breakpoint   manejado y ejecución reanudada");
 
     interrupts::init_pic();
@@ -326,9 +328,9 @@ async fn heartbeat_task() {
 /// interrupción, se atiende el manejador, y se vuelve a dormir. La máquina
 /// está viva sin quemar un núcleo girando en vacío.
 fn halt_loop() -> ! {
+    use crate::arch::traits::ArchInterrupts;
     loop {
-        // SAFETY: hlt no toca memoria; solo detiene la CPU hasta una IRQ.
-        unsafe { core::arch::asm!("hlt", options(nomem, nostack, preserves_flags)) };
+        crate::arch::current::Interrupts::halt();
     }
 }
 
@@ -336,13 +338,9 @@ fn halt_loop() -> ! {
 /// ahora dice qué pasó y dónde, que es la mitad del trabajo de depurar.
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    // Callar las interrupciones antes de nada. Se vio en la Fase 3: tras un
-    // panic el temporizador seguía latiendo tan tranquilo, escribiendo por
-    // encima del informe del fallo. Un kernel que ha entrado en panic no
-    // tiene por qué seguir atendiendo hardware.
-    //
-    // SAFETY: `cli` solo baja IF, y a partir de aquí no se vuelve.
-    unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
+    // Callar las interrupciones antes de nada.
+    use crate::arch::traits::ArchInterrupts;
+    crate::arch::current::Interrupts::disable();
 
     // Sin cerrojo a propósito: si el panic ocurrió imprimiendo, el cerrojo
     // está tomado y esperarlo nos dejaría colgados justo cuando más falta
