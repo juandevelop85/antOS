@@ -186,7 +186,11 @@ pub fn create_uefi_disk_image(
             .open(out_image)?;
 
         let mut part = PartitionSlice::new(&mut file, partition_offset, partition_bytes);
-        fatfs::format_volume(&mut part, fatfs::FormatVolumeOptions::new())?;
+        let format_opts = fatfs::FormatVolumeOptions::new()
+            .fat_type(fatfs::FatType::Fat32)
+            .bytes_per_cluster(512)
+            .volume_label(*b"ANTOS_ESP  ");
+        fatfs::format_volume(&mut part, format_opts)?;
 
         let fs = fatfs::FileSystem::new(part, fatfs::FsOptions::new())?;
         let root = fs.root_dir();
