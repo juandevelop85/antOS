@@ -54,6 +54,8 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.33 Modo Agente Autónomo Continuo (`antos autopilot`)](#433-modo-agente-autónomo-continuo-antos-autopilot)
    - [4.34 Consola Web Remota en Tiempo Real y Bridge WebSocket (`antos web`)](#434-consola-web-remota-en-tiempo-real-y-bridge-websocket-antos-web)
    - [4.35 Gestión de Proyectos, Selección Activa y Git en Workspace (`antos use` / `antos project` / `antos git`)](#435-gestión-de-proyectos-selección-activa-y-git-en-workspace-antos-use--antos-project--antos-git)
+   - [4.36 Espacio de Trabajo Integrado Dev TUI (`antos dev`)](#436-espacio-de-trabajo-integrado-dev-tui-antos-dev)
+   - [4.37 Reproducción Autónoma de Bugs TDD y Generación de Tests (`antos reproduce` / `antos testgen`)](#437-reproducción-autónoma-de-bugs-tdd-y-generación-de-tests-antos-reproduce--antos-testgen)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1176,6 +1178,63 @@ antos project init web-frontend --branch develop --lang typescript
 # Inicializar Git en el proyecto actual si la terminal ya está dentro de su directorio
 cd workspace/api-service
 antos project init
+```
+
+---
+
+### 4.36 Espacio de Trabajo Integrado Dev TUI (`antos dev`)
+
+Entorno de desarrollo unificado en terminal multipanel (T20.1) que integra **Neovim** (editor predeterminado), el panel lateral de monitoreo de agentes multi-nodo (`antFlow`), el visor interactivo de diffs y la terminal inferior colapsable:
+
+```bash
+# 1. Iniciar espacio de trabajo interactivo (Neovim + agentes + diffs)
+antos dev
+
+# 2. Iniciar en un proyecto específico
+antos dev --project api-service
+antos dev -p mi-app
+
+# 3. Consultar estado, configuración y atajos registrados
+antos dev --status
+
+# 4. Previsualización en seco (renderizado sin tomar control del TTY)
+antos dev --preview
+
+# Atajos dentro del espacio de trabajo:
+#   Ctrl + B        Alternar visibilidad del panel lateral de agentes (antFlow)
+#   Ctrl + T        Abrir/cerrar terminal inferior integrada
+#   Ctrl + D        Abrir visor de diffs y git status
+#   Super + W       Lanzador global desde el shell Wayland de antOS
+```
+
+---
+
+### 4.37 Reproducción Autónoma de Bugs TDD y Generación de Tests (`antos reproduce` / `antos testgen`)
+
+Motor autónomo de ingeniería inversa de fallas y desarrollo dirigido por pruebas (TDD / T20.2). Ingesta volcados de pila y excepciones multilingües (Rust, Python, JavaScript/TypeScript), aísla el contexto del error, sintetiza tests reproducibles que fallan inicialmente (Fase *Red*), verifica parches correctivos (Fase *Green*) y certifica la protección contra regresiones (Fase *Verified*):
+
+```bash
+# 1. Reproducir un error o panic de Rust directamente desde el stack trace
+antos reproduce "thread 'main' panicked at 'index out of bounds: the len is 3 but the index is 5', src/parser.rs:42:15"
+
+# 2. Reproducir un traceback de Python indicando archivo objetivo
+antos reproduce --target app/loader.py "Traceback (most recent call last): File 'app/service.py', line 88... FileNotFoundError: Missing schema file"
+
+# 3. Reproducir leyendo la traza de un archivo de log
+antos reproduce --log /var/log/app/crash.log
+antos reproduce -l crash.log --target src/handler.rs
+
+# 4. Generar tests unitarios e invariantes para un módulo o archivo fuente
+antos testgen src/buffer.rs
+antos testgen --target src/auth.rs --cases 4 --suite unit
+
+# 5. Generar tests para proyectos en Python o JavaScript
+antos testgen --target lib/parser.py --cases 3
+antos testgen --target src/api.ts --cases 5 --suite regression
+
+# 6. Uso declarativo mediante lenguaje natural
+antos "reproduce el error: thread 'worker' panicked at 'division by zero', src/calc.rs:25:9"
+antos "genera tests para src/service.rs"
 ```
 
 ---

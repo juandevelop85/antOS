@@ -514,6 +514,29 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("dap.attach", &[("command", &cmd)])]));
         }
 
+        // Intenciones de Reproducción Autónoma de Bugs TDD (T20.2)
+        if lower.contains("reproduce") || lower.contains("reproducir") || lower.contains("reproductor") {
+            let error_text = if let Some((_, rest)) = intent.split_once(':') {
+                rest.trim().to_string()
+            } else if let Some((_, rest)) = intent.split_once("bug") {
+                rest.trim().to_string()
+            } else if let Some((_, rest)) = intent.split_once("error") {
+                rest.trim().to_string()
+            } else {
+                intent.to_string()
+            };
+            return Ok(Propuesta::solo(vec![step("test.reproduce", &[("error", &error_text)])]));
+        }
+
+        // Intenciones de Generación de Tests (T20.2)
+        if (lower.contains("genera test") || lower.contains("generar test") || lower.contains("testgen") || lower.contains("crea test"))
+            && !lower.contains("reproduce") {
+            let target = words.iter().find(|w| w.ends_with(".rs") || w.ends_with(".py") || w.ends_with(".ts") || w.ends_with(".js"))
+                .cloned()
+                .unwrap_or_else(|| "src/lib.rs".into());
+            return Ok(Propuesta::solo(vec![step("test.gen", &[("target", &target), ("suite_type", "unit")])]));
+        }
+
         // Intenciones de Espacio de Trabajo Integrado Dev TUI (T20.1)
         if lower.contains("espacio de trabajo") || lower.contains("dev tui") || lower.contains("modo dev") || (lower.contains("workspace") && (lower.contains("inicia") || lower.contains("abre") || lower.contains("tui"))) {
             let project = after(&words, &["proyecto", "en", "para"]);
@@ -1650,5 +1673,26 @@ mod tests {
             .expect("plan dev tui");
         assert_eq!(p_tui.steps.len(), 1);
         assert_eq!(p_tui.steps[0].capability, "dev.workspace");
+    }
+
+    #[test]
+    fn test_plan_reproduce_and_testgen() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_rep = planner
+            .plan("reproduce el error: thread 'main' panicked at 'index out of bounds', src/lib.rs:12:4", &catalog)
+            .expect("plan reproduce");
+        assert_eq!(p_rep.steps.len(), 1);
+        assert_eq!(p_rep.steps[0].capability, "test.reproduce");
+        assert!(p_rep.steps[0].args.get("error").unwrap().contains("panicked at"));
+
+        let p_gen = planner
+            .plan("genera tests para src/service.rs", &catalog)
+            .expect("plan testgen");
+        assert_eq!(p_gen.steps.len(), 1);
+        assert_eq!(p_gen.steps[0].capability, "test.gen");
+        assert_eq!(p_gen.steps[0].args.get("target").map(|s| s.as_str()), Some("src/service.rs"));
     }
 }

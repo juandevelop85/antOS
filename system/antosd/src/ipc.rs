@@ -791,6 +791,18 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
             enviar(&mut escritura, &Event::DevWorkspaceStatus(status))?;
         }
+        Request::ReproduceBug { error_text, target_file } => {
+            match crate::reproduce::TddEngine::run_reproduce_pipeline(&error_text, target_file.as_deref(), &ctx.workspace, &ctx.state) {
+                Ok(report) => enviar(&mut escritura, &Event::TddReport(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GenerateTest { target } => {
+            match crate::reproduce::TddEngine::generate_tests_for_target(&target, "unit", 3, &ctx.workspace) {
+                Ok(report) => enviar(&mut escritura, &Event::TddReport(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1219,6 +1231,24 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("  • Proyecto Activo:   {}", status.active_project.as_deref().unwrap_or("ninguno")))?;
                 pantalla.nota(&format!("  • Editor:            {}", status.editor_command))?;
                 pantalla.nota(&format!("  • Dimensiones:       {}x{}", status.term_columns, status.term_rows))?;
+            }
+            Event::TddReport(report) => {
+                pantalla.nota(&format!("🧪 antOS TDD Engine · Reporte de Reproducción [{}]", report.id))?;
+                pantalla.nota(&format!("  • Estado:            {}", report.phase.label()))?;
+                pantalla.nota(&format!("  • Lenguaje:          {:?}", report.diagnostic.language))?;
+                pantalla.nota(&format!("  • Tipo de Error:     {}", report.diagnostic.error_type))?;
+                pantalla.nota(&format!("  • Mensaje:           {}", report.diagnostic.message))?;
+                if let Some(ref f) = report.diagnostic.target_file {
+                    pantalla.nota(&format!("  • Archivo Objetivo:  {}:{}", f, report.diagnostic.target_line.unwrap_or(0)))?;
+                }
+                if let Some(ref fn_name) = report.diagnostic.target_function {
+                    pantalla.nota(&format!("  • Función:           {}", fn_name))?;
+                }
+                pantalla.nota(&format!("  • Test Generado:     {}", report.test_file))?;
+                if let Some(ref fix) = report.fix_summary {
+                    pantalla.nota(&format!("  • Corrección:        {}", fix))?;
+                }
+                pantalla.nota(&format!("  • Auditado:          {}", if report.audited { "Sí (Protegido contra regresiones)" } else { "No" }))?;
             }
             Event::Error(m) => bail!("{m}"),
         }

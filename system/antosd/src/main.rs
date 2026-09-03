@@ -38,6 +38,7 @@ mod planner;
 mod preview;
 pub mod profiler;
 mod protocolo;
+pub mod reproduce;
 mod sandbox;
 pub mod service;
 mod sesion;
@@ -146,6 +147,8 @@ fn run() -> Result<()> {
         "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
         "dev" | "workspace" => cmd_dev(&ctx, &rest[1..]),
+        "reproduce" | "tdd" => cmd_reproduce(&ctx, &rest[1..]),
+        "testgen" | "test-gen" => cmd_testgen(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
@@ -3602,6 +3605,152 @@ fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
     dev_tui::DevWorkspaceManager::launch(project, &ctx.workspace, is_interactive)
 }
 
+// ------------------------------------------------------------------ reproduce / testgen (T20.2)
+
+fn cmd_reproduce(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let mut log_path = None;
+    let mut target_file = None;
+    let mut positional = Vec::new();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--log" | "-l" => {
+                if let Some(p) = args.get(i + 1) {
+                    log_path = Some(p.clone());
+                    i += 1;
+                }
+            }
+            "--target" | "-t" => {
+                if let Some(t) = args.get(i + 1) {
+                    target_file = Some(t.clone());
+                    i += 1;
+                }
+            }
+            val if !val.starts_with('-') => {
+                positional.push(val.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let error_input = if let Some(ref path) = log_path {
+        let p = std::path::Path::new(path);
+        let resolved = if p.is_absolute() { p.to_path_buf() } else { ctx.workspace.join(p) };
+        std::fs::read_to_string(&resolved)
+            .with_context(|| format!("No se pudo leer el archivo de log {}", resolved.display()))?
+    } else if !positional.is_empty() {
+        positional.join(" ")
+    } else {
+        bail!("Uso: antos reproduce \"<stack trace / log de error>\" [--target <archivo>] [--log <ruta_log>]");
+    };
+
+    println!("\n{}", paint("🧪 antOS TDD Engine · Reproducción Autónoma de Bugs (T20.2)", BOLD));
+    println!("  Analizando traza y aislando contexto de falla...");
+
+    let report = reproduce::TddEngine::run_reproduce_pipeline(
+        &error_input,
+        target_file.as_deref(),
+        &ctx.workspace,
+        &ctx.state,
+    )?;
+
+    println!("\n  {} [{}]", paint("ID del Caso:", CYAN), report.id);
+    println!("  {} {:?}", paint("Lenguaje Detectado:", BOLD), report.diagnostic.language);
+    println!("  {} {}", paint("Tipo de Error:", YELLOW), report.diagnostic.error_type);
+    println!("  {} {}", paint("Mensaje:", RED), report.diagnostic.message);
+
+    if let Some(ref f) = report.diagnostic.target_file {
+        println!("  {} {}:{}", paint("Ubicación:", BOLD), f, report.diagnostic.target_line.unwrap_or(0));
+    }
+    if let Some(ref fn_name) = report.diagnostic.target_function {
+        println!("  {} {}", paint("Función / Símbolo:", BOLD), fn_name);
+    }
+    if !report.diagnostic.frames.is_empty() {
+        println!("  {} ({} niveles capturados):", paint("Pila de Llamadas:", DIM), report.diagnostic.frames.len());
+        for frame in report.diagnostic.frames.iter().take(3) {
+            println!("    • {}:{} [{}]", frame.file, frame.line.unwrap_or(0), frame.function.as_deref().unwrap_or("fn"));
+        }
+    }
+
+    println!("\n  {} {}", paint("Fase del Ciclo:", BOLD), paint(report.phase.label(), GREEN));
+    println!("  {} {}", paint("Test de Regresión:", CYAN), report.test_file);
+    if let Some(ref fix) = report.fix_summary {
+        println!("  {} {}", paint("Propuesta Correctiva:", GREEN), fix);
+    }
+    println!(
+        "  {} {}",
+        paint("Auditoría antOS:", BOLD),
+        if report.audited {
+            paint("✅ Aislado en sandbox y certificado contra regresiones", GREEN)
+        } else {
+            paint("⚠️ Pendiente de validación", YELLOW)
+        }
+    );
+    println!("  {} .antos/reproduce/{}/\n", paint("Artefactos:", DIM), report.id);
+
+    Ok(())
+}
+
+fn cmd_testgen(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let mut target = None;
+    let mut suite = "unit".to_string();
+    let mut cases = 3usize;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--target" | "-t" => {
+                if let Some(t) = args.get(i + 1) {
+                    target = Some(t.clone());
+                    i += 1;
+                }
+            }
+            "--suite" | "-s" => {
+                if let Some(s) = args.get(i + 1) {
+                    suite = s.clone();
+                    i += 1;
+                }
+            }
+            "--cases" | "-c" => {
+                if let Some(c) = args.get(i + 1).and_then(|v| v.parse::<usize>().ok()) {
+                    cases = c;
+                    i += 1;
+                }
+            }
+            val if !val.starts_with('-') && target.is_none() => {
+                target = Some(val.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let target = target.unwrap_or_else(|| "src/lib.rs".into());
+
+    println!("\n{}", paint("⚡ antOS TestGen · Generador Autónomo de Tests (T20.2)", BOLD));
+    println!("  Generando suite de tests para «{}»...", target);
+
+    let report = reproduce::TddEngine::generate_tests_for_target(
+        &target,
+        &suite,
+        cases,
+        &ctx.workspace,
+    )?;
+
+    println!("\n  {} [{}]", paint("ID de Suite:", CYAN), report.id);
+    println!("  {} {:?}", paint("Lenguaje:", BOLD), report.diagnostic.language);
+    println!("  {} {}", paint("Objetivo:", CYAN), target);
+    println!("  {} {} ({} casos)", paint("Tipo de Suite:", YELLOW), suite, cases);
+    println!("  {} {}", paint("Archivo Generado:", GREEN), report.test_file);
+    if let Some(ref summary) = report.fix_summary {
+        println!("  {} {}\n", paint("Resumen:", DIM), summary);
+    }
+
+    Ok(())
+}
+
 // ------------------------------------------------------------------ desktop
 
 fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -6070,6 +6219,8 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos diff [proyecto] [ref] visor interactivo de diffs y parches por proyecto
   antos edit [fichero]       abre el fichero en el editor predeterminado (Neovim / Super + E)
   antos dev [--project <p>]  espacio de trabajo TUI multipanel (Neovim + antFlow + Diffs / Super + W)
+  antos reproduce <error>    reproducción autónoma de bugs y suite de regresión TDD (T20.2)
+  antos testgen [objetivo]   generador autónomo de tests e invariantes unitarias (T20.2)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

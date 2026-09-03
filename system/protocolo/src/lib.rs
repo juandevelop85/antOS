@@ -1463,6 +1463,87 @@ pub struct DevWorkspaceStatus {
     pub registered_hotkeys: Vec<String>,
 }
 
+/// Programming language or runtime detected from an error or stack trace (T20.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ErrorLanguage {
+    #[serde(alias = "Rust")]
+    Rust,
+    #[serde(alias = "Python")]
+    Python,
+    #[serde(alias = "JavaScript")]
+    JavaScript,
+    #[serde(alias = "Generic")]
+    Generic,
+}
+
+impl ErrorLanguage {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ErrorLanguage::Rust => "Rust",
+            ErrorLanguage::Python => "Python",
+            ErrorLanguage::JavaScript => "JavaScript/TypeScript",
+            ErrorLanguage::Generic => "Genérico",
+        }
+    }
+}
+
+/// Single stack frame location extracted from a backtrace (T20.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParsedStackFrame {
+    pub file: String,
+    pub line: Option<u32>,
+    pub col: Option<u32>,
+    pub function: Option<String>,
+}
+
+/// Structured diagnostic parsed from raw compiler errors, panics, or tracebacks (T20.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParsedErrorDiagnostic {
+    pub language: ErrorLanguage,
+    pub error_type: String,
+    pub message: String,
+    pub target_file: Option<String>,
+    pub target_line: Option<u32>,
+    pub target_function: Option<String>,
+    pub frames: Vec<ParsedStackFrame>,
+}
+
+/// Verification phase in the autonomous TDD lifecycle (T20.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TddPhase {
+    /// Test reproduced successfully and is failing (Red).
+    #[serde(alias = "Red")]
+    Red,
+    /// Patch applied and test is now passing (Green).
+    #[serde(alias = "Green")]
+    Green,
+    /// Auditor confirmed safety, diff isolation, and test suite pass (Verified).
+    #[serde(alias = "Verified")]
+    Verified,
+}
+
+impl TddPhase {
+    pub fn label(&self) -> &'static str {
+        match self {
+            TddPhase::Red => "🔴 Red (Falla reproducible)",
+            TddPhase::Green => "🟢 Green (Corrección validada)",
+            TddPhase::Verified => "🛡️ Verified (Certificado por Auditor)",
+        }
+    }
+}
+
+/// Consolidated report of an autonomous bug reproduction run (T20.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TddRegressionReport {
+    pub id: String,
+    pub diagnostic: ParsedErrorDiagnostic,
+    pub test_code: String,
+    pub test_file: String,
+    pub phase: TddPhase,
+    pub fix_summary: Option<String>,
+    pub audited: bool,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1790,6 +1871,17 @@ pub enum Request {
     GetDevWorkspaceStatus {
         project: Option<String>,
     },
+    /// Ingest stack trace and execute autonomous TDD bug reproduction (T20.2).
+    #[serde(alias = "ReproducirBug")]
+    ReproduceBug {
+        error_text: String,
+        target_file: Option<String>,
+    },
+    /// Generate unit/regression test cases for a target function or file (T20.2).
+    #[serde(alias = "GenerarTest")]
+    GenerateTest {
+        target: String,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2070,6 +2162,9 @@ pub enum Event {
     /// Status of the integrated Dev TUI workspace (T20.1).
     #[serde(alias = "EstadoDevWorkspace")]
     DevWorkspaceStatus(DevWorkspaceStatus),
+    /// Outcome of autonomous bug reproduction and TDD verification (T20.2).
+    #[serde(alias = "ReporteTdd")]
+    TddReport(TddRegressionReport),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3271,6 +3366,48 @@ mod tests {
         let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
         assert_eq!(ev, des_ev);
         assert_eq!(status.active_panel.name(), "Editor (Neovim)");
+    }
+
+    #[test]
+    fn test_tdd_reproduce_serialization() {
+        let diag = ParsedErrorDiagnostic {
+            language: ErrorLanguage::Rust,
+            error_type: "Panic".into(),
+            message: "index out of bounds: the len is 3 but the index is 5".into(),
+            target_file: Some("src/parser.rs".into()),
+            target_line: Some(42),
+            target_function: Some("parse_token".into()),
+            frames: vec![ParsedStackFrame {
+                file: "src/parser.rs".into(),
+                line: Some(42),
+                col: Some(15),
+                function: Some("parse_token".into()),
+            }],
+        };
+
+        let report = TddRegressionReport {
+            id: "tdd-001".into(),
+            diagnostic: diag,
+            test_code: "#[test]\nfn test_reproduce_panic() { assert!(true); }".into(),
+            test_file: "tests/regression_tdd_001.rs".into(),
+            phase: TddPhase::Red,
+            fix_summary: Some("bounds check added in parse_token".into()),
+            audited: true,
+        };
+
+        let req = Request::ReproduceBug {
+            error_text: "thread 'main' panicked at src/parser.rs:42:15".into(),
+            target_file: Some("src/parser.rs".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::TddReport(report.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+        assert_eq!(report.phase.label(), "🔴 Red (Falla reproducible)");
     }
 }
 

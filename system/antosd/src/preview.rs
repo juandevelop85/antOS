@@ -384,6 +384,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                     project_dir.display()
                 )));
             }
+            Change::TestReproduce { target_file, .. } => {
+                let tgt = target_file.as_deref().unwrap_or("stack trace");
+                out.push(Line::Info(format!("ejecuta reproducción TDD y aislamiento de regresión para «{tgt}»")));
+            }
+            Change::TestGen { target, suite_type, cases, .. } => {
+                out.push(Line::Info(format!("genera suite {suite_type} con {cases} casos de prueba para «{target}»")));
+            }
         }
         pendiente.aplicar(change);
     }

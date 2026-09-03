@@ -381,6 +381,20 @@ pub enum Change {
         branch: String,
         language_hint: Option<String>,
     },
+    /// T20.2 — Autonomous bug reproduction and TDD verification.
+    TestReproduce {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        error_log: String,
+        target_file: Option<String>,
+    },
+    /// T20.2 — Automated test suite generation for target source file or module.
+    TestGen {
+        workspace: PathBuf,
+        target: String,
+        suite_type: String,
+        cases: usize,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -504,7 +518,9 @@ impl Pendiente {
             | Change::WebStop { .. }
             | Change::WebStatus { .. }
             | Change::WebToken { .. }
-            | Change::ProjectGitInit { .. } => {}
+            | Change::ProjectGitInit { .. }
+            | Change::TestReproduce { .. }
+            | Change::TestGen { .. } => {}
         }
     }
 }
@@ -1430,6 +1446,29 @@ pub fn changes_for(
                 state_dir: ctx.state.clone(),
                 label,
                 ttl,
+            }])
+        }
+
+        "test.reproduce" => {
+            let error_log = a.get("error").or_else(|| a.get("error_log")).cloned().unwrap_or_default();
+            let target_file = a.get("file").or_else(|| a.get("target_file")).cloned();
+            Ok(vec![Change::TestReproduce {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                error_log,
+                target_file,
+            }])
+        }
+
+        "test.gen" => {
+            let target = a.get("target").cloned().unwrap_or_default();
+            let suite_type = a.get("suite_type").cloned().unwrap_or_else(|| "unit".into());
+            let cases = a.get("cases").and_then(|v| v.parse::<usize>().ok()).unwrap_or(3);
+            Ok(vec![Change::TestGen {
+                workspace: ctx.workspace.clone(),
+                target,
+                suite_type,
+                cases,
             }])
         }
 
@@ -2531,6 +2570,42 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::ProjectGitInit { project_dir, branch, language_hint } => {
                 let msg = init_project_git_repo(project_dir, branch, language_hint.as_deref())?;
                 output.push(msg);
+            }
+            Change::TestReproduce { workspace, state_dir, error_log, target_file } => {
+                let report = crate::reproduce::TddEngine::run_reproduce_pipeline(
+                    error_log,
+                    target_file.as_deref(),
+                    workspace,
+                    state_dir,
+                )?;
+                output.push(format!(
+                    "🧪 Pipeline de Reproducción TDD antOS · Bug [{}]\n  • Estado: {}\n  • Diagnóstico: {} ({:?})\n  • Archivo: {}:{}\n  • Test Generado: {}\n  • Verificación Final: {}\n  • Auditado: {}",
+                    report.id,
+                    report.phase.label(),
+                    report.diagnostic.message,
+                    report.diagnostic.language,
+                    report.diagnostic.target_file.as_deref().unwrap_or("desconocido"),
+                    report.diagnostic.target_line.unwrap_or(0),
+                    report.test_file,
+                    report.fix_summary.as_deref().unwrap_or("Pendiente"),
+                    if report.audited { "Sí (Protegido contra regresiones)" } else { "No" },
+                ));
+            }
+            Change::TestGen { workspace, target, suite_type, cases } => {
+                let report = crate::reproduce::TddEngine::generate_tests_for_target(
+                    target,
+                    suite_type,
+                    *cases,
+                    workspace,
+                )?;
+                output.push(format!(
+                    "⚡ Generador de Tests antOS · Suite [{}]\n  • Objetivo: {}\n  • Casos generados: {}\n  • Archivo de test: {}\n  • Lenguaje detectado: {:?}",
+                    suite_type,
+                    report.diagnostic.target_file.as_deref().unwrap_or(target),
+                    cases,
+                    report.test_file,
+                    report.diagnostic.language,
+                ));
             }
         }
     }

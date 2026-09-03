@@ -1,0 +1,13 @@
+name = "test.gen"
+summary = "Genera casos de prueba y tests de regresión para una función o archivo"
+
+[params]
+target = { type = "text" }
+suite_type = { type = "text", optional = true }
+cases = { type = "integer", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

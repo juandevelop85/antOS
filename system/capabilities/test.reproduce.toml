@@ -1,0 +1,12 @@
+name = "test.reproduce"
+summary = "Reproduce un bug a partir de un stack trace y genera un test de regresión TDD"
+
+[params]
+error = { type = "text" }
+file = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"
