@@ -3,6 +3,8 @@
 //! Provides the primary desktop interface for developer intentions, semantic git context,
 //! rich diff inspections, multi-agent antFlow state visualizations, and the Kanban Ticket Board (`Super + A`).
 
+extern crate antos_protocol as antos_protocolo;
+
 use antos_protocolo::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Request, Propuesta, TicketStatus, TicketSummary, Tier};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;

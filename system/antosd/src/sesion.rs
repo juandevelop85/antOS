@@ -42,14 +42,20 @@ pub fn intencion(
     }
 
     let plan = Plan {
-        id: plan::nuevo_id(),
+        id: plan::new_id(),
         intent: texto.to_string(),
         planner: planificador.name().to_string(),
         steps,
     };
 
     // 03 · radio de impacto, calculado ANTES de ejecutar nada
-    let radius = Blast::compute(&plan, catalog, &ctx.workspace, &ctx.system_config, &ctx.state)?;
+    let radius = Blast::compute(
+        &plan,
+        catalog,
+        &ctx.workspace,
+        &ctx.system_config,
+        &ctx.state,
+    )?;
     let (tier, reasons) = radius.required_tier();
 
     // Los cambios se calculan EN ORDEN, y cada paso ve lo que los anteriores
@@ -72,7 +78,11 @@ pub fn intencion(
             escribe: radius.writes.iter().map(|p| ctx.display(p)).collect(),
             borra: radius.deletes.iter().map(|p| ctx.display(p)).collect(),
             lee: radius.reads.iter().map(|p| ctx.display(p)).collect(),
-            sistema: radius.system.iter().map(|p| p.display().to_string()).collect(),
+            sistema: radius
+                .system
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect(),
             red: radius.network.iter().cloned().collect(),
         },
         nivel: tier,
@@ -128,7 +138,10 @@ pub fn intencion(
             .iter()
             .map(|s| s.capability.clone())
             .filter(|c| {
-                catalog.get(c).map(|k| k.policy.tier == Tier::Grant).unwrap_or(false)
+                catalog
+                    .get(c)
+                    .map(|k| k.policy.tier == Tier::Grant)
+                    .unwrap_or(false)
                     && !grants.is_granted(c)
             })
             .collect();
@@ -167,7 +180,11 @@ pub fn intencion(
     let snap = if to_snapshot.is_empty() {
         None
     } else {
-        Some(snapshot::take(&plan.id, &to_snapshot, &ctx.snapshots_dir())?)
+        Some(snapshot::take(
+            &plan.id,
+            &to_snapshot,
+            &ctx.snapshots_dir(),
+        )?)
     };
     record.snapshot = snap.as_ref().map(|s| s.id.clone());
 
@@ -194,14 +211,13 @@ pub fn intencion(
             record.detail = Some(e.to_string());
             journal::append(&ctx.journal_path(), &record)?;
 
-            let pista = if e.to_string().contains("os error 1")
-                || e.to_string().contains("os error 13")
-            {
-                "\n  El recinto lo impidió: la capacidad intentó tocar algo que no había\n  \
+            let pista =
+                if e.to_string().contains("os error 1") || e.to_string().contains("os error 13") {
+                    "\n  El recinto lo impidió: la capacidad intentó tocar algo que no había\n  \
                  declarado en sus efectos."
-            } else {
-                ""
-            };
+                } else {
+                    ""
+                };
 
             if let Some(snap) = &snap {
                 snapshot::restore(snap)?;

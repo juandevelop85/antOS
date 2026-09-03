@@ -10,7 +10,10 @@
 //! imprime, y no habrá dos verdades que mantener sincronizadas.
 
 
-pub use antos_protocolo::{Propuesta, Radio, Recinto, Resultado};
+#[allow(unused_imports)]
+pub use antos_protocol::{BlastRadius, Enclosure, ExecutionResult, Proposal};
+#[allow(unused_imports)]
+pub use antos_protocol::{Propuesta, Radio, Recinto, Resultado};
 
 /// Con quién habla el recorrido.
 ///

@@ -4,6 +4,8 @@
 //! ejecución → registro. El modelo solo participa en la planificación, y su
 //! salida se valida entera antes de que nadie la vea.
 
+extern crate antos_protocol as antos_protocolo;
+
 mod blast;
 mod capability;
 mod ctx;
@@ -326,7 +328,7 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             records[idx].reverted = true;
             let undone = Record {
-                id: plan::nuevo_id(),
+                id: plan::new_id(),
                 at: chrono::Local::now().to_rfc3339(),
                 intent: format!("deshacer ticket {tid} ({})", records[idx].id),
                 ticket_id: Some(tid.clone()),
@@ -376,7 +378,7 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     records[idx].reverted = true;
     let undone = Record {
-        id: plan::nuevo_id(),
+        id: plan::new_id(),
         at: chrono::Local::now().to_rfc3339(),
         intent: format!("deshacer {}", records[idx].id),
         ticket_id: records[idx].ticket_id.clone(),

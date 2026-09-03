@@ -39,9 +39,10 @@ pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
 
 // ------------------------------------------------------------- el protocolo
 
-pub use antos_protocolo::{Evento, Request};
 #[allow(unused_imports)]
-pub use antos_protocolo::Peticion;
+pub use antos_protocol::{Event, Evento, Request};
+#[allow(unused_imports)]
+pub use antos_protocol::Peticion;
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los

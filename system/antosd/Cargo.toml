@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # El contrato con los clientes. Vive fuera para que la barra de intención
 # use exactamente los mismos tipos, no una copia.
-antos-protocolo = { path = "../protocolo" }
+antos-protocol = { path = "../protocolo" }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

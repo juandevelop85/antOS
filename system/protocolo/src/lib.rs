@@ -739,6 +739,12 @@ pub struct Resultado {
     pub instantanea: Option<String>,
 }
 
+/// English aliases for core execution protocol types.
+pub type Proposal = Propuesta;
+pub type BlastRadius = Radio;
+pub type Enclosure = Recinto;
+pub type ExecutionResult = Resultado;
+
 // ------------------------------------------------- introspección git (T1.1)
 
 /// Estado de modificación de un archivo rastreado o no rastreado en Git.
@@ -895,11 +901,17 @@ impl AgentRole {
 
     pub fn description(&self) -> &'static str {
         match self {
-            AgentRole::Arquitecto => "Technical planning, ticket breakdown and architecture design.",
-            AgentRole::Coder => "Modular implementation of changes and refactoring in the worktree.",
+            AgentRole::Arquitecto => {
+                "Technical planning, ticket breakdown and architecture design."
+            }
+            AgentRole::Coder => {
+                "Modular implementation of changes and refactoring in the worktree."
+            }
             AgentRole::QA => "Automated test suite generation and execution in sandbox.",
             AgentRole::Auditor => "Review of diffs, security, style and blast radius.",
-            AgentRole::VisualQA => "Multimodal inspection of GUI windows, screenshots and visual regression testing.",
+            AgentRole::VisualQA => {
+                "Multimodal inspection of GUI windows, screenshots and visual regression testing."
+            }
         }
     }
 
@@ -1049,14 +1061,10 @@ pub enum Request {
     Approval(bool),
     /// Query Git repository status for a workspace path.
     #[serde(alias = "ConsultarEstadoGit")]
-    QueryGitStatus {
-        workspace_path: String,
-    },
+    QueryGitStatus { workspace_path: String },
     /// List all available tickets in the workspace.
     #[serde(alias = "ListarTickets")]
-    ListTickets {
-        workspace_path: String,
-    },
+    ListTickets { workspace_path: String },
     /// Get details of a specific ticket in the workspace.
     #[serde(alias = "ObtenerTicket")]
     GetTicket {
@@ -1065,9 +1073,7 @@ pub enum Request {
     },
     /// Diagnose listening TCP ports and associated processes.
     #[serde(alias = "DiagnosticarPuertos")]
-    DiagnosePorts {
-        port: Option<u16>,
-    },
+    DiagnosePorts { port: Option<u16> },
     /// Start multi-agent antFlow execution for a ticket.
     #[serde(alias = "IniciarFlow")]
     StartFlow {
@@ -1076,20 +1082,13 @@ pub enum Request {
     },
     /// Query status of an antFlow task for a ticket.
     #[serde(alias = "ConsultarFlow")]
-    QueryFlow {
-        ticket_id: String,
-    },
+    QueryFlow { ticket_id: String },
     /// List all active agent flow tasks.
     #[serde(alias = "ListarFlows")]
-    ListFlows {
-        workspace_path: String,
-    },
+    ListFlows { workspace_path: String },
     /// Approve or reject final changes of an antFlow task.
     #[serde(alias = "AprobarFlow")]
-    ApproveFlow {
-        ticket_id: String,
-        decision: bool,
-    },
+    ApproveFlow { ticket_id: String, decision: bool },
     /// Query structured syntax diff for ticket, file, or commit (T8.1).
     #[serde(alias = "ConsultarDiff")]
     QueryDiff {
@@ -1098,9 +1097,7 @@ pub enum Request {
     },
     /// List pending agent and system notifications (T8.2).
     #[serde(alias = "ListarNotificaciones")]
-    ListNotifications {
-        workspace_path: String,
-    },
+    ListNotifications { workspace_path: String },
     /// Execute action on a notification (approval, rejection, dismissal) (T8.2).
     #[serde(alias = "AccionNotificacion")]
     HandleNotificationAction {
@@ -1110,9 +1107,7 @@ pub enum Request {
     },
     /// Query P2P antMesh network status and known peers (T9.1).
     #[serde(alias = "ConsultarMesh")]
-    QueryMesh {
-        workspace_path: String,
-    },
+    QueryMesh { workspace_path: String },
     /// Connect to a peer node by IP/port or multiaddr (T9.1).
     #[serde(alias = "ConectarPeer")]
     ConnectPeer {
@@ -1121,14 +1116,10 @@ pub enum Request {
     },
     /// Generate a secure pairing token with expiration (T9.1).
     #[serde(alias = "GenerarTokenEmparejamiento")]
-    GeneratePairingToken {
-        workspace_path: String,
-    },
+    GeneratePairingToken { workspace_path: String },
     /// Query distributed task distribution status of the multi-agent Swarm (T9.2).
     #[serde(alias = "ConsultarSwarm")]
-    QuerySwarm {
-        workspace_path: String,
-    },
+    QuerySwarm { workspace_path: String },
     /// Dispatch a specific role for a ticket to a remote or auto-selected node (T9.2).
     #[serde(alias = "DespacharRolRemoto")]
     DispatchRemoteRole {
@@ -1157,20 +1148,13 @@ pub enum Request {
     },
     /// Intercept and validate code buffer syntax before persisting (T10.2).
     #[serde(alias = "ValidarEscrituraVfs")]
-    ValidateVfsWrite {
-        file_path: String,
-        content: String,
-    },
+    ValidateVfsWrite { file_path: String, content: String },
     /// Query status of semantic write guard interceptor (T10.2).
     #[serde(alias = "ConsultarGuardVfs")]
-    QueryVfsGuard {
-        workspace_path: String,
-    },
+    QueryVfsGuard { workspace_path: String },
     /// Query status and compatibility of kernel eBPF LSM probes (T11.1).
     #[serde(alias = "ConsultarEbpfStatus")]
-    QueryEbpfStatus {
-        workspace_path: String,
-    },
+    QueryEbpfStatus { workspace_path: String },
     /// Query syscall and security audit log from eBPF (T11.1).
     #[serde(alias = "ConsultarEbpfAuditLog")]
     QueryEbpfAuditLog {
@@ -1198,14 +1182,10 @@ pub enum Request {
     },
     /// Analyze hot spots and generate recommendations for agents (T11.2).
     #[serde(alias = "AnalizarProfilerHotspots")]
-    AnalyzeProfilerHotspots {
-        workspace_path: String,
-    },
+    AnalyzeProfilerHotspots { workspace_path: String },
     /// Query status and capabilities of embedded LSP server (T12.1).
     #[serde(alias = "ConsultarLspStatus")]
-    QueryLspStatus {
-        workspace_path: String,
-    },
+    QueryLspStatus { workspace_path: String },
     /// Generate editor configuration to connect to antOS LSP (T12.1).
     #[serde(alias = "ObtenerLspConfig")]
     GetLspConfig {
@@ -1245,9 +1225,7 @@ pub enum Request {
     ListDesktopHotkeys,
     /// Start Wayland desktop session (T13.0).
     #[serde(alias = "IniciarDesktopSession")]
-    StartDesktopSession {
-        nested: bool,
-    },
+    StartDesktopSession { nested: bool },
     /// Query consolidated background telemetry for status bar (T13.1).
     #[serde(alias = "ConsultarBarraTelemetry")]
     QueryBarraTelemetry,
@@ -1259,10 +1237,7 @@ pub enum Request {
     QueryBootStatus,
     /// Execute boot pipeline action (build, qemu, test) (T13.2).
     #[serde(alias = "EjecutarBootPipeline")]
-    RunBootPipeline {
-        action: String,
-        headless: bool,
-    },
+    RunBootPipeline { action: String, headless: bool },
     /// List installed WebAssembly plugins (T14.1).
     #[serde(alias = "ListarPlugins")]
     ListPlugins,
@@ -1275,9 +1250,7 @@ pub enum Request {
     },
     /// Install WASM plugin from directory or manifest (T14.1).
     #[serde(alias = "InstalarPlugin")]
-    InstallPlugin {
-        source_path: String,
-    },
+    InstallPlugin { source_path: String },
     /// Capture Wayland screen or window (T14.2).
     #[serde(alias = "CapturarPantalla")]
     CaptureScreen {
@@ -1295,9 +1268,7 @@ pub enum Request {
     ListDisks,
     /// Inspect specific storage device (T15.1).
     #[serde(alias = "InspeccionarDisco")]
-    InspectDisk {
-        device: String,
-    },
+    InspectDisk { device: String },
     /// Calculate or apply GPT partition scheme on disk (T15.1).
     #[serde(alias = "ParticionarDisco")]
     PartitionDisk {
@@ -1310,9 +1281,7 @@ pub enum Request {
     InstallSystem(InstallConfig),
     /// Probe operating systems on EFI / disk (T15.3).
     #[serde(alias = "SondearSistemasOperativos")]
-    ProbeOperatingSystems {
-        esp_mount: Option<String>,
-    },
+    ProbeOperatingSystems { esp_mount: Option<String> },
     /// Install and configure UEFI bootloader (T15.3).
     #[serde(alias = "InstalarBootloader")]
     InstallBootloader(BootloaderConfig),
@@ -1323,7 +1292,10 @@ pub type Peticion = Request;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Evento {
-    Inicio { intencion: String, planificador: String },
+    Inicio {
+        intencion: String,
+        planificador: String,
+    },
     Nota(String),
     Propuesta(Box<Propuesta>),
     Salida(String),
@@ -1485,6 +1457,7 @@ pub enum Evento {
 /// Alias semánticos para clientes y especificaciones IPC.
 pub type Mensaje = Peticion;
 pub type Respuesta = Evento;
+pub type Event = Evento;
 
 // ------------------------------------------------------------------- tests
 
@@ -1560,10 +1533,15 @@ mod tests {
     #[test]
     fn test_compatibilidad_mensajes_existentes() {
         // Formato legado en español soportado por serde alias
-        let legacy_json = r#"{"Intencion":{"texto":"compilar kernel","planificador":"reglas","seco":false}}"#;
+        let legacy_json =
+            r#"{"Intencion":{"texto":"compilar kernel","planificador":"reglas","seco":false}}"#;
         let des_legacy: Request = serde_json::from_str(legacy_json).expect("deserializar legado");
         match des_legacy {
-            Request::Intent { text, planner, dry_run } => {
+            Request::Intent {
+                text,
+                planner,
+                dry_run,
+            } => {
                 assert_eq!(text, "compilar kernel");
                 assert_eq!(planner, Some("reglas".into()));
                 assert!(!dry_run);
@@ -1608,8 +1586,10 @@ mod tests {
         let peticion_listar = Request::ListTickets {
             workspace_path: "/workspace".into(),
         };
-        let json_peticion = serde_json::to_string(&peticion_listar).expect("serializar peticion listar");
-        let des_peticion: Request = serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
+        let json_peticion =
+            serde_json::to_string(&peticion_listar).expect("serializar peticion listar");
+        let des_peticion: Request =
+            serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
         assert_eq!(peticion_listar, des_peticion);
 
         let respuesta_lista = Evento::ListaTickets(vec![TicketSummary {
@@ -1620,7 +1600,8 @@ mod tests {
             ruta_archivo: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
         }]);
         let json_resp = serde_json::to_string(&respuesta_lista).expect("serializar lista tickets");
-        let des_resp: Evento = serde_json::from_str(&json_resp).expect("deserializar lista tickets");
+        let des_resp: Evento =
+            serde_json::from_str(&json_resp).expect("deserializar lista tickets");
         assert_eq!(respuesta_lista, des_resp);
 
         let info_puerto = PortDiagnosticInfo {
@@ -1631,7 +1612,8 @@ mod tests {
             working_dir: Some("/app".into()),
         };
         let json_puerto = serde_json::to_string(&info_puerto).expect("serializar puerto");
-        let des_puerto: PortDiagnosticInfo = serde_json::from_str(&json_puerto).expect("deserializar puerto");
+        let des_puerto: PortDiagnosticInfo =
+            serde_json::from_str(&json_puerto).expect("deserializar puerto");
         assert_eq!(info_puerto, des_puerto);
 
         let task = FlowTask {
@@ -1679,8 +1661,14 @@ mod tests {
                         new_line_num: Some(10),
                         content: "fn main() {".into(),
                         tokens: vec![
-                            SyntaxToken { text: "fn".into(), token_type: SyntaxTokenType::Keyword },
-                            SyntaxToken { text: " main() {".into(), token_type: SyntaxTokenType::Normal },
+                            SyntaxToken {
+                                text: "fn".into(),
+                                token_type: SyntaxTokenType::Keyword,
+                            },
+                            SyntaxToken {
+                                text: " main() {".into(),
+                                token_type: SyntaxTokenType::Normal,
+                            },
                         ],
                     },
                     DiffLine {
@@ -1689,8 +1677,14 @@ mod tests {
                         new_line_num: Some(11),
                         content: "    println!(\"antOS\");".into(),
                         tokens: vec![
-                            SyntaxToken { text: "    println!".into(), token_type: SyntaxTokenType::Keyword },
-                            SyntaxToken { text: "(\"antOS\");".into(), token_type: SyntaxTokenType::StringLit },
+                            SyntaxToken {
+                                text: "    println!".into(),
+                                token_type: SyntaxTokenType::Keyword,
+                            },
+                            SyntaxToken {
+                                text: "(\"antOS\");".into(),
+                                token_type: SyntaxTokenType::StringLit,
+                            },
                         ],
                     },
                 ],
@@ -1721,7 +1715,11 @@ mod tests {
             kind: NotificationKind::ApprovalRequired,
             created_at: 1700000000,
             read: false,
-            actions: vec![NotificationAction::Approve, NotificationAction::Reject, NotificationAction::ViewDiff],
+            actions: vec![
+                NotificationAction::Approve,
+                NotificationAction::Reject,
+                NotificationAction::ViewDiff,
+            ],
         };
 
         let req = Request::HandleNotificationAction {
@@ -1892,7 +1890,11 @@ mod tests {
         let status = EbpfStatus {
             available: true,
             lsm_enabled: true,
-            active_probes: vec!["bprm_check_security".into(), "file_open".into(), "socket_connect".into()],
+            active_probes: vec![
+                "bprm_check_security".into(),
+                "file_open".into(),
+                "socket_connect".into(),
+            ],
             total_events_captured: 120,
             total_violations_blocked: 3,
             ring_buffer_capacity: 1024,
@@ -1906,7 +1908,9 @@ mod tests {
             hook: EbpfHookKind::SocketConnect,
             target_resource: "192.168.1.100:4444".into(),
             action_taken: EbpfSecurityAction::Blocked,
-            violation_reason: Some("Out-of-blast-radius network egress attempt blocked by eBPF LSM".into()),
+            violation_reason: Some(
+                "Out-of-blast-radius network egress attempt blocked by eBPF LSM".into(),
+            ),
         };
 
         let req = Request::QueryEbpfStatus {
@@ -2184,7 +2188,8 @@ mod tests {
 
         let req_list = Request::ListPlugins;
         let json_req_list = serde_json::to_string(&req_list).expect("serialize list plugins");
-        let des_req_list: Request = serde_json::from_str(&json_req_list).expect("deserialize list plugins");
+        let des_req_list: Request =
+            serde_json::from_str(&json_req_list).expect("deserialize list plugins");
         assert_eq!(req_list, des_req_list);
 
         let mut params = std::collections::BTreeMap::new();
@@ -2357,4 +2362,3 @@ mod tests {
         assert_eq!(req_boot, des_boot);
     }
 }
-

@@ -3,7 +3,7 @@
 use crate::ctx::Ctx;
 use crate::exec::Change;
 
-pub use antos_protocolo::Line;
+pub use antos_protocol::Line;
 
 const MAX_DIFF_LINES: usize = 16;
 

@@ -1,12 +1,11 @@
-//! Un plan es lo único que el planificador puede producir: una lista
-//! ordenada de invocaciones de capacidad. Nunca una línea de shell.
+//! A plan is what the planner produces: an ordered list
+//! of capability invocations. Never a shell line.
 
+pub use antos_protocol::{Plan, Step};
 
-pub use antos_protocolo::{Plan, Step};
-
-/// Identificador legible y ordenable: la bitácora se lee en orden cronológico
-/// sin tener que interpretar nada. Los milisegundos evitan colisiones entre
-/// dos planes del mismo segundo.
-pub fn nuevo_id() -> String {
+/// Human-readable and sortable identifier: the log is read in chronological order
+/// without having to interpret anything. Milliseconds avoid collisions between
+/// two plans in the same second.
+pub fn new_id() -> String {
     chrono::Local::now().format("%Y%m%d-%H%M%S-%3f").to_string()
 }
