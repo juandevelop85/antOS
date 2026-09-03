@@ -143,6 +143,36 @@ impl LlmConfig {
     pub fn get_provider_settings(&self, provider: &str) -> Option<&ProviderSettings> {
         self.providers.get(&provider.to_lowercase())
     }
+
+    /// Returns the assigned model for an antFlow role, or default recommendation (T19.4).
+    pub fn get_role_model(&self, role: &str) -> String {
+        let role_clean = role.to_lowercase();
+        if let Some(m) = self.role_models.get(&role_clean) {
+            return m.clone();
+        }
+        match role_clean.as_str() {
+            "architect" | "arquitecto" => "openrouter:deepseek/deepseek-r1:free".to_string(),
+            "coder" => "ollama:qwen2.5-coder:latest".to_string(),
+            "qa" | "tester" => "groq:llama-3.3-70b-versatile".to_string(),
+            "auditor" => "groq:llama-3.3-70b-versatile".to_string(),
+            _ => self.active_provider.clone(),
+        }
+    }
+
+    /// Sets the assigned model for an antFlow role (T19.4).
+    pub fn set_role_model(&mut self, role: &str, model: &str) {
+        self.role_models.insert(role.to_lowercase(), model.to_string());
+    }
+
+    /// Returns the full map of role-to-model assignments (T19.4).
+    pub fn list_role_models(&self) -> BTreeMap<String, String> {
+        let mut map = BTreeMap::new();
+        let roles = ["architect", "coder", "qa", "auditor"];
+        for r in roles {
+            map.insert(r.to_string(), self.get_role_model(r));
+        }
+        map
+    }
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
@@ -199,5 +229,22 @@ mod tests {
         assert_eq!(config.active_provider, "openrouter");
         config.clear_active();
         assert_eq!(config.active_provider, "auto");
+    }
+
+    #[test]
+    fn test_role_models_configuration() {
+        let mut config = LlmConfig::default();
+        assert_eq!(config.get_role_model("architect"), "openrouter:deepseek/deepseek-r1:free");
+        assert_eq!(config.get_role_model("coder"), "ollama:qwen2.5-coder:latest");
+
+        config.set_role_model("coder", "groq:qwen2.5-coder");
+        assert_eq!(config.get_role_model("coder"), "groq:qwen2.5-coder");
+
+        let roles = config.list_role_models();
+        assert_eq!(roles.len(), 4);
+        assert!(roles.contains_key("architect"));
+        assert!(roles.contains_key("coder"));
+        assert!(roles.contains_key("qa"));
+        assert!(roles.contains_key("auditor"));
     }
 }

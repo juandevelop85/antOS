@@ -1383,6 +1383,8 @@ pub struct FlowTransition {
     pub role: Option<AgentRole>,
     #[serde(alias = "detalle")]
     pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Active or historical task orchestrated by antFlow.
@@ -1790,6 +1792,8 @@ pub enum Event {
         role: Option<AgentRole>,
         #[serde(alias = "detalle")]
         detail: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
     },
     /// Structured and syntax-highlighted diffs (T8.1).
     #[serde(alias = "DiffEstructurado")]
@@ -2196,6 +2200,7 @@ mod tests {
                 new_state: FlowState::Planning,
                 role: Some(AgentRole::Architect),
                 detail: "assigning task to architect".into(),
+                model: None,
             }],
         };
 

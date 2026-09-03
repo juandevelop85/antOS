@@ -376,6 +376,15 @@ antos agent swarm
 # Consultar el estado actual, worktree asignado e historial de transiciones del ticket
 antos agent status T1.1
 
+# Consultar la matriz de modelos LLM asignados por rol de agente (T19.4)
+antos agent config
+
+# Asignar modelos específicos por rol (Ollama local, Groq gratuito, OpenRouter)
+antos agent config --role coder --llm ollama:qwen2.5-coder:latest
+antos agent config --role architect --llm openrouter:deepseek/deepseek-r1:free
+antos agent config --role qa --llm groq:llama-3.3-70b-versatile
+antos agent config --role auditor --llm groq:llama-3.3-70b-versatile
+
 # Aprobar manualmente la revisión humana y fusionar los cambios del worktree a la rama base
 antos agent approve T1.1
 

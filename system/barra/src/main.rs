@@ -723,10 +723,12 @@ fn listen_events(
                     new_state,
                     role,
                     detail,
+                    model,
                     ..
                 } => {
                     let role_label = role.map(|r| r.name()).unwrap_or("System");
-                    let transition_text = format!("{}: {} [{}]", new_state.label(), detail, role_label);
+                    let model_suffix = model.as_deref().map(|m| format!(" · {m}")).unwrap_or_default();
+                    let transition_text = format!("{}: {} [{}{}]", new_state.label(), detail, role_label, model_suffix);
                     content.append(&make_label(&transition_text, "paso"));
                 }
                 Event::Output(text) => content.append(&make_label(&text, "paso")),

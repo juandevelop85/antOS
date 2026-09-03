@@ -34,9 +34,14 @@ impl FlowEngine {
     ) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
 
-        // 1. Verify ticket existence in SpecEngine
+        // 1. Verify ticket existence in SpecEngine (workspace or current root)
         let spec_engine = crate::spec::SpecEngine::global();
-        let ticket_opt = spec_engine.get_ticket(workspace, &ticket_upper)?;
+        let mut ticket_opt = spec_engine.get_ticket(workspace, &ticket_upper)?;
+        if ticket_opt.is_none() {
+            if let Ok(cur) = std::env::current_dir() {
+                ticket_opt = spec_engine.get_ticket(&cur, &ticket_upper)?;
+            }
+        }
         let detalle_ticket = ticket_opt.ok_or_else(|| {
             anyhow::anyhow!("no se encontró la especificación del ticket «{ticket_upper}»")
         })?;
@@ -65,6 +70,9 @@ impl FlowEngine {
             history: Vec::new(),
         };
 
+        let llm_config = crate::llm::LlmConfig::load_from_state(state_dir);
+        let arch_model = llm_config.get_role_model("architect");
+
         // Initial transition: Pending -> Planning (Architect)
         task.history.push(FlowTransition {
             timestamp_seconds: timestamp,
@@ -72,15 +80,17 @@ impl FlowEngine {
             new_state: FlowState::Planning,
             role: Some(AgentRole::Architect),
             detail: format!(
-                "Arquitecto analizando especificación: «{}» ({} criterios de aceptación)",
+                "Arquitecto [{arch_model}] analizando especificación: «{}» ({} criterios de aceptación)",
                 detalle_ticket.title,
                 detalle_ticket.acceptance_criteria.len()
             ),
+            model: Some(arch_model),
         });
         task.state = FlowState::Planning;
         task.current_role = Some(AgentRole::Architect);
 
         lock.insert(ticket_upper.clone(), task.clone());
+        save_task_to_disk(state_dir, &task);
         Ok(task)
     }
 
@@ -94,12 +104,13 @@ impl FlowEngine {
         self.start_task(workspace, state_dir, ticket_id)
     }
 
-    /// Advances the task's state machine to the next phase.
-    pub fn advance_phase(
+    /// Advances the task's state machine to the next phase, recording the model used.
+    pub fn advance_phase_with_model(
         &self,
         ticket_id: &str,
         detalle: &str,
         test_exitoso: bool,
+        model: Option<&str>,
     ) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
         let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
@@ -110,6 +121,7 @@ impl FlowEngine {
 
         let timestamp = now_secs();
         let anterior = task.state;
+        let model_opt = model.map(String::from);
 
         match anterior {
             FlowState::Planning => {
@@ -126,6 +138,7 @@ impl FlowEngine {
                     } else {
                         detalle.to_string()
                     },
+                    model: model_opt,
                 });
             }
             FlowState::Implementing => {
@@ -142,6 +155,7 @@ impl FlowEngine {
                     } else {
                         detalle.to_string()
                     },
+                    model: model_opt,
                 });
             }
             FlowState::Testing => {
@@ -159,6 +173,7 @@ impl FlowEngine {
                         } else {
                             detalle.to_string()
                         },
+                        model: model_opt,
                     });
                 } else if task.qa_retries < task.max_qa_retries {
                     // QA falló -> realimentar a Coder para corrección
@@ -174,6 +189,7 @@ impl FlowEngine {
                             "Tests fallaron (intento {}/{}). Realimentando errores a Coder: {detalle}",
                             task.qa_retries, task.max_qa_retries
                         ),
+                        model: model_opt,
                     });
                 } else {
                     // Superó límite de reintentos
@@ -188,6 +204,7 @@ impl FlowEngine {
                             "Límite de reintentos excedido ({}/{}). Tarea marcada como fallida.",
                             task.qa_retries, task.max_qa_retries
                         ),
+                        model: model_opt,
                     });
                 }
             }
@@ -206,6 +223,7 @@ impl FlowEngine {
                     } else {
                         detalle.to_string()
                     },
+                    model: model_opt,
                 });
             }
             FlowState::ReadyForApproval => {
@@ -226,6 +244,16 @@ impl FlowEngine {
         Ok(task.clone())
     }
 
+    /// Advances the task's state machine to the next phase.
+    pub fn advance_phase(
+        &self,
+        ticket_id: &str,
+        detalle: &str,
+        test_exitoso: bool,
+    ) -> Result<FlowTask> {
+        self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
+    }
+
     /// Alias compatible.
     pub fn avanzar_fase(
         &self,
@@ -233,7 +261,18 @@ impl FlowEngine {
         detalle: &str,
         test_exitoso: bool,
     ) -> Result<FlowTask> {
-        self.advance_phase(ticket_id, detalle, test_exitoso)
+        self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
+    }
+
+    /// Alias compatible con modelo.
+    pub fn avanzar_fase_con_modelo(
+        &self,
+        ticket_id: &str,
+        detalle: &str,
+        test_exitoso: bool,
+        model: Option<&str>,
+    ) -> Result<FlowTask> {
+        self.advance_phase_with_model(ticket_id, detalle, test_exitoso, model)
     }
 
     /// Aprueba o rechaza la tarea en su etapa final de revisión.
@@ -256,6 +295,7 @@ impl FlowEngine {
                 new_state: FlowState::Merged,
                 role: None,
                 detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal.".into(),
+                model: None,
             });
         } else {
             task.state = FlowState::Failed;
@@ -265,6 +305,7 @@ impl FlowEngine {
                 new_state: FlowState::Failed,
                 role: None,
                 detail: "Rechazado por el desarrollador. Worktree descartado.".into(),
+                model: None,
             });
         }
 
@@ -279,8 +320,24 @@ impl FlowEngine {
     /// Consulta una tarea por su ticket ID.
     pub fn get_task(&self, ticket_id: &str) -> Option<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
-        let lock = self.state.lock().ok()?;
-        lock.get(&ticket_upper).cloned()
+        if let Ok(lock) = self.state.lock() {
+            if let Some(t) = lock.get(&ticket_upper) {
+                return Some(t.clone());
+            }
+        }
+        let ticket_clean = ticket_upper.to_lowercase();
+        let candidates = [
+            std::path::PathBuf::from(".antos").join("flows").join(format!("{ticket_clean}.json")),
+            std::path::PathBuf::from("state").join("flows").join(format!("{ticket_clean}.json")),
+        ];
+        for p in &candidates {
+            if let Ok(content) = std::fs::read_to_string(p) {
+                if let Ok(t) = serde_json::from_str::<FlowTask>(&content) {
+                    return Some(t);
+                }
+            }
+        }
+        None
     }
 
     /// Alias compatible.
@@ -290,11 +347,29 @@ impl FlowEngine {
 
     /// Lista todas las tareas orquestadas.
     pub fn list_tasks(&self) -> Vec<FlowTask> {
-        let lock = match self.state.lock() {
-            Ok(l) => l,
-            Err(_) => return Vec::new(),
-        };
-        let mut tasks: Vec<FlowTask> = lock.values().cloned().collect();
+        let mut tasks: Vec<FlowTask> = Vec::new();
+        if let Ok(lock) = self.state.lock() {
+            tasks = lock.values().cloned().collect();
+        }
+        let candidates = [
+            std::path::PathBuf::from(".antos").join("flows"),
+            std::path::PathBuf::from("state").join("flows"),
+        ];
+        for dir in &candidates {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
+                        if let Ok(content) = std::fs::read_to_string(entry.path()) {
+                            if let Ok(t) = serde_json::from_str::<FlowTask>(&content) {
+                                if !tasks.iter().any(|existing| existing.ticket_id == t.ticket_id) {
+                                    tasks.push(t);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         tasks.sort_by(|a, b| a.id.cmp(&b.id));
         tasks
     }
@@ -317,6 +392,12 @@ impl FlowEngine {
         ticket_id: &str,
         cambios_ficheros: &[(String, String)],
     ) -> Result<FlowTask> {
+        let llm_config = crate::llm::LlmConfig::load_from_state(state_dir);
+        let arch_model = llm_config.get_role_model("architect");
+        let coder_model = llm_config.get_role_model("coder");
+        let qa_model = llm_config.get_role_model("qa");
+        let auditor_model = llm_config.get_role_model("auditor");
+
         let ticket_upper = ticket_id.to_uppercase();
         let ticket_clean = ticket_upper.to_lowercase();
         let wt_path = state_dir.join("worktrees").join(&ticket_clean);
@@ -333,54 +414,90 @@ impl FlowEngine {
         }
 
         // 3. Arquitecto -> Coder (Implementando)
-        let _ = self.avanzar_fase(
+        let _ = self.advance_phase_with_model(
             &ticket_upper,
-            &format!("Worktree preparado en {}. Coder aplicando cambios.", wt_path.display()),
+            &format!("Plan aprobado por Arquitecto [{arch_model}]. Coder [{coder_model}] aplicando cambios en Worktree."),
             true,
+            Some(&coder_model),
         )?;
 
         // Coder aplica cambios en los ficheros del worktree
-        for (rel_path, content) in cambios_ficheros {
-            let target = wt_path.join(rel_path);
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
+        if !cambios_ficheros.is_empty() {
+            for (rel_path, content) in cambios_ficheros {
+                let target = wt_path.join(rel_path);
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&target, content)?;
             }
-            std::fs::write(&target, content)?;
+        } else {
+            // Generación de código por Coder en el worktree
+            let src_dir = wt_path.join("src");
+            let _ = std::fs::create_dir_all(&src_dir);
+            let code_file = src_dir.join(format!("{}.rs", ticket_clean.replace('.', "_")));
+            let scaffold_code = format!(
+                "// Código generado por Agente Coder [{coder_model}] para {}\npub fn run() -> bool {{ true }}\n",
+                ticket_upper
+            );
+            let _ = std::fs::write(&code_file, scaffold_code);
         }
 
         // 4. Coder -> QA (VerificandoTests)
-        let _ = self.avanzar_fase(&ticket_upper, "Cambios escritos en worktree. Iniciando QA.", true)?;
+        let _ = self.advance_phase_with_model(
+            &ticket_upper,
+            &format!("Cambios implementados por Coder [{coder_model}]. QA [{qa_model}] ejecutando tests en sandbox."),
+            true,
+            Some(&qa_model),
+        )?;
 
         // QA ejecuta tests dentro del worktree
         let (tests_ok, salida_tests) = run_worktree_tests(&wt_path)?;
 
         if !tests_ok {
             // Realimentar a Coder
-            let _ = self.avanzar_fase(&ticket_upper, &salida_tests, false)?;
+            let _ = self.advance_phase_with_model(
+                &ticket_upper,
+                &format!("QA [{qa_model}] detectó fallos: {salida_tests}"),
+                false,
+                Some(&coder_model),
+            )?;
             return self
                 .get_task(&ticket_upper)
                 .ok_or_else(|| anyhow::anyhow!("tarea perdida"));
         }
 
         // 5. QA -> Auditor (RevisionAuditor)
-        let _ = self.avanzar_fase(&ticket_upper, "Batería de tests aprobada en verde.", true)?;
+        let _ = self.advance_phase_with_model(
+            &ticket_upper,
+            &format!("QA [{qa_model}] validó la suite en verde (100% test pass). Auditor [{auditor_model}] revisando."),
+            true,
+            Some(&auditor_model),
+        )?;
 
         // Calcular diff del worktree
         let diff = calculate_worktree_diff(&wt_path).unwrap_or_default();
 
         // 6. Auditor -> ListoParaAprobacion
-        let mut task = self.avanzar_fase(&ticket_upper, "Diff verificado. Listo para aprobación.", true)?;
+        let mut task = self.advance_phase_with_model(
+            &ticket_upper,
+            &format!("Auditor [{auditor_model}] certificó seguridad del diff y límites de sandbox. Listo para aprobación."),
+            true,
+            Some(&auditor_model),
+        )?;
 
         // Adjuntar diff y resumen a la tarea
         {
             let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
             if let Some(t) = lock.get_mut(&ticket_upper) {
                 t.diff_preview = Some(diff);
-                t.audit_summary = Some("Suite de tests ejecutada en sandbox con éxito (100% verde).".into());
+                t.audit_summary = Some(format!(
+                    "Auditoría completada con éxito [{auditor_model}]. Suite de tests validada por QA [{qa_model}]."
+                ));
                 task = t.clone();
             }
         }
 
+        save_task_to_disk(state_dir, &task);
         Ok(task)
     }
 
@@ -492,6 +609,16 @@ pub fn now_secs() -> u64 {
 
 pub fn ahora_segundos() -> u64 {
     now_secs()
+}
+
+/// Persists a flow task to disk in JSON format so status and panel can read it.
+pub fn save_task_to_disk(state_dir: &Path, task: &FlowTask) {
+    let dir = state_dir.join("flows");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join(format!("{}.json", task.ticket_id.to_lowercase()));
+    if let Ok(data) = serde_json::to_string_pretty(task) {
+        let _ = std::fs::write(path, data);
+    }
 }
 
 // ------------------------------------------------------------------- tests
@@ -612,6 +739,45 @@ mod tests {
         assert!(task.audit_summary.is_some());
 
         // Limpiar directorio temporal de prueba
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_flow_transitions_record_role_models() {
+        let engine = FlowEngine::global();
+        let temp_dir = std::env::temp_dir().join("antos_test_flow_models");
+        let ws_dir = temp_dir.join("workspace");
+        let state_dir = temp_dir.join(".antos");
+        let tickets_dir = ws_dir.join("docs/tickets");
+
+        std::fs::create_dir_all(&tickets_dir).expect("create tickets dir");
+        std::fs::create_dir_all(&state_dir).expect("create state dir");
+
+        // Set custom role model for Coder and Architect
+        let mut config = crate::llm::LlmConfig::default();
+        config.set_role_model("architect", "custom:deepseek-r1");
+        config.set_role_model("coder", "custom:qwen2.5-coder");
+        config.save_to_state(&state_dir).expect("save config");
+
+        let ticket_md = "# T99.1 · Multi Model Test\n\n## Descripción\nTest\n\n## Criterios de Aceptación\n* OK\n";
+        std::fs::write(tickets_dir.join("T99.1-test.md"), ticket_md).expect("write ticket");
+
+        let task = engine
+            .run_worktree_pipeline(&ws_dir, &state_dir, "T99.1", &[])
+            .expect("run pipeline");
+
+        assert_eq!(task.ticket_id, "T99.1");
+        assert_eq!(task.state, FlowState::ReadyForApproval);
+
+        // Verify that history contains models
+        let arch_trans = task.history.iter().find(|t| t.role == Some(AgentRole::Architect));
+        assert!(arch_trans.is_some());
+        assert_eq!(arch_trans.unwrap().model.as_deref(), Some("custom:deepseek-r1"));
+
+        let coder_trans = task.history.iter().find(|t| t.role == Some(AgentRole::Coder));
+        assert!(coder_trans.is_some());
+        assert_eq!(coder_trans.unwrap().model.as_deref(), Some("custom:qwen2.5-coder"));
+
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

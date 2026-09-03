@@ -5446,6 +5446,74 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 
     match args[0].as_str() {
+        "config" | "configure" | "models" => {
+            let mut config = llm::LlmConfig::load_from_state(&ctx.state);
+            let role_flag = args
+                .iter()
+                .position(|a| a == "--role" || a == "-r")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str);
+            let llm_flag = args
+                .iter()
+                .position(|a| a == "--llm" || a == "-m" || a == "--model")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str);
+
+            if let (Some(role), Some(model_spec)) = (role_flag, llm_flag) {
+                config.set_role_model(role, model_spec);
+                config.save_to_state(&ctx.state)?;
+                println!(
+                    "\n{} Rol de agente '{}' asignado al modelo: {}\n",
+                    paint("antOS antFlow ·", BOLD),
+                    paint(role, CYAN),
+                    paint(model_spec, GREEN)
+                );
+                return Ok(());
+            }
+
+            println!(
+                "\n{}",
+                paint("antOS antFlow · Matriz de Modelos Asignados por Rol de Agente (T19.4)", BOLD)
+            );
+            println!("  Personaliza qué motor y modelo ejecuta cada fase del ciclo de vida multi-agente:\n");
+            println!(
+                "  {:<14} {:<36} {:<15} {}",
+                paint("ROL", BOLD),
+                paint("MODELO ASIGNADO", BOLD),
+                paint("PROVEEDOR", BOLD),
+                paint("ESPECIALIZACIÓN", BOLD)
+            );
+            println!("  {}", paint(&"─".repeat(82), DIM));
+
+            let roles_meta = [
+                ("architect", "Arquitecto 📐", "Razonamiento Profundo"),
+                ("coder", "Coder 💻", "Generación de Código"),
+                ("qa", "QA / Tester 🧪", "Validación y Ejecución"),
+                ("auditor", "Auditor 🛡️", "Seguridad y Diffs"),
+            ];
+
+            for (role_key, role_label, spec_desc) in roles_meta {
+                let assigned = config.get_role_model(role_key);
+                let (prov, model_part) = match assigned.split_once(':') {
+                    Some((p, m)) => (p, m),
+                    None => (assigned.as_str(), "default"),
+                };
+                println!(
+                    "  {:<14} {:<36} {:<15} {}",
+                    paint(role_label, CYAN),
+                    paint(model_part, GREEN),
+                    paint(prov, YELLOW),
+                    paint(spec_desc, DIM)
+                );
+            }
+
+            println!("\n  Para cambiar el modelo de un rol:");
+            println!("    {}", paint("antos agent config --role coder --llm ollama:qwen2.5-coder:latest", CYAN));
+            println!("    {}", paint("antos agent config --role architect --llm openrouter:deepseek/deepseek-r1:free", CYAN));
+            println!("    {}", paint("antos agent config --role qa --llm groq:llama-3.3-70b-versatile", CYAN));
+            println!("    Para ver catálogo de modelos gratuitos: {}\n", paint("antos llm free", YELLOW));
+            return Ok(());
+        }
         "run" => {
             let ticket_id = args
                 .get(1)
@@ -5482,7 +5550,7 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             let task = if auto {
                 println!(
-                    "  {} Ejecutando pipeline automatizado de agentes...",
+                    "  {} Ejecutando pipeline automatizado de agentes con modelos asignados...",
                     paint("▶", GREEN)
                 );
                 engine.ejecutar_pipeline_worktree(&ctx.workspace, &ctx.state, ticket_id, &[])?
@@ -5512,10 +5580,16 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     .role
                     .map(|r| format!(" [{}]", r.nombre()))
                     .unwrap_or_default();
+                let model_fmt = t
+                    .model
+                    .as_deref()
+                    .map(|m| format!(" ({})", paint(m, CYAN)))
+                    .unwrap_or_default();
                 println!(
-                    "    • {}{}: {}",
+                    "    • {}{}{}: {}",
                     paint(t.new_state.label(), BOLD),
                     paint(&rol_fmt, DIM),
+                    model_fmt,
                     t.detail
                 );
             }
@@ -5560,7 +5634,12 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     }
                     println!("\n  Transiciones:");
                     for h in &task.history {
-                        println!("    • [{}] {}", h.new_state.label(), h.detail);
+                        let model_fmt = h
+                            .model
+                            .as_deref()
+                            .map(|m| format!(" [{}]", paint(m, CYAN)))
+                            .unwrap_or_default();
+                        println!("    • [{}] {}{}", h.new_state.label(), h.detail, model_fmt);
                     }
                     println!();
                 } else {
