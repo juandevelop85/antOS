@@ -267,30 +267,32 @@ UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitect
 
 ---
 
-##### 2. Ejecución en VirtualBox (x86_64)
+##### 2. Ejecución en VirtualBox
 
-VirtualBox cuenta con emulación completa de hardware x86_64. Para arrancar antOS en VirtualBox, el método más robusto es usar la imagen de arranque **BIOS (MBR)**:
+###### A. VirtualBox en macOS Apple Silicon (ARM64 / AArch64):
+VirtualBox en Mac M1/M2/M3/M4 **solo permite crear VMs ARM64** y requiere firmware UEFI ARM64:
+```bash
+# 1. Compilar kernel y generar disco UEFI GPT para ARM64
+cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
 
-1. **Generar la imagen BIOS y convertirla a disco virtual VDI:**
-   ```bash
-   # 1. Compilar y generar la imagen BIOS
-   cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format bios
+# 2. Convertir la imagen RAW generada a disco virtual VDI nativo
+VBoxManage convertfromraw kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img antos-arm64.vdi --format VDI
+```
+* **Configuración en VirtualBox:**
+  - Tipo: `Linux` / `Other (ARM 64-bit)` con 2 CPUs y 1024 MB RAM.
+  - Almacenamiento: Añadir `antos-arm64.vdi` como **Disco Duro** SATA/SCSI (no unidad óptica CD/DVD).
+  - Puertos Serie: Activar **Puerto 1** (COM1) en modo *"Archivo sin formato"* (ej. `/tmp/antos-serial.log`) para capturar la salida UART PL011.
+* **Arranque:** En la UEFI Shell, escribe `map -r` y ejecuta `FS0:\EFI\BOOT\BOOTAA64.EFI` (o `startup.nsh`).
 
-   # 2. Convertir la imagen RAW a formato VDI nativo de VirtualBox
-   VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos.vdi --format VDI
-   ```
-   *(Si no dispones de `VBoxManage` en el PATH, puedes renombrar `antos-bios.img` a `antos-bios.raw` e importarlo directamente como disco duro existente en VirtualBox).*
-
-2. **Configuración de la Máquina Virtual en VirtualBox:**
-   * **Tipo de SO:** *Other* / *Other/Unknown (64-bit)*.
-   * **Memoria RAM:** `512 MB` o `1024 MB`.
-   * **Sistema -> Placa Base:**
-     * **Desmarcar** la casilla *"Habilitar EFI (solo SO especiales)"* (antOS usa el gestor de arranque en sector MBR).
-   * **Almacenamiento:**
-     * Controlador SATA o IDE -> Añadir disco duro -> Seleccionar el archivo `antos.vdi`.
-   * **Puertos Serie:**
-     * Activar el **Puerto 1** (COM1, IRQ 4, I/O 0x3F8) en modo *"Desconectado"* o *"Archivo/Tubería"* si deseas capturar el log serial.
-3. Iniciar la máquina virtual. El kernel cargará inmediatamente mostrando el banner del sistema en pantalla.
+###### B. VirtualBox en PCs y Macs Intel (x86_64):
+```bash
+# 1. Generar imagen BIOS x86_64 y convertir a VDI
+cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format bios
+VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos-x86.vdi --format VDI
+```
+* **Configuración en VirtualBox:**
+  - Desmarcar *"Habilitar EFI"* en *Sistema -> Placa Base*.
+  - Añadir `antos-x86.vdi` como disco duro SATA/IDE. Arrancará en modo BIOS MBR nativo.
 
 ---
 

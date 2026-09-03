@@ -313,9 +313,13 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic -kernel kernel/target/aar
 # Crear VM ARM64 ('virt'), desactivar 'UEFI Boot', añadir dispositivo 'Puerto Serie (Terminal)'
 # y seleccionar 'kernel/target/aarch64-unknown-none/debug/kernel' en arranque directo de Kernel.
 
-# En VirtualBox (x86_64):
+# En VirtualBox para Mac Apple Silicon (ARM64):
+# Convertir disco UEFI ARM64 a VDI y añadir como disco duro SATA/SCSI con puerto serie activado:
+VBoxManage convertfromraw kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img antos-arm64.vdi --format VDI
+
+# En VirtualBox para x86_64 (Intel/AMD):
 # Convertir imagen BIOS a VDI y desactivar 'Habilitar EFI' en Sistema -> Placa Base:
-VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos.vdi --format VDI
+VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos-x86.vdi --format VDI
 ```
 
 > 📖 **Para una guía detallada paso a paso con resolución de problemas y capturas, consulta la [Guía de Emulación en UTM, VirtualBox y QEMU](docs/guia-emulacion-utm-virtualbox.md).**
