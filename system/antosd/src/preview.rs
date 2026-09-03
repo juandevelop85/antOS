@@ -301,6 +301,14 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let sim = if *dry_run { " (simulación)" } else { " (aplicando cambios)" };
                 out.push(Line::Info(format!("calcula particionado GPT para «{device}» en {m}{sim}")));
             }
+            Change::InstallPrepare { target_device, .. } => {
+                out.push(Line::Info(format!("prepara el punto de montaje y valida requisitos para antOS en «{target_device}»")));
+            }
+            Change::InstallDeploy { config, .. } => {
+                let m = if config.clean_install { "instalación limpia (sistema principal)" } else { "modo Dual Boot (sistema secundario)" };
+                let sim = if config.dry_run { " [simulación segura]" } else { " [ejecutando en disco]" };
+                out.push(Line::Info(format!("despliega el sistema base antOS en «{}» ({m}){sim}", config.target_device)));
+            }
         }
         pendiente.aplicar(change);
     }

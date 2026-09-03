@@ -1,0 +1,16 @@
+name = "install.deploy"
+summary = "Despliega el sistema base antOS en el disco de destino (instalación limpia o Dual Boot)"
+
+[params]
+target_device = { type = "text" }
+clean = { type = "boolean", optional = true }
+dry_run = { type = "boolean", optional = true }
+username = { type = "text", optional = true }
+hostname = { type = "text", optional = true }
+
+[effects]
+writes = ["$WORKSPACE"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

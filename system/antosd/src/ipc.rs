@@ -599,6 +599,13 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
+        Peticion::InstalarSistema(config) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            match crate::installer::DeployEngine::deploy_system(&config, &cwd) {
+                Ok(report) => enviar(&mut escritura, &Evento::ReporteInstalacion(report))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -884,6 +891,15 @@ pub fn intencion_remota(
                     plan.efi_partition_bytes / (1024 * 1024),
                     plan.root_partition_bytes / (1024 * 1024)
                 ))?;
+            }
+            Evento::ReporteInstalacion(rep) => {
+                pantalla.nota(&format!("antOS Instalador · {}", rep.summary))?;
+                pantalla.nota(&format!("  • Modo:          {}", rep.mode))?;
+                pantalla.nota(&format!("  • Partición ESP: {}", rep.efi_partition))?;
+                pantalla.nota(&format!("  • Partición /:   {}", rep.root_partition))?;
+                for s in rep.steps {
+                    pantalla.nota(&format!("  ✓ {}: {}", s.name, s.description))?;
+                }
             }
             Evento::Error(m) => bail!("{m}"),
         }

@@ -799,6 +799,30 @@ antos disk partition /dev/nvme0n1 --clean --apply
 
 ---
 
+### 4.29 Asistente e Instalador de Sistema Base a Disco Duro (`antos install`)
+
+Motor de despliegue guiado y no interactivo para instalar antOS en el disco duro o unidad NVMe/SSD de la máquina. Permite instalar como **sistema operativo principal** (particionamiento y formateo limpio de disco completo) o como **sistema secundario en Dual Boot** (preservando la partición EFI ESP y sistemas operativos Windows o Linux preexistentes):
+
+```bash
+# Listar discos compatibles y recomendación de modo (Principal vs Dual Boot)
+antos install list
+
+# Asistente guiado e interactivo por terminal (detecta discos y simula instalación)
+antos install wizard
+antos install gui
+
+# Despliegue en modo Dual Boot (preservando Windows/Linux y cargadores existentes, simulación segura)
+antos install run --target /dev/nvme0n1 --dual-boot --user antos --host antos-box
+
+# Despliegue en modo Sistema Principal Limpio (simulación segura)
+antos install run --target /dev/sda --clean
+
+# Aplicar la instalación definitiva en el hardware (acción destructiva controlada)
+antos install run --target /dev/nvme0n1 --dual-boot --apply
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

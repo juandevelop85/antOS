@@ -4,10 +4,10 @@
 
 [![Version](https://img.shields.io/badge/Release-v0.1.0-brightgreen.svg)](CHANGELOG.md)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-136%2F136%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-140%2F140%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-35%2F37%20Completados-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-36%2F37%20Completados-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -377,7 +377,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 14** | [T14.2](docs/tickets/T14.2-agente-multimodal-con-captura-de-pantalla-wayland-para-inspeccion-y-qa-visual.md) · Agente Multimodal con Captura Wayland e Inspección Visual | ✅ Completado |
 | **Fase 14** | [T14.3](docs/tickets/T14.3-generador-de-live-iso-autonoma-empaquetado-release-y-distribucion-v0.1.0.md) · Generador de Live ISO Autónoma y Empaquetado Release v0.1.0 | ✅ Completado |
 | **Fase 15** | [T15.1](docs/tickets/T15.1-motor-de-inspeccion-de-almacenamiento-y-particionador-gpt.md) · Motor de Inspección de Almacenamiento y Particionador GPT | ✅ Completado |
-| **Fase 15** | [T15.2](docs/tickets/T15.2-instalador-guiado-de-sistema-base-disco-completo-y-dual-boot.md) · Instalador Guiado de Sistema Base (Disco Completo y Dual Boot) | ⏳ Pendiente |
+| **Fase 15** | [T15.2](docs/tickets/T15.2-instalador-guiado-de-sistema-base-disco-completo-y-dual-boot.md) · Instalador Guiado de Sistema Base (Disco Completo y Dual Boot) | ✅ Completado |
 | **Fase 15** | [T15.3](docs/tickets/T15.3-gestor-de-arranque-uefi-y-dual-boot-automatizado.md) · Gestor de Arranque UEFI y Dual Boot Automatizado | ⏳ Pendiente |
 
 ---

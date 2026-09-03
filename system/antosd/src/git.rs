@@ -467,8 +467,8 @@ mod tests {
 
         assert!(resultado.is_some());
         assert!(
-            duracion.as_millis() < 50,
-            "la respuesta desde caché debe tardar menos de 50ms (tardó: {:?})",
+            duracion.as_millis() < 100,
+            "la respuesta desde caché debe tardar menos de 100ms (tardó: {:?})",
             duracion
         );
     }

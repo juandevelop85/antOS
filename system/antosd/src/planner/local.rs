@@ -526,7 +526,8 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de Pipeline de Arranque Bare Metal y QEMU (T13.2)
-        if lower.contains("boot") || lower.contains("arranque") || lower.contains("qemu") || (lower.contains("kernel") && (lower.contains("compila") || lower.contains("construye") || lower.contains("prueba") || lower.contains("test"))) {
+        if (!lower.contains("instala") && !lower.contains("deploy"))
+            && (lower.contains("boot") || lower.contains("arranque") || lower.contains("qemu") || (lower.contains("kernel") && (lower.contains("compila") || lower.contains("construye") || lower.contains("prueba") || lower.contains("test")))) {
             if lower.contains("test") || lower.contains("prueba") {
                 return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "test")])]));
             }
@@ -574,7 +575,9 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de Almacenamiento y Particionamiento (T15.1)
-        if lower.contains("disco") || lower.contains("particion") || lower.contains("partición") || lower.contains("almacenamiento") || lower.contains("storage") || lower.contains("disk") {
+        if (!lower.contains("instala") && !lower.contains("deploy"))
+            && (lower.contains("disco") || lower.contains("particion") || lower.contains("partición") || lower.contains("almacenamiento") || lower.contains("storage") || lower.contains("disk"))
+        {
             if lower.contains("particiona") || lower.contains("partition") || lower.contains("formatea") {
                 let dev = after(&words, &["disco", "en", "sobre", "dispositivo", "target"]).unwrap_or_else(|| "/dev/nvme0n1".into());
                 let clean = if lower.contains("limpio") || lower.contains("clean") || lower.contains("completo") { "true" } else { "false" };
@@ -585,6 +588,21 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("disk.inspect", &[("device", &dev)])]));
             }
             return Ok(Propuesta::solo(vec![step("disk.list", &[])]));
+        }
+
+        // Intenciones de Instalación y Despliegue de antOS (T15.2)
+        if (lower.contains("instala") || lower.contains("instalacion") || lower.contains("instalación") || lower.contains("installer") || lower.contains("deploy"))
+            && !lower.contains("plugin")
+            && !lower.contains("wasm")
+        {
+            let dev = after(&words, &["disco", "dispositivo", "target", "sobre"]).unwrap_or_else(|| "/dev/nvme0n1".into());
+            let clean = if lower.contains("limpio") || lower.contains("clean") || lower.contains("completo") || lower.contains("principal") { "true" } else { "false" };
+            let dry = if lower.contains("apply") || lower.contains("real") || lower.contains("definitivo") { "false" } else { "true" };
+            return Ok(Propuesta::solo(vec![step("install.deploy", &[
+                ("target_device", &dev),
+                ("clean", clean),
+                ("dry_run", dry),
+            ])]));
         }
 
         // Intenciones de secretos y concesiones (T5.2)
@@ -1228,5 +1246,13 @@ mod tests {
         assert_eq!(p_part.steps[0].capability, "disk.partition");
         assert_eq!(p_part.steps[0].args.get("device").map(|s| s.as_str()), Some("/dev/sda"));
         assert_eq!(p_part.steps[0].args.get("clean").map(|s| s.as_str()), Some("true"));
+
+        let p_install = planner
+            .plan("instala antos en el disco /dev/nvme0n1 en modo dual boot", &catalog)
+            .expect("plan install deploy");
+        assert_eq!(p_install.steps.len(), 1);
+        assert_eq!(p_install.steps[0].capability, "install.deploy");
+        assert_eq!(p_install.steps[0].args.get("target_device").map(|s| s.as_str()), Some("/dev/nvme0n1"));
+        assert_eq!(p_install.steps[0].args.get("clean").map(|s| s.as_str()), Some("false"));
     }
 }

@@ -1,0 +1,13 @@
+name = "install.prepare"
+summary = "Prepara el entorno de montaje y valida los requisitos de almacenamiento para antOS"
+
+[params]
+target_device = { type = "text" }
+target_mount = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

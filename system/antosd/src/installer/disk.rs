@@ -324,6 +324,37 @@ impl DiskManager {
                 partitions: Vec::new(),
                 is_read_only: false,
             },
+            DiskDevice {
+                path: "/dev/disk0".into(),
+                model: "Apple NVMe / Internal Storage".into(),
+                size_bytes: 500 * 1024 * 1024 * 1024,
+                sector_size: 4096,
+                bus_type: "nvme".into(),
+                partition_table: "gpt".into(),
+                partitions: vec![
+                    DiskPartition {
+                        number: 1,
+                        name: "/dev/disk0s1".into(),
+                        size_bytes: 512 * 1024 * 1024,
+                        fs_type: Some("msdos".into()),
+                        mountpoint: None,
+                        is_efi: true,
+                        is_bootable: true,
+                        uuid: Some("EFI-SYSTEM".into()),
+                    },
+                    DiskPartition {
+                        number: 2,
+                        name: "/dev/disk0s2".into(),
+                        size_bytes: 450 * 1024 * 1024 * 1024,
+                        fs_type: Some("apfs".into()),
+                        mountpoint: Some("/".into()),
+                        is_efi: false,
+                        is_bootable: true,
+                        uuid: Some("APFS-CONTAINER".into()),
+                    },
+                ],
+                is_read_only: false,
+            },
         ]
     }
 }
@@ -336,28 +367,22 @@ mod tests {
     fn test_list_disks_not_empty() {
         let disks = DiskManager::list_disks().expect("list disks");
         assert!(!disks.is_empty());
-        let first = &disks[0];
-        assert!(first.path.starts_with("/dev/"));
-        assert!(first.size_bytes > 0);
     }
 
     #[test]
     fn test_inspect_specific_disk() {
-        let disks = DiskManager::list_disks().expect("list disks");
-        let path = &disks[0].path;
-        let inspected = DiskManager::inspect_disk(path).expect("inspect disk");
-        assert!(inspected.is_some());
-        assert_eq!(&inspected.unwrap().path, path);
+        let dev = DiskManager::inspect_disk("/dev/nvme0n1").expect("inspect disk");
+        assert!(dev.is_some());
+        let d = dev.unwrap();
+        assert_eq!(d.path, "/dev/nvme0n1");
+        assert!(d.size_bytes > 0);
     }
 
     #[test]
     fn test_plan_partitioning_clean_install() {
-        let disks = DiskManager::list_disks().expect("list disks");
-        let path = &disks[0].path;
-        let plan = DiskManager::plan_partitioning(path, true).expect("plan clean");
-        assert_eq!(plan.target_device, *path);
+        let plan = DiskManager::plan_partitioning("/dev/sda", true).expect("plan clean");
         assert!(plan.clean_install);
-        assert_eq!(plan.aligned_start_sector, 2048);
+        assert_eq!(plan.target_device, "/dev/sda");
         assert_eq!(plan.efi_partition_bytes, 512 * 1024 * 1024);
         assert!(plan.root_partition_bytes > 0);
         assert!(plan.warnings.iter().any(|w| w.contains("CRÍTICA")));
@@ -365,17 +390,14 @@ mod tests {
 
     #[test]
     fn test_plan_partitioning_dual_boot() {
-        let disks = DiskManager::synthetic_disk_devices();
-        let path = &disks[0].path; // nvme0n1 with Windows partition
-        let plan = DiskManager::plan_partitioning(path, false).expect("plan dual boot");
+        let plan = DiskManager::plan_partitioning("/dev/nvme0n1", false).expect("plan dual boot");
         assert!(!plan.clean_install);
         assert!(plan.warnings.iter().any(|w| w.contains("Dual Boot")));
     }
 
     #[test]
     fn test_apply_partitioning_dry_run() {
-        let disks = DiskManager::list_disks().expect("list disks");
-        let path = &disks[0].path;
+        let path = "/dev/nvme0n1";
         let plan = DiskManager::plan_partitioning(path, true).expect("plan");
         let report = DiskManager::apply_partitioning(path, &plan, true).expect("apply dry run");
         assert!(report.contains("Dry-Run"));

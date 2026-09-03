@@ -604,6 +604,53 @@ pub struct PartitionPlan {
     pub warnings: Vec<String>,
 }
 
+/// Configuración de instalación del sistema operativo antOS (T15.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstallConfig {
+    pub target_device: String,
+    pub clean_install: bool,
+    pub target_mount: String,
+    pub hostname: String,
+    pub username: String,
+    pub timezone: String,
+    pub dry_run: bool,
+}
+
+impl Default for InstallConfig {
+    fn default() -> Self {
+        Self {
+            target_device: "/dev/nvme0n1".into(),
+            clean_install: false,
+            target_mount: "/mnt/antos".into(),
+            hostname: "antos-box".into(),
+            username: "antos".into(),
+            timezone: "UTC".into(),
+            dry_run: true,
+        }
+    }
+}
+
+/// Paso individual en el pipeline de instalación.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstallStep {
+    pub name: String,
+    pub description: String,
+    pub completed: bool,
+}
+
+/// Reporte de finalización o simulación del despliegue del sistema (T15.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstallReport {
+    pub target_device: String,
+    pub mode: String,
+    pub success: bool,
+    pub steps: Vec<InstallStep>,
+    pub efi_partition: String,
+    pub root_partition: String,
+    pub fstab_entries: Vec<String>,
+    pub summary: String,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -1157,6 +1204,8 @@ pub enum Peticion {
         clean_install: bool,
         dry_run: bool,
     },
+    /// Instala el sistema antOS en un disco físico o virtual (T15.2)
+    InstalarSistema(InstallConfig),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1311,6 +1360,8 @@ pub enum Evento {
     DetalleDisco(Option<DiskDevice>),
     /// Plan o resultado de particionamiento (T15.1)
     PlanParticionamiento(PartitionPlan),
+    /// Reporte de instalación del sistema base antOS (T15.2)
+    ReporteInstalacion(InstallReport),
     Error(String),
 }
 
@@ -2115,6 +2166,39 @@ mod tests {
         let json_plan = serde_json::to_string(&ev_plan).expect("serialize plan ev");
         let des_plan: Evento = serde_json::from_str(&json_plan).expect("deserialize plan ev");
         assert_eq!(ev_plan, des_plan);
+
+        let cfg = InstallConfig {
+            target_device: "/dev/sda".into(),
+            clean_install: false,
+            target_mount: "/mnt/test".into(),
+            hostname: "antos-dev".into(),
+            username: "developer".into(),
+            timezone: "America/Bogota".into(),
+            dry_run: true,
+        };
+        let req_install = Peticion::InstalarSistema(cfg.clone());
+        let json_ins = serde_json::to_string(&req_install).expect("serialize install req");
+        let des_ins: Peticion = serde_json::from_str(&json_ins).expect("deserialize install req");
+        assert_eq!(req_install, des_ins);
+
+        let report = InstallReport {
+            target_device: "/dev/sda".into(),
+            mode: "dual-boot".into(),
+            success: true,
+            steps: vec![InstallStep {
+                name: "mount".into(),
+                description: "Montaje de particiones".into(),
+                completed: true,
+            }],
+            efi_partition: "/dev/sda1".into(),
+            root_partition: "/dev/sda3".into(),
+            fstab_entries: vec!["UUID=123 / ext4 defaults 0 1".into()],
+            summary: "Instalación completada".into(),
+        };
+        let ev_rep = Evento::ReporteInstalacion(report);
+        let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
+        let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
+        assert_eq!(ev_rep, des_rep);
     }
 }
 

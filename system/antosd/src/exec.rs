@@ -277,6 +277,15 @@ pub enum Change {
         clean: bool,
         dry_run: bool,
     },
+    InstallPrepare {
+        workspace: PathBuf,
+        target_device: String,
+        target_mount: Option<String>,
+    },
+    InstallDeploy {
+        workspace: PathBuf,
+        config: antos_protocolo::InstallConfig,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -377,7 +386,9 @@ impl Pendiente {
             | Change::UiInspectVisual { .. }
             | Change::DiskList { .. }
             | Change::DiskInspect { .. }
-            | Change::DiskPartition { .. } => {}
+            | Change::DiskPartition { .. }
+            | Change::InstallPrepare { .. }
+            | Change::InstallDeploy { .. } => {}
         }
     }
 }
@@ -1025,6 +1036,37 @@ pub fn changes_for(
                 device,
                 clean,
                 dry_run,
+            }])
+        }
+
+        "install.prepare" => {
+            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let target_mount = a.get("target_mount").cloned();
+            Ok(vec![Change::InstallPrepare {
+                workspace: ctx.workspace.clone(),
+                target_device,
+                target_mount,
+            }])
+        }
+
+        "install.deploy" => {
+            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let clean_install = a.get("clean").map(|v| v == "true").unwrap_or(false);
+            let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
+            let username = a.get("username").cloned().unwrap_or_else(|| "antos".into());
+            let hostname = a.get("hostname").cloned().unwrap_or_else(|| "antos-box".into());
+            let config = antos_protocolo::InstallConfig {
+                target_device,
+                clean_install,
+                target_mount: "/mnt/antos".into(),
+                hostname,
+                username,
+                timezone: "UTC".into(),
+                dry_run,
+            };
+            Ok(vec![Change::InstallDeploy {
+                workspace: ctx.workspace.clone(),
+                config,
             }])
         }
 
@@ -1906,6 +1948,28 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let plan = crate::installer::DiskManager::plan_partitioning(device, *clean)?;
                 let report = crate::installer::DiskManager::apply_partitioning(device, &plan, *dry_run)?;
                 output.push(report);
+            }
+            Change::InstallPrepare { target_device, target_mount, .. } => {
+                let mut cfg = antos_protocolo::InstallConfig::default();
+                cfg.target_device = target_device.clone();
+                if let Some(ref m) = target_mount {
+                    cfg.target_mount = m.clone();
+                }
+                let mount_dir = crate::installer::DeployEngine::prepare_target(&cfg)?;
+                output.push(format!("✓ Entorno de instalación validado para {}: punto de montaje listo en {}", target_device, mount_dir.display()));
+            }
+            Change::InstallDeploy { workspace, config } => {
+                let report = crate::installer::DeployEngine::deploy_system(config, workspace)?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Instalador · {}", report.summary));
+                lines.push(format!("  • Modo:          {}", report.mode));
+                lines.push(format!("  • Partición ESP: {}", report.efi_partition));
+                lines.push(format!("  • Partición /:   {}", report.root_partition));
+                lines.push("  • Pasos completados:".into());
+                for s in &report.steps {
+                    lines.push(format!("    ✓ {}: {}", s.name, s.description));
+                }
+                output.push(lines.join("\n"));
             }
         }
     }

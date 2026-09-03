@@ -138,6 +138,7 @@ fn run() -> Result<()> {
         "screenshot" | "captura" => cmd_screenshot(&ctx, &rest[1..]),
         "qa" => cmd_qa(&ctx, &rest[1..]),
         "disk" | "storage" | "part" => cmd_disk(&ctx, &rest[1..]),
+        "install" | "installer" => cmd_install(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -2291,6 +2292,164 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos disk list                           Enumera discos físicos y particiones");
             println!("    antos disk inspect <dispositivo>          Muestra el mapa de particiones y metadatos");
             println!("    antos disk partition <dispositivo> [modo] Calcula o aplica tabla GPT (--clean / --dual-boot)\n");
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------- installer & deploy (T15.2)
+
+fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("help");
+
+    match sub {
+        "list" | "disks" => {
+            println!("\n{} Discos Compatibles para Instalación de antOS:", paint("antOS Instalador ·", BOLD));
+            let disks = installer::DiskManager::list_disks()?;
+            if disks.is_empty() {
+                println!("  (no se detectaron unidades de almacenamiento compatibles)\n");
+                return Ok(());
+            }
+
+            for (idx, d) in disks.iter().enumerate() {
+                let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                let suitable = d.size_bytes >= 8 * 1024 * 1024 * 1024;
+                let status_str = if suitable {
+                    paint("COMPATIBLE (≥ 8 GB)", GREEN)
+                } else {
+                    paint("INSUFICIENTE (< 8 GB)", RED)
+                };
+
+                let has_efi = d.partitions.iter().any(|p| p.is_efi);
+                let mode_rec = if has_efi {
+                    paint("Recomendado: Dual Boot", CYAN)
+                } else {
+                    paint("Recomendado: Sistema Principal Limpio", YELLOW)
+                };
+
+                println!("  [{}] {} ({:.1} GB, Bus: {})", idx + 1, paint(&d.path, BOLD), gb, d.bus_type);
+                println!("      Modelo:       {}", d.model);
+                println!("      Estado:       {} | {}", status_str, mode_rec);
+                println!("      Particiones:  {} existentes\n", d.partitions.len());
+            }
+        }
+        "run" | "deploy" => {
+            let mut target_device = "/dev/nvme0n1".to_string();
+            let mut clean_install = false;
+            let mut username = "antos".to_string();
+            let mut hostname = "antos-box".to_string();
+            let mut dry_run = true;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--target" | "-t" => {
+                        if i + 1 < args.len() {
+                            target_device = args[i + 1].clone();
+                            i += 1;
+                        }
+                    }
+                    "--clean" => clean_install = true,
+                    "--dual-boot" => clean_install = false,
+                    "--user" | "-u" => {
+                        if i + 1 < args.len() {
+                            username = args[i + 1].clone();
+                            i += 1;
+                        }
+                    }
+                    "--host" => {
+                        if i + 1 < args.len() {
+                            hostname = args[i + 1].clone();
+                            i += 1;
+                        }
+                    }
+                    "--apply" => dry_run = false,
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            let config = antos_protocolo::InstallConfig {
+                target_device: target_device.clone(),
+                clean_install,
+                target_mount: "/mnt/antos".into(),
+                hostname,
+                username,
+                timezone: "UTC".into(),
+                dry_run,
+            };
+
+            let mode_str = if clean_install { "Sistema Principal (Limpio)" } else { "Sistema Secundario (Dual Boot)" };
+            println!("\n{} Iniciando Despliegue de antOS:", paint("antOS Instalador ·", BOLD));
+            println!("  • Dispositivo:      {}", paint(&target_device, CYAN));
+            println!("  • Modo de instalación: {}", paint(mode_str, BOLD));
+            println!("  • Modo de ejecución:   {}\n", if dry_run { paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW) } else { paint("INSTALACIÓN EN DISCO REAL", RED) });
+
+            let report = installer::DeployEngine::deploy_system(&config, &ctx.workspace)?;
+            println!("  {}: {}", paint("Resultado", BOLD), if report.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) });
+            println!("  {}\n", report.summary);
+            println!("  {}:", paint("Pasos Ejecutados", BOLD));
+            for s in &report.steps {
+                println!("    ✓ {}: {}", paint(&s.name, CYAN), s.description);
+            }
+            println!("\n  {}:", paint("Entradas /etc/fstab Generadas", BOLD));
+            for f in &report.fstab_entries {
+                println!("    {}", f);
+            }
+            println!();
+
+            if dry_run {
+                println!("  {} Para aplicar esta instalación de forma definitiva en el hardware ejecute con «--apply».\n", paint("Nota:", YELLOW));
+            }
+        }
+        "wizard" | "gui" => {
+            println!("\n{}", paint("╔════════════════════════════════════════════════════════════════╗", CYAN));
+            println!("{}", paint("║           antOS · Asistente de Instalación Guiada             ║", BOLD));
+            println!("{}\n", paint("╚════════════════════════════════════════════════════════════════╝", CYAN));
+
+            let disks = installer::DiskManager::list_disks()?;
+            if disks.is_empty() {
+                bail!("No se detectaron discos de almacenamiento disponibles para instalar");
+            }
+
+            let chosen_disk = &disks[0];
+            let has_efi = chosen_disk.partitions.iter().any(|p| p.is_efi);
+            let mode_str = if has_efi { "Dual Boot (preservando partición EFI y SO vecino)" } else { "Sistema Principal Completo" };
+
+            println!("  Disco detectado para instalación: {} ({:.1} GB)",
+                paint(&chosen_disk.path, CYAN),
+                chosen_disk.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+            );
+            println!("  Modo seleccionado automáticamente: {}", paint(mode_str, GREEN));
+            println!("  Usuario predeterminado:           {}", paint("antos", BOLD));
+            println!("  Hostname:                         {}", paint("antos-box", BOLD));
+            println!("\n  Ejecutando simulación de instalación guiada...");
+
+            let cfg = antos_protocolo::InstallConfig {
+                target_device: chosen_disk.path.clone(),
+                clean_install: !has_efi,
+                target_mount: "/mnt/antos".into(),
+                hostname: "antos-box".into(),
+                username: "antos".into(),
+                timezone: "UTC".into(),
+                dry_run: true,
+            };
+
+            let report = installer::DeployEngine::deploy_system(&cfg, &ctx.workspace)?;
+            println!("\n  {} {}", paint("✓ Verificación de instalación completada:", GREEN), report.summary);
+            println!("    • Partición ESP:   {}", report.efi_partition);
+            println!("    • Partición Raíz:  {}", report.root_partition);
+            println!("    • Pasos validados: {}/{}", report.steps.len(), report.steps.len());
+            println!("\n  Para proceder a instalar en vivo sobre este equipo, ejecute:");
+            println!("    {}\n", paint(&format!("antos install run --target {} --apply", chosen_disk.path), CYAN));
+        }
+        _ => {
+            println!("\n{} Asistente de Instalación en Disco Duro y Dual Boot:", paint("antOS Instalador ·", BOLD));
+            println!("  Uso:");
+            println!("    antos install list                           Enumera discos compatibles y sugerencias de modo");
+            println!("    antos install wizard                         Asistente interactivo guiado de instalación");
+            println!("    antos install run --target <dev> [--clean]   Ejecuta el despliegue del sistema base");
+            println!("    antos install run --target <dev> --apply     Aplica los cambios irreversibles al disco\n");
         }
     }
     Ok(())
