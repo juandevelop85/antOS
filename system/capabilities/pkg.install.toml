@@ -1,0 +1,13 @@
+name = "pkg.install"
+summary = "Instala un paquete o receta declarativa en el almacén inmutable de antOS"
+
+[params]
+package = { type = "text", optional = false }
+dry_run = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$STATE/store", "$STATE/profiles", "$STATE/current"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

@@ -307,6 +307,25 @@ pub enum Change {
         state_dir: PathBuf,
         vm_id: String,
     },
+    PackageInstall {
+        state_dir: PathBuf,
+        package: String,
+        dry_run: bool,
+    },
+    PackageRemove {
+        state_dir: PathBuf,
+        package: String,
+    },
+    PackageRollback {
+        state_dir: PathBuf,
+        generation: Option<u64>,
+    },
+    PackageList {
+        state_dir: PathBuf,
+    },
+    PackageVerify {
+        state_dir: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -414,7 +433,12 @@ impl Pendiente {
             | Change::BootloaderInstall { .. }
             | Change::MicrovmSpawn { .. }
             | Change::MicrovmExec { .. }
-            | Change::MicrovmDestroy { .. } => {}
+            | Change::MicrovmDestroy { .. }
+            | Change::PackageInstall { .. }
+            | Change::PackageRemove { .. }
+            | Change::PackageRollback { .. }
+            | Change::PackageList { .. }
+            | Change::PackageVerify { .. } => {}
         }
     }
 }
@@ -1161,6 +1185,44 @@ pub fn changes_for(
             Ok(vec![Change::MicrovmDestroy {
                 state_dir: ctx.state.clone(),
                 vm_id,
+            }])
+        }
+
+        "pkg.install" => {
+            let package = a.get("package").cloned().ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
+            let dry_run = a.get("dry_run").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
+            Ok(vec![Change::PackageInstall {
+                state_dir: ctx.state.clone(),
+                package,
+                dry_run,
+            }])
+        }
+
+        "pkg.remove" => {
+            let package = a.get("package").cloned().ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
+            Ok(vec![Change::PackageRemove {
+                state_dir: ctx.state.clone(),
+                package,
+            }])
+        }
+
+        "pkg.rollback" => {
+            let generation = a.get("generation").and_then(|v| v.parse::<u64>().ok());
+            Ok(vec![Change::PackageRollback {
+                state_dir: ctx.state.clone(),
+                generation,
+            }])
+        }
+
+        "pkg.list" => {
+            Ok(vec![Change::PackageList {
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "pkg.verify" => {
+            Ok(vec![Change::PackageVerify {
+                state_dir: ctx.state.clone(),
             }])
         }
 
@@ -2104,6 +2166,38 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::MicrovmDestroy { state_dir, vm_id } => {
                 crate::vm::MicrovmManager::kill_vm(state_dir, vm_id)?;
                 output.push(format!("antOS MicroVM · Instancia «{vm_id}» destruida y recursos liberados"));
+            }
+            Change::PackageInstall { state_dir, package, dry_run } => {
+                let rep = crate::pkg::PackageEngine::install(state_dir, package, *dry_run)?;
+                let status_lbl = if rep.success { "OK" } else { "ERROR" };
+                output.push(format!("antpkg [{status_lbl}]: {}\n  • Generación: {}\n  • Prefijo en store: {}", rep.message, rep.generation, rep.store_path));
+            }
+            Change::PackageRemove { state_dir, package } => {
+                let rep = crate::pkg::PackageEngine::remove(state_dir, package)?;
+                output.push(format!("antpkg: {}\n  • Nueva generación activa: {}", rep.message, rep.generation));
+            }
+            Change::PackageRollback { state_dir, generation } => {
+                let rep = crate::pkg::PackageEngine::rollback(state_dir, *generation)?;
+                output.push(format!("antpkg: {}\n  • Generación restaurada: {}", rep.message, rep.generation));
+            }
+            Change::PackageList { state_dir } => {
+                let pkgs = crate::pkg::PackageEngine::list(state_dir)?;
+                if pkgs.is_empty() {
+                    output.push("antpkg: No hay paquetes instalados en el perfil activo.".to_string());
+                } else {
+                    let mut lines = vec![format!("antpkg · Paquetes instalados en perfil activo ({}):", pkgs.len())];
+                    for p in pkgs {
+                        lines.push(format!("  • {} v{} (gen {}) [bin: {}]", p.name, p.version, p.generation, p.binaries.join(", ")));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::PackageVerify { state_dir } => {
+                let (all_valid, count, details) = crate::pkg::PackageEngine::verify(state_dir)?;
+                let status_lbl = if all_valid { "INTEGRIDAD CORRECTA" } else { "ADVERTENCIAS DE INTEGRIDAD" };
+                let mut lines = vec![format!("antpkg · {status_lbl} ({} paquetes comprobados):", count)];
+                lines.extend(details);
+                output.push(lines.join("\n"));
             }
         }
     }

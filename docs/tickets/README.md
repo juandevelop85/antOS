@@ -46,6 +46,6 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 15** | [T15.2](T15.2-instalador-guiado-de-sistema-base-disco-completo-y-dual-boot.md) | Instalador Guiado de Sistema Base (Disco Completo y Dual Boot) | ✅ Completado |
 | **Fase 15** | [T15.3](T15.3-gestor-de-arranque-uefi-y-dual-boot-automatizado.md) | Gestor de Arranque UEFI y Dual Boot Automatizado | ✅ Completado |
 | **Fase 16** | [T16.1](T16.1-microvms-efimeras-y-aislamiento-por-hipervisor-kvm.md) | MicroVMs Efímeras y Aislamiento por Hipervisor (KVM / Cloud-Hypervisor) | ✅ Completado |
-| **Fase 16** | [T16.2](T16.2-gestor-de-paquetes-y-recetas-inmutables-antpkg.md) | Gestor de Paquetes y Recetas Inmutables (`antpkg`) | ⏳ Pendiente |
+| **Fase 16** | [T16.2](T16.2-gestor-de-paquetes-y-recetas-inmutables-antpkg.md) | Gestor de Paquetes y Recetas Inmutables (`antpkg`) | ✅ Completado |
 | **Fase 16** | [T16.3](T16.3-modo-agente-autonomo-continuo-autopilot-daemon.md) | Modo Agente Autónomo Continuo (*Autopilot Daemon*) | ⏳ Pendiente |
 | **Fase 16** | [T16.4](T16.4-consola-web-remota-en-tiempo-real-y-bridge-websocket.md) | Consola Web Remota en Tiempo Real y Bridge WebSocket | ⏳ Pendiente |

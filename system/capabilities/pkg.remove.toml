@@ -1,0 +1,12 @@
+name = "pkg.remove"
+summary = "Desvincula un paquete del perfil activo avanzando a una nueva generación"
+
+[params]
+package = { type = "text", optional = false }
+
+[effects]
+writes = ["$STATE/profiles", "$STATE/current"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

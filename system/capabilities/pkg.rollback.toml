@@ -1,0 +1,12 @@
+name = "pkg.rollback"
+summary = "Restaura la generación de paquetes previa de forma atómica e instantánea"
+
+[params]
+generation = { type = "integer", optional = true }
+
+[effects]
+writes = ["$STATE/profiles", "$STATE/current"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

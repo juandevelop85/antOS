@@ -1,0 +1,11 @@
+name = "pkg.verify"
+summary = "Verifica los checksums SHA-256 e integridad de paquetes instalados"
+
+[params]
+
+[effects]
+reads = ["$STATE/store", "$STATE/profiles"]
+
+[policy]
+tier = "auto"
+reversible = "never"

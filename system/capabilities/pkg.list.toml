@@ -1,0 +1,11 @@
+name = "pkg.list"
+summary = "Lista los paquetes instalados en el perfil activo y generaciones disponibles"
+
+[params]
+
+[effects]
+reads = ["$STATE/profiles"]
+
+[policy]
+tier = "auto"
+reversible = "never"

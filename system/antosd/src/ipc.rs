@@ -652,6 +652,44 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::InstallPackage { recipe_path_or_name, dry_run } => {
+            match crate::pkg::PackageEngine::install(&ctx.state, &recipe_path_or_name, dry_run) {
+                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::RemovePackage { package_name } => {
+            match crate::pkg::PackageEngine::remove(&ctx.state, &package_name) {
+                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ListPackages => {
+            match crate::pkg::PackageEngine::list(&ctx.state) {
+                Ok(list) => enviar(&mut escritura, &Event::PackageList(list))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::RollbackPackage { target_generation } => {
+            match crate::pkg::PackageEngine::rollback(&ctx.state, target_generation) {
+                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::VerifyPackages => {
+            match crate::pkg::PackageEngine::verify(&ctx.state) {
+                Ok((all_valid, verified_packages, details)) => {
+                    enviar(&mut escritura, &Event::PackageVerificationResult { all_valid, verified_packages, details })?
+                }
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::QueryPackageStoreStatus => {
+            match crate::pkg::PackageEngine::status(&ctx.state) {
+                Ok(st) => enviar(&mut escritura, &Event::PackageStoreStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -977,6 +1015,53 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:", res.vm_id, res.exit_code))?;
                 if !res.stdout.is_empty() {
                     pantalla.nota(&format!("  {}", res.stdout.trim()))?;
+                }
+            }
+            Event::PackageInstallReport(rep) => {
+                let status_label = if rep.success { "OK" } else { "ERROR" };
+                pantalla.nota(&format!("antpkg [{status_label}]: {}", rep.message))?;
+                if !rep.binaries_linked.is_empty() {
+                    pantalla.nota(&format!("  • Binarios enlazados: {}", rep.binaries_linked.join(", ")))?;
+                }
+                if !rep.store_path.is_empty() {
+                    pantalla.nota(&format!("  • Prefijo en almacén: {}", rep.store_path))?;
+                }
+            }
+            Event::PackageList(pkgs) => {
+                if pkgs.is_empty() {
+                    pantalla.nota("antpkg: No hay paquetes instalados en el perfil activo.")?;
+                } else {
+                    pantalla.nota(&format!("antpkg · Paquetes en perfil activo ({}):", pkgs.len()))?;
+                    for p in pkgs {
+                        let kb = p.installed_size_bytes / 1024;
+                        pantalla.nota(&format!("  • {} v{} ({} KiB, gen {}) [bin: {}]",
+                            p.name, p.version, kb, p.generation, p.binaries.join(", ")
+                        ))?;
+                    }
+                }
+            }
+            Event::PackageStoreStatus(st) => {
+                let mb = st.total_store_bytes as f64 / (1024.0 * 1024.0);
+                pantalla.nota(&format!("antpkg Store: {:.2} MB en almacén, {} paquetes, gen activa: {} ({} generaciones)",
+                    mb, st.total_packages, st.current_generation, st.generations_count
+                ))?;
+                pantalla.nota(&format!("  • Ruta de almacén: {}", st.store_path))?;
+                pantalla.nota(&format!("  • Perfil actual:   {}", st.current_profile_path))?;
+            }
+            Event::PackageGenerationsList(gens) => {
+                pantalla.nota(&format!("antpkg · Generaciones de perfil ({}):", gens.len()))?;
+                for g in gens {
+                    let active_mark = if g.active { " (activa)" } else { "" };
+                    pantalla.nota(&format!("  • Gen {}{}: {} paquetes [{}]",
+                        g.generation, active_mark, g.packages.len(), g.packages.join(", ")
+                    ))?;
+                }
+            }
+            Event::PackageVerificationResult { all_valid, verified_packages, details } => {
+                let status_lbl = if all_valid { "INTEGRIDAD VERIFICADA" } else { "ADVERTENCIAS DE INTEGRIDAD" };
+                pantalla.nota(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
+                for d in details {
+                    pantalla.nota(&format!("  {d}"))?;
                 }
             }
             Event::Error(m) => bail!("{m}"),

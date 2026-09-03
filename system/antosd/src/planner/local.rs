@@ -62,7 +62,7 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("system.declare", &[("package", &package)])]));
         }
 
-        if lower.contains("depend") || lower.contains("paquete") {
+        if lower.contains("depend") || (lower.contains("paquete") && (lower.contains("proyecto") || lower.contains("project"))) {
             let package = after(&words, &["dependencia", "dependencias", "paquete"])
                 .ok_or_else(|| anyhow::anyhow!("no veo qué paquete quieres declarar"))?;
             let project = after(&words, &["proyecto"])
@@ -598,6 +598,9 @@ impl Planner for LocalPlanner {
             && !lower.contains("uefi")
             && !lower.contains("gestor")
             && !lower.contains("cargador")
+            && !lower.contains("paquete")
+            && !lower.contains("package")
+            && !lower.contains("pkg")
         {
             let dev = after(&words, &["disco", "dispositivo", "target", "sobre"]).unwrap_or_else(|| "/dev/nvme0n1".into());
             let clean = if lower.contains("limpio") || lower.contains("clean") || lower.contains("completo") || lower.contains("principal") { "true" } else { "false" };
@@ -667,6 +670,43 @@ impl Planner for LocalPlanner {
                     ("vm_id", &vm_id),
                     ("cpus", &cpus),
                     ("memory", &memory),
+                ])]));
+            }
+        }
+
+        // Intenciones de paquetes inmutables antpkg (T16.2)
+        if lower.contains("antpkg") || lower.contains("paquete") || lower.contains("package") || lower.contains("pkg") {
+            let extract_pkg = || {
+                if let Some(p) = after(&words, &["paquete", "package", "pkg"]) {
+                    if p != "el" && p != "un" && p != "la" && p != "de" && p != "the" && p != "a" {
+                        return p;
+                    }
+                }
+                words.last().cloned().unwrap_or_else(|| "ripgrep".into())
+            };
+
+            if lower.contains("desinstala") || lower.contains("remove") || lower.contains("uninstall") || lower.contains("borra") || lower.contains("elimina") {
+                let pkg_name = extract_pkg();
+                return Ok(Propuesta::solo(vec![step("pkg.remove", &[
+                    ("package", &pkg_name),
+                ])]));
+            } else if lower.contains("rollback") || lower.contains("revierte") || lower.contains("revert") {
+                let gen = after(&words, &["generacion", "generación", "generation", "gen"]);
+                if let Some(g) = gen {
+                    return Ok(Propuesta::solo(vec![step("pkg.rollback", &[("generation", &g)])]));
+                } else {
+                    return Ok(Propuesta::solo(vec![step("pkg.rollback", &[])]));
+                }
+            } else if lower.contains("lista") || lower.contains("list") {
+                return Ok(Propuesta::solo(vec![step("pkg.list", &[])]));
+            } else if lower.contains("verifica") || lower.contains("verify") || lower.contains("check") {
+                return Ok(Propuesta::solo(vec![step("pkg.verify", &[])]));
+            } else if lower.contains("instala") || lower.contains("install") || lower.contains("agrega") || lower.contains("add") {
+                let pkg_name = extract_pkg();
+                let dry_run = if lower.contains("dry-run") || lower.contains("simula") { "true" } else { "false" };
+                return Ok(Propuesta::solo(vec![step("pkg.install", &[
+                    ("package", &pkg_name),
+                    ("dry_run", dry_run),
                 ])]));
             }
         }
@@ -1376,5 +1416,39 @@ mod tests {
         assert_eq!(p_vm_kill.steps.len(), 1);
         assert_eq!(p_vm_kill.steps[0].capability, "microvm.destroy");
         assert_eq!(p_vm_kill.steps[0].args.get("vm_id").map(|s| s.as_str()), Some("vm-test"));
+
+        // antpkg planning tests (T16.2)
+        let p_pkg_inst = planner
+            .plan("instala el paquete ripgrep", &catalog)
+            .expect("plan pkg install");
+        assert_eq!(p_pkg_inst.steps.len(), 1);
+        assert_eq!(p_pkg_inst.steps[0].capability, "pkg.install");
+        assert_eq!(p_pkg_inst.steps[0].args.get("package").map(|s| s.as_str()), Some("ripgrep"));
+
+        let p_pkg_rm = planner
+            .plan("desinstala el paquete curl", &catalog)
+            .expect("plan pkg remove");
+        assert_eq!(p_pkg_rm.steps.len(), 1);
+        assert_eq!(p_pkg_rm.steps[0].capability, "pkg.remove");
+        assert_eq!(p_pkg_rm.steps[0].args.get("package").map(|s| s.as_str()), Some("curl"));
+
+        let p_pkg_rb = planner
+            .plan("haz rollback de paquetes a la generacion 2", &catalog)
+            .expect("plan pkg rollback");
+        assert_eq!(p_pkg_rb.steps.len(), 1);
+        assert_eq!(p_pkg_rb.steps[0].capability, "pkg.rollback");
+        assert_eq!(p_pkg_rb.steps[0].args.get("generation").map(|s| s.as_str()), Some("2"));
+
+        let p_pkg_ls = planner
+            .plan("lista los paquetes instalados", &catalog)
+            .expect("plan pkg list");
+        assert_eq!(p_pkg_ls.steps.len(), 1);
+        assert_eq!(p_pkg_ls.steps[0].capability, "pkg.list");
+
+        let p_pkg_vf = planner
+            .plan("verifica los paquetes antpkg", &catalog)
+            .expect("plan pkg verify");
+        assert_eq!(p_pkg_vf.steps.len(), 1);
+        assert_eq!(p_pkg_vf.steps[0].capability, "pkg.verify");
     }
 }

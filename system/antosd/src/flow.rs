@@ -510,9 +510,9 @@ mod tests {
             AgentRole::VisualQA,
         ];
         for r in roles {
-            assert!(!r.nombre().is_empty());
-            assert!(!r.descripcion().is_empty());
-            assert!(!r.prompt_sistema().is_empty());
+            assert!(!r.name().is_empty());
+            assert!(!r.description().is_empty());
+            assert!(!r.system_prompt().is_empty());
         }
     }
 

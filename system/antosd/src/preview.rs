@@ -326,6 +326,23 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::MicrovmDestroy { vm_id, .. } => {
                 out.push(Line::Info(format!("destruye microVM «{vm_id}» y libera recursos del hipervisor")));
             }
+            Change::PackageInstall { package, dry_run, .. } => {
+                let sim = if *dry_run { " [simulación]" } else { "" };
+                out.push(Line::Info(format!("instala paquete «{package}» en almacén inmutable de antOS{sim}")));
+            }
+            Change::PackageRemove { package, .. } => {
+                out.push(Line::Info(format!("desvincula paquete «{package}» del perfil activo (generación atómica)")));
+            }
+            Change::PackageRollback { generation, .. } => {
+                let gen_str = generation.map(|g| format!(" a generación {g}")).unwrap_or_else(|| " a generación anterior".to_string());
+                out.push(Line::Info(format!("revierte perfil de paquetes{gen_str} de forma atómica")));
+            }
+            Change::PackageList { .. } => {
+                out.push(Line::Info("lista paquetes y generaciones activas en antpkg".to_string()));
+            }
+            Change::PackageVerify { .. } => {
+                out.push(Line::Info("verifica sumas de comprobación SHA-256 e integridad de paquetes".to_string()));
+            }
         }
         pendiente.aplicar(change);
     }

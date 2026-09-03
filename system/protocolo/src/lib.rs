@@ -772,6 +772,74 @@ pub struct MicrovmExecResult {
     pub success: bool,
 }
 
+// ------------------------------------------------------------- packages (antpkg)
+
+/// Declarative package recipe specification (T16.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageManifest {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub source_url: Option<String>,
+    pub sha256: Option<String>,
+    pub signature: Option<String>,
+    pub signer_public_key: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    pub build_script: Option<String>,
+    #[serde(default)]
+    pub binaries: Vec<String>,
+}
+
+/// Summary of an installed package in the immutable store (T16.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageSummary {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub store_hash: String,
+    pub installed_size_bytes: u64,
+    pub installed_at: String,
+    pub binaries: Vec<String>,
+    pub generation: u64,
+}
+
+/// Installation or compilation report for an immutable package (T16.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageInstallReport {
+    pub name: String,
+    pub version: String,
+    pub store_path: String,
+    pub generation: u64,
+    pub binaries_linked: Vec<String>,
+    pub checksum_verified: bool,
+    pub signature_verified: bool,
+    pub success: bool,
+    pub message: String,
+}
+
+/// Global status of the immutable package store and profile generations (T16.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageStoreStatus {
+    pub store_path: String,
+    pub current_profile_path: String,
+    pub current_generation: u64,
+    pub total_packages: usize,
+    pub total_store_bytes: u64,
+    pub generations_count: usize,
+}
+
+/// Snapshot of an immutable profile generation (T16.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackageGeneration {
+    pub generation: u64,
+    pub timestamp: String,
+    pub packages: Vec<String>,
+    pub active: bool,
+}
+
 // ---------------------------------------------------------------- proposal
 
 /// What is presented to a user before touching anything.
@@ -1455,6 +1523,31 @@ pub enum Request {
     /// Query hypervisor status (T16.1).
     #[serde(alias = "QueryMicrovmStatus")]
     QueryMicrovmStatus,
+    /// Install package from local recipe or package name (T16.2).
+    #[serde(alias = "InstallPackage")]
+    InstallPackage {
+        recipe_path_or_name: String,
+        dry_run: bool,
+    },
+    /// Remove package from current active profile (T16.2).
+    #[serde(alias = "RemovePackage")]
+    RemovePackage {
+        package_name: String,
+    },
+    /// List packages installed in current active profile (T16.2).
+    #[serde(alias = "ListPackages")]
+    ListPackages,
+    /// Rollback package profile to a previous generation (T16.2).
+    #[serde(alias = "RollbackPackage")]
+    RollbackPackage {
+        target_generation: Option<u64>,
+    },
+    /// Verify SHA-256 checksums and signatures of installed packages (T16.2).
+    #[serde(alias = "VerifyPackages")]
+    VerifyPackages,
+    /// Query global immutable package store status (T16.2).
+    #[serde(alias = "QueryPackageStoreStatus")]
+    QueryPackageStoreStatus,
 }
 
 /// Type aliases for backwards compatibility.
@@ -1696,6 +1789,25 @@ pub enum Event {
     /// Result of executing a command inside a microVM (T16.1).
     #[serde(alias = "ResultadoMicrovm")]
     MicrovmResult(MicrovmExecResult),
+    /// Package installation and compilation report (T16.2).
+    #[serde(alias = "ReportePaquete")]
+    PackageInstallReport(PackageInstallReport),
+    /// List of packages in active profile or store (T16.2).
+    #[serde(alias = "ListaPaquetes")]
+    PackageList(Vec<PackageSummary>),
+    /// Status and statistics of immutable package store (T16.2).
+    #[serde(alias = "EstadoStore")]
+    PackageStoreStatus(PackageStoreStatus),
+    /// List of profile generations available for rollback (T16.2).
+    #[serde(alias = "ListaGeneracionesPaquetes")]
+    PackageGenerationsList(Vec<PackageGeneration>),
+    /// Result of package integrity and cryptographic verification (T16.2).
+    #[serde(alias = "ResultadoVerificacionPaquetes")]
+    PackageVerificationResult {
+        all_valid: bool,
+        verified_packages: usize,
+        details: Vec<String>,
+    },
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -2659,5 +2771,98 @@ mod tests {
         let json_exec = serde_json::to_string(&ev_exec).expect("serialize exec");
         let des_exec: Event = serde_json::from_str(&json_exec).expect("deserialize exec");
         assert_eq!(ev_exec, des_exec);
+    }
+
+    #[test]
+    fn test_package_types_serialization() {
+        let manifest = PackageManifest {
+            name: "ripgrep".into(),
+            version: "14.1.0".into(),
+            description: "Fast line-oriented search tool".into(),
+            homepage: Some("https://github.com/BurntSushi/ripgrep".into()),
+            license: Some("MIT".into()),
+            source_url: Some("https://github.com/BurntSushi/ripgrep/archive/14.1.0.tar.gz".into()),
+            sha256: Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into()),
+            signature: Some("sig123abc".into()),
+            signer_public_key: Some("pubkey456def".into()),
+            dependencies: vec!["pcre2".into()],
+            build_script: Some("cargo build --release".into()),
+            binaries: vec!["rg".into()],
+        };
+        let json_manifest = serde_json::to_string(&manifest).expect("serialize manifest");
+        let des_manifest: PackageManifest = serde_json::from_str(&json_manifest).expect("deserialize manifest");
+        assert_eq!(manifest, des_manifest);
+
+        let req_install = Request::InstallPackage {
+            recipe_path_or_name: "ripgrep".into(),
+            dry_run: true,
+        };
+        let json_install = serde_json::to_string(&req_install).expect("serialize install req");
+        let des_install: Request = serde_json::from_str(&json_install).expect("deserialize install req");
+        assert_eq!(req_install, des_install);
+
+        let summary = PackageSummary {
+            name: "ripgrep".into(),
+            version: "14.1.0".into(),
+            description: "Fast line-oriented search tool".into(),
+            store_hash: "a1b2c3d4e5f6".into(),
+            installed_size_bytes: 5242880,
+            installed_at: "2026-09-03T08:00:00Z".into(),
+            binaries: vec!["rg".into()],
+            generation: 1,
+        };
+        let ev_list = Event::PackageList(vec![summary.clone()]);
+        let json_list = serde_json::to_string(&ev_list).expect("serialize package list ev");
+        let des_list: Event = serde_json::from_str(&json_list).expect("deserialize package list ev");
+        assert_eq!(ev_list, des_list);
+
+        let report = PackageInstallReport {
+            name: "ripgrep".into(),
+            version: "14.1.0".into(),
+            store_path: "/var/antos/store/a1b2c3d4e5f6-ripgrep-14.1.0".into(),
+            generation: 1,
+            binaries_linked: vec!["rg".into()],
+            checksum_verified: true,
+            signature_verified: true,
+            success: true,
+            message: "Installed successfully".into(),
+        };
+        let ev_report = Event::PackageInstallReport(report);
+        let json_rep = serde_json::to_string(&ev_report).expect("serialize report ev");
+        let des_rep: Event = serde_json::from_str(&json_rep).expect("deserialize report ev");
+        assert_eq!(ev_report, des_rep);
+
+        let status = PackageStoreStatus {
+            store_path: "/var/antos/store".into(),
+            current_profile_path: "/var/antos/current".into(),
+            current_generation: 1,
+            total_packages: 1,
+            total_store_bytes: 5242880,
+            generations_count: 1,
+        };
+        let ev_status = Event::PackageStoreStatus(status);
+        let json_status = serde_json::to_string(&ev_status).expect("serialize store status ev");
+        let des_status: Event = serde_json::from_str(&json_status).expect("deserialize store status ev");
+        assert_eq!(ev_status, des_status);
+
+        let gen = PackageGeneration {
+            generation: 1,
+            timestamp: "2026-09-03T08:00:00Z".into(),
+            packages: vec!["ripgrep@14.1.0".into()],
+            active: true,
+        };
+        let ev_gens = Event::PackageGenerationsList(vec![gen]);
+        let json_gens = serde_json::to_string(&ev_gens).expect("serialize gens ev");
+        let des_gens: Event = serde_json::from_str(&json_gens).expect("deserialize gens ev");
+        assert_eq!(ev_gens, des_gens);
+
+        let ev_verify = Event::PackageVerificationResult {
+            all_valid: true,
+            verified_packages: 1,
+            details: vec!["ripgrep: SHA256 OK".into()],
+        };
+        let json_verify = serde_json::to_string(&ev_verify).expect("serialize verify ev");
+        let des_verify: Event = serde_json::from_str(&json_verify).expect("deserialize verify ev");
+        assert_eq!(ev_verify, des_verify);
     }
 }
