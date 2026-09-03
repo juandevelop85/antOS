@@ -52,3 +52,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 17** | [T17.1](T17.1-aislamiento-de-frontera-git-y-descubrimiento-contextual-de-workspace.md) | Aislamiento de Frontera Git y Descubrimiento Contextual de Workspace | ✅ Completado |
 | **Fase 17** | [T17.2](T17.2-soporte-multi-proyecto-en-visor-de-diffs-y-estado-de-workspace.md) | Soporte Multi-Proyecto en Visor de Diffs y Estado de Workspace | ✅ Completado |
 | **Fase 17** | [T17.3](T17.3-inicializacion-y-gestion-declarativa-de-proyectos-git-en-workspace.md) | Inicialización y Gestión Declarativa de Proyectos Git en Workspace | ✅ Completado |
+| **Fase 17** | [T17.4](T17.4-catalogo-y-gestion-de-tickets-desacoplados-por-proyecto-en-workspace.md) | Catálogo y Gestión de Tickets Desacoplados por Proyecto en Workspace | ⏳ Pendiente |

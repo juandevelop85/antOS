@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/Tests-149%2F149%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-44%2F44%20Completados-brightgreen.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-44%2F45%20(T17.4%20Pendiente)-blue.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -415,6 +415,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 17** | [T17.1](docs/tickets/T17.1-aislamiento-de-frontera-git-y-descubrimiento-contextual-de-workspace.md) · Aislamiento de Frontera Git y Descubrimiento Contextual de Workspace | ✅ Completado |
 | **Fase 17** | [T17.2](docs/tickets/T17.2-soporte-multi-proyecto-en-visor-de-diffs-y-estado-de-workspace.md) · Soporte Multi-Proyecto en Visor de Diffs y Estado de Workspace | ✅ Completado |
 | **Fase 17** | [T17.3](docs/tickets/T17.3-inicializacion-y-gestion-declarativa-de-proyectos-git-en-workspace.md) · Inicialización y Gestión Declarativa de Proyectos Git en Workspace | ✅ Completado |
+| **Fase 17** | [T17.4](docs/tickets/T17.4-catalogo-y-gestion-de-tickets-desacoplados-por-proyecto-en-workspace.md) · Catálogo y Gestión de Tickets Desacoplados por Proyecto en Workspace | ⏳ Pendiente |
 
 ---
 
