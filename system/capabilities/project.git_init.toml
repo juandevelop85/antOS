@@ -1,0 +1,15 @@
+name = "project.git_init"
+summary = "Initializes an isolated Git repository inside a developer project under workspace/ (T17.3)"
+
+[params]
+project = { type = "slug", max = 128 }
+branch  = { type = "text", optional = true }
+# Language hint for .gitignore template generation (auto-detected if omitted).
+language = { type = "enum", of = ["rust", "typescript", "python", "go", "auto"], optional = true }
+
+[effects]
+writes = ["$WORKSPACE/{project}/.git/", "$WORKSPACE/{project}/.gitignore"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

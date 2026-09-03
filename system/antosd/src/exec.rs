@@ -369,6 +369,13 @@ pub enum Change {
         label: Option<String>,
         ttl: Option<u64>,
     },
+    /// T17.3 — Initializes an isolated Git repository in a developer project
+    /// under workspace/, with optional branch name and auto-detected .gitignore.
+    ProjectGitInit {
+        project_dir: PathBuf,
+        branch: String,
+        language_hint: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -490,7 +497,8 @@ impl Pendiente {
             | Change::WebStart { .. }
             | Change::WebStop { .. }
             | Change::WebStatus { .. }
-            | Change::WebToken { .. } => {}
+            | Change::WebToken { .. }
+            | Change::ProjectGitInit { .. } => {}
         }
     }
 }
@@ -522,11 +530,36 @@ pub fn changes_for(
         "fs.mkdir" => Ok(vec![Change::Mkdir { path: abs(ctx, &a["path"]) }]),
 
         "project.scaffold" => {
-            let root = ctx.workspace.join(&a["name"]);
-            Ok(scaffold(&a["language"], &a["name"])
+            let name = &a["name"];
+            let language = &a["language"];
+            let root = ctx.workspace.join(name);
+            // T17.3: project.scaffold now also emits a ProjectGitInit change so every
+            // newly scaffolded project starts with a clean, isolated Git repository.
+            let mut changes: Vec<Change> = scaffold(language, name)
                 .into_iter()
                 .map(|(rel, content)| Change::Write { path: root.join(rel), content })
-                .collect())
+                .collect();
+            changes.push(Change::ProjectGitInit {
+                project_dir: root,
+                branch: "main".into(),
+                language_hint: Some(language.clone()),
+            });
+            Ok(changes)
+        }
+
+        "project.git_init" => {
+            let project_name = a.get("project").cloned().unwrap_or_default();
+            let branch = a.get("branch").cloned().unwrap_or_else(|| "main".into());
+            let language_hint = a.get("language").filter(|l| *l != "auto").cloned();
+            let project_dir = {
+                let candidate = std::path::Path::new(&project_name);
+                if candidate.is_absolute() {
+                    candidate.to_path_buf()
+                } else {
+                    ctx.workspace.join(&project_name)
+                }
+            };
+            Ok(vec![Change::ProjectGitInit { project_dir, branch, language_hint }])
         }
 
         "pkg.declare" => {
@@ -1826,9 +1859,25 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         .map(|p| p.display().to_string())
                         .unwrap_or_default();
 
+                    let target_ref = target.as_deref().unwrap_or("HEAD");
+                    let mut check_head = std::process::Command::new("git");
+                    check_head.current_dir(diff_dir).args(["rev-parse", "--verify", "HEAD"]);
+                    if !ceiling_val.is_empty() {
+                        check_head.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+                    }
+                    let has_commits = check_head.output().map(|o| o.status.success()).unwrap_or(false);
+
+                    if !has_commits && target_ref == "HEAD" {
+                        output.push(format!(
+                            "project '{}' is a newly initialized Git repository (initial commit pending)",
+                            diff_dir.display()
+                        ));
+                        return Ok(output);
+                    }
+
                     let mut cmd = std::process::Command::new("git");
                     cmd.current_dir(diff_dir)
-                        .args(&["diff", target.as_deref().unwrap_or("HEAD")]);
+                        .args(&["diff", target_ref]);
                     if !ceiling_val.is_empty() {
                         cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
                     }
@@ -2445,6 +2494,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let session = crate::web::WebEngine::generate_token(state_dir, label.clone(), *ttl)?;
                 output.push(format!("antOS Web Console · Token generado exitosamente:\n  • Token:     {}\n  • Expira en: {}s{}", session.token, session.expires_at.saturating_sub(session.created_at), session.client_label.as_ref().map(|l| format!("\n  • Cliente:   {l}")).unwrap_or_default()));
             }
+            Change::ProjectGitInit { project_dir, branch, language_hint } => {
+                let msg = init_project_git_repo(project_dir, branch, language_hint.as_deref())?;
+                output.push(msg);
+            }
         }
     }
     Ok(output)
@@ -2617,16 +2670,190 @@ pub(crate) fn scan_workspace_projects(workspace: &std::path::Path) -> Vec<std::p
     let Ok(entries) = std::fs::read_dir(workspace) else {
         return Vec::new();
     };
+    let skip_dirs = &["target", "node_modules", "dist", "build", ".git", ".antos"];
     let mut projects: Vec<_> = entries
         .filter_map(|e| e.ok())
         .filter(|e| {
+            let name = e.file_name();
+            let name_str = name.to_string_lossy();
             e.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                && !e.file_name().to_string_lossy().starts_with('.')
+                && !name_str.starts_with('.')
+                && !skip_dirs.contains(&name_str.as_ref())
         })
         .map(|e| e.path())
         .collect();
     projects.sort();
     projects
+}
+
+// ─────────────────────────────────────────────────────────────── T17.3 ──────
+
+/// Returns the language-specific .gitignore template for a project.
+pub fn gitignore_template(language: &str) -> &'static str {
+    match language {
+        "rust" => "\
+# Generated by antOS (T17.3) for Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+*.pdb
+",
+        "typescript" | "javascript" | "node" => "\
+# Generated by antOS (T17.3) for Node / TypeScript
+node_modules/
+dist/
+build/
+.env
+*.log
+.npm
+",
+        "python" => "\
+# Generated by antOS (T17.3) for Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+",
+        "go" => "\
+# Generated by antOS (T17.3) for Go
+/bin/
+/dist/
+*.exe
+*.test
+vendor/
+",
+        _ => "\
+# Generated by antOS (T17.3)
+.DS_Store
+Thumbs.db
+*.log
+.env
+",
+    }
+}
+
+/// Heuristically detects the technology stack of a project directory based on its files.
+pub fn detect_project_language(dir: &Path) -> String {
+    if dir.join("Cargo.toml").exists() {
+        "rust".into()
+    } else if dir.join("package.json").exists() || dir.join("tsconfig.json").exists() {
+        "typescript".into()
+    } else if dir.join("pyproject.toml").exists()
+        || dir.join("requirements.txt").exists()
+        || dir.join("main.py").exists()
+    {
+        "python".into()
+    } else if dir.join("go.mod").exists() {
+        "go".into()
+    } else {
+        "default".into()
+    }
+}
+
+/// Initializes an isolated Git repository in `project_dir` with the given branch (default `main`)
+/// and generates a tech-stack adapted `.gitignore` if not already present.
+///
+/// Uses `GIT_CEILING_DIRECTORIES` so that Git cannot ascend into the antOS OS repository.
+pub fn init_project_git_repo(
+    project_dir: &Path,
+    branch: &str,
+    language_hint: Option<&str>,
+) -> Result<String> {
+    std::fs::create_dir_all(project_dir)
+        .with_context(|| format!("creando directorio de proyecto {}", project_dir.display()))?;
+
+    // 1. Generate .gitignore if missing
+    let gitignore_path = project_dir.join(".gitignore");
+    let mut gitignore_created = false;
+    if !gitignore_path.exists() {
+        let lang = language_hint
+            .map(|l| l.to_lowercase())
+            .unwrap_or_else(|| detect_project_language(project_dir));
+        let content = gitignore_template(&lang);
+        std::fs::write(&gitignore_path, content)
+            .with_context(|| format!("escribiendo {}", gitignore_path.display()))?;
+        gitignore_created = true;
+    }
+
+    // 2. Initialize Git if .git is missing
+    let git_dir = project_dir.join(".git");
+    let antos_root = crate::git::detect_antos_root();
+    let already_git = git_dir.exists();
+
+    if !already_git {
+        // Run git init -b <branch>
+        let mut init_cmd = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+        init_cmd.current_dir(project_dir).args(["init", "-b", branch]);
+        let mut init_res = init_cmd.output();
+
+        // Fallback for older git versions where -b might not be supported
+        if let Ok(ref out) = init_res {
+            if !out.status.success() {
+                let mut fallback_cmd = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+                fallback_cmd.current_dir(project_dir).arg("init");
+                init_res = fallback_cmd.output();
+
+                if let Ok(ref out2) = init_res {
+                    if out2.status.success() {
+                        let mut checkout_cmd = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+                        checkout_cmd.current_dir(project_dir).args(["checkout", "-b", branch]);
+                        let _ = checkout_cmd.output();
+                    }
+                }
+            }
+        }
+
+        let out = init_res.context("ejecutando git init")?;
+        if !out.status.success() {
+            bail!("git init falló: {}", String::from_utf8_lossy(&out.stderr));
+        }
+
+        // Configure default user.name and user.email if not set locally
+        let mut cfg_name = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+        cfg_name.current_dir(project_dir).args(["config", "--local", "user.name"]);
+        if let Ok(out) = cfg_name.output() {
+            if out.stdout.is_empty() {
+                let mut set_name = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+                set_name.current_dir(project_dir).args(["config", "--local", "user.name", "antOS Developer"]);
+                let _ = set_name.output();
+            }
+        }
+        let mut cfg_email = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+        cfg_email.current_dir(project_dir).args(["config", "--local", "user.email"]);
+        if let Ok(out) = cfg_email.output() {
+            if out.stdout.is_empty() {
+                let mut set_email = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+                set_email.current_dir(project_dir).args(["config", "--local", "user.email", "developer@antos.local"]);
+                let _ = set_email.output();
+            }
+        }
+    }
+
+    let proj_name = project_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| project_dir.display().to_string());
+
+    let status_str = if already_git {
+        format!("proyecto «{proj_name}»: repositorio Git ya existía en {}", project_dir.display())
+    } else {
+        format!("proyecto «{proj_name}»: repositorio Git inicializado en {} (rama: {branch})", project_dir.display())
+    };
+
+    let gi_str = if gitignore_created {
+        " con plantilla .gitignore generada"
+    } else {
+        ""
+    };
+
+    Ok(format!("{status_str}{gi_str}"))
 }
 
 #[cfg(test)]
@@ -2706,6 +2933,100 @@ mod tests {
             "collect_project_files must not exceed the limit; got {}",
             files.len()
         );
+    }
+
+
+    // ────────────────────────────────────────────────────── T17.3 tests ──
+
+    /// T17.3 — detect_project_language correctly identifies rust, typescript, and python stacks.
+    #[test]
+    fn test_detect_project_language() {
+        let tmp = std::env::temp_dir().join(format!("antos_lang_detect_{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("rust_p")).unwrap();
+        std::fs::write(tmp.join("rust_p/Cargo.toml"), "[package]").unwrap();
+        assert_eq!(detect_project_language(&tmp.join("rust_p")), "rust");
+
+        std::fs::create_dir_all(tmp.join("ts_p")).unwrap();
+        std::fs::write(tmp.join("ts_p/package.json"), "{}").unwrap();
+        assert_eq!(detect_project_language(&tmp.join("ts_p")), "typescript");
+
+        std::fs::create_dir_all(tmp.join("py_p")).unwrap();
+        std::fs::write(tmp.join("py_p/pyproject.toml"), "").unwrap();
+        assert_eq!(detect_project_language(&tmp.join("py_p")), "python");
+
+        std::fs::create_dir_all(tmp.join("other_p")).unwrap();
+        assert_eq!(detect_project_language(&tmp.join("other_p")), "default");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// T17.3 — gitignore_template generates expected ignore patterns.
+    #[test]
+    fn test_gitignore_template_patterns() {
+        assert!(gitignore_template("rust").contains("/target/"));
+        assert!(gitignore_template("rust").contains("Cargo.lock"));
+
+        assert!(gitignore_template("typescript").contains("node_modules/"));
+        assert!(gitignore_template("node").contains("dist/"));
+
+        assert!(gitignore_template("python").contains("__pycache__/"));
+        assert!(gitignore_template("python").contains(".venv/"));
+
+        assert!(gitignore_template("go").contains("/bin/"));
+    }
+
+    /// T17.3 — init_project_git_repo creates an isolated git repo with branch and .gitignore.
+    #[test]
+    fn test_init_project_git_repo_creates_repo_and_gitignore() {
+        let tmp = std::env::temp_dir().join(format!("antos_git_init_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // create a Cargo.toml so language auto-detects as rust
+        std::fs::write(tmp.join("Cargo.toml"), "[package]\nname=\"sample\"").unwrap();
+
+        let msg = init_project_git_repo(&tmp, "main", None).expect("init_project_git_repo");
+        assert!(msg.contains("inicializado"));
+        assert!(tmp.join(".git").exists(), ".git directory must exist");
+        assert!(tmp.join(".gitignore").exists(), ".gitignore file must exist");
+
+        let gi_content = std::fs::read_to_string(tmp.join(".gitignore")).unwrap();
+        assert!(gi_content.contains("/target/"), ".gitignore must contain rust patterns");
+
+        // Verify ceiling-aware branch is main
+        let out = std::process::Command::new("git")
+            .current_dir(&tmp)
+            .args(["branch", "--show-current"])
+            .output();
+        if let Ok(o) = out {
+            let branch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            assert_eq!(branch, "main", "initial branch must be main");
+        }
+
+        // Re-running on existing repo should report it already existed
+        let msg2 = init_project_git_repo(&tmp, "main", None).expect("idempotent init");
+        assert!(msg2.contains("ya existía"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// T17.3 — project.scaffold capability now emits a ProjectGitInit change.
+    #[test]
+    fn test_scaffold_emits_project_git_init() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = crate::capability::Catalog::load(&ctx.caps_dir).expect("catalog");
+        let pendiente = Pendiente::default();
+
+        let mut args = BTreeMap::new();
+        args.insert("name".into(), "auth-service".into());
+        args.insert("language".into(), "rust".into());
+        let step = Step {
+            capability: "project.scaffold".into(),
+            args,
+        };
+        let cap = catalog.get("project.scaffold").expect("cap project.scaffold");
+        let changes = changes_for(&step, cap, &ctx, &pendiente).expect("changes");
+
+        let has_git_init = changes.iter().any(|c| matches!(c, Change::ProjectGitInit { .. }));
+        assert!(has_git_init, "project.scaffold must emit Change::ProjectGitInit");
     }
 
     #[test]

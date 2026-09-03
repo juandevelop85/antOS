@@ -150,6 +150,8 @@ fn run() -> Result<()> {
         "pkg" | "antpkg" | "package" => cmd_pkg(&ctx, &rest[1..]),
         "autopilot" | "sentinel" | "centinela" => cmd_autopilot(&ctx, &rest[1..]),
         "web" | "webconsole" | "remote-console" => cmd_web(&ctx, &rest[1..]),
+        "project" | "projects" | "proyectos" => cmd_project(&ctx, &rest[1..]),
+        "git" => cmd_git(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -1535,6 +1537,46 @@ fn diff_single_project(
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
+    // Check if HEAD exists. If not, the repo is newly initialized with no commits.
+    let mut check_head = std::process::Command::new("git");
+    check_head.current_dir(proj).args(["rev-parse", "--verify", "HEAD"]);
+    if !ceiling_val.is_empty() {
+        check_head.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+    }
+    let has_commits = check_head.output().map(|o| o.status.success()).unwrap_or(false);
+
+    if !has_commits && target == "HEAD" {
+        let mut status_cmd = std::process::Command::new("git");
+        status_cmd.current_dir(proj).args(["status", "--porcelain"]);
+        if !ceiling_val.is_empty() {
+            status_cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+        }
+        if let Ok(st_out) = status_cmd.output() {
+            let st_str = String::from_utf8_lossy(&st_out.stdout);
+            let lines: Vec<&str> = st_str.lines().filter(|l| !l.trim().is_empty()).collect();
+            if lines.is_empty() {
+                println!(
+                    "  {} {} — repositorio Git inicializado (árbol limpio, sin commits aún).
+",
+                    paint("✓", GREEN),
+                    paint(&project_name, BOLD)
+                );
+            } else {
+                println!(
+                    "  {} {} — repositorio Git inicializado ({} archivo(s) pendientes de commit inicial):",
+                    paint("●", CYAN),
+                    paint(&project_name, BOLD),
+                    lines.len()
+                );
+                for line in &lines {
+                    println!("    {}", paint(line.trim(), DIM));
+                }
+                println!();
+            }
+        }
+        return;
+    }
+
     let mut git_cmd = std::process::Command::new("git");
     git_cmd.current_dir(proj).args(&["diff", target]);
     if !ceiling_val.is_empty() {
@@ -1573,6 +1615,210 @@ fn diff_single_project(
     }
 }
 
+
+// ----------------------------------------------------------- project / git (T17.3)
+
+fn cmd_project(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+
+    match sub {
+        "init" => cmd_project_init(ctx, &args[1..]),
+        "list" | "ls" => cmd_project_list(ctx),
+        _ => {
+            println!(
+                "\n{}\n",
+                paint("antOS · Gestión de Proyectos en Workspace (T17.3)", BOLD)
+            );
+            println!("  Uso:");
+            println!("    antos project init <nombre> [--branch <rama>] [--lang <lenguaje>]");
+            println!("    antos project list");
+            println!("    antos git init [nombre]");
+            println!();
+            Ok(())
+        }
+    }
+}
+
+fn cmd_git(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "init" => cmd_project_init(ctx, &args[1..]),
+        "diff" => cmd_diff(ctx, &args[1..]),
+        "status" | "st" => {
+            let target_dir = ctx.current_project.as_deref().unwrap_or(&ctx.workspace);
+            let proj_name = target_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| target_dir.display().to_string());
+
+            println!(
+                "\n{} {}",
+                paint("antOS Git · Estado de", BOLD),
+                paint(&proj_name, CYAN)
+            );
+            println!("  Directorio: {}", paint(&target_dir.display().to_string(), DIM));
+
+            let antos_root = ctx.antos_root.as_deref();
+            if git::find_git_root_with_ceiling(target_dir, antos_root).is_none() {
+                println!(
+                    "  {} No es un repositorio Git propio.\n  Inicialízalo con: {}\n",
+                    paint("⚠", YELLOW),
+                    paint(&format!("antos project init {}", proj_name), CYAN)
+                );
+                return Ok(());
+            }
+
+            if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(target_dir)? {
+                let branch_str = status.branch.unwrap_or_else(|| "HEAD desacoplado".into());
+                println!("  Rama activa:    {}", paint(&branch_str, GREEN));
+                println!("  Sincronización: +{} / -{}", status.ahead, status.behind);
+                println!("  Modificados:    {}", status.modified.len());
+                println!("  Staged:         {}", status.staged.len());
+                println!("  Sin seguimiento: {}\n", status.untracked.len());
+            } else {
+                println!("  (no se pudo determinar el estado)\n");
+            }
+            Ok(())
+        }
+        _ => {
+            println!(
+                "\n{}\n",
+                paint("antOS · Integración Git Aislada (T17.3)", BOLD)
+            );
+            println!("  Subcomandos:");
+            println!("    antos git init [nombre]");
+            println!("    antos git status");
+            println!("    antos git diff [ref]");
+            println!();
+            Ok(())
+        }
+    }
+}
+
+fn cmd_project_init(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let mut project_name: Option<String> = None;
+    let mut branch = "main".to_string();
+    let mut language_hint: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-b" | "--branch" => {
+                if let Some(b) = args.get(i + 1) {
+                    branch = b.clone();
+                    i += 1;
+                }
+            }
+            "-l" | "--lang" | "--language" => {
+                if let Some(l) = args.get(i + 1) {
+                    language_hint = Some(l.clone());
+                    i += 1;
+                }
+            }
+            other if !other.starts_with('-') && project_name.is_none() => {
+                project_name = Some(other.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    let project_dir = if let Some(ref name) = project_name {
+        let candidate = std::path::Path::new(name);
+        if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            ctx.workspace.join(name)
+        }
+    } else if let Some(ref current) = ctx.current_project {
+        current.clone()
+    } else {
+        bail!(
+            "Especifica el nombre del proyecto a inicializar:\n    antos project init <nombre>\n    antos git init <nombre>"
+        );
+    };
+
+    println!(
+        "\n{}",
+        paint("antOS · Inicialización Declarativa de Proyecto Git (T17.3)", BOLD)
+    );
+    println!(
+        "  Espacio de trabajo: {}",
+        paint(&ctx.workspace.display().to_string(), DIM)
+    );
+
+    let display_name = project_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| project_dir.display().to_string());
+
+    println!("  Proyecto:           {}", paint(&display_name, CYAN));
+    println!("  Ruta física:        {}", paint(&project_dir.display().to_string(), DIM));
+    println!("  Rama principal:     {}", paint(&branch, GREEN));
+
+    let res = crate::exec::init_project_git_repo(&project_dir, &branch, language_hint.as_deref())?;
+
+    println!("\n  {} {}\n", paint("✓", GREEN), res);
+    println!("  Para inspeccionar los cambios del proyecto, ejecuta:");
+    println!(
+        "      {}\n",
+        paint(&format!("antos diff {}", display_name), DIM)
+    );
+
+    Ok(())
+}
+
+fn cmd_project_list(ctx: &Ctx) -> Result<()> {
+    println!(
+        "\n{}",
+        paint("antOS · Proyectos en Espacio de Trabajo (T17.3)", BOLD)
+    );
+    println!(
+        "  Espacio de trabajo: {}\n",
+        paint(&ctx.workspace.display().to_string(), DIM)
+    );
+
+    let projects = crate::exec::scan_workspace_projects(&ctx.workspace);
+    if projects.is_empty() {
+        println!("  (no se encontraron proyectos en workspace/)\n");
+        println!(
+            "  Crea uno con: {}\n",
+            paint("antos project init <nombre>", CYAN)
+        );
+        return Ok(());
+    }
+
+    let antos_root = ctx.antos_root.as_deref();
+
+    for proj in &projects {
+        let name = proj
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| proj.display().to_string());
+
+        let has_git = git::find_git_root_with_ceiling(proj, antos_root).is_some();
+        let lang = crate::exec::detect_project_language(proj);
+        let file_count = crate::exec::collect_project_files(proj, 100).len();
+
+        let git_badge = if has_git {
+            paint("● Git activo", GREEN)
+        } else {
+            paint("○ Sin Git", YELLOW)
+        };
+
+        println!(
+            "  • {}  [{}]  (stack: {}, {} archivos)",
+            paint(&name, BOLD),
+            git_badge,
+            paint(&lang, CYAN),
+            file_count
+        );
+    }
+    println!();
+
+    Ok(())
+}
 
 // ------------------------------------------------------------------ terminal / vte
 
@@ -4982,7 +5228,9 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos log                  bitácora de lo que ha pasado
   antos undo [--ticket id]   revierte el último plan o todos los cambios de un ticket
   antos doctor               comprueba que el recinto es real, atacándolo
-  antos demonio              atiende peticiones por socket (lo que usará el escritorio)
+  antos diff [proyecto] [ref] visor interactivo de diffs y parches por proyecto
+  antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
+  antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]
   antos revoke <cap>
 

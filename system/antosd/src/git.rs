@@ -66,7 +66,7 @@ fn ceiling_for_root(antos_root: &Path) -> String {
 ///
 /// If `antos_root` is `None` the environment variable is not injected (safe
 /// fallback for contexts where the root is unknown).
-fn git_cmd_with_ceiling(antos_root: Option<&Path>) -> Command {
+pub(crate) fn git_cmd_with_ceiling(antos_root: Option<&Path>) -> Command {
     let mut cmd = Command::new("git");
     if let Some(root) = antos_root {
         cmd.env("GIT_CEILING_DIRECTORIES", ceiling_for_root(root));

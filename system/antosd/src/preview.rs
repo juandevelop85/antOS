@@ -372,6 +372,13 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let lbl_str = label.as_ref().map(|l| format!(" para «{l}»")).unwrap_or_default();
                 out.push(Line::Info(format!("genera token temporal de acceso seguro{lbl_str}")));
             }
+            Change::ProjectGitInit { project_dir, branch, language_hint } => {
+                let lang_str = language_hint.as_ref().map(|l| format!(" ({l})")).unwrap_or_default();
+                out.push(Line::Info(format!(
+                    "inicializa repositorio Git aislado en «{}» con rama «{branch}» y .gitignore{lang_str}",
+                    project_dir.display()
+                )));
+            }
         }
         pendiente.aplicar(change);
     }
