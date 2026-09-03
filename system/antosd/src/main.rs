@@ -1382,18 +1382,66 @@ fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
     let target = args.first().map(String::as_str).unwrap_or("HEAD");
     println!(
         "\n{}",
-        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1)", BOLD)
+        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1 / T17.1)", BOLD)
     );
     println!(
         "  Espacio de trabajo: {}",
         paint(&ctx.workspace.display().to_string(), DIM)
     );
+
+    // Show active project if detected (T17.1 contextual discovery)
+    if let Some(ref proj) = ctx.current_project {
+        println!("  Proyecto activo:     {}", paint(&proj.display().to_string(), DIM));
+    }
+
     println!("  Objetivo:           {}\n", paint(target, BOLD));
 
-    let git_out = std::process::Command::new("git")
-        .current_dir(&ctx.workspace)
-        .args(&["diff", target])
-        .output();
+    // Determine the directory to diff: prefer the active project, fall back to workspace root.
+    let diff_dir = ctx.current_project.as_deref().unwrap_or(&ctx.workspace);
+
+    // Verify there is a .git repo in the project dir using the ceiling-aware search.
+    // This prevents leaking the antOS OS repo when a project has no .git of its own.
+    let antos_root = ctx.antos_root.clone();
+    let project_has_git =
+        git::find_git_root_with_ceiling(diff_dir, antos_root.as_deref()).is_some();
+
+    if !project_has_git {
+        println!(
+            "  {} El directorio del proyecto no es un repositorio Git.\n",
+            paint("⚠ Sin repositorio:", YELLOW)
+        );
+        println!("  Para inicializar el control de versiones en este proyecto, ejecuta:\n");
+        println!(
+            "      {}",
+            paint(
+                &format!(
+                    "git init {} && git -C {} checkout -b main",
+                    diff_dir.display(),
+                    diff_dir.display()
+                ),
+                DIM
+            )
+        );
+        println!("\n  O utiliza el comando antOS:\n");
+        println!("      {}\n", paint("antos project init <nombre>", DIM));
+        return Ok(());
+    }
+
+    // Build the git diff command with GIT_CEILING_DIRECTORIES to enforce isolation.
+    let ceiling_val = antos_root
+        .as_deref()
+        .and_then(|r| r.parent())
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+
+    let mut git_cmd = std::process::Command::new("git");
+    git_cmd.current_dir(diff_dir);
+    if !ceiling_val.is_empty() {
+        git_cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+    }
+    git_cmd.args(&["diff", target]);
+
+    let git_out = git_cmd.output();
 
     match git_out {
         Ok(out) if out.status.success() => {
@@ -1402,8 +1450,13 @@ fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             if files.is_empty() {
                 println!(
-                    "  {} No hay cambios ni diferencias pendientes contra «{target}».\n",
-                    paint("✓ Repositorio limpio:", GREEN)
+                    "  {} No hay cambios ni diferencias pendientes contra «{target}».{}\n",
+                    paint("✓ Repositorio limpio:", GREEN),
+                    if ctx.current_project.is_some() {
+                        format!(" (proyecto: {})", diff_dir.display())
+                    } else {
+                        String::new()
+                    }
                 );
             } else {
                 let rendered = diff_view::DiffEngine::render_terminal(&files);
@@ -1412,8 +1465,13 @@ fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         _ => {
             println!(
-                "  {} No se pudo invocar git diff en el espacio de trabajo.\n",
-                paint("✗ Error:", RED)
+                "  {} No se pudo invocar git diff en el espacio de trabajo.{}\n",
+                paint("✗ Error:", RED),
+                if !ceiling_val.is_empty() {
+                    format!(" (GIT_CEILING_DIRECTORIES={})", ceiling_val)
+                } else {
+                    String::new()
+                }
             );
         }
     }
