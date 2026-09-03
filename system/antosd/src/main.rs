@@ -3255,11 +3255,22 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         "iso" => {
+            let mut arch = "x86_64";
+            let mut iter = args.iter().skip(1);
+            while let Some(a) = iter.next() {
+                if a == "--arch" {
+                    if let Some(val) = iter.next() {
+                        arch = val.as_str();
+                    }
+                } else if a == "aarch64" || a == "arm64" {
+                    arch = "aarch64";
+                }
+            }
             println!(
-                "\n{} Construyendo imagen Live ISO autoarrancable...",
+                "\n{} Construyendo imagen Live ISO autoarrancable ({arch})...",
                 paint("antOS Boot ·", BOLD)
             );
-            let iso = engine.build_iso(&ctx.workspace)?;
+            let iso = engine.build_iso_arch(&ctx.workspace, arch)?;
             println!(
                 "  {} {}\n",
                 paint("✓ Live ISO generada:", GREEN),

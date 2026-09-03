@@ -188,9 +188,44 @@ impl BootEngine {
         }
     }
 
-    /// Genera la imagen Live ISO autoarrancable de antOS (T14.3).
+    /// Genera la imagen Live ISO autoarrancable de antOS (T14.3 / T18.4).
     pub fn build_iso(&self, workspace: &Path) -> Result<PathBuf> {
+        self.build_iso_arch(workspace, "x86_64")
+    }
+
+    /// Genera la imagen Live ISO autoarrancable para una arquitectura específica (x86_64 o AArch64).
+    pub fn build_iso_arch(&self, workspace: &Path, arch: &str) -> Result<PathBuf> {
         let root = Self::find_repo_root(workspace);
+
+        if arch.eq_ignore_ascii_case("aarch64") || arch.eq_ignore_ascii_case("arm64") {
+            let kernel_elf = root.join("kernel/target/aarch64-unknown-none/debug/kernel");
+            if !kernel_elf.exists() {
+                let status = Command::new("cargo")
+                    .args(["build", "--target", "aarch64-unknown-none", "--manifest-path"])
+                    .arg(root.join("kernel/Cargo.toml"))
+                    .status()?;
+                if !status.success() {
+                    bail!("Error al compilar el kernel para AArch64");
+                }
+            }
+
+            let status = Command::new("cargo")
+                .args(["run", "-p", "builder", "--"])
+                .arg(&kernel_elf)
+                .args(["--arch", "aarch64", "--format", "iso"])
+                .current_dir(&root)
+                .status()?;
+            if !status.success() {
+                bail!("Error al generar la ISO con builder para AArch64");
+            }
+
+            let iso_path = root.join("kernel/target/aarch64-unknown-none/debug/antos-aarch64.iso");
+            if !iso_path.exists() {
+                bail!("La ISO AArch64 no fue encontrada en {}", iso_path.display());
+            }
+            return Ok(iso_path);
+        }
+
         let iso_script = root.join("system/iso/build-iso.sh");
         if !iso_script.exists() {
             bail!("No se encontró el script de construcción de ISO en {}", iso_script.display());
