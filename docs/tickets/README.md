@@ -54,6 +54,6 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 17** | [T17.3](T17.3-inicializacion-y-gestion-declarativa-de-proyectos-git-en-workspace.md) | Inicialización y Gestión Declarativa de Proyectos Git en Workspace | ✅ Completado |
 | **Fase 17** | [T17.4](T17.4-catalogo-y-gestion-de-tickets-desacoplados-por-proyecto-en-workspace.md) | Catálogo y Gestión de Tickets Desacoplados por Proyecto en Workspace | ✅ Completado |
 | **Fase 18** | [T18.1](T18.1-abstraccion-de-capa-de-hardware-hal-y-desacoplamiento-de-arquitectura-en-kernel.md) | Abstracción de Capa de Hardware (HAL) y Desacoplamiento de Arquitectura en Kernel | ✅ Completado |
-| **Fase 18** | [T18.2](T18.2-arranque-aarch64-consola-serie-pl011-y-vectores-de-excepcion-vbar-el1.md) | Arranque AArch64, Consola Serie PL011 y Vectores de Excepción VBAR_EL1 | ⏳ Pendiente |
+| **Fase 18** | [T18.2](T18.2-arranque-aarch64-consola-serie-pl011-y-vectores-de-excepcion-vbar-el1.md) | Arranque AArch64, Consola Serie PL011 y Vectores de Excepción VBAR_EL1 | ✅ Completado |
 | **Fase 18** | [T18.3](T18.3-paginacion-aarch64-ttbr0-ttbr1-y-controlador-de-interrupciones-gic.md) | Paginación AArch64 (TTBR0/TTBR1) y Controlador de Interrupciones GIC | ⏳ Pendiente |
 | **Fase 18** | [T18.4](T18.4-llamadas-al-sistema-svc-en-aarch64-y-generacion-de-imagenes-uefi-bootaa64-efi.md) | Llamadas al Sistema (SVC) en AArch64 y Generación de Imágenes UEFI (BOOTAA64.EFI) | ⏳ Pendiente |

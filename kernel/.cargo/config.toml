@@ -1,4 +1,6 @@
-# Con esto, un `cargo build` dentro de kernel/ ya sale cruzado al target
-# bare-metal sin tener que acordarse de --target.
+# Configuración de compilación cruzada para antOS Kernel.
 [build]
 target = "x86_64-unknown-none"
+
+[target.aarch64-unknown-none]
+rustflags = ["-C", "link-arg=-Tsrc/arch/aarch64/linker.ld"]

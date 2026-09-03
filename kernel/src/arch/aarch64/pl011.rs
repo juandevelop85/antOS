@@ -91,3 +91,17 @@ impl fmt::Write for Pl011Uart {
         Ok(())
     }
 }
+
+/// Direct unbuffered console for emergency panic reporting.
+pub fn emergency() -> Pl011Uart {
+    let mut uart = Pl011Uart::new(DEFAULT_PL011_BASE);
+    uart.init();
+    uart
+}
+
+/// Implementation detail for print! and println! macros on AArch64.
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    let _ = crate::arch::aarch64::SERIAL.lock().write_fmt(args);
+}

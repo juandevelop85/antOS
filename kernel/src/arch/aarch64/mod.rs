@@ -1,9 +1,12 @@
 //! AArch64 (ARM 64-bit) architecture support for antOS Kernel.
 
+pub mod entry;
 pub mod exceptions;
 pub mod mmu;
 pub mod pl011;
 pub mod syscall;
+
+pub use pl011 as serial;
 
 use crate::arch::traits::{ArchInterrupts, ArchSyscall};
 use crate::sync::SpinLock;

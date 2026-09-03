@@ -125,14 +125,3 @@ pub fn _print(args: fmt::Arguments) {
     // `.unwrap()` es correcto aquí: nuestro write_str no puede fallar.
     SERIAL.lock().write_fmt(args).unwrap();
 }
-
-#[macro_export]
-macro_rules! print {
-    ($($arg:tt)*) => ($crate::serial::_print(format_args!($($arg)*)));
-}
-
-#[macro_export]
-macro_rules! println {
-    () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
-}

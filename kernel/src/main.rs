@@ -6,53 +6,87 @@
 
 #![no_std]
 #![no_main]
-// La razón concreta por la que este proyecto usa nightly: sin esta convención
-// de llamada habría que escribir a mano el prólogo y el epílogo de cada
-// manejador de interrupción en ensamblador.
 #![cfg_attr(target_arch = "x86_64", feature(abi_x86_interrupt))]
 
 // El crate `alloc` trae Box, Vec, String y compañía. No forma parte de core,
 // pero tampoco necesita sistema operativo: solo un #[global_allocator].
 extern crate alloc;
 
+#[allow(dead_code)]
 mod allocator;
 pub mod arch;
+#[allow(dead_code)]
 mod elf;
+#[allow(dead_code)]
 mod memory;
+#[allow(dead_code)]
 mod sync;
+#[allow(dead_code)]
 mod task;
 
 #[cfg(target_arch = "x86_64")]
 pub use arch::current::{gdt, interrupts, port, serial, userspace};
 
 #[cfg(target_arch = "aarch64")]
-pub use arch::current::{exceptions, mmu, pl011, syscall};
+pub use arch::current::{entry, exceptions, mmu, pl011, serial, syscall};
 
+#[cfg(target_arch = "x86_64")]
 use alloc::boxed::Box;
+#[cfg(target_arch = "x86_64")]
 use alloc::string::String;
+#[cfg(target_arch = "x86_64")]
 use alloc::vec::Vec;
+#[cfg(target_arch = "x86_64")]
 use bootloader_api::config::{BootloaderConfig, Mapping};
+#[cfg(target_arch = "x86_64")]
 use bootloader_api::info::{FrameBufferInfo, MemoryRegionKind, MemoryRegions, PixelFormat};
+#[cfg(target_arch = "x86_64")]
 use bootloader_api::{entry_point, BootInfo};
+#[cfg(target_arch = "x86_64")]
 use task::Task;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
-/// Le pide al bootloader que mapee TODA la memoria física en un rango virtual
-/// contiguo antes de saltar aquí.
-///
-/// Sin esto no hay forma de leer una tabla de páginas: sus entradas guardan
-/// direcciones físicas, y la CPU con paginación activa solo entiende
-/// virtuales. Es el `physical_memory_offset` que las fases 1 y 2 llevaban
-/// reportando como «sin mapear».
+#[cfg(target_arch = "x86_64")]
 const CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
     config.mappings.physical_memory = Some(Mapping::Dynamic);
     config
 };
 
+#[cfg(target_arch = "x86_64")]
 entry_point!(kernel_main, config = &CONFIG);
 
+#[cfg(target_arch = "aarch64")]
+pub fn kmain_arm64(dtb_ptr: u64) -> ! {
+    arch::aarch64::SERIAL.lock().init();
+
+    println!();
+    println!("antOS · kernel AArch64");
+    println!("═══════════════════════");
+
+    println!("arranque");
+    println!("  arquitectura AArch64 (ARM 64-bit)");
+    println!("  dtb          apuntado en {dtb_ptr:#x}");
+
+    println!();
+    println!("excepciones");
+    arch::aarch64::exceptions::init();
+    println!("  vbar_el1     cargada · 16 vectores atendidos");
+
+    arch::aarch64::exceptions::trigger_breakpoint();
+    println!("  breakpoint   manejado y ejecución reanudada");
+
+    arch::aarch64::exceptions::enable_irq();
+    println!("  daif         irq habilitadas");
+
+    println!();
+    println!("sistema operativo listo (AArch64 bare metal)");
+
+    halt_loop()
+}
+
+#[cfg(target_arch = "x86_64")]
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::SERIAL.lock().init();
 
@@ -169,6 +203,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     executor.run()
 }
 
+#[cfg(target_arch = "x86_64")]
 fn report_memory(boot_info: &BootInfo) {
     let mut usable = 0u64;
     let mut usable_regions = 0usize;
@@ -203,6 +238,7 @@ fn report_memory(boot_info: &BootInfo) {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 fn report_framebuffer(boot_info: &BootInfo) {
     let Some(framebuffer) = boot_info.framebuffer.as_ref() else {
         println!();
@@ -228,10 +264,7 @@ fn report_framebuffer(boot_info: &BootInfo) {
 }
 
 /// Pinta un degradado sobre el framebuffer.
-///
-/// El framebuffer es memoria plana mapeada al dispositivo de vídeo: escribir
-/// un byte ahí cambia un píxel en pantalla. No hay driver ni llamada al
-/// sistema de por medio.
+#[cfg(target_arch = "x86_64")]
 fn paint_gradient(buffer: &mut [u8], info: FrameBufferInfo) {
     for y in 0..info.height {
         for x in 0..info.width {
@@ -264,6 +297,7 @@ fn paint_gradient(buffer: &mut [u8], info: FrameBufferInfo) {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 fn heap_demo() {
     println!();
     println!("el heap funciona");
@@ -280,10 +314,7 @@ fn heap_demo() {
 }
 
 /// Mantiene viva UNA asignación mientras hace y deshace muchas otras.
-///
-/// Es exactamente el patrón que el asignador de puntero no sobrevive: su
-/// `dealloc` solo recupera memoria cuando NADA queda vivo, así que el ancla
-/// basta para que no se recupere nunca un solo byte.
+#[cfg(target_arch = "x86_64")]
 fn reuse_test() {
     println!();
     println!("prueba de reutilización · 5000 ciclos con un ancla viva");
@@ -302,18 +333,21 @@ fn reuse_test() {
     println!("  5000 ciclos completados sin agotar el heap");
 }
 
+#[cfg(target_arch = "x86_64")]
 async fn suma(a: u32, b: u32) -> u32 {
     a + b
 }
 
 /// La tarea más tonta posible, solo para ver que una `async fn` que espera a
 /// otra funciona igual que en cualquier programa de Rust.
+#[cfg(target_arch = "x86_64")]
 async fn example_task() {
     println!("  tarea ejemplo · 40 + 2 = {}", suma(40, 2).await);
 }
 
 /// Late cinco veces y termina. Sirve para ver dos cosas: que una tarea puede
 /// dormir sin bloquear a las demás, y que al acabar el ejecutor la retira.
+#[cfg(target_arch = "x86_64")]
 async fn heartbeat_task() {
     for beat in 1..=5u32 {
         task::timer::sleep(task::timer::TICKS_PER_SECOND).await;
