@@ -642,6 +642,14 @@ antos llm use --clear
 antos llm test
 antos llm test --prompt "crea un microservicio en rust"
 
+# Asistente de configuración guiada y recomendaciones de modelos de desarrollo
+antos llm setup
+antos llm setup --model qwen2.5-coder:7b
+
+# Instalar el motor Ollama mediante antpkg y receta declarativa
+antos pkg install recipes/ollama.toml
+antos pkg install ollama
+
 # Listar modelos configurados y modelos locales descargados
 antos llm list
 ```

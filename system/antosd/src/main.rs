@@ -981,6 +981,53 @@ fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
     let mut config = llm::LlmConfig::load_from_state(&ctx.state);
 
     match sub {
+        "setup" | "init" => {
+            println!(
+                "\n{}",
+                paint("antOS · Asistente de Configuración de Motor LLM Local (T19.3)", BOLD)
+            );
+            println!("  Este asistente verifica y prepara el motor local Ollama/OpenCode para desarrollo sin conexión.\n");
+
+            // 1. Verificar si Ollama o OpenCode está escuchando
+            let status = &ctx.local_llm;
+            let target_model = args
+                .iter()
+                .position(|a| a == "--model" || a == "-m")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str)
+                .unwrap_or("qwen2.5-coder:latest");
+
+            println!("  [1/3] Detección de servicios locales:");
+            if status.ollama_available {
+                println!("    ✓ Ollama detectado y respondiendo en {}", paint("http://127.0.0.1:11434", GREEN));
+            } else if status.opencode_available {
+                println!("    ✓ OpenCode detectado y respondiendo en {}", paint("http://127.0.0.1:8080/v1", GREEN));
+            } else {
+                println!("    ○ Ningún motor local está corriendo actualmente.");
+                println!("      • Para instalar Ollama con antpkg ejecuta: {}", paint("antos pkg install recipes/ollama.toml", YELLOW));
+                println!("      • O inicia el servicio si ya lo tienes:     {}", paint("ollama serve &", CYAN));
+                println!("      • O descarga Ollama directamente desde:     https://ollama.com\n");
+            }
+
+            // 2. Recomendaciones de modelos de desarrollo
+            println!("  [2/3] Modelos recomendados para antOS antFlow:");
+            println!("    • {} (Recomendado: balance perfecto velocidad y sintaxis de código)", paint("qwen2.5-coder:7b", GREEN));
+            println!("    • {} (Especializado en refactorización y depuración)", paint("deepseek-coder:6.7b", CYAN));
+            println!("    • {} (Ultraligero para portátiles sin GPU dedicada)", paint("qwen2.5-coder:1.5b", DIM));
+
+            // 3. Configuración persistente del motor
+            println!("\n  [3/3] Aplicando configuración:");
+            config.set_active_provider("ollama", Some(target_model), None);
+            config.save_to_state(&ctx.state)?;
+
+            println!("    ✓ Motor predeterminado fijado en: {}", paint("ollama", GREEN));
+            println!("    ✓ Modelo de código seleccionado:  {}", paint(target_model, CYAN));
+            println!("\n  Pasos siguientes:");
+            println!("    1. Si aún no tienes el modelo descargado, ejecuta: {}", paint(&format!("ollama pull {target_model}"), YELLOW));
+            println!("    2. Verifica la inferencia con:                    {}", paint("antos llm test", CYAN));
+            println!("    3. Explora alternativas gratuitas con:            {}\n", paint("antos llm free", CYAN));
+            return Ok(());
+        }
         "use" | "set" | "select" => {
             let target = args.get(1).map(String::as_str);
             match target {

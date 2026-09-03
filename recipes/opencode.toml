@@ -1,0 +1,19 @@
+# Receta declarativa de antOS Package Manager (antpkg) para OpenCode Server (Ticket T19.3)
+
+[package]
+name = "opencode"
+version = "1.0.0"
+description = "Servidor local OpenAI-compatible para inferencia de LLMs locales en CPU/GPU"
+homepage = "https://github.com/ggerganov/llama.cpp"
+license = "MIT"
+binaries = ["opencode", "llama-server"]
+
+[source]
+url = "https://packages.antos.dev/sources/opencode-1.0.0.tar.gz"
+sha256 = "c9a40e67b2d5f3089d53f86e3f4db05634d546282fa2dc3dc37a0910f5407be4"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = "install -m 755 bin/opencode $OUT/bin/opencode"

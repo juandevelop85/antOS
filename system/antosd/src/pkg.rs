@@ -217,8 +217,18 @@ impl PackageEngine {
             return Self::parse_recipe(&content);
         }
 
+        // Check in recipes/ directory
+        let recipe_file = Path::new("recipes").join(format!("{recipe_path_or_name}.toml"));
+        if recipe_file.exists() {
+            let content = fs::read_to_string(&recipe_file)
+                .with_context(|| format!("Failed to read recipe file {}", recipe_file.display()))?;
+            return Self::parse_recipe(&content);
+        }
+
         // Built-in recipes for standard developer utilities
         let (version, desc, bins) = match recipe_path_or_name {
+            "ollama" => ("0.5.7", "Local LLM inference daemon for CPUs and GPUs", vec!["ollama".to_string()]),
+            "opencode" => ("1.0.0", "Local OpenAI-compatible inference server", vec!["opencode".to_string()]),
             "ripgrep" | "rg" => ("14.1.0", "Fast line-oriented search tool", vec!["rg".to_string()]),
             "fd" => ("9.0.0", "Fast user-friendly find alternative", vec!["fd".to_string()]),
             "bat" => ("0.24.0", "Cat clone with syntax highlighting and git integration", vec!["bat".to_string()]),
@@ -723,6 +733,13 @@ mod tests {
         assert_eq!(manifest.binaries, vec!["rg".to_string()]);
         assert_eq!(manifest.dependencies, vec!["pcre2".to_string()]);
         assert!(manifest.sha256.is_some());
+    }
+
+    #[test]
+    fn test_parse_ollama_recipe() {
+        let manifest = PackageEngine::resolve_manifest("ollama").expect("should resolve ollama recipe");
+        assert_eq!(manifest.name, "ollama");
+        assert_eq!(manifest.binaries, vec!["ollama".to_string()]);
     }
 
     #[test]

@@ -37,6 +37,15 @@ pub struct Ctx {
     /// For example, if `cwd` is `workspace/api-service/src`, this will be
     /// `workspace/api-service`. `None` when not inside any project.
     pub current_project: Option<PathBuf>,
+    /// Local LLM service detection status (T19.3).
+    pub local_llm: LocalLlmStatus,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct LocalLlmStatus {
+    pub ollama_available: bool,
+    pub opencode_available: bool,
+    pub preferred_local_endpoint: Option<String>,
 }
 
 impl Ctx {
@@ -133,6 +142,9 @@ impl Ctx {
         // ── Step 6: detect active project ───────────────────────────────────
         let current_project = detect_current_project(&workspace, &state);
 
+        // ── Step 7: probe local LLM availability (T19.3) ────────────────────
+        let local_llm = Self::probe_local_llm();
+
         Ok(Ctx {
             workspace,
             state,
@@ -140,7 +152,13 @@ impl Ctx {
             system_config,
             antos_root,
             current_project,
+            local_llm,
         })
+    }
+
+    /// Probes local LLM daemon endpoints with a non-blocking TCP connect check (50ms timeout).
+    pub fn probe_local_llm() -> LocalLlmStatus {
+        probe_local_llm_endpoints()
     }
 
     pub fn snapshots_dir(&self) -> PathBuf { self.state.join("snapshots") }
@@ -233,11 +251,47 @@ fn detect_project_from_cwd(workspace: &Path) -> Option<PathBuf> {
     }
 }
 
+fn probe_local_llm_endpoints() -> LocalLlmStatus {
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let timeout = Duration::from_millis(50);
+
+    // 1. Probe Ollama (default 127.0.0.1:11434)
+    let ollama_addr: SocketAddr = "127.0.0.1:11434".parse().unwrap();
+    let ollama_available = TcpStream::connect_timeout(&ollama_addr, timeout).is_ok();
+
+    // 2. Probe OpenCode / llama.cpp (default 127.0.0.1:8080)
+    let opencode_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let opencode_available = TcpStream::connect_timeout(&opencode_addr, timeout).is_ok();
+
+    let preferred_local_endpoint = if ollama_available {
+        Some("http://127.0.0.1:11434".to_string())
+    } else if opencode_available {
+        Some("http://127.0.0.1:8080/v1".to_string())
+    } else {
+        None
+    };
+
+    LocalLlmStatus {
+        ollama_available,
+        opencode_available,
+        preferred_local_endpoint,
+    }
+}
+
 // ───────────────────────────────────────────────────────────────────── tests ──
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_probe_local_llm_endpoints_returns_status() {
+        let status = Ctx::probe_local_llm();
+        let _ = status.ollama_available;
+        let _ = status.opencode_available;
+    }
 
     /// T17.1 — detect_current_project must return None for directories that do
     /// not reside inside the workspace and when no active project is set.

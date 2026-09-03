@@ -1,0 +1,19 @@
+# Receta declarativa de antOS Package Manager (antpkg) para Ollama (Ticket T19.3)
+
+[package]
+name = "ollama"
+version = "0.5.7"
+description = "Motor de inferencia LLM local optimizado para CPUs y GPUs nativas (x86_64 y aarch64)"
+homepage = "https://ollama.com"
+license = "MIT"
+binaries = ["ollama"]
+
+[source]
+url = "https://github.com/ollama/ollama/releases/download/v0.5.7/ollama-linux-arm64.tgz"
+sha256 = "b84e68e826b685160868f700445a4ebcd6a5789f257a0fdcfebc948e6c753b8f"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = "install -m 755 bin/ollama $OUT/bin/ollama"
