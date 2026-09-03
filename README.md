@@ -4,10 +4,10 @@
 
 [![Version](https://img.shields.io/badge/Release-v0.1.0-brightgreen.svg)](CHANGELOG.md)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-143%2F143%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-149%2F149%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-37%2F37%20Completados-brightgreen.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-44%2F44%20Completados-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -84,7 +84,7 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 
 ### 2. Compilación del Workspace y Verificación
 
-Compila todos los crates del workspace y verifica la suite de pruebas (**66/66 pruebas automatizadas en verde**):
+Compila todos los crates del workspace y verifica la suite de pruebas (**149/149 pruebas automatizadas en verde**):
 
 ```bash
 # Compilar todo el workspace
@@ -173,11 +173,14 @@ antos panel
 
 ### 3. Visor de Diffs Interactivo y Consola VTE
 ```bash
-# Inspeccionar diffs sintácticos coloreados con números de línea dobles
+# Inspeccionar diffs sintácticos del proyecto actual (o escanear workspace/)
 antos diff
 
-# Comparar contra una rama o commit específico
-antos diff main
+# Inspeccionar exclusivamente los cambios de un proyecto específico
+antos diff api-service
+
+# Comparar un proyecto contra una rama o referencia específica
+antos diff api-service main
 
 # Consola terminal interactiva VTE embebida
 antos terminal
@@ -275,6 +278,22 @@ antos undo
 antos undo --ticket T1.1
 ```
 
+### 11. Gestión Declarativa de Proyectos y Git en Workspace (`antos project` / `antos git`)
+```bash
+# Inicializar repositorio Git aislado con rama main y .gitignore adaptado al stack
+antos project init api-service
+antos git init api-service
+
+# Especificar rama y stack de forma explícita
+antos project init web-app --branch develop --lang typescript
+
+# Listar todos los proyectos en workspace/ con su estado Git y stack
+antos project list
+
+# Consultar el estado de Git del proyecto activo
+antos git status
+```
+
 ---
 
 ## 📋 Catálogo Completo de Capacidades (`system/capabilities/`)
@@ -329,7 +348,17 @@ antos undo --ticket T1.1
 | `lsp.status` | Diagnóstico de conexiones y símbolos indexados en el servidor LSP | `auto` (Lectura) |
 | `collab.session` | Inicia o une una sesión interactiva de pair programming con el Coder mediante CRDT | `confirm` |
 | `dap.attach` | Conecta una sesión de depuración supervisada DAP a un proceso dentro del sandbox | `auto` |
-| `project.scaffold` | Creación y andamiaje inicial de proyectos (Rust, TS, Python) | `confirm` |
+| `project.scaffold` | Creación y andamiaje inicial de proyectos con Git y .gitignore nativo | `confirm` |
+| `project.git_init` | Inicialización atómica de repositorio Git aislado y .gitignore por stack | `confirm` |
+| `disk.list` | Enumeración de discos físicos, buses y particiones del host | `auto` (Lectura) |
+| `disk.inspect` | Diagnóstico profundo de geometría y particiones GPT | `auto` (Lectura) |
+| `disk.partition` | Particionador declarativo GPT (disco limpio o Dual Boot) | `confirm` |
+| `install.deploy` | Asistente e instalador de sistema base a disco duro / NVMe | `confirm` |
+| `bootloader.install` | Instalador y configurador UEFI de systemd-boot y entradas NVRAM | `confirm` |
+| `microvm.spawn` | Aprovisionamiento y arranque de microVMs efímeras hipervisor KVM | `confirm` |
+| `pkg.install` / `pkg.remove` | Gestor de paquetes y recetas inmutables antpkg con generaciones | `confirm` |
+| `autopilot.start` / `autopilot.scan` | Modo agente autónomo continuo (Autopilot Daemon) y centinela | `confirm` |
+| `web.start` / `web.status` | Servidor de consola web remota en tiempo real y bridge WebSocket | `confirm` |
 | `pkg.declare` | Declaración de dependencias en manifiestos de proyecto | `confirm` |
 | `fs.write` / `fs.delete` | Modificación y eliminación controlada de archivos con instantánea | `confirm` / `grant` |
 | `system.declare` | Modificación de la configuración declarativa del sistema | `grant` |
@@ -379,6 +408,13 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 15** | [T15.1](docs/tickets/T15.1-motor-de-inspeccion-de-almacenamiento-y-particionador-gpt.md) · Motor de Inspección de Almacenamiento y Particionador GPT | ✅ Completado |
 | **Fase 15** | [T15.2](docs/tickets/T15.2-instalador-guiado-de-sistema-base-disco-completo-y-dual-boot.md) · Instalador Guiado de Sistema Base (Disco Completo y Dual Boot) | ✅ Completado |
 | **Fase 15** | [T15.3](docs/tickets/T15.3-gestor-de-arranque-uefi-y-dual-boot-automatizado.md) · Gestor de Arranque UEFI y Dual Boot Automatizado | ✅ Completado |
+| **Fase 16** | [T16.1](docs/tickets/T16.1-microvms-efimeras-y-aislamiento-por-hipervisor-kvm.md) · MicroVMs Efímeras y Aislamiento por Hipervisor (KVM / Cloud-Hypervisor) | ✅ Completado |
+| **Fase 16** | [T16.2](docs/tickets/T16.2-gestor-de-paquetes-y-recetas-inmutables-antpkg.md) · Gestor de Paquetes y Recetas Inmutables (`antpkg`) | ✅ Completado |
+| **Fase 16** | [T16.3](docs/tickets/T16.3-modo-agente-autonomo-continuo-autopilot-daemon.md) · Modo Agente Autónomo Continuo (*Autopilot Daemon*) | ✅ Completado |
+| **Fase 16** | [T16.4](docs/tickets/T16.4-consola-web-remota-en-tiempo-real-y-bridge-websocket.md) · Consola Web Remota en Tiempo Real y Bridge WebSocket | ✅ Completado |
+| **Fase 17** | [T17.1](docs/tickets/T17.1-aislamiento-de-frontera-git-y-descubrimiento-contextual-de-workspace.md) · Aislamiento de Frontera Git y Descubrimiento Contextual de Workspace | ✅ Completado |
+| **Fase 17** | [T17.2](docs/tickets/T17.2-soporte-multi-proyecto-en-visor-de-diffs-y-estado-de-workspace.md) · Soporte Multi-Proyecto en Visor de Diffs y Estado de Workspace | ✅ Completado |
+| **Fase 17** | [T17.3](docs/tickets/T17.3-inicializacion-y-gestion-declarativa-de-proyectos-git-en-workspace.md) · Inicialización y Gestión Declarativa de Proyectos Git en Workspace | ✅ Completado |
 
 ---
 

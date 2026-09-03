@@ -32,6 +32,24 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.15 Red P2P Cifrada antMesh (`antos mesh`)](#415-red-p2p-cifrada-antmesh-antos-mesh)
    - [4.16 Swarm Multi-Nodo y Despacho Distribuido (`antos swarm`)](#416-swarm-multi-nodo-y-despacho-distribuido-antos-swarm)
    - [4.17 Sistema de Ficheros Virtual Semántico (`antos vfs`)](#417-sistema-de-ficheros-virtual-semántico-antos-vfs)
+   - [4.18 Supervisor Kernel eBPF LSM (`antos ebpf`)](#418-supervisor-kernel-ebpf-lsm-antos-ebpf)
+   - [4.19 Profiler Continuo de CPU y Memoria (`antos profile`)](#419-profiler-continuo-de-cpu-y-memoria-antos-profile)
+   - [4.20 Servidor Language Server Protocol (LSP) Unificado (`antos lsp`)](#420-servidor-language-server-protocol-lsp-unificado-antos-lsp)
+   - [4.21 Edición Colaborativa Humano-Agente y Depuración DAP (`antos pair` / `antos debug`)](#421-edición-colaborativa-humano-agente-crdt-y-depuración-aislada-dap-antos-pair--antos-debug)
+   - [4.22 Entorno de Escritorio Wayland y Atajos Globales (`antos desktop`)](#422-entorno-de-escritorio-wayland-y-atajos-globales-antos-desktop)
+   - [4.23 Telemetría en Tiempo Real y Alertas en la Barra (`antos barra`)](#423-telemetría-en-tiempo-real-y-alertas-visuales-en-la-barra-antos-barra)
+   - [4.24 Pipeline de Arranque Bare Metal y Emulación QEMU (`antos boot`)](#424-pipeline-de-arranque-bare-metal-y-emulación-qemu-antos-boot)
+   - [4.25 Motor de Capacidades y Plugins WebAssembly (`antos plugin`)](#425-motor-de-capacidades-y-plugins-webassembly-antos-plugin)
+   - [4.26 Captura Wayland e Inspección Visual QA (`antos screenshot` / `antos qa visual`)](#426-captura-de-pantalla-wayland-e-inspección-visual-multimodal-antos-screenshot--antos-qa-visual)
+   - [4.27 Live ISO y Empaquetado Release (`antos boot iso` / `antos release`)](#427-live-iso-y-empaquetado-release-antos-boot-iso--antos-release)
+   - [4.28 Inspección de Almacenamiento y Particionamiento GPT (`antos disk`)](#428-inspección-de-almacenamiento-y-particionamiento-gpt-antos-disk)
+   - [4.29 Asistente e Instalador de Sistema Base a Disco Duro (`antos install`)](#429-asistente-e-instalador-de-sistema-base-a-disco-duro-antos-install)
+   - [4.30 Gestor de Arranque UEFI y Dual Boot (`antos bootloader`)](#430-gestor-de-arranque-uefi-y-dual-boot-antos-bootloader)
+   - [4.31 MicroVMs Efímeras y Aislamiento por Hipervisor (`antos vm`)](#431-microvms-efímeras-y-aislamiento-por-hipervisor-antos-vm)
+   - [4.32 Gestor de Paquetes y Recetas Inmutables (`antos pkg`)](#432-gestor-de-paquetes-y-recetas-inmutables-antos-pkg)
+   - [4.33 Modo Agente Autónomo Continuo (`antos autopilot`)](#433-modo-agente-autónomo-continuo-antos-autopilot)
+   - [4.34 Consola Web Remota en Tiempo Real y Bridge WebSocket (`antos web`)](#434-consola-web-remota-en-tiempo-real-y-bridge-websocket-antos-web)
+   - [4.35 Gestión de Proyectos y Control de Versiones Git en Workspace (`antos project` / `antos git`)](#435-gestión-de-proyectos-y-control-de-versiones-git-en-workspace-antos-project--antos-git)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -283,16 +301,22 @@ antos ticket status T9.1 completado
 
 ### 4.5 Visor de Diffs Interactivo y Consola VTE (`antos diff` / `antos terminal`)
 
-Inspección de cambios de código con resaltado sintáctico y acceso a consola de comandos embebida:
+Inspección de cambios de código con resaltado sintáctico, aislamiento de frontera de repositorio (`GIT_CEILING_DIRECTORIES`) y soporte multi-proyecto:
 
 ```bash
-# Ver el diff sintáctico coloreado de los cambios de trabajo contra HEAD
+# Ver el diff del proyecto activo (si cwd está dentro de workspace/<proyecto>) o escanear workspace/
 antos diff
 
-# Ver el diff contra una rama, commit o ticket específico
-antos diff main
-antos diff feature/auth
-antos diff HEAD~1
+# Inspeccionar exclusivamente los cambios de un proyecto específico
+antos diff api-service
+
+# Comparar un proyecto contra una rama, commit o ticket específico
+antos diff api-service main
+antos diff api-service feature/auth
+antos diff api-service HEAD~1
+
+# Si un proyecto en workspace/ no tiene Git inicializado, antos diff muestra un resumen limpio de archivos detectados
+antos diff demo
 
 # Abrir el shell interactivo embebido VTE
 antos terminal
@@ -838,6 +862,126 @@ antos bootloader install --target /dev/nvme0n1 --partition 1 --timeout 5
 
 # Aplicar e inscribir entrada NVRAM en el firmware UEFI en hardware real
 antos bootloader install --target /dev/nvme0n1 --partition 1 --apply
+```
+
+---
+
+### 4.31 MicroVMs Efímeras y Aislamiento por Hipervisor (`antos vm`)
+
+Aprovisionamiento y ejecución de entornos de ejecución efímeros ultra-aislados mediante hipervisores basados en KVM / Cloud-Hypervisor:
+
+```bash
+# Enumerar microVMs activas y recursos asignados
+antos vm list
+
+# Lanzar una microVM efímera con kernel directo y límites de CPU/RAM
+antos vm spawn --vcpus 2 --memory 512
+
+# Ejecutar un comando dentro de una microVM aislada
+antos vm exec uvm-abc12345 "uname -a"
+
+# Destruir y liberar recursos de una microVM
+antos vm destroy uvm-abc12345
+```
+
+---
+
+### 4.32 Gestor de Paquetes y Recetas Inmutables (`antos pkg`)
+
+Gestor de paquetes inmutable y reproducible `antpkg` basado en almacén direccionado por contenido (CAS) con rollback instantáneo por generaciones:
+
+```bash
+# Instalar paquete o receta declarativa TOML
+antos pkg install curl
+antos pkg install recetas/ripgrep.toml
+
+# Simular instalación (Dry-Run)
+antos pkg install jq --dry-run
+
+# Listar paquetes en el perfil activo y generaciones anteriores
+antos pkg list
+antos pkg ls
+
+# Desinstalar un paquete del perfil activo
+antos pkg remove curl
+
+# Revertir el perfil activo a una generación previa
+antos pkg rollback
+antos pkg rollback --generation 1
+```
+
+---
+
+### 4.33 Modo Agente Autónomo Continuo (`antos autopilot`)
+
+Modo de vigilancia y resolución proactiva de incidencias en segundo plano (*Autopilot Daemon*):
+
+```bash
+# Consultar estado del centinela y métricas de incidencias
+antos autopilot status
+
+# Iniciar vigilancia en segundo plano (intervalo en segundos)
+antos autopilot start --interval 60 --max-concurrent 2
+
+# Escanear el workspace manualmente en busca de incidencias
+antos autopilot scan
+
+# Aprobar y fusionar una propuesta de corrección generada por el centinela
+antos autopilot resolve inc-xyz789 --approve
+
+# Descartar una propuesta
+antos autopilot resolve inc-xyz789 --reject
+
+# Detener el centinela
+antos autopilot stop
+```
+
+---
+
+### 4.34 Consola Web Remota en Tiempo Real y Bridge WebSocket (`antos web`)
+
+Interfaz web ligera embebida en `antosd` para monitoreo remoto, telemetría y ejecución de comandos mediante WebSocket:
+
+```bash
+# Iniciar servidor de consola web en dirección y puerto configurados
+antos web start --addr 127.0.0.1 --port 9090
+
+# Consultar estado del servidor web y clientes conectados
+antos web status
+
+# Generar token seguro de acceso temporal
+antos web token --ttl 3600 --label "laptop-remota"
+
+# Detener servidor web
+antos web stop
+```
+
+---
+
+### 4.35 Gestión de Proyectos y Control de Versiones Git en Workspace (`antos project` / `antos git`)
+
+Comandos declarativos y de frontera para inicializar repositorios Git aislados dentro de los proyectos del desarrollador (`workspace/<proyecto>`) sin contaminar el repositorio del sistema operativo antOS:
+
+```bash
+# Inicializar repositorio Git aislado en un proyecto con rama 'main' y .gitignore adaptado
+antos project init api-service
+
+# Inicialización mediante el alias de conveniencia
+antos git init api-service
+
+# Especificar rama principal y stack tecnológico explícitamente
+antos project init web-frontend --branch develop --lang typescript
+
+# Inicializar Git en el proyecto actual si la terminal ya está dentro de su directorio
+cd workspace/api-service
+antos project init
+
+# Listar todos los proyectos presentes en workspace/ con su stack y estado Git
+antos project list
+antos project ls
+
+# Consultar estado de Git del proyecto activo (ramas, staged, modificados, sync)
+antos git status
 ```
 
 ---
