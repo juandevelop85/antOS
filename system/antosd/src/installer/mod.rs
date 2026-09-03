@@ -2,6 +2,8 @@
 
 pub mod disk;
 pub mod deploy;
+pub mod bootloader;
 
 pub use disk::DiskManager;
 pub use deploy::DeployEngine;
+pub use bootloader::BootloaderEngine;

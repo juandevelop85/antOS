@@ -651,6 +651,53 @@ pub struct InstallReport {
     pub summary: String,
 }
 
+/// Entrada de sistema operativo detectado para arranque dual (T15.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsEntry {
+    pub name: String,
+    pub os_type: String,
+    pub efi_path: String,
+    pub disk_device: String,
+    pub partition_number: u32,
+}
+
+/// Configuración de instalación del cargador de arranque UEFI (T15.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BootloaderConfig {
+    pub esp_mount: String,
+    pub target_device: String,
+    pub efi_partition: u32,
+    pub default_os: String,
+    pub timeout_seconds: u32,
+    pub detected_os: Vec<OsEntry>,
+    pub dry_run: bool,
+}
+
+impl Default for BootloaderConfig {
+    fn default() -> Self {
+        Self {
+            esp_mount: "/boot/efi".into(),
+            target_device: "/dev/nvme0n1".into(),
+            efi_partition: 1,
+            default_os: "antos".into(),
+            timeout_seconds: 5,
+            detected_os: Vec::new(),
+            dry_run: true,
+        }
+    }
+}
+
+/// Reporte de configuración o instalación del bootloader UEFI (T15.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BootloaderReport {
+    pub success: bool,
+    pub esp_path: String,
+    pub efibootmgr_command: String,
+    pub entries_configured: Vec<String>,
+    pub loader_conf_content: String,
+    pub summary: String,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -1206,6 +1253,12 @@ pub enum Peticion {
     },
     /// Instala el sistema antOS en un disco físico o virtual (T15.2)
     InstalarSistema(InstallConfig),
+    /// Sondea sistemas operativos existentes en particiones EFI / disco (T15.3)
+    SondearSistemasOperativos {
+        esp_mount: Option<String>,
+    },
+    /// Instala y configura el cargador de arranque UEFI (T15.3)
+    InstalarBootloader(BootloaderConfig),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1362,6 +1415,10 @@ pub enum Evento {
     PlanParticionamiento(PartitionPlan),
     /// Reporte de instalación del sistema base antOS (T15.2)
     ReporteInstalacion(InstallReport),
+    /// Lista de sistemas operativos detectados en la máquina (T15.3)
+    SistemasOperativosDetectados(Vec<OsEntry>),
+    /// Reporte de instalación y configuración de bootloader UEFI (T15.3)
+    ReporteBootloader(BootloaderReport),
     Error(String),
 }
 
@@ -2199,6 +2256,32 @@ mod tests {
         let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
         let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
         assert_eq!(ev_rep, des_rep);
+
+        let os = OsEntry {
+            name: "Windows Boot Manager".into(),
+            os_type: "windows".into(),
+            efi_path: "\\EFI\\Microsoft\\Boot\\bootmgfw.efi".into(),
+            disk_device: "/dev/nvme0n1".into(),
+            partition_number: 1,
+        };
+        let ev_os = Evento::SistemasOperativosDetectados(vec![os.clone()]);
+        let json_os = serde_json::to_string(&ev_os).expect("serialize os ev");
+        let des_os: Evento = serde_json::from_str(&json_os).expect("deserialize os ev");
+        assert_eq!(ev_os, des_os);
+
+        let boot_cfg = BootloaderConfig {
+            esp_mount: "/boot/efi".into(),
+            target_device: "/dev/nvme0n1".into(),
+            efi_partition: 1,
+            default_os: "antos".into(),
+            timeout_seconds: 5,
+            detected_os: vec![os],
+            dry_run: true,
+        };
+        let req_boot = Peticion::InstalarBootloader(boot_cfg);
+        let json_boot = serde_json::to_string(&req_boot).expect("serialize boot req");
+        let des_boot: Peticion = serde_json::from_str(&json_boot).expect("deserialize boot req");
+        assert_eq!(req_boot, des_boot);
     }
 }
 

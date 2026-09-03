@@ -286,6 +286,14 @@ pub enum Change {
         workspace: PathBuf,
         config: antos_protocolo::InstallConfig,
     },
+    BootloaderProbe {
+        workspace: PathBuf,
+        esp_path: Option<String>,
+    },
+    BootloaderInstall {
+        workspace: PathBuf,
+        config: antos_protocolo::BootloaderConfig,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -388,7 +396,9 @@ impl Pendiente {
             | Change::DiskInspect { .. }
             | Change::DiskPartition { .. }
             | Change::InstallPrepare { .. }
-            | Change::InstallDeploy { .. } => {}
+            | Change::InstallDeploy { .. }
+            | Change::BootloaderProbe { .. }
+            | Change::BootloaderInstall { .. } => {}
         }
     }
 }
@@ -1065,6 +1075,35 @@ pub fn changes_for(
                 dry_run,
             };
             Ok(vec![Change::InstallDeploy {
+                workspace: ctx.workspace.clone(),
+                config,
+            }])
+        }
+
+        "bootloader.probe" => {
+            let esp_path = a.get("esp_path").cloned();
+            Ok(vec![Change::BootloaderProbe {
+                workspace: ctx.workspace.clone(),
+                esp_path,
+            }])
+        }
+
+        "bootloader.install" => {
+            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let esp_mount = a.get("esp_path").cloned().unwrap_or_else(|| "/boot/efi".into());
+            let efi_partition = a.get("efi_partition").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
+            let timeout_seconds = a.get("timeout").and_then(|v| v.parse::<u32>().ok()).unwrap_or(5);
+            let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
+            let config = antos_protocolo::BootloaderConfig {
+                esp_mount,
+                target_device,
+                efi_partition,
+                default_os: "antos".into(),
+                timeout_seconds,
+                detected_os: Vec::new(),
+                dry_run,
+            };
+            Ok(vec![Change::BootloaderInstall {
                 workspace: ctx.workspace.clone(),
                 config,
             }])
@@ -1968,6 +2007,28 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push("  • Pasos completados:".into());
                 for s in &report.steps {
                     lines.push(format!("    ✓ {}: {}", s.name, s.description));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::BootloaderProbe { esp_path, .. } => {
+                let p = esp_path.as_deref().map(Path::new).unwrap_or_else(|| Path::new("/boot/efi"));
+                let entries = crate::installer::BootloaderEngine::probe_operating_systems(p)?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()));
+                for (i, os) in entries.iter().enumerate() {
+                    lines.push(format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::BootloaderInstall { config, .. } => {
+                let report = crate::installer::BootloaderEngine::install_bootloader(config)?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Bootloader · {}", report.summary));
+                lines.push(format!("  • Punto ESP:       {}", report.esp_path));
+                lines.push(format!("  • Comando NVRAM:   {}", report.efibootmgr_command));
+                lines.push("  • Entradas configuradas:".into());
+                for e in &report.entries_configured {
+                    lines.push(format!("    ✓ {}", e));
                 }
                 output.push(lines.join("\n"));
             }

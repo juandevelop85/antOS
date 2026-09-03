@@ -139,6 +139,7 @@ fn run() -> Result<()> {
         "qa" => cmd_qa(&ctx, &rest[1..]),
         "disk" | "storage" | "part" => cmd_disk(&ctx, &rest[1..]),
         "install" | "installer" => cmd_install(&ctx, &rest[1..]),
+        "bootloader" | "uefi" => cmd_bootloader(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -2450,6 +2451,134 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos install wizard                         Asistente interactivo guiado de instalación");
             println!("    antos install run --target <dev> [--clean]   Ejecuta el despliegue del sistema base");
             println!("    antos install run --target <dev> --apply     Aplica los cambios irreversibles al disco\n");
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------- bootloader & uefi (T15.3)
+
+fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("help");
+
+    match sub {
+        "probe" | "detect" | "os" => {
+            let mut esp_path = "/boot/efi".to_string();
+            let mut i = 1;
+            while i < args.len() {
+                if args[i] == "--esp" && i + 1 < args.len() {
+                    esp_path = args[i + 1].clone();
+                    i += 1;
+                }
+                i += 1;
+            }
+
+            println!("\n{} Sondeando sistemas operativos en «{}»:", paint("antOS Bootloader ·", BOLD), esp_path);
+            let entries = installer::BootloaderEngine::probe_operating_systems(std::path::Path::new(&esp_path))?;
+            if entries.is_empty() {
+                println!("  (no se detectaron sistemas operativos en el directorio especificado)\n");
+                return Ok(());
+            }
+
+            for (idx, os) in entries.iter().enumerate() {
+                let badge = match os.os_type.as_str() {
+                    "windows" => paint("[WINDOWS]", CYAN),
+                    "linux" => paint("[LINUX]", GREEN),
+                    "macos" => paint("[MACOS]", YELLOW),
+                    _ => paint("[ANTOS]", BOLD),
+                };
+                println!("  [{}] {} {}", idx + 1, badge, paint(&os.name, BOLD));
+                println!("      Ruta binario EFI:  {}", os.efi_path);
+                println!("      Dispositivo/Part:  {} (Partición #{})\n", os.disk_device, os.partition_number);
+            }
+        }
+        "install" | "deploy" => {
+            let mut esp_path = "/boot/efi".to_string();
+            let mut target_device = "/dev/nvme0n1".to_string();
+            let mut efi_partition = 1u32;
+            let mut timeout_seconds = 5u32;
+            let mut dry_run = true;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--esp" => {
+                        if i + 1 < args.len() {
+                            esp_path = args[i + 1].clone();
+                            i += 1;
+                        }
+                    }
+                    "--target" | "-t" => {
+                        if i + 1 < args.len() {
+                            target_device = args[i + 1].clone();
+                            i += 1;
+                        }
+                    }
+                    "--partition" | "-p" => {
+                        if i + 1 < args.len() {
+                            if let Ok(num) = args[i + 1].parse::<u32>() {
+                                efi_partition = num;
+                            }
+                            i += 1;
+                        }
+                    }
+                    "--timeout" => {
+                        if i + 1 < args.len() {
+                            if let Ok(num) = args[i + 1].parse::<u32>() {
+                                timeout_seconds = num;
+                            }
+                            i += 1;
+                        }
+                    }
+                    "--apply" => dry_run = false,
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            let esp = std::path::PathBuf::from(if dry_run {
+                ctx.workspace.join("target/esp-staging").display().to_string()
+            } else {
+                esp_path.clone()
+            });
+
+            let config = antos_protocolo::BootloaderConfig {
+                esp_mount: esp.display().to_string(),
+                target_device: target_device.clone(),
+                efi_partition,
+                default_os: "antos".into(),
+                timeout_seconds,
+                detected_os: Vec::new(),
+                dry_run,
+            };
+
+            println!("\n{} Instalando Gestor de Arranque UEFI (systemd-boot):", paint("antOS Bootloader ·", BOLD));
+            println!("  • Directorio ESP:     {}", paint(&config.esp_mount, CYAN));
+            println!("  • Dispositivo destino: {}", paint(&target_device, CYAN));
+            println!("  • Partición EFI:      #{}", efi_partition);
+            println!("  • Timeout menú:       {} segundos", timeout_seconds);
+            println!("  • Modo de ejecución:  {}\n", if dry_run { paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW) } else { paint("ESCRITURA EN ESP Y NVRAM", RED) });
+
+            let report = installer::BootloaderEngine::install_bootloader(&config)?;
+            println!("  {}: {}", paint("Resultado", BOLD), if report.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) });
+            println!("  {}\n", report.summary);
+            println!("  {}:", paint("Entradas de Arranque Generadas", BOLD));
+            for e in &report.entries_configured {
+                println!("    ✓ {}", e);
+            }
+            println!("\n  {}:", paint("Comando de Registro NVRAM", BOLD));
+            println!("    {}\n", paint(&report.efibootmgr_command, CYAN));
+
+            if dry_run {
+                println!("  {} Para aplicar estos cambios en el firmware UEFI use «--apply».\n", paint("Nota:", YELLOW));
+            }
+        }
+        _ => {
+            println!("\n{} Gestor de Arranque UEFI y Dual Boot:", paint("antOS Bootloader ·", BOLD));
+            println!("  Uso:");
+            println!("    antos bootloader probe [--esp <ruta>]        Sondea sistemas operativos instalados");
+            println!("    antos bootloader install [--esp <ruta>]      Genera y valida la configuración de systemd-boot");
+            println!("    antos bootloader install --apply             Registra antOS en la NVRAM UEFI con efibootmgr\n");
         }
     }
     Ok(())

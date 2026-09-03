@@ -606,6 +606,19 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
+        Peticion::SondearSistemasOperativos { esp_mount } => {
+            let esp = esp_mount.as_deref().map(std::path::Path::new).unwrap_or_else(|| std::path::Path::new("/boot/efi"));
+            match crate::installer::BootloaderEngine::probe_operating_systems(esp) {
+                Ok(entries) => enviar(&mut escritura, &Evento::SistemasOperativosDetectados(entries))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Peticion::InstalarBootloader(config) => {
+            match crate::installer::BootloaderEngine::install_bootloader(&config) {
+                Ok(report) => enviar(&mut escritura, &Evento::ReporteBootloader(report))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -899,6 +912,20 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("  • Partición /:   {}", rep.root_partition))?;
                 for s in rep.steps {
                     pantalla.nota(&format!("  ✓ {}: {}", s.name, s.description))?;
+                }
+            }
+            Evento::SistemasOperativosDetectados(entries) => {
+                pantalla.nota(&format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()))?;
+                for (i, os) in entries.iter().enumerate() {
+                    pantalla.nota(&format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path))?;
+                }
+            }
+            Evento::ReporteBootloader(rep) => {
+                pantalla.nota(&format!("antOS Bootloader · {}", rep.summary))?;
+                pantalla.nota(&format!("  • Punto ESP:       {}", rep.esp_path))?;
+                pantalla.nota(&format!("  • Comando NVRAM:   {}", rep.efibootmgr_command))?;
+                for e in &rep.entries_configured {
+                    pantalla.nota(&format!("  ✓ {}", e))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),

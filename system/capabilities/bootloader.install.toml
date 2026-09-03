@@ -1,0 +1,16 @@
+name = "bootloader.install"
+summary = "Instala y configura el cargador de arranque UEFI (systemd-boot) y entradas NVRAM"
+
+[params]
+target_device = { type = "text", optional = true }
+esp_path = { type = "text", optional = true }
+efi_partition = { type = "integer", optional = true }
+timeout = { type = "integer", optional = true }
+dry_run = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$WORKSPACE"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

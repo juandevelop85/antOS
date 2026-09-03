@@ -823,6 +823,25 @@ antos install run --target /dev/nvme0n1 --dual-boot --apply
 
 ---
 
+### 4.30 Gestor de Arranque UEFI y Dual Boot (`antos bootloader`)
+
+Subsistema de integración con firmware UEFI y `systemd-boot`, con detección automática de sistemas operativos vecinos en la partición ESP (Windows Boot Manager, Ubuntu, Fedora, Arch, Debian) y registro en la NVRAM con `efibootmgr`:
+
+```bash
+# Sondear sistemas operativos instalados y particiones EFI
+antos bootloader probe
+antos bootloader probe --esp /boot/efi
+
+# Instalar y validar configuración de systemd-boot (Dry-Run seguro por defecto)
+antos bootloader install
+antos bootloader install --target /dev/nvme0n1 --partition 1 --timeout 5
+
+# Aplicar e inscribir entrada NVRAM en el firmware UEFI en hardware real
+antos bootloader install --target /dev/nvme0n1 --partition 1 --apply
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

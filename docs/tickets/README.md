@@ -44,4 +44,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 14** | [T14.3](T14.3-generador-de-live-iso-autonoma-empaquetado-release-y-distribucion-v0.1.0.md) | Generador de Live ISO Autónoma, Empaquetado Release y Distribución v0.1.0 | ✅ Completado |
 | **Fase 15** | [T15.1](T15.1-motor-de-inspeccion-de-almacenamiento-y-particionador-gpt.md) | Motor de Inspección de Almacenamiento y Particionador GPT | ✅ Completado |
 | **Fase 15** | [T15.2](T15.2-instalador-guiado-de-sistema-base-disco-completo-y-dual-boot.md) | Instalador Guiado de Sistema Base (Disco Completo y Dual Boot) | ✅ Completado |
-| **Fase 15** | [T15.3](T15.3-gestor-de-arranque-uefi-y-dual-boot-automatizado.md) | Gestor de Arranque UEFI y Dual Boot Automatizado | ⏳ Pendiente |
+| **Fase 15** | [T15.3](T15.3-gestor-de-arranque-uefi-y-dual-boot-automatizado.md) | Gestor de Arranque UEFI y Dual Boot Automatizado | ✅ Completado |

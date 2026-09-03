@@ -309,6 +309,14 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let sim = if config.dry_run { " [simulación segura]" } else { " [ejecutando en disco]" };
                 out.push(Line::Info(format!("despliega el sistema base antOS en «{}» ({m}){sim}", config.target_device)));
             }
+            Change::BootloaderProbe { esp_path, .. } => {
+                let esp = esp_path.as_deref().unwrap_or("/boot/efi");
+                out.push(Line::Info(format!("sondea sistemas operativos y cargadores EFI en «{esp}»")));
+            }
+            Change::BootloaderInstall { config, .. } => {
+                let sim = if config.dry_run { " [simulación segura]" } else { " [escribiendo en ESP/NVRAM]" };
+                out.push(Line::Info(format!("instala gestor de arranque UEFI en «{}» (timeout: {}s){sim}", config.esp_mount, config.timeout_seconds)));
+            }
         }
         pendiente.aplicar(change);
     }

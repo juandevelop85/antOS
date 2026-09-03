@@ -1,0 +1,12 @@
+name = "bootloader.probe"
+summary = "Sondea sistemas operativos instalados y particiones EFI para arranque dual"
+
+[params]
+esp_path = { type = "text", optional = true }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

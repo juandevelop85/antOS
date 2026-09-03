@@ -526,7 +526,7 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de Pipeline de Arranque Bare Metal y QEMU (T13.2)
-        if (!lower.contains("instala") && !lower.contains("deploy"))
+        if (!lower.contains("instala") && !lower.contains("deploy") && !lower.contains("bootloader") && !lower.contains("uefi") && !lower.contains("sondea") && !lower.contains("dual"))
             && (lower.contains("boot") || lower.contains("arranque") || lower.contains("qemu") || (lower.contains("kernel") && (lower.contains("compila") || lower.contains("construye") || lower.contains("prueba") || lower.contains("test")))) {
             if lower.contains("test") || lower.contains("prueba") {
                 return Ok(Propuesta::solo(vec![step("boot.pipeline", &[("action", "test")])]));
@@ -594,6 +594,10 @@ impl Planner for LocalPlanner {
         if (lower.contains("instala") || lower.contains("instalacion") || lower.contains("instalación") || lower.contains("installer") || lower.contains("deploy"))
             && !lower.contains("plugin")
             && !lower.contains("wasm")
+            && !lower.contains("bootloader")
+            && !lower.contains("uefi")
+            && !lower.contains("gestor")
+            && !lower.contains("cargador")
         {
             let dev = after(&words, &["disco", "dispositivo", "target", "sobre"]).unwrap_or_else(|| "/dev/nvme0n1".into());
             let clean = if lower.contains("limpio") || lower.contains("clean") || lower.contains("completo") || lower.contains("principal") { "true" } else { "false" };
@@ -601,6 +605,37 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("install.deploy", &[
                 ("target_device", &dev),
                 ("clean", clean),
+                ("dry_run", dry),
+            ])]));
+        }
+
+        // Intenciones de Gestor de Arranque UEFI y Dual Boot (T15.3)
+        if lower.contains("bootloader")
+            || lower.contains("uefi")
+            || lower.contains("cargador")
+            || lower.contains("efibootmgr")
+            || lower.contains("dual boot")
+            || lower.contains("dual-boot")
+            || (lower.contains("arranque") && (lower.contains("gestor") || lower.contains("dual") || lower.contains("sondea") || lower.contains("detecta")))
+            || (lower.contains("sondea") && lower.contains("sistemas"))
+        {
+            if lower.contains("sondea") || lower.contains("probe") || lower.contains("detecta") || lower.contains("busca") || lower.contains("lista") {
+                let esp = after(&words, &["en", "esp", "particion", "partición"]);
+                let mut args = Vec::new();
+                let esp_s;
+                if let Some(ref e) = esp {
+                    esp_s = e.as_str();
+                    args.push(("esp_path", esp_s));
+                }
+                return Ok(Propuesta::solo(vec![step("bootloader.probe", &args)]));
+            }
+
+            let dev = after(&words, &["disco", "dispositivo", "target", "sobre"]).unwrap_or_else(|| "/dev/nvme0n1".into());
+            let esp = after(&words, &["esp", "en"]).unwrap_or_else(|| "/boot/efi".into());
+            let dry = if lower.contains("apply") || lower.contains("real") || lower.contains("definitivo") { "false" } else { "true" };
+            return Ok(Propuesta::solo(vec![step("bootloader.install", &[
+                ("target_device", &dev),
+                ("esp_path", &esp),
                 ("dry_run", dry),
             ])]));
         }
@@ -1254,5 +1289,18 @@ mod tests {
         assert_eq!(p_install.steps[0].capability, "install.deploy");
         assert_eq!(p_install.steps[0].args.get("target_device").map(|s| s.as_str()), Some("/dev/nvme0n1"));
         assert_eq!(p_install.steps[0].args.get("clean").map(|s| s.as_str()), Some("false"));
+
+        let p_probe = planner
+            .plan("sondea los sistemas operativos en /boot/efi para dual boot", &catalog)
+            .expect("plan bootloader probe");
+        assert_eq!(p_probe.steps.len(), 1);
+        assert_eq!(p_probe.steps[0].capability, "bootloader.probe");
+
+        let p_bootloader = planner
+            .plan("instala el gestor de arranque uefi en el disco /dev/nvme0n1", &catalog)
+            .expect("plan bootloader install");
+        assert_eq!(p_bootloader.steps.len(), 1);
+        assert_eq!(p_bootloader.steps[0].capability, "bootloader.install");
+        assert_eq!(p_bootloader.steps[0].args.get("target_device").map(|s| s.as_str()), Some("/dev/nvme0n1"));
     }
 }
