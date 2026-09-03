@@ -1,8 +1,11 @@
 name = "ui.diff_viewer"
-summary = "Muestra el visor interactivo de diffs estructurados y coloreados sintácticamente"
+summary = "Shows the interactive diff viewer for structured and syntax-colored diffs (T8.1 / T17.2)"
 
 [params]
-target = { type = "text", optional = true }
+target  = { type = "text", optional = true }
+# T17.2: restrict the diff to a specific developer project under workspace/.
+# Accepts a project name (e.g. "api-service") or an absolute path.
+project = { type = "text", optional = true }
 
 [effects]
 reads = ["$WORKSPACE"]

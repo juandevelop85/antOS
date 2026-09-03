@@ -139,6 +139,10 @@ pub enum Change {
     UiDiffViewer {
         workspace: PathBuf,
         target: Option<String>,
+        /// Optional specific developer project directory to diff (T17.2).
+        /// When set, git diff runs in this directory with GIT_CEILING_DIRECTORIES
+        /// to prevent leaking the antOS OS repository.
+        project_path: Option<PathBuf>,
     },
     UiTerminal {
         command: Option<String>,
@@ -831,9 +835,19 @@ pub fn changes_for(
 
         "ui.diff_viewer" => {
             let target = a.get("target").cloned();
+            // T17.2: resolve project_path from the optional 'project' param.
+            let project_path = a.get("project").map(|p| {
+                let candidate = std::path::Path::new(p);
+                if candidate.is_absolute() {
+                    candidate.to_path_buf()
+                } else {
+                    ctx.workspace.join(p)
+                }
+            });
             Ok(vec![Change::UiDiffViewer {
                 workspace: ctx.workspace.clone(),
                 target,
+                project_path,
             }])
         }
 
@@ -1773,23 +1787,73 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     quota.timeout_secs, quota.max_memory_mb, quota.cpu_quota_percent
                 ));
             }
-            Change::UiDiffViewer { workspace, target } => {
-                let git_out = std::process::Command::new("git")
-                    .current_dir(workspace)
-                    .args(&["diff", target.as_deref().unwrap_or("HEAD")])
-                    .output();
-                match git_out {
-                    Ok(o) if o.status.success() => {
-                        let diff_text = String::from_utf8_lossy(&o.stdout);
-                        let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_text);
-                        if files.is_empty() {
-                            output.push("no hay diferencias registradas en el repositorio".into());
-                        } else {
-                            output.push(crate::diff_view::DiffEngine::render_terminal(&files));
-                        }
+            Change::UiDiffViewer { workspace, target, project_path } => {
+                // T17.2: prefer project_path (explicit project); fall back to workspace root.
+                let diff_dir = project_path.as_deref().unwrap_or(workspace);
+                let antos_root = crate::git::detect_antos_root();
+
+                // Verify the diff_dir has a git repo that is NOT the antOS OS repo.
+                let has_git = crate::git::find_git_root_with_ceiling(
+                    diff_dir,
+                    antos_root.as_deref(),
+                ).is_some();
+
+                if !has_git {
+                    // Enumerate files in the project dir as an informational summary.
+                    let file_list = collect_project_files(diff_dir, 30);
+                    if file_list.is_empty() {
+                        output.push(format!(
+                            "project '{}' has no files and no Git repository",
+                            diff_dir.display()
+                        ));
+                    } else {
+                        output.push(format!(
+                            "project '{}' is not a Git repository — detected {} file(s):\n  {}",
+                            diff_dir.display(),
+                            file_list.len(),
+                            file_list.join("\n  ")
+                        ));
+                        output.push(format!(
+                            "hint: run 'git init {}' or 'antos project init <name>' to start version control",
+                            diff_dir.display()
+                        ));
                     }
-                    _ => {
-                        output.push("no se pudo generar el diff git para el objetivo especificado".into());
+                } else {
+                    // Build git diff with ceiling to enforce isolation.
+                    let ceiling_val = antos_root
+                        .as_deref()
+                        .and_then(|r| r.parent())
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
+
+                    let mut cmd = std::process::Command::new("git");
+                    cmd.current_dir(diff_dir)
+                        .args(&["diff", target.as_deref().unwrap_or("HEAD")]);
+                    if !ceiling_val.is_empty() {
+                        cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+                    }
+                    let git_out = cmd.output();
+
+                    match git_out {
+                        Ok(o) if o.status.success() => {
+                            let diff_text = String::from_utf8_lossy(&o.stdout);
+                            let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_text);
+                            if files.is_empty() {
+                                output.push(format!(
+                                    "no differences against '{}' in project '{}'",
+                                    target.as_deref().unwrap_or("HEAD"),
+                                    diff_dir.display()
+                                ));
+                            } else {
+                                output.push(crate::diff_view::DiffEngine::render_terminal(&files));
+                            }
+                        }
+                        _ => {
+                            output.push(format!(
+                                "failed to run git diff in project '{}'",
+                                diff_dir.display()
+                            ));
+                        }
                     }
                 }
             }
@@ -2499,9 +2563,150 @@ fn declare_package(previo: &str, package: &str, version: &str) -> Result<String>
     Ok(format!("{PACKAGES_HEADER}\n{}", toml::to_string(&file)?))
 }
 
+// ─────────────────────────────────────────────────────────────── T17.2 ──────
+
+/// Collects relative file paths in `dir` up to `limit` entries, skipping hidden
+/// directories (`.git`, `.cargo`, `target`, `node_modules`, etc.).
+///
+/// Used to provide an informative file summary when a project has no Git repo.
+pub(crate) fn collect_project_files(dir: &std::path::Path, limit: usize) -> Vec<String> {
+    let mut results = Vec::new();
+    let skip_dirs: &[&str] = &[
+        ".git", ".cargo", "target", "node_modules", "__pycache__",
+        ".venv", "venv", "dist", "build", ".idea", ".vscode",
+    ];
+    collect_files_recursive(dir, dir, &mut results, limit, skip_dirs);
+    results
+}
+
+fn collect_files_recursive(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    out: &mut Vec<String>,
+    limit: usize,
+    skip_dirs: &[&str],
+) {
+    if out.len() >= limit {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        if out.len() >= limit {
+            break;
+        }
+        let path = entry.path();
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if path.is_dir() {
+            if skip_dirs.contains(&name_str.as_ref()) {
+                continue;
+            }
+            collect_files_recursive(root, &path, out, limit, skip_dirs);
+        } else if path.is_file() {
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            out.push(rel.display().to_string());
+        }
+    }
+}
+
+/// Scans `workspace` for immediate subdirectories (developer projects) and
+/// returns their paths. Directories whose names start with `.` are excluded.
+pub(crate) fn scan_workspace_projects(workspace: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(workspace) else {
+        return Vec::new();
+    };
+    let mut projects: Vec<_> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                && !e.file_name().to_string_lossy().starts_with('.')
+        })
+        .map(|e| e.path())
+        .collect();
+    projects.sort();
+    projects
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ────────────────────────────────────────────────────── T17.2 tests ──
+
+    /// T17.2 — scan_workspace_projects returns an empty list for a workspace dir
+    /// that has no subdirectories.
+    #[test]
+    fn test_scan_workspace_projects_empty() {
+        let tmp = std::env::temp_dir().join(format!("antos_ws_empty_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let projects = scan_workspace_projects(&tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(projects.is_empty(), "empty workspace should return no projects");
+    }
+
+    /// T17.2 — scan_workspace_projects detects project subdirectories and excludes
+    /// hidden directories (those starting with '.').
+    #[test]
+    fn test_scan_workspace_projects_detects_projects() {
+        let tmp = std::env::temp_dir().join(format!("antos_ws_scan_{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("api-service")).unwrap();
+        std::fs::create_dir_all(tmp.join("frontend")).unwrap();
+        std::fs::create_dir_all(tmp.join(".hidden")).unwrap(); // must be excluded
+        let projects = scan_workspace_projects(&tmp);
+        let _ = std::fs::remove_dir_all(&tmp);
+        let names: Vec<String> = projects
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"api-service".to_string()), "api-service must be detected");
+        assert!(names.contains(&"frontend".to_string()), "frontend must be detected");
+        assert!(!names.contains(&".hidden".to_string()), "hidden dirs must be excluded");
+    }
+
+    /// T17.2 — collect_project_files returns file paths relative to the root dir
+    /// and respects the skip-dirs list (e.g. 'target', 'node_modules').
+    #[test]
+    fn test_collect_project_files_lists_relative_paths() {
+        let tmp = std::env::temp_dir().join(format!("antos_collect_{}", std::process::id()));
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::create_dir_all(tmp.join("target/debug")).unwrap(); // must be skipped
+        std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
+        std::fs::write(tmp.join("src/main.rs"), "fn main(){}").unwrap();
+        std::fs::write(tmp.join("target/debug/binary"), "bin").unwrap();
+        let files = collect_project_files(&tmp, 50);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            files.iter().any(|f| f.contains("Cargo.toml")),
+            "Cargo.toml must be listed"
+        );
+        assert!(
+            files.iter().any(|f| f.contains("main.rs")),
+            "src/main.rs must be listed"
+        );
+        assert!(
+            !files.iter().any(|f| f.contains("target")),
+            "target/ must be excluded"
+        );
+    }
+
+    /// T17.2 — collect_project_files respects the limit parameter.
+    #[test]
+    fn test_collect_project_files_respects_limit() {
+        let tmp = std::env::temp_dir().join(format!("antos_limit_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        for i in 0..20 {
+            std::fs::write(tmp.join(format!("file{i}.txt")), "x").unwrap();
+        }
+        let files = collect_project_files(&tmp, 5);
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            files.len() <= 5,
+            "collect_project_files must not exceed the limit; got {}",
+            files.len()
+        );
+    }
 
     #[test]
     fn un_paso_ve_lo_que_decidio_el_anterior() {

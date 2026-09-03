@@ -1454,11 +1454,14 @@ pub enum Request {
     /// Approve or reject final changes of an antFlow task.
     #[serde(alias = "AprobarFlow")]
     ApproveFlow { ticket_id: String, decision: bool },
-    /// Query structured syntax diff for ticket, file, or commit (T8.1).
+    /// Query structured syntax diff for ticket, file, or commit (T8.1 / T17.2).
     #[serde(alias = "ConsultarDiff")]
     QueryDiff {
         workspace_path: String,
         target: Option<String>,
+        /// Optional project name or absolute path inside workspace/ to restrict the diff
+        /// to a specific developer project, preventing leakage from the antOS OS repo.
+        project_path: Option<String>,
     },
     /// List pending agent and system notifications (T8.2).
     #[serde(alias = "ListarNotificaciones")]
@@ -2254,6 +2257,7 @@ mod tests {
         let req = Request::QueryDiff {
             workspace_path: "/ws".into(),
             target: Some("T8.1".into()),
+            project_path: None,
         };
         let json_req = serde_json::to_string(&req).expect("serialize req");
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");

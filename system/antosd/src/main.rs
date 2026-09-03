@@ -1379,105 +1379,200 @@ fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
 // ------------------------------------------------------------------ diff
 
 fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
-    let target = args.first().map(String::as_str).unwrap_or("HEAD");
+    // T17.2 argument parsing:
+    //   antos diff                  — detect project from cwd or scan workspace
+    //   antos diff <project>        — diff the named project
+    //   antos diff <project> <ref>  — diff the named project against <ref>
+    //   antos diff <ref>            — backwards-compat: diff active project / workspace against <ref>
+    //
+    // A token is treated as a project name when it matches a directory under workspace/.
+    // Otherwise it is treated as a git target ref.
+
+    let antos_root = ctx.antos_root.clone();
+    let workspace  = &ctx.workspace;
+
     println!(
         "\n{}",
-        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1 / T17.1)", BOLD)
+        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1 / T17.2)", BOLD)
     );
     println!(
         "  Espacio de trabajo: {}",
-        paint(&ctx.workspace.display().to_string(), DIM)
+        paint(&workspace.display().to_string(), DIM)
     );
 
-    // Show active project if detected (T17.1 contextual discovery)
-    if let Some(ref proj) = ctx.current_project {
-        println!("  Proyecto activo:     {}", paint(&proj.display().to_string(), DIM));
+    // Parse arguments into (project_path, target_ref).
+    let (project_path, target) = parse_diff_args(args, workspace, ctx.current_project.as_deref());
+
+    if let Some(ref p) = project_path {
+        println!("  Proyecto:           {}", paint(&p.display().to_string(), DIM));
+    } else if let Some(ref p) = ctx.current_project {
+        println!("  Proyecto activo:    {}", paint(&p.display().to_string(), DIM));
     }
+    println!("  Objetivo:           {}\n", paint(&target, BOLD));
 
-    println!("  Objetivo:           {}\n", paint(target, BOLD));
-
-    // Determine the directory to diff: prefer the active project, fall back to workspace root.
-    let diff_dir = ctx.current_project.as_deref().unwrap_or(&ctx.workspace);
-
-    // Verify there is a .git repo in the project dir using the ceiling-aware search.
-    // This prevents leaking the antOS OS repo when a project has no .git of its own.
-    let antos_root = ctx.antos_root.clone();
-    let project_has_git =
-        git::find_git_root_with_ceiling(diff_dir, antos_root.as_deref()).is_some();
-
-    if !project_has_git {
-        println!(
-            "  {} El directorio del proyecto no es un repositorio Git.\n",
-            paint("⚠ Sin repositorio:", YELLOW)
-        );
-        println!("  Para inicializar el control de versiones en este proyecto, ejecuta:\n");
-        println!(
-            "      {}",
-            paint(
-                &format!(
-                    "git init {} && git -C {} checkout -b main",
-                    diff_dir.display(),
-                    diff_dir.display()
-                ),
-                DIM
-            )
-        );
-        println!("\n  O utiliza el comando antOS:\n");
-        println!("      {}\n", paint("antos project init <nombre>", DIM));
+    // Case A: a specific project was requested — diff only that project.
+    if let Some(proj) = project_path {
+        diff_single_project(&proj, &target, antos_root.as_deref());
         return Ok(());
     }
 
-    // Build the git diff command with GIT_CEILING_DIRECTORIES to enforce isolation.
+    // Case B: we are inside a project (contextual detection from T17.1).
+    if let Some(ref proj) = ctx.current_project {
+        diff_single_project(proj, &target, antos_root.as_deref());
+        return Ok(());
+    }
+
+    // Case C: no project context — scan all projects in workspace/.
+    let projects = crate::exec::scan_workspace_projects(workspace);
+    if projects.is_empty() {
+        println!(
+            "  {} No se encontraron proyectos en el espacio de trabajo.\n",
+            paint("ℹ Sin proyectos:", DIM)
+        );
+        return Ok(());
+    }
+
+    println!(
+        "  {} {} proyecto(s) detectado(s)\n",
+        paint("↓ Escaneando:", CYAN),
+        projects.len()
+    );
+
+    for proj in &projects {
+        let proj_name = proj.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| proj.display().to_string());
+        println!("  {} {}", paint("┌ proyecto:", BOLD), paint(&proj_name, CYAN));
+        diff_single_project(proj, &target, antos_root.as_deref());
+    }
+
+    Ok(())
+}
+
+/// Parses CLI arguments into (optional project path, target ref).
+///
+/// Logic:
+/// - If the first arg is a directory under `workspace/`, it is the project.
+///   The second arg (if present) is the target ref.
+/// - Otherwise the first arg (if present) is the target ref.
+/// - Falls back to (current_project, "HEAD").
+fn parse_diff_args(
+    args: &[String],
+    workspace: &std::path::Path,
+    current_project: Option<&std::path::Path>,
+) -> (Option<std::path::PathBuf>, String) {
+    match args {
+        [] => (None, "HEAD".into()),
+        [first] => {
+            let candidate = workspace.join(first);
+            if candidate.is_dir() {
+                (Some(candidate), "HEAD".into())
+            } else {
+                // Treat as a target ref, keep detected project (or None).
+                (current_project.map(|p| p.to_path_buf()), first.clone())
+            }
+        }
+        [first, second, ..] => {
+            let candidate = workspace.join(first);
+            if candidate.is_dir() {
+                (Some(candidate), second.clone())
+            } else {
+                // first is a ref, not a project name.
+                (current_project.map(|p| p.to_path_buf()), first.clone())
+            }
+        }
+    }
+}
+
+/// Diffs a single project directory, printing the result to stdout.
+///
+/// Uses ceiling-aware git root detection (T17.1) to verify the project has its
+/// own `.git` before invoking `git diff`. If it does not, prints an informative
+/// file listing and actionable guidance.
+fn diff_single_project(
+    proj: &std::path::Path,
+    target: &str,
+    antos_root: Option<&std::path::Path>,
+) {
+    let project_name = proj.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| proj.display().to_string());
+
+    let has_git = git::find_git_root_with_ceiling(proj, antos_root).is_some();
+
+    if !has_git {
+        let files = crate::exec::collect_project_files(proj, 20);
+        if files.is_empty() {
+            println!(
+                "  {} {} — directorio vacío (sin archivos ni repositorio Git)\n",
+                paint("⚠", YELLOW),
+                paint(&project_name, BOLD)
+            );
+        } else {
+            println!(
+                "  {} {} — {} archivo(s) detectado(s), sin repositorio Git:",
+                paint("⚠", YELLOW),
+                paint(&project_name, BOLD),
+                files.len()
+            );
+            for f in &files {
+                println!("    {}", paint(f, DIM));
+            }
+            println!();
+            println!(
+                "  {} Inicializa el repositorio con: {}",
+                paint("→", CYAN),
+                paint(&format!("antos project init {}", project_name), DIM)
+            );
+            println!();
+        }
+        return;
+    }
+
+    // Build git diff with ceiling.
     let ceiling_val = antos_root
-        .as_deref()
         .and_then(|r| r.parent())
         .map(|p| p.display().to_string())
         .unwrap_or_default();
 
     let mut git_cmd = std::process::Command::new("git");
-    git_cmd.current_dir(diff_dir);
+    git_cmd.current_dir(proj).args(&["diff", target]);
     if !ceiling_val.is_empty() {
         git_cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
     }
-    git_cmd.args(&["diff", target]);
 
-    let git_out = git_cmd.output();
-
-    match git_out {
+    match git_cmd.output() {
         Ok(out) if out.status.success() => {
             let diff_str = String::from_utf8_lossy(&out.stdout);
             let files = diff_view::DiffEngine::parse_unified_diff(&diff_str);
-
             if files.is_empty() {
                 println!(
-                    "  {} No hay cambios ni diferencias pendientes contra «{target}».{}\n",
-                    paint("✓ Repositorio limpio:", GREEN),
-                    if ctx.current_project.is_some() {
-                        format!(" (proyecto: {})", diff_dir.display())
-                    } else {
-                        String::new()
-                    }
+                    "  {} {} — sin cambios pendientes contra «{}».\n",
+                    paint("✓", GREEN),
+                    paint(&project_name, BOLD),
+                    target
                 );
             } else {
+                println!(
+                    "  {} {} — {} archivo(s) modificado(s):",
+                    paint("~", CYAN),
+                    paint(&project_name, BOLD),
+                    files.len()
+                );
                 let rendered = diff_view::DiffEngine::render_terminal(&files);
                 print!("{rendered}");
             }
         }
         _ => {
             println!(
-                "  {} No se pudo invocar git diff en el espacio de trabajo.{}\n",
-                paint("✗ Error:", RED),
-                if !ceiling_val.is_empty() {
-                    format!(" (GIT_CEILING_DIRECTORIES={})", ceiling_val)
-                } else {
-                    String::new()
-                }
+                "  {} No se pudo ejecutar git diff en «{}».\n",
+                paint("✗", RED),
+                proj.display()
             );
         }
     }
-
-    Ok(())
 }
+
 
 // ------------------------------------------------------------------ terminal / vte
 

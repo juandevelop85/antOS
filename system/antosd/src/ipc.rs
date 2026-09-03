@@ -243,21 +243,58 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Request::QueryDiff { workspace_path, target } => {
-            let ws = Path::new(&workspace_path);
-            let git_out = std::process::Command::new("git")
-                .current_dir(ws)
-                .args(&["diff", target.as_deref().unwrap_or("HEAD")])
-                .output();
+        Request::QueryDiff { workspace_path, target, project_path } => {
+            let workspace = Path::new(&workspace_path);
+            let antos_root = crate::git::detect_antos_root();
 
-            match git_out {
-                Ok(out) if out.status.success() => {
-                    let diff_str = String::from_utf8_lossy(&out.stdout);
-                    let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_str);
-                    enviar(&mut escritura, &Event::StructuredDiff(files))?;
+            // T17.2: resolve the directory to diff.
+            // If project_path is provided, prefer it; otherwise fall back to workspace.
+            let diff_dir_owned: std::path::PathBuf;
+            let diff_dir: &Path = if let Some(ref pp) = project_path {
+                let candidate = Path::new(pp.as_str());
+                if candidate.is_absolute() {
+                    diff_dir_owned = candidate.to_path_buf();
+                } else {
+                    diff_dir_owned = workspace.join(pp.as_str());
                 }
-                _ => {
-                    enviar(&mut escritura, &Event::StructuredDiff(Vec::new()))?;
+                &diff_dir_owned
+            } else {
+                workspace
+            };
+
+            // Verify the diff_dir has a .git that is NOT the antOS OS repo (T17.1 ceiling).
+            let has_git = crate::git::find_git_root_with_ceiling(
+                diff_dir,
+                antos_root.as_deref(),
+            ).is_some();
+
+            if !has_git {
+                // No git repo in the project: return empty diff and an informational event.
+                enviar(&mut escritura, &Event::StructuredDiff(Vec::new()))?;
+            } else {
+                let ceiling_val = antos_root
+                    .as_deref()
+                    .and_then(|r| r.parent())
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+
+                let mut cmd = std::process::Command::new("git");
+                cmd.current_dir(diff_dir)
+                    .args(&["diff", target.as_deref().unwrap_or("HEAD")]);
+                if !ceiling_val.is_empty() {
+                    cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
+                }
+                let git_out = cmd.output();
+
+                match git_out {
+                    Ok(out) if out.status.success() => {
+                        let diff_str = String::from_utf8_lossy(&out.stdout);
+                        let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_str);
+                        enviar(&mut escritura, &Event::StructuredDiff(files))?;
+                    }
+                    _ => {
+                        enviar(&mut escritura, &Event::StructuredDiff(Vec::new()))?;
+                    }
                 }
             }
         }
