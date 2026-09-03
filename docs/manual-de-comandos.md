@@ -31,7 +31,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.10 Bóveda de Secretos y Concesiones (`antos secret`, `grant`, `revoke`)](#410-bóveda-de-secretos-y-concesiones-antos-secret-grant-revoke)
    - [4.11 Servicios Locales Efímeros (`antos service` / `services`)](#411-servicios-locales-efímeros-antos-service--services)
    - [4.12 Diagnóstico del Sistema y Red (`antos doctor`, `antos ports`)](#412-diagnóstico-del-sistema-y-red-antos-doctor-antos-ports)
-   - [4.13 Inferencia LLM Local con Ollama (`antos llm`)](#413-inferencia-llm-local-con-ollama-antos-llm)
+   - [4.13 Gestión Multi-LLM y Catálogo de Proveedores Gratuitos (`antos llm`)](#413-gestión-multi-llm-y-catálogo-de-proveedores-gratuitos-antos-llm)
    - [4.14 Bitácora Inmutable y Reversión Atómica (`antos log`, `antos undo`)](#414-bitácora-inmutable-y-reversión-atómica-antos-log-antos-undo)
    - [4.15 Red P2P Cifrada antMesh (`antos mesh`)](#415-red-p2p-cifrada-antmesh-antos-mesh)
    - [4.16 Swarm Multi-Nodo y Despacho Distribuido (`antos swarm`)](#416-swarm-multi-nodo-y-despacho-distribuido-antos-swarm)
@@ -616,20 +616,34 @@ antos "libera el puerto 8080"
 
 ---
 
-### 4.13 Inferencia LLM Local con Ollama (`antos llm`)
+### 4.13 Gestión Multi-LLM y Catálogo de Proveedores Gratuitos (`antos llm`)
 
-Gestión de modelos de lenguaje locales para operación 100% offline y soberana:
+Gestión integral de motores de inferencia (locales offline y cloud tiers gratuitos sin coste) con conmutación dinámica:
 
 ```bash
-# Consultar el estado de conexión con el servicio local de Ollama
+# Diagnóstico completo de motores, estado de conexión, endpoints y latencia
 antos llm status
 
-# Listar modelos descargados y disponibles en la máquina
-antos llm list
+# Explorar catálogo curado de modelos 100% gratuitos (Groq, OpenRouter, Gemini, OpenCode, Ollama)
+antos llm free
 
-# Descargar un nuevo modelo de código local
-antos llm pull qwen2.5-coder:7b
-antos llm pull deepseek-coder:6.7b
+# Fijar dinámicamente el motor de inferencia activo del sistema operativo
+antos llm use groq --model llama-3.3-70b-versatile
+antos llm use openrouter --model deepseek/deepseek-r1:free
+antos llm use gemini --model gemini-2.0-flash
+antos llm use ollama --model qwen2.5-coder:latest
+antos llm use opencode --endpoint http://127.0.0.1:8080/v1
+antos llm use local               # Planificador determinista local offline
+
+# Restablecer selección automática inteligente
+antos llm use --clear
+
+# Prueba interactiva de inferencia y Tool Calling con el motor activo
+antos llm test
+antos llm test --prompt "crea un microservicio en rust"
+
+# Listar modelos configurados y modelos locales descargados
+antos llm list
 ```
 
 ---

@@ -25,6 +25,7 @@ mod grants;
 pub mod installer;
 mod ipc;
 mod journal;
+pub mod llm;
 pub mod lsp;
 pub mod memory;
 pub mod mesh;
@@ -51,6 +52,8 @@ mod voz;
 pub mod vte;
 pub mod wasm;
 pub mod web;
+
+use std::path::PathBuf;
 
 use anyhow::{bail, Result};
 use capability::{Catalog, Tier};
@@ -125,7 +128,7 @@ fn run() -> Result<()> {
         "secrets" | "secret" => cmd_secrets(&ctx, &rest[1..]),
         "agent" | "agents" | "flow" => cmd_agent(&ctx, &rest[1..]),
         "panel" | "board" => cmd_panel(&ctx, &rest[1..]),
-        "llm" | "models" | "model" => cmd_llm(&rest[1..]),
+        "llm" | "models" | "model" => cmd_llm(&ctx, &rest[1..]),
         "memory" | "memoria" | "search" => cmd_memory(&ctx, &rest[1..]),
         "env" | "perfil" => cmd_env(&ctx, &rest[1..]),
         "quota" | "cuota" | "cuotas" | "limits" => cmd_quota(&ctx, &rest[1..]),
@@ -183,7 +186,7 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
         );
     }
 
-    let planificador = pick_planner_por_nombre(opts.planner.as_deref())?;
+    let planificador = pick_planner(Some(ctx), opts.planner.as_deref())?;
     let mut terminal = terminal::Terminal::new(opts.assume_yes);
     sesion::intencion(
         ctx,
@@ -859,150 +862,419 @@ fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ------------------------------------------------------------------ apoyo
 
-pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
-    match nombre {
-        Some("local") => Ok(Box::new(LocalPlanner)),
-        Some("claude") => Ok(Box::new(ClaudePlanner::from_env()?)),
-        Some("ollama" | "local-llm" | "local_llm") => Ok(Box::new(OllamaPlanner::from_env()?)),
-        Some("groq") => Ok(Box::new(OpenAiCompatPlanner::from_preset("groq")?)),
-        Some("openrouter" | "open-router") => Ok(Box::new(OpenAiCompatPlanner::from_preset("openrouter")?)),
-        Some("gemini" | "google") => Ok(Box::new(OpenAiCompatPlanner::from_preset("gemini")?)),
-        Some("opencode" | "localai" | "vllm") => Ok(Box::new(OpenAiCompatPlanner::from_preset("opencode")?)),
-        Some("openai" | "openai_compat" | "compat") => Ok(Box::new(OpenAiCompatPlanner::from_preset("openai")?)),
-        Some(other) => {
-            if other.starts_with("http://") || other.starts_with("https://") {
-                Ok(Box::new(OpenAiCompatPlanner::new("custom", other, "default", None)))
-            } else {
-                bail!("planificador desconocido: {other} (usa «local», «ollama», «groq», «openrouter», «gemini», «opencode» o «claude»)")
-            }
-        }
-        // Jerarquía de fallback transparente:
-        // 1. Proveedores en la nube con free tiers o claves configuradas.
-        // 2. Claude si hay clave de API configurada.
-        // 3. Ollama local si está disponible en la máquina.
-        // 4. OpenCode / llama.cpp local si está disponible en puerto 8080.
-        // 5. Planificador local determinista sin dependencias externas.
-        None => {
-            if let Ok(p) = OpenAiCompatPlanner::from_preset("groq") {
-                return Ok(Box::new(p));
-            }
-            if let Ok(p) = OpenAiCompatPlanner::from_preset("openrouter") {
-                return Ok(Box::new(p));
-            }
-            if let Ok(p) = ClaudePlanner::from_env() {
-                return Ok(Box::new(p));
-            }
-            if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
-                return Ok(Box::new(p));
-            }
-            if let Ok(o) = OllamaPlanner::from_env() {
-                if o.is_available() {
-                    return Ok(Box::new(o));
+pub(crate) fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn Planner>> {
+    // 1. Si el usuario solicitó explícitamente un planificador por CLI/flag (--planner):
+    if let Some(target) = nombre {
+        return match target {
+            "local" => Ok(Box::new(LocalPlanner)),
+            "claude" => Ok(Box::new(ClaudePlanner::from_env()?)),
+            "ollama" | "local-llm" | "local_llm" => Ok(Box::new(OllamaPlanner::from_env()?)),
+            "groq" => Ok(Box::new(OpenAiCompatPlanner::from_preset("groq")?)),
+            "openrouter" | "open-router" => Ok(Box::new(OpenAiCompatPlanner::from_preset("openrouter")?)),
+            "gemini" | "google" => Ok(Box::new(OpenAiCompatPlanner::from_preset("gemini")?)),
+            "opencode" | "localai" | "vllm" => Ok(Box::new(OpenAiCompatPlanner::from_preset("opencode")?)),
+            "openai" | "openai_compat" | "compat" => Ok(Box::new(OpenAiCompatPlanner::from_preset("openai")?)),
+            other => {
+                if other.starts_with("http://") || other.starts_with("https://") {
+                    Ok(Box::new(OpenAiCompatPlanner::new("custom", other, "default", None)))
+                } else {
+                    bail!("planificador desconocido: {other} (usa «local», «ollama», «groq», «openrouter», «gemini», «opencode» o «claude»)")
                 }
             }
-            if let Ok(oc) = OpenAiCompatPlanner::from_preset("opencode") {
-                if oc.is_available() {
-                    return Ok(Box::new(oc));
+        };
+    }
+
+    // 2. Si hay configuración persistente guardada (vía 'antos llm use <proveedor>'):
+    let config = if let Some(c) = ctx {
+        llm::LlmConfig::load_from_state(&c.state)
+    } else {
+        let state = std::env::var_os("ANTOS_STATE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".antos"));
+        llm::LlmConfig::load_from_state(&state)
+    };
+
+    if config.active_provider != "auto" {
+        let p_name = config.active_provider.as_str();
+        let custom_settings = config.get_provider_settings(p_name);
+        let custom_model = custom_settings.and_then(|s| s.model.as_deref());
+        let custom_endpoint = custom_settings.and_then(|s| s.endpoint.as_deref());
+
+        let planner_res: Result<Box<dyn Planner>> = match p_name {
+            "local" => Ok(Box::new(LocalPlanner)),
+            "claude" => Ok(Box::new(ClaudePlanner::from_env()?)),
+            "ollama" => {
+                let mut o = OllamaPlanner::from_env()?;
+                if let Some(m) = custom_model {
+                    o.model = m.to_string();
+                }
+                if let Some(e) = custom_endpoint {
+                    o.endpoint = e.to_string();
+                }
+                Ok(Box::new(o))
+            }
+            "groq" | "openrouter" | "gemini" | "opencode" | "openai" => {
+                let mut p = OpenAiCompatPlanner::from_preset(p_name)?;
+                if let Some(m) = custom_model {
+                    p.model = m.to_string();
+                }
+                if let Some(e) = custom_endpoint {
+                    p.endpoint = e.to_string();
+                }
+                Ok(Box::new(p))
+            }
+            other => {
+                if let Some(endpoint) = custom_endpoint {
+                    let model = custom_model.unwrap_or("default");
+                    Ok(Box::new(OpenAiCompatPlanner::new(other, endpoint, model, None)))
+                } else {
+                    OpenAiCompatPlanner::from_preset(other).map(|p| Box::new(p) as Box<dyn Planner>)
                 }
             }
-            Ok(Box::new(LocalPlanner))
+        };
+
+        if let Ok(p) = planner_res {
+            return Ok(p);
         }
     }
+
+    // 3. Jerarquía de fallback automático (modo "auto"):
+    // 1. Proveedores en la nube con free tiers o claves configuradas.
+    // 2. Claude si hay clave de API configurada.
+    // 3. Ollama local si está disponible en la máquina.
+    // 4. OpenCode / llama.cpp local si está disponible en puerto 8080.
+    // 5. Planificador local determinista sin dependencias externas.
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("groq") {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("openrouter") {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = ClaudePlanner::from_env() {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
+        return Ok(Box::new(p));
+    }
+    if let Ok(o) = OllamaPlanner::from_env() {
+        if o.is_available() {
+            return Ok(Box::new(o));
+        }
+    }
+    if let Ok(oc) = OpenAiCompatPlanner::from_preset("opencode") {
+        if oc.is_available() {
+            return Ok(Box::new(oc));
+        }
+    }
+    Ok(Box::new(LocalPlanner))
 }
 
-// ------------------------------------------------------------------ llm
+#[allow(dead_code)]
+pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
+    pick_planner(None, nombre)
+}
 
-fn cmd_llm(args: &[String]) -> Result<()> {
+// ------------------------------------------------------------------ llm (T19.2)
+
+fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
-    let ollama = OllamaPlanner::from_env()?;
+    let mut config = llm::LlmConfig::load_from_state(&ctx.state);
 
     match sub {
-        "list" | "models" => {
-            if !ollama.is_available() {
-                println!(
-                    "\n{} No se pudo conectar con Ollama en {}\n  Asegúrate de que el servicio esté corriendo con: ollama serve\n",
-                    paint("✗ Ollama no responde:", RED),
-                    paint(&ollama.endpoint, BOLD)
-                );
-                return Ok(());
-            }
+        "use" | "set" | "select" => {
+            let target = args.get(1).map(String::as_str);
+            match target {
+                None => {
+                    println!(
+                        "\n{} Uso: antos llm use <proveedor> [--model <modelo>] [--endpoint <url>]",
+                        paint("antOS ·", BOLD)
+                    );
+                    println!("  Proveedores soportados: groq, openrouter, gemini, ollama, opencode, claude, local, auto");
+                    println!("  Ejemplo: antos llm use groq --model llama-3.3-70b-versatile");
+                    println!("  Ejemplo: antos llm use openrouter --model deepseek/deepseek-r1:free");
+                    println!("  Ejemplo: antos llm use ollama --model qwen2.5-coder");
+                    println!("  Para ver opciones gratuitas: antos llm free\n");
+                    return Ok(());
+                }
+                Some("--clear" | "clear" | "auto" | "reset") => {
+                    config.clear_active();
+                    config.save_to_state(&ctx.state)?;
+                    println!(
+                        "\n{} Selección de motor restablecida a '{}'. El sistema elegirá automáticamente el mejor motor disponible.\n",
+                        paint("antOS ·", BOLD),
+                        paint("auto", GREEN)
+                    );
+                    return Ok(());
+                }
+                Some(provider) => {
+                    let model_flag = args
+                        .iter()
+                        .position(|a| a == "--model" || a == "-m")
+                        .and_then(|i| args.get(i + 1))
+                        .map(String::as_str);
+                    let endpoint_flag = args
+                        .iter()
+                        .position(|a| a == "--endpoint" || a == "-e" || a == "--url")
+                        .and_then(|i| args.get(i + 1))
+                        .map(String::as_str);
 
-            let models = ollama.list_models()?;
+                    config.set_active_provider(provider, model_flag, endpoint_flag);
+                    config.save_to_state(&ctx.state)?;
+
+                    let active_settings = config.get_provider_settings(provider);
+                    let model_disp = active_settings
+                        .and_then(|s| s.model.as_deref())
+                        .unwrap_or("por defecto");
+                    let endpoint_disp = active_settings
+                        .and_then(|s| s.endpoint.as_deref())
+                        .unwrap_or("estándar");
+
+                    println!(
+                        "\n{} Motor LLM Activo fijado en: {}\n  Modelo:   {}\n  Endpoint: {}\n  Todos los comandos de antOS y agentes usarán este motor por defecto.\n",
+                        paint("antOS ·", BOLD),
+                        paint(provider, GREEN),
+                        paint(model_disp, CYAN),
+                        paint(endpoint_disp, DIM)
+                    );
+                }
+            }
+        }
+        "free" | "gratis" => {
             println!(
                 "\n{}",
-                paint("antOS · Modelos LLM Locales Disponibles (Ollama)", BOLD)
+                paint("antOS · Catálogo de Modelos y Proveedores 100% Gratuitos (T19.2)", BOLD)
             );
-            println!("  Endpoint: {}", paint(&ollama.endpoint, GREEN));
-            println!("  Modelo Activo: {}\n", paint(&ollama.model, BOLD));
+            println!("  antOS está diseñado para funcionar con coste $0 usando modelos locales o cloud tiers gratuitos:\n");
 
-            if models.is_empty() {
-                println!("  No hay modelos descargados en Ollama.");
+            let recs = planner::openai_compat::get_free_recommendations();
+            for r in recs {
+                let badge = if r.provider_type == "local" {
+                    paint("● LOCAL / OFFLINE", GREEN)
+                } else {
+                    paint("⚡ CLOUD FREE TIER", CYAN)
+                };
+
+                println!("  ┌─ {}  [{}]", paint(r.display_name, BOLD), badge);
+                println!("  │  Descripción:   {}", r.description);
+                println!("  │  Modelo base:   {}", paint(r.default_model, GREEN));
+                println!("  │  Alternativos:  {}", r.alternative_models.join(", "));
+                println!("  │  Límites:       {}", paint(r.rate_limits, DIM));
                 println!(
-                    "  Descarga uno con: ollama pull qwen2.5-coder o ollama pull deepseek-coder\n"
+                    "  │  Activar:       {}",
+                    paint(
+                        &format!("antos llm use {} --model {}", r.provider_id, r.default_model),
+                        YELLOW
+                    )
                 );
-            } else {
-                for m in models {
-                    let is_active = m.starts_with(&ollama.model) || ollama.model.starts_with(&m);
-                    let mark = if is_active {
-                        paint("●", GREEN)
-                    } else {
-                        paint("○", DIM)
-                    };
-                    let tag = if is_active {
-                        paint("(activo)", YELLOW)
-                    } else {
-                        "".to_string()
-                    };
-                    println!("  {mark} {:<30} {tag}", paint(&m, BOLD));
+                if !r.env_key.is_empty() && r.provider_type != "local" {
+                    println!("  │  Clave API:     Obtener clave gratuita y guardar con:");
+                    println!(
+                        "  │                 {}",
+                        paint(&format!("antos secret set {} <tu-clave>", r.env_key), DIM)
+                    );
                 }
-                println!();
+                println!("  └─────────────────────────────────────────────────────────────────────────────\n");
             }
+            println!("  Para probar el motor actual: {}\n", paint("antos llm test", CYAN));
+        }
+        "test" | "ping" => {
+            let prompt = args
+                .iter()
+                .position(|a| a == "--prompt" || a == "-p")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str)
+                .unwrap_or("crea un proyecto rust llamado demo");
+
+            println!(
+                "\n{} Probando inferencia y Tool Calling con el motor activo...",
+                paint("antOS LLM Test ·", BOLD)
+            );
+            println!("  Intención de prueba: «{}»", paint(prompt, CYAN));
+
+            let catalog = Catalog::load(&ctx.caps_dir).unwrap_or_else(|_| Catalog {
+                caps: std::collections::BTreeMap::new(),
+            });
+            let planner = pick_planner(Some(ctx), None)?;
+
+            println!("  Motor seleccionado:  {}", paint(planner.name(), GREEN));
+            let start = std::time::Instant::now();
+            match planner.plan(prompt, &catalog) {
+                Ok(propuesta) => {
+                    let elapsed = start.elapsed();
+                    println!(
+                        "  Latencia de respuesta: {} ms",
+                        paint(&elapsed.as_millis().to_string(), GREEN)
+                    );
+                    println!(
+                        "  Pasos generados:       {}",
+                        paint(&propuesta.steps.len().to_string(), BOLD)
+                    );
+                    for (idx, step) in propuesta.steps.iter().enumerate() {
+                        println!(
+                            "    {}. Capacidad: {} ({:?})",
+                            idx + 1,
+                            paint(&step.capability, YELLOW),
+                            step.args
+                        );
+                    }
+                    if let Some(ref note) = propuesta.nota {
+                        println!("  Nota del modelo:       {}", paint(note, DIM));
+                    }
+                    println!(
+                        "\n  {} Prueba de inferencia y Tool Calling superada con éxito.\n",
+                        paint("✓", GREEN)
+                    );
+                }
+                Err(e) => {
+                    let elapsed = start.elapsed();
+                    println!("  Latencia: {} ms", elapsed.as_millis());
+                    println!("\n  {} Fallo al ejecutar la prueba: {:#}\n", paint("✗ Error:", RED), e);
+                }
+            }
+        }
+        "list" | "models" => {
+            println!(
+                "\n{}",
+                paint("antOS · Modelos y Motores Configurados (T19.2)", BOLD)
+            );
+            println!(
+                "  Motor Activo configurado: {}\n",
+                paint(&config.active_provider, GREEN)
+            );
+
+            // Intentar listar modelos de Ollama si está disponible
+            if let Ok(ollama) = planner::ollama::OllamaPlanner::from_env() {
+                if ollama.is_available() {
+                    if let Ok(models) = ollama.list_models() {
+                        println!("  ● Modelos descargados en Ollama local ({}):", models.len());
+                        for m in models {
+                            println!("    • {}", paint(&m, CYAN));
+                        }
+                        println!();
+                    }
+                }
+            }
+
+            println!("  ● Proveedores preconfigurados en antOS:");
+            for (prov, s) in &config.providers {
+                let m = s.model.as_deref().unwrap_or("predeterminado");
+                let e = s.endpoint.as_deref().unwrap_or("estándar");
+                println!(
+                    "    • {:<12} -> modelo: {:<32} (endpoint: {})",
+                    paint(prov, BOLD),
+                    paint(m, GREEN),
+                    paint(e, DIM)
+                );
+            }
+            println!("\n  Para cambiar de motor: {}\n", paint("antos llm use <proveedor>", CYAN));
         }
         "status" | _ => {
             println!(
                 "\n{}",
-                paint("antOS · Estado de Motores de Inferencia LLM (T6.1)", BOLD)
+                paint("antOS · Estado de Motores de Inferencia Multi-LLM (T19.2)", BOLD)
             );
 
-            // 1. Proveedor Claude
-            let claude_status = match ClaudePlanner::from_env() {
-                Ok(_) => paint("● Conectado (Clave API detectada)", GREEN),
-                Err(_) => paint("○ No configurado (Sin ANTHROPIC_API_KEY)", DIM),
-            };
-            println!("  ● Claude API (Nube):");
-            println!("    Estado: {claude_status}");
-
-            // 2. Proveedor Ollama local
-            let is_ollama_up = ollama.is_available();
-            let ollama_status = if is_ollama_up {
-                paint("● Online (Local)", GREEN)
+            let active_disp = if config.active_provider == "auto" {
+                format!(
+                    "{} (selección inteligente por disponibilidad)",
+                    paint("auto", GREEN)
+                )
             } else {
-                paint("○ Desconectado (Servidor no responde)", YELLOW)
+                paint(&config.active_provider, GREEN)
             };
+            println!("  ● Configuración Activa: {}\n", active_disp);
 
-            println!("\n  ● Ollama / Local LLM (Offline):");
-            println!("    Endpoint: {}", paint(&ollama.endpoint, BOLD));
-            println!("    Modelo configurado: {}", paint(&ollama.model, BOLD));
-            println!("    Estado: {ollama_status}");
-
-            if is_ollama_up {
-                if let Ok(models) = ollama.list_models() {
-                    println!(
-                        "    Modelos instalados: {}",
-                        paint(&format!("{} modelos", models.len()), GREEN)
-                    );
-                }
+            // 1. Groq Cloud (Free)
+            let groq_ok = planner::openai_compat::OpenAiCompatPlanner::from_preset("groq")
+                .map(|p| p.is_available())
+                .unwrap_or(false);
+            let groq_badge = if groq_ok {
+                paint("● Conectado (Free Tier)", GREEN)
             } else {
-                println!("    Nota: Para arrancar Ollama ejecuta: ollama serve");
-            }
+                paint(
+                    "○ Sin API Key (define GROQ_API_KEY o usa 'antos secret set GROQ_API_KEY ...')",
+                    DIM,
+                )
+            };
+            println!("  1. Groq Cloud (Free Tier - Ultra rápido >300 t/s):");
+            println!("     Estado: {}", groq_badge);
+            println!("     Modelo: {}", paint("llama-3.3-70b-versatile", BOLD));
 
-            // 3. Fallback determinista
-            println!("\n  ● Planificador Determinista Local:");
+            // 2. OpenRouter (Free)
+            let or_ok = planner::openai_compat::OpenAiCompatPlanner::from_preset("openrouter")
+                .map(|p| p.is_available())
+                .unwrap_or(false);
+            let or_badge = if or_ok {
+                paint("● Conectado (Free Tier)", GREEN)
+            } else {
+                paint("○ Sin API Key (define OPENROUTER_API_KEY)", DIM)
+            };
+            println!("\n  2. OpenRouter (Free Tier - DeepSeek-R1 / Qwen2.5):");
+            println!("     Estado: {}", or_badge);
+            println!("     Modelo: {}", paint("deepseek/deepseek-r1:free", BOLD));
+
+            // 3. Google Gemini (Free)
+            let gem_ok = planner::openai_compat::OpenAiCompatPlanner::from_preset("gemini")
+                .map(|p| p.is_available())
+                .unwrap_or(false);
+            let gem_badge = if gem_ok {
+                paint("● Conectado (Free Tier)", GREEN)
+            } else {
+                paint("○ Sin API Key (define GEMINI_API_KEY)", DIM)
+            };
+            println!("\n  3. Google Gemini API (Free Tier):");
+            println!("     Estado: {}", gem_badge);
+            println!("     Modelo: {}", paint("gemini-2.0-flash", BOLD));
+
+            // 4. Ollama Local (Offline)
+            let ollama_inst = planner::ollama::OllamaPlanner::from_env();
+            let ollama_ok = ollama_inst.as_ref().map(|o| o.is_available()).unwrap_or(false);
+            let ollama_badge = if ollama_ok {
+                paint("● Online (Local Offline)", GREEN)
+            } else {
+                paint("○ Desconectado (ejecuta 'ollama serve')", YELLOW)
+            };
+            println!("\n  4. Ollama (Local Offline - Privacidad Total):");
+            println!("     Estado: {}", ollama_badge);
+            let ollama_ep = ollama_inst
+                .as_ref()
+                .map(|o| o.endpoint.as_str())
+                .unwrap_or("http://127.0.0.1:11434");
+            println!("     Endpoint: {}", paint(ollama_ep, BOLD));
+
+            // 5. OpenCode / llama.cpp (Local)
+            let oc_inst = planner::openai_compat::OpenAiCompatPlanner::from_preset("opencode");
+            let oc_ok = oc_inst.as_ref().map(|p| p.is_available()).unwrap_or(false);
+            let oc_badge = if oc_ok {
+                paint("● Online (Local /v1)", GREEN)
+            } else {
+                paint("○ No detectado en http://127.0.0.1:8080/v1", DIM)
+            };
+            println!("\n  5. OpenCode / llama.cpp / LocalAI (Local):");
+            println!("     Estado: {}", oc_badge);
+
+            // 6. Claude (Anthropic)
+            let claude_ok = planner::claude::ClaudePlanner::from_env().is_ok();
+            let claude_badge = if claude_ok {
+                paint("● Conectado (API Key presente)", GREEN)
+            } else {
+                paint("○ Sin ANTHROPIC_API_KEY", DIM)
+            };
+            println!("\n  6. Claude API (Anthropic):");
+            println!("     Estado: {}", claude_badge);
+
+            // 7. Determinista Local
+            println!("\n  7. Planificador Determinista antOS:");
             println!(
-                "    Estado: {}",
-                paint("● Siempre activo (Reglas locales deterministas)", GREEN)
+                "     Estado: {}",
+                paint("● Siempre Activo (Cero Dependencias / Offline)", GREEN)
             );
-            println!();
+
+            println!("\n  Comandos disponibles:");
+            println!("    antos llm free               Explora modelos y servicios 100% gratuitos");
+            println!("    antos llm use <proveedor>    Cambia el motor activo");
+            println!("    antos llm test               Prueba interactiva del motor en uso");
+            println!("    antos llm list               Lista modelos descargados y configurados\n");
         }
     }
 

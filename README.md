@@ -338,6 +338,31 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
 
 ---
 
+### 13. Ecosistema Multi-LLM y Catálogo de Modelos Gratuitos (`antos llm`)
+```bash
+# Diagnóstico integral de motores LLM, endpoints, latencia y claves en bóveda
+antos llm status
+
+# Catálogo interactivo de modelos 100% gratuitos (Groq, OpenRouter, Gemini, OpenCode, Ollama)
+antos llm free
+
+# Cambiar el motor activo del sistema operativo dinámicamente
+antos llm use groq --model llama-3.3-70b-versatile
+antos llm use openrouter --model deepseek/deepseek-r1:free
+antos llm use gemini --model gemini-2.0-flash
+antos llm use ollama --model qwen2.5-coder:latest
+antos llm use opencode --endpoint http://127.0.0.1:8080/v1
+antos llm use local               # Planificador determinista offline sin GPU ni red
+
+# Restablecer selección automática por jerarquía
+antos llm use --clear
+
+# Prueba interactiva de inferencia y Tool Calling en tiempo real
+antos llm test
+```
+
+---
+
 ## 📋 Catálogo Completo de Capacidades (`system/capabilities/`)
 
 | Capacidad | Descripción | Nivel de Riesgo |

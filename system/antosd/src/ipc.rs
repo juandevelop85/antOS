@@ -153,7 +153,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
 
     match peticion {
         Request::Intent { text, planner, dry_run } => {
-            let planner_instance = crate::pick_planner_por_nombre(planner.as_deref())?;
+            let planner_instance = crate::pick_planner(Some(ctx), planner.as_deref())?;
             let mut con = PorSocket {
                 escritura: &mut escritura,
                 lectura: &mut lectura,
