@@ -1,0 +1,13 @@
+name = "microvm.exec"
+summary = "Ejecuta un comando de forma aislada dentro de una microVM vía vsock"
+
+[params]
+vm_id = { type = "text", optional = false }
+command = { type = "text", optional = false }
+
+[effects]
+writes = []
+
+[policy]
+tier = "auto"
+reversible = "never"

@@ -1,0 +1,16 @@
+name = "microvm.spawn"
+summary = "Instancia una microVM efímera con aislamiento de hardware mediante KVM"
+
+[params]
+vm_id = { type = "text", optional = true }
+cpus = { type = "integer", optional = true }
+memory = { type = "integer", optional = true }
+kernel = { type = "text", optional = true }
+dry_run = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$STATE/microvms.json"]
+
+[policy]
+tier = "auto"
+reversible = "never"

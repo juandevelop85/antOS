@@ -294,6 +294,19 @@ pub enum Change {
         workspace: PathBuf,
         config: antos_protocol::BootloaderConfig,
     },
+    MicrovmSpawn {
+        state_dir: PathBuf,
+        config: antos_protocol::MicrovmConfig,
+    },
+    MicrovmExec {
+        state_dir: PathBuf,
+        vm_id: String,
+        command: String,
+    },
+    MicrovmDestroy {
+        state_dir: PathBuf,
+        vm_id: String,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -398,7 +411,10 @@ impl Pendiente {
             | Change::InstallPrepare { .. }
             | Change::InstallDeploy { .. }
             | Change::BootloaderProbe { .. }
-            | Change::BootloaderInstall { .. } => {}
+            | Change::BootloaderInstall { .. }
+            | Change::MicrovmSpawn { .. }
+            | Change::MicrovmExec { .. }
+            | Change::MicrovmDestroy { .. } => {}
         }
     }
 }
@@ -1106,6 +1122,45 @@ pub fn changes_for(
             Ok(vec![Change::BootloaderInstall {
                 workspace: ctx.workspace.clone(),
                 config,
+            }])
+        }
+
+        "microvm.spawn" => {
+            let vm_id = a.get("vm_id").cloned().unwrap_or_else(|| format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
+            let vcpu_count = a.get("cpus").and_then(|v| v.parse::<u8>().ok()).unwrap_or(2);
+            let memory_mb = a.get("memory").and_then(|v| v.parse::<u32>().ok()).unwrap_or(512);
+            let kernel_image = a.get("kernel").cloned().unwrap_or_else(|| "/boot/antos-vmlinuz".into());
+            let config = antos_protocol::MicrovmConfig {
+                vm_id,
+                vcpu_count,
+                memory_mb,
+                kernel_image,
+                initrd_image: None,
+                overlay_disk: None,
+                vsock_port: 5252,
+                command: None,
+            };
+            Ok(vec![Change::MicrovmSpawn {
+                state_dir: ctx.state.clone(),
+                config,
+            }])
+        }
+
+        "microvm.exec" => {
+            let vm_id = a.get("vm_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
+            let command = a.get("command").cloned().ok_or_else(|| anyhow::anyhow!("se requiere command"))?;
+            Ok(vec![Change::MicrovmExec {
+                state_dir: ctx.state.clone(),
+                vm_id,
+                command,
+            }])
+        }
+
+        "microvm.destroy" => {
+            let vm_id = a.get("vm_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
+            Ok(vec![Change::MicrovmDestroy {
+                state_dir: ctx.state.clone(),
+                vm_id,
             }])
         }
 
@@ -2031,6 +2086,24 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     lines.push(format!("    ✓ {}", e));
                 }
                 output.push(lines.join("\n"));
+            }
+            Change::MicrovmSpawn { state_dir, config } => {
+                let instance = crate::vm::MicrovmManager::spawn_vm(state_dir, config)?;
+                output.push(format!(
+                    "antOS MicroVM · Instancia «{}» arrancada exitosamente:\n  • PID:          {}\n  • vCPUs:        {}\n  • Memoria:      {} MB\n  • Puerto vsock: {}\n  • Estado:       {}",
+                    instance.id, instance.pid, instance.vcpus, instance.memory_mb, instance.vsock_port, instance.status
+                ));
+            }
+            Change::MicrovmExec { state_dir, vm_id, command } => {
+                let res = crate::vm::MicrovmManager::exec_vm(state_dir, vm_id, command)?;
+                output.push(format!(
+                    "antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:\n  • Salida:   {}\n  • Duración: {} ms",
+                    res.vm_id, res.exit_code, res.stdout.trim(), res.duration_ms
+                ));
+            }
+            Change::MicrovmDestroy { state_dir, vm_id } => {
+                crate::vm::MicrovmManager::kill_vm(state_dir, vm_id)?;
+                output.push(format!("antOS MicroVM · Instancia «{vm_id}» destruida y recursos liberados"));
             }
         }
     }

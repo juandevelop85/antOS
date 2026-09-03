@@ -317,6 +317,15 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let sim = if config.dry_run { " [simulación segura]" } else { " [escribiendo en ESP/NVRAM]" };
                 out.push(Line::Info(format!("instala gestor de arranque UEFI en «{}» (timeout: {}s){sim}", config.esp_mount, config.timeout_seconds)));
             }
+            Change::MicrovmSpawn { config, .. } => {
+                out.push(Line::Info(format!("instancia microVM «{}» ({} vCPUs, {} MB RAM, kernel: {})", config.vm_id, config.vcpu_count, config.memory_mb, config.kernel_image)));
+            }
+            Change::MicrovmExec { vm_id, command, .. } => {
+                out.push(Line::Info(format!("ejecuta comando «{command}» en microVM aislada «{vm_id}» vía vsock")));
+            }
+            Change::MicrovmDestroy { vm_id, .. } => {
+                out.push(Line::Info(format!("destruye microVM «{vm_id}» y libera recursos del hipervisor")));
+            }
         }
         pendiente.aplicar(change);
     }

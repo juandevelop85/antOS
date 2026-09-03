@@ -44,6 +44,7 @@ pub mod vault;
 pub mod vfs;
 pub mod vfs_guard;
 pub mod vision;
+pub mod vm;
 mod voz;
 pub mod vte;
 pub mod wasm;
@@ -86,9 +87,9 @@ fn run() -> Result<()> {
 
     while let Some(a) = argv.next() {
         match a.as_str() {
-            "--si" | "-s" => opts.assume_yes = true,
-            "--seco" | "-n" => opts.dry_run = true,
-            "--planificador" | "-p" => opts.planner = argv.next(),
+            "--si" | "-s" | "--yes" | "-y" => opts.assume_yes = true,
+            "--seco" | "-n" | "--dry-run" => opts.dry_run = true,
+            "--planificador" | "-p" | "--planner" => opts.planner = argv.next(),
             "-h" | "--ayuda" | "--help" => {
                 help();
                 return Ok(());
@@ -142,6 +143,7 @@ fn run() -> Result<()> {
         "disk" | "storage" | "part" => cmd_disk(&ctx, &rest[1..]),
         "install" | "installer" => cmd_install(&ctx, &rest[1..]),
         "bootloader" | "uefi" => cmd_bootloader(&ctx, &rest[1..]),
+        "vm" | "microvm" => cmd_vm(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -3701,6 +3703,136 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos bootloader probe [--esp <ruta>]        Sondea sistemas operativos instalados");
             println!("    antos bootloader install [--esp <ruta>]      Genera y valida la configuración de systemd-boot");
             println!("    antos bootloader install --apply             Registra antOS en la NVRAM UEFI con efibootmgr\n");
+        }
+    }
+    Ok(())
+}
+
+// ----------------------------------------------------------------- microvms
+
+fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "spawn" | "start" | "run" => {
+            let mut vm_id = format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
+            let mut vcpu_count = 2u8;
+            let mut memory_mb = 512u32;
+            let mut kernel_image = "/boot/antos-vmlinuz".to_string();
+            let mut command = None;
+
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--id" if i + 1 < args.len() => {
+                        vm_id = args[i + 1].clone();
+                        i += 1;
+                    }
+                    "--cpus" | "-c" if i + 1 < args.len() => {
+                        if let Ok(c) = args[i + 1].parse::<u8>() {
+                            vcpu_count = c;
+                        }
+                        i += 1;
+                    }
+                    "--memory" | "-m" if i + 1 < args.len() => {
+                        if let Ok(m) = args[i + 1].parse::<u32>() {
+                            memory_mb = m;
+                        }
+                        i += 1;
+                    }
+                    "--kernel" | "-k" if i + 1 < args.len() => {
+                        kernel_image = args[i + 1].clone();
+                        i += 1;
+                    }
+                    "--cmd" if i + 1 < args.len() => {
+                        command = Some(args[i + 1].clone());
+                        i += 1;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            println!("\n{} Instanciando microVM con aislamiento por hipervisor...", paint("antOS MicroVM ·", BOLD));
+            let cfg = antos_protocol::MicrovmConfig {
+                vm_id: vm_id.clone(),
+                vcpu_count,
+                memory_mb,
+                kernel_image: kernel_image.clone(),
+                initrd_image: None,
+                overlay_disk: None,
+                vsock_port: 5252,
+                command,
+            };
+
+            let instance = vm::MicrovmManager::spawn_vm(&ctx.state, &cfg)?;
+            println!("  {} MicroVM «{}» arrancada exitosamente", paint("✓", GREEN), paint(&instance.id, BOLD));
+            println!("    • PID:          {}", instance.pid);
+            println!("    • vCPUs:        {}", instance.vcpus);
+            println!("    • Memoria:      {} MB", instance.memory_mb);
+            println!("    • Puerto vsock: {}", instance.vsock_port);
+            println!("    • Estado:       {}\n", paint(&instance.status, GREEN));
+        }
+        "exec" => {
+            let vm_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos vm exec <VM_ID> <comando>"))?;
+            let command = if args.len() > 2 {
+                args[2..].join(" ")
+            } else {
+                bail!("Uso: antos vm exec <VM_ID> <comando>");
+            };
+
+            println!("\n{} Ejecutando comando en microVM «{}»...", paint("antOS MicroVM ·", BOLD), paint(vm_id, CYAN));
+            let res = vm::MicrovmManager::exec_vm(&ctx.state, vm_id, &command)?;
+            let status_badge = if res.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) };
+            println!("  Resultado:  {} (código {})", status_badge, res.exit_code);
+            println!("  Duración:   {} ms", res.duration_ms);
+            if !res.stdout.is_empty() {
+                println!("\n  Salida:\n{}", res.stdout.trim());
+            }
+            if !res.stderr.is_empty() {
+                println!("\n  Errores:\n{}", paint(&res.stderr, RED));
+            }
+            println!();
+        }
+        "list" | "ls" => {
+            println!("\n{} MicroVMs Activas en el Sistema:", paint("antOS MicroVM ·", BOLD));
+            let vms = vm::MicrovmManager::list_vms(&ctx.state)?;
+            if vms.is_empty() {
+                println!("  (no hay microVMs activas en este momento)\n");
+            } else {
+                for v in &vms {
+                    println!("  • [{}] {} (PID {}, {} vCPUs, {} MB RAM, vsock {})",
+                        paint(&v.id, BOLD),
+                        paint(&v.status, GREEN),
+                        v.pid,
+                        v.vcpus,
+                        v.memory_mb,
+                        v.vsock_port
+                    );
+                }
+                println!();
+            }
+        }
+        "kill" | "stop" | "destroy" => {
+            let vm_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos vm kill <VM_ID>"))?;
+            vm::MicrovmManager::kill_vm(&ctx.state, vm_id)?;
+            println!("\n{} MicroVM «{}» detenida y eliminada.\n", paint("✓", GREEN), paint(vm_id, BOLD));
+        }
+        "status" | _ => {
+            println!("\n{} Diagnóstico de Hipervisor y MicroVMs:", paint("antOS MicroVM ·", BOLD));
+            let st = vm::MicrovmManager::get_status(&ctx.state)?;
+            let kvm_badge = if st.kvm_available { paint("Disponible (/dev/kvm)", GREEN) } else { paint("No detectado (Emulación)", YELLOW) };
+            println!("  • Soporte KVM:             {}", kvm_badge);
+            println!("  • Motor de Hipervisor:     {}", paint(&st.hypervisor_engine, CYAN));
+            println!("  • Kernel del Host:         {}", st.kernel_version);
+            println!("  • MicroVMs activas:        {}", st.active_vms_count);
+            println!("  • Memoria asignada a VMs:  {} MB", st.total_memory_allocated_mb);
+            println!("  • Canales vsock:           {}", if st.vsock_supported { paint("Soportado", GREEN) } else { paint("No disponible", RED) });
+            println!("\n  Uso:");
+            println!("    antos vm spawn [--cpus N] [--memory MB]   Arranca una microVM efímera");
+            println!("    antos vm exec <VM_ID> <comando>          Ejecuta un comando en la microVM");
+            println!("    antos vm list                             Lista microVMs en ejecución");
+            println!("    antos vm kill <VM_ID>                     Detiene y libera una microVM\n");
         }
     }
     Ok(())

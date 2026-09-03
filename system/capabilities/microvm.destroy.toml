@@ -1,0 +1,12 @@
+name = "microvm.destroy"
+summary = "Detiene y destruye una microVM efímera liberando recursos del hipervisor"
+
+[params]
+vm_id = { type = "text", optional = false }
+
+[effects]
+writes = ["$STATE/microvms.json"]
+
+[policy]
+tier = "auto"
+reversible = "never"

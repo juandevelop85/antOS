@@ -640,6 +640,37 @@ impl Planner for LocalPlanner {
             ])]));
         }
 
+        // Intenciones de MicroVMs y Aislamiento por Hipervisor (T16.1)
+        if lower.contains("microvm")
+            || lower.contains("kvm")
+            || lower.contains("cloud-hypervisor")
+            || lower.contains("firecracker")
+            || (lower.contains("vm") && (lower.contains("arranca") || lower.contains("spawn") || lower.contains("ejecuta") || lower.contains("exec") || lower.contains("mata") || lower.contains("kill") || lower.contains("deten") || lower.contains("detén") || lower.contains("destruye")))
+        {
+            if lower.contains("ejecuta") || lower.contains("exec") {
+                let vm_id = after(&words, &["microvm", "vm"]).unwrap_or_else(|| "vm-default".into());
+                let cmd = after(&words, &["comando", "cmd", "exec", "ejecuta"]).unwrap_or_else(|| "echo test".into());
+                return Ok(Propuesta::solo(vec![step("microvm.exec", &[
+                    ("vm_id", &vm_id),
+                    ("command", &cmd),
+                ])]));
+            } else if lower.contains("mata") || lower.contains("kill") || lower.contains("destruye") || lower.contains("deten") || lower.contains("detén") || lower.contains("stop") {
+                let vm_id = after(&words, &["microvm", "vm", "id"]).unwrap_or_else(|| "vm-default".into());
+                return Ok(Propuesta::solo(vec![step("microvm.destroy", &[
+                    ("vm_id", &vm_id),
+                ])]));
+            } else {
+                let vm_id = after(&words, &["id", "nombre", "llamada"]).unwrap_or_else(|| format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
+                let cpus = before_or_after(&words, &["cpus", "cpu", "cores"]).unwrap_or_else(|| "2".into());
+                let memory = before_or_after(&words, &["memoria", "ram", "mb"]).unwrap_or_else(|| "512".into());
+                return Ok(Propuesta::solo(vec![step("microvm.spawn", &[
+                    ("vm_id", &vm_id),
+                    ("cpus", &cpus),
+                    ("memory", &memory),
+                ])]));
+            }
+        }
+
         // Intenciones de secretos y concesiones (T5.2)
         if (!lower.contains("busca") && !lower.contains("search"))
             && (lower.contains("secreto")
@@ -781,6 +812,27 @@ impl Planner for LocalPlanner {
 fn after(words: &[String], keys: &[&str]) -> Option<String> {
     for (i, w) in words.iter().enumerate() {
         if keys.contains(&w.as_str()) {
+            if let Some(next) = words.get(i + 1) {
+                if !next.is_empty() {
+                    return Some(next.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Devuelve la palabra anterior o posterior (priorizando dígitos) para `keys`.
+fn before_or_after(words: &[String], keys: &[&str]) -> Option<String> {
+    for (i, w) in words.iter().enumerate() {
+        if keys.contains(&w.as_str()) {
+            if i > 0 {
+                if let Some(prev) = words.get(i - 1) {
+                    if prev.chars().all(|c| c.is_ascii_digit()) {
+                        return Some(prev.clone());
+                    }
+                }
+            }
             if let Some(next) = words.get(i + 1) {
                 if !next.is_empty() {
                     return Some(next.clone());
@@ -1302,5 +1354,27 @@ mod tests {
         assert_eq!(p_bootloader.steps.len(), 1);
         assert_eq!(p_bootloader.steps[0].capability, "bootloader.install");
         assert_eq!(p_bootloader.steps[0].args.get("target_device").map(|s| s.as_str()), Some("/dev/nvme0n1"));
+
+        let p_vm_spawn = planner
+            .plan("arranca una microvm aislada con 4 cpus y 1024 memoria", &catalog)
+            .expect("plan vm spawn");
+        assert_eq!(p_vm_spawn.steps.len(), 1);
+        assert_eq!(p_vm_spawn.steps[0].capability, "microvm.spawn");
+        assert_eq!(p_vm_spawn.steps[0].args.get("cpus").map(|s| s.as_str()), Some("4"));
+        assert_eq!(p_vm_spawn.steps[0].args.get("memory").map(|s| s.as_str()), Some("1024"));
+
+        let p_vm_exec = planner
+            .plan("ejecuta en la microvm vm-test el comando uname -a", &catalog)
+            .expect("plan vm exec");
+        assert_eq!(p_vm_exec.steps.len(), 1);
+        assert_eq!(p_vm_exec.steps[0].capability, "microvm.exec");
+        assert_eq!(p_vm_exec.steps[0].args.get("vm_id").map(|s| s.as_str()), Some("vm-test"));
+
+        let p_vm_kill = planner
+            .plan("destruye la microvm vm-test", &catalog)
+            .expect("plan vm destroy");
+        assert_eq!(p_vm_kill.steps.len(), 1);
+        assert_eq!(p_vm_kill.steps[0].capability, "microvm.destroy");
+        assert_eq!(p_vm_kill.steps[0].args.get("vm_id").map(|s| s.as_str()), Some("vm-test"));
     }
 }

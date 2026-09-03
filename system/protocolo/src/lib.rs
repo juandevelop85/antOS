@@ -698,6 +698,72 @@ pub struct BootloaderReport {
     pub summary: String,
 }
 
+// ----------------------------------------------------------- microvms (T16.1)
+
+/// Configuración para instanciar una microVM efímera con aislamiento por hardware.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MicrovmConfig {
+    pub vm_id: String,
+    pub vcpu_count: u8,
+    pub memory_mb: u32,
+    pub kernel_image: String,
+    pub initrd_image: Option<String>,
+    pub overlay_disk: Option<String>,
+    pub vsock_port: u32,
+    pub command: Option<String>,
+}
+
+impl Default for MicrovmConfig {
+    fn default() -> Self {
+        Self {
+            vm_id: "vm-default".into(),
+            vcpu_count: 2,
+            memory_mb: 512,
+            kernel_image: "/boot/antos-vmlinuz".into(),
+            initrd_image: None,
+            overlay_disk: None,
+            vsock_port: 5252,
+            command: None,
+        }
+    }
+}
+
+/// Estado de soporte y salud del hipervisor KVM / Cloud-Hypervisor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MicrovmStatus {
+    pub kvm_available: bool,
+    pub hypervisor_engine: String,
+    pub active_vms_count: usize,
+    pub total_memory_allocated_mb: u32,
+    pub vsock_supported: bool,
+    pub kernel_version: String,
+}
+
+/// Instancia activa o registrada de una microVM efímera.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MicrovmInstance {
+    pub id: String,
+    pub pid: u32,
+    pub vcpus: u8,
+    pub memory_mb: u32,
+    pub vsock_port: u32,
+    pub status: String,
+    pub created_at: String,
+    pub command: Option<String>,
+}
+
+/// Resultado de ejecución de un comando dentro de una microVM.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MicrovmExecResult {
+    pub vm_id: String,
+    pub command: String,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub success: bool,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -1285,6 +1351,21 @@ pub enum Request {
     /// Install and configure UEFI bootloader (T15.3).
     #[serde(alias = "InstalarBootloader")]
     InstallBootloader(BootloaderConfig),
+    /// Spawn ephemeral microVM with hardware isolation (T16.1).
+    #[serde(alias = "SpawnMicrovm")]
+    SpawnMicrovm(MicrovmConfig),
+    /// Execute command inside microVM via vsock (T16.1).
+    #[serde(alias = "ExecMicrovm")]
+    ExecMicrovm { vm_id: String, command: String },
+    /// Destroy and release microVM resources (T16.1).
+    #[serde(alias = "DestroyMicrovm")]
+    DestroyMicrovm { vm_id: String },
+    /// List active microVMs (T16.1).
+    #[serde(alias = "ListMicrovms")]
+    ListMicrovms,
+    /// Query hypervisor status (T16.1).
+    #[serde(alias = "QueryMicrovmStatus")]
+    QueryMicrovmStatus,
 }
 
 /// Alias para compatibilidad con código existente en español.
@@ -1451,6 +1532,12 @@ pub enum Evento {
     SistemasOperativosDetectados(Vec<OsEntry>),
     /// Reporte de instalación y configuración de bootloader UEFI (T15.3)
     ReporteBootloader(BootloaderReport),
+    /// Estado y diagnóstico del hipervisor de microVMs (T16.1)
+    EstadoMicrovm(MicrovmStatus),
+    /// Lista de microVMs activas (T16.1)
+    ListaMicrovms(Vec<MicrovmInstance>),
+    /// Resultado de ejecución de comando dentro de la microVM (T16.1)
+    ResultadoMicrovm(MicrovmExecResult),
     Error(String),
 }
 
@@ -2360,5 +2447,50 @@ mod tests {
         let json_boot = serde_json::to_string(&req_boot).expect("serialize boot req");
         let des_boot: Request = serde_json::from_str(&json_boot).expect("deserialize boot req");
         assert_eq!(req_boot, des_boot);
+    }
+
+    #[test]
+    fn test_microvm_types_serialization() {
+        let cfg = MicrovmConfig {
+            vm_id: "vm-test-1".into(),
+            vcpu_count: 4,
+            memory_mb: 1024,
+            kernel_image: "/boot/antos-vmlinuz".into(),
+            initrd_image: Some("/boot/initrd.img".into()),
+            overlay_disk: Some("/tmp/overlay.qcow2".into()),
+            vsock_port: 8080,
+            command: Some("cargo test".into()),
+        };
+        let req_spawn = Request::SpawnMicrovm(cfg.clone());
+        let json_spawn = serde_json::to_string(&req_spawn).expect("serialize spawn");
+        let des_spawn: Request = serde_json::from_str(&json_spawn).expect("deserialize spawn");
+        assert_eq!(req_spawn, des_spawn);
+
+        let status = MicrovmStatus {
+            kvm_available: true,
+            hypervisor_engine: "Cloud-Hypervisor / KVM".into(),
+            active_vms_count: 1,
+            total_memory_allocated_mb: 1024,
+            vsock_supported: true,
+            kernel_version: "7.1.3".into(),
+        };
+        let ev_status = Evento::EstadoMicrovm(status.clone());
+        let json_st = serde_json::to_string(&ev_status).expect("serialize status");
+        let des_st: Evento = serde_json::from_str(&json_st).expect("deserialize status");
+        assert_eq!(ev_status, des_st);
+
+        let exec_res = MicrovmExecResult {
+            vm_id: "vm-test-1".into(),
+            command: "echo hello".into(),
+            exit_code: 0,
+            stdout: "hello\n".into(),
+            stderr: String::new(),
+            duration_ms: 45,
+            success: true,
+        };
+        let ev_exec = Evento::ResultadoMicrovm(exec_res.clone());
+        let json_exec = serde_json::to_string(&ev_exec).expect("serialize exec");
+        let des_exec: Evento = serde_json::from_str(&json_exec).expect("deserialize exec");
+        assert_eq!(ev_exec, des_exec);
     }
 }

@@ -622,6 +622,36 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
+        Request::SpawnMicrovm(config) => {
+            match crate::vm::MicrovmManager::spawn_vm(&ctx.state, &config) {
+                Ok(instance) => enviar(&mut escritura, &Evento::ListaMicrovms(vec![instance]))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Request::ExecMicrovm { vm_id, command } => {
+            match crate::vm::MicrovmManager::exec_vm(&ctx.state, &vm_id, &command) {
+                Ok(result) => enviar(&mut escritura, &Evento::ResultadoMicrovm(result))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Request::DestroyMicrovm { vm_id } => {
+            match crate::vm::MicrovmManager::kill_vm(&ctx.state, &vm_id) {
+                Ok(_) => enviar(&mut escritura, &Evento::Nota(format!("MicroVM «{vm_id}» destruida")) )?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Request::ListMicrovms => {
+            match crate::vm::MicrovmManager::list_vms(&ctx.state) {
+                Ok(list) => enviar(&mut escritura, &Evento::ListaMicrovms(list))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Request::QueryMicrovmStatus => {
+            match crate::vm::MicrovmManager::get_status(&ctx.state) {
+                Ok(status) => enviar(&mut escritura, &Evento::EstadoMicrovm(status))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -929,6 +959,24 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("  • Comando NVRAM:   {}", rep.efibootmgr_command))?;
                 for e in &rep.entries_configured {
                     pantalla.nota(&format!("  ✓ {}", e))?;
+                }
+            }
+            Evento::EstadoMicrovm(st) => {
+                pantalla.nota(&format!("antOS MicroVM · Hipervisor: {} [KVM: {}]", st.hypervisor_engine, if st.kvm_available { "Sí" } else { "No" }))?;
+                pantalla.nota(&format!("  • VMs activas:       {}", st.active_vms_count))?;
+                pantalla.nota(&format!("  • Memoria asignada:  {} MB", st.total_memory_allocated_mb))?;
+                pantalla.nota(&format!("  • Kernel:            {}", st.kernel_version))?;
+            }
+            Evento::ListaMicrovms(vms) => {
+                pantalla.nota(&format!("antOS MicroVM · Instancias activas ({}):", vms.len()))?;
+                for v in vms {
+                    pantalla.nota(&format!("  • [{}] PID {}, {} vCPUs, {} MB, vsock {}", v.id, v.pid, v.vcpus, v.memory_mb, v.vsock_port))?;
+                }
+            }
+            Evento::ResultadoMicrovm(res) => {
+                pantalla.nota(&format!("antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:", res.vm_id, res.exit_code))?;
+                if !res.stdout.is_empty() {
+                    pantalla.nota(&format!("  {}", res.stdout.trim()))?;
                 }
             }
             Evento::Error(m) => bail!("{m}"),
