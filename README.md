@@ -64,8 +64,8 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 * **[`system/antosd`](system/antosd):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/Ollama/Claude, orquestador `antFlow`, memoria semántica, gestor de cuotas, recinto sandbox y motor de ejecución.
 * **[`system/capabilities`](system/capabilities):** Manifiestos TOML tipados que definen contratos, parámetros, efectos y niveles de riesgo de cada capacidad del desarrollador.
 * **[`system/barra`](system/barra):** Shell de escritorio Wayland / GTK4 Layer Shell con barra flotante de intenciones, insignias en vivo, visor de diffs, consola VTE y centro de control Kanban.
-* **[`kernel`](kernel):** Núcleo `no_std` en Rust para arranque en metal desnudo x86_64.
-* **[`builder`](builder):** Ensamblador de imágenes de arranque.
+* **[`kernel`](kernel):** Núcleo `no_std` en Rust multi-arquitectura con soporte bare-metal para x86_64 y AArch64 (ARM 64-bit).
+* **[`builder`](builder):** Ensamblador de imágenes de disco arrancables BIOS (MBR), UEFI (GPT con partición FAT32 ESP) e ISOs híbridas para x86_64 y AArch64.
 * **[`docs/tickets`](docs/tickets):** Backlog y especificaciones técnicas maestro (*Spec-Driven Development*).
 
 ---
@@ -84,7 +84,7 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 
 ### 2. Compilación del Workspace y Verificación
 
-Compila todos los crates del workspace y verifica la suite de pruebas (**149/149 pruebas automatizadas en verde**):
+Compila todos los crates del workspace y verifica la suite de pruebas (**154/154 pruebas automatizadas en verde**):
 
 ```bash
 # Compilar todo el workspace
@@ -134,7 +134,7 @@ antOS cuenta con **6 métodos de arranque** adaptados a cada escenario:
  │ 3. Shell Gráfico Wayland (GTK4): HUD contextual flotante y Kanban (Super+A) │
  │ 4. Contenedor Linux (Landlock LSM): Verificación de aislamiento kernel      │
  │ 5. Máquina Virtual NixOS en QEMU: Sistema operativo completo y servicios    │
- │ 6. Kernel Bare-Metal no_std en QEMU: Arranque x86_64 directo en firmware    │
+ │ 6. Kernel Bare-Metal no_std en QEMU: Arranque x86_64 y AArch64 (BIOS/UEFI) │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -292,6 +292,21 @@ antos project list
 
 # Consultar el estado de Git del proyecto activo
 antos git status
+```
+
+### 12. Arranque Multi-Arquitectura Bare-Metal y Generador UEFI (`builder`)
+```bash
+# Compilar y arrancar el kernel x86_64 en BIOS Legacy
+./run.sh
+
+# Compilar el kernel para AArch64 (ARM 64-bit bare-metal no_std)
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml
+
+# Generar imágenes UEFI GPT (ESP FAT32 BOOTAA64.EFI / BOOTX64.EFI) e ISO híbrida con builder
+cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel
+
+# Ejecutar el kernel AArch64 directamente en QEMU virt (consola PL011, MMU, VBAR_EL1, GIC y SVC)
+qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic -kernel kernel/target/aarch64-unknown-none/debug/kernel -serial stdio -monitor none
 ```
 
 ---

@@ -11,7 +11,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [Método 3: Shell Gráfico Wayland GTK4 (`antos-barra`)](#método-3-shell-gráfico-wayland-gtk4-antos-barra)
    - [Método 4: Confinamiento Kernel en Linux con Landlock y Cgroups v2](#método-4-confinamiento-kernel-en-linux-con-landlock-y-cgroups-v2)
    - [Método 5: Máquina Virtual antOS NixOS Completa en QEMU](#método-5-máquina-virtual-antos-nixos-completa-en-qemu)
-   - [Método 6: Núcleo Bare-Metal `no_std` x86_64 en QEMU](#método-6-núcleo-bare-metal-no_std-x86_64-en-qemu)
+   - [Método 6: Núcleo Bare-Metal `no_std` Multi-Arquitectura (x86_64 y AArch64) en QEMU y UEFI](#método-6-núcleo-bare-metal-no_std-multi-arquitectura-x86_64-y-aarch64-en-qemu-y-uefi)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
 4. [Catálogo Exhaustivo de Comandos y Subcomandos](#4-catálogo-exhaustivo-de-comandos-y-subcomandos)
@@ -65,7 +65,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
  │ 3. Shell Gráfico Wayland (GTK4): HUD contextual flotante y Kanban (Super+A) │
  │ 4. Contenedor Linux (Landlock LSM): Verificación de aislamiento kernel      │
  │ 5. Máquina Virtual NixOS en QEMU: Sistema operativo completo y servicios    │
- │ 6. Kernel Bare-Metal no_std en QEMU: Arranque x86_64 directo en firmware    │
+ │ 6. Kernel Bare-Metal no_std en QEMU: x86_64 (BIOS/UEFI) y AArch64 (ARM64)   │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -162,14 +162,60 @@ Construye una imagen de máquina virtual con NixOS y antOS completamente integra
 
 ---
 
-### Método 6: Núcleo Bare-Metal `no_std` x86_64 en QEMU
+### Método 6: Núcleo Bare-Metal `no_std` Multi-Arquitectura (x86_64 y AArch64) en QEMU y UEFI
 
-Compila el kernel propio de antOS sin biblioteca estándar (`no_std`), genera la imagen arrancable con `builder` y la ejecuta en QEMU:
+antOS cuenta con un kernel bare-metal `no_std` unificado bajo una Capa de Abstracción de Hardware (HAL) que soporta tanto **x86_64** (BIOS Legacy y UEFI GPT) como **AArch64 / ARM 64-bit** (QEMU `virt`, UEFI EDK2, Apple Silicon y Raspberry Pi).
+
+#### A. Arquitectura x86_64 (BIOS Legacy y UEFI GPT)
 
 ```bash
-# Compilar núcleo y arrancar en QEMU
+# 1. Compilación y arranque rápido en QEMU (BIOS Legacy vía run.sh)
 ./run.sh
+
+# 2. Generación manual de imágenes con el builder:
+cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format bios
+cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format uefi
+
+# 3. Ejecución directa en QEMU x86_64:
+qemu-system-x86_64 -drive format=raw,file=kernel/target/x86_64-unknown-none/debug/antos-bios.img -serial stdio
 ```
+
+#### B. Arquitectura AArch64 / ARM 64-bit (Bare Metal y UEFI)
+
+```bash
+# 1. Instalar target de compilación si no está presente
+rustup target add aarch64-unknown-none
+
+# 2. Compilar el kernel para AArch64
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml
+
+# 3. Arrancar directamente el kernel AArch64 en QEMU virt (Direct Kernel Boot)
+# Valida: consola serie PL011 MMIO, tabla VBAR_EL1 de 16 vectores, MMU (L0/L1/L2),
+# heap dinámico, temporizador virtual ARM a 100 Hz, transición a EL0 y syscalls svc #0.
+qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
+  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -serial stdio -monitor none
+
+# 4. Generar imágenes UEFI GPT (ESP FAT32 BOOTAA64.EFI) e ISO híbrida con builder:
+cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel
+
+# 5. Arrancar con firmware UEFI EDK2 en QEMU AArch64:
+qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
+  -bios QEMU_EFI.fd \
+  -drive format=raw,file=kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img \
+  -serial stdio
+```
+
+#### C. Opciones del CLI `builder`
+
+El crate `builder/` permite empaquetar binarios ELF del kernel en imágenes de disco GPT con partición ESP (FAT32) e ISOs híbridas:
+
+```bash
+cargo run -p builder -- <ruta-al-kernel.elf> [--arch x86_64|aarch64] [--format all|uefi|bios|iso]
+```
+
+* `--arch <x86_64|aarch64>`: Sobrescribe la arquitectura del disco (autodetectada por defecto desde la cabecera ELF).
+* `--format <all|uefi|bios|iso>`: Tipo de artefacto a emitir.
 
 ---
 
@@ -738,21 +784,26 @@ antos barra alert "Intento de violación de sandbox bloqueado por eBPF" --urgent
 
 ### 4.24 Pipeline de Arranque Bare Metal y Emulación QEMU (`antos boot`)
 
-Automatización de la compilación cruzada para el target `x86_64-unknown-none`, generación de imágenes de disco arrancables BIOS/MBR y validación en la máquina virtual QEMU:
+Automatización de la compilación cruzada para los targets `x86_64-unknown-none` y `aarch64-unknown-none`, generación de imágenes de disco arrancables BIOS/MBR y UEFI GPT (FAT32 ESP), y validación en máquinas virtuales QEMU:
 
 ```bash
-# Diagnosticar estado de los artefactos (kernel ELF, imagen BIOS y disponibilidad de QEMU)
+# Diagnosticar estado de los artefactos (kernel ELF, imágenes BIOS/UEFI y disponibilidad de QEMU)
 antos boot status
 antos boot
 
-# Compilar el kernel no_std y generar la imagen arrancable de disco
+# Compilar el kernel no_std y generar las imágenes arrancables de disco
 antos boot build
 
 # Ejecutar prueba automatizada de arranque en QEMU headless con verificación por serial
 antos boot test
 
-# Lanzar la máquina virtual QEMU de forma interactiva
+# Lanzar la máquina virtual QEMU x86_64 de forma interactiva
 antos boot qemu
+
+# Lanzar la máquina virtual QEMU AArch64 (ARM 64-bit virt con consola serie PL011)
+qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
+  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -serial stdio -monitor none
 ```
 
 ---
