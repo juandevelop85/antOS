@@ -124,6 +124,8 @@ impl Planner for LocalPlanner {
             && !lower.contains("package")
             && !lower.contains("autopilot")
             && !lower.contains("centinela")
+            && !lower.contains("web")
+            && !lower.contains("websocket")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -278,7 +280,10 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("env.service_up", &args)]));
         }
 
-        if lower.contains("puerto") || lower.contains("port") {
+        if (lower.contains("puerto") || lower.contains("port"))
+            && !lower.contains("web")
+            && !lower.contains("websocket")
+        {
             let port_num = words.iter().find_map(|w| {
                 let digitos: String = w.chars().filter(|c| c.is_ascii_digit()).collect();
                 if !digitos.is_empty() {
@@ -370,7 +375,7 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("ui.diff_viewer", &params)]));
         }
 
-        if lower.contains("terminal") || lower.contains("consola") || lower.contains("vte") {
+        if (lower.contains("terminal") || lower.contains("consola") || lower.contains("vte")) && !lower.contains("web") {
             return Ok(Propuesta::solo(vec![step("ui.terminal", &[])]));
         }
 
@@ -744,6 +749,33 @@ impl Planner for LocalPlanner {
                 let interval = after(&words, &["intervalo", "interval", "cada", "every"]).unwrap_or_else(|| "5".into());
                 return Ok(Propuesta::solo(vec![step("autopilot.start", &[
                     ("interval", &interval),
+                ])]));
+            }
+        }
+
+        // Intenciones de Consola Web Remota (T16.4)
+        if lower.contains("web") || lower.contains("websocket") {
+            if lower.contains("token") || lower.contains("enlace") || lower.contains("acceso") {
+                let label = after(&words, &["para", "cliente", "label", "dispositivo"]).unwrap_or_else(|| "admin".into());
+                let ttl = after(&words, &["ttl", "expira", "tiempo"]).unwrap_or_else(|| "86400".into());
+                return Ok(Propuesta::solo(vec![step("web.token", &[
+                    ("label", &label),
+                    ("ttl", &ttl),
+                ])]));
+            } else if lower.contains("stop") || lower.contains("deten") || lower.contains("apaga") || lower.contains("cierra") || words.first().map(String::as_str) == Some("para") {
+                return Ok(Propuesta::solo(vec![step("web.stop", &[])]));
+            } else if lower.contains("status") || lower.contains("estado") || lower.contains("metricas") || lower.contains("métricas") {
+                return Ok(Propuesta::solo(vec![step("web.status", &[])]));
+            } else {
+                let port = after(&words, &["puerto", "port"])
+                    .or_else(|| {
+                        words.iter().find(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit())).cloned()
+                    })
+                    .unwrap_or_else(|| "8088".into());
+                let bind = after(&words, &["ip", "bind", "host"]).unwrap_or_else(|| "127.0.0.1".into());
+                return Ok(Propuesta::solo(vec![step("web.start", &[
+                    ("port", &port),
+                    ("bind", &bind),
                 ])]));
             }
         }
@@ -1527,5 +1559,38 @@ mod tests {
             .expect("plan autopilot stop");
         assert_eq!(p_stop.steps.len(), 1);
         assert_eq!(p_stop.steps[0].capability, "autopilot.stop");
+    }
+
+    #[test]
+    fn test_plan_web_console() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_start = planner
+            .plan("inicia el servidor web en puerto 9000", &catalog)
+            .expect("plan web start");
+        assert_eq!(p_start.steps.len(), 1);
+        assert_eq!(p_start.steps[0].capability, "web.start");
+        assert_eq!(p_start.steps[0].args.get("port").map(|s| s.as_str()), Some("9000"));
+
+        let p_status = planner
+            .plan("muestra el estado del servidor web", &catalog)
+            .expect("plan web status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "web.status");
+
+        let p_token = planner
+            .plan("genera un token web para laptop", &catalog)
+            .expect("plan web token");
+        assert_eq!(p_token.steps.len(), 1);
+        assert_eq!(p_token.steps[0].capability, "web.token");
+        assert_eq!(p_token.steps[0].args.get("label").map(|s| s.as_str()), Some("laptop"));
+
+        let p_stop = planner
+            .plan("deten la consola web", &catalog)
+            .expect("plan web stop");
+        assert_eq!(p_stop.steps.len(), 1);
+        assert_eq!(p_stop.steps[0].capability, "web.stop");
     }
 }

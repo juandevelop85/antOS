@@ -1,0 +1,14 @@
+name = "web.start"
+summary = "Inicia el servidor HTTP y bridge WebSocket de la consola web remota"
+
+[params]
+bind = { type = "text", optional = true }
+port = { type = "integer", optional = true }
+
+[effects]
+writes = ["$STATE/web"]
+network = ["127.0.0.1"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

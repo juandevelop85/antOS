@@ -912,6 +912,76 @@ pub struct AutopilotIncident {
     pub fix_proposal: Option<AutopilotFixProposal>,
 }
 
+// -------------------------------------------------------- web console (T16.4)
+
+/// Configuration for the embedded real-time web console and WebSocket bridge (T16.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebConsoleConfig {
+    #[serde(default = "default_bind_addr")]
+    pub bind_addr: String,
+    #[serde(default = "default_web_port")]
+    pub port: u16,
+    #[serde(default = "default_auth_required")]
+    pub auth_required: bool,
+    #[serde(default = "default_ws_ping_interval")]
+    pub ws_ping_interval_secs: u64,
+}
+
+fn default_bind_addr() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_web_port() -> u16 {
+    8088
+}
+
+fn default_auth_required() -> bool {
+    true
+}
+
+fn default_ws_ping_interval() -> u64 {
+    30
+}
+
+impl Default for WebConsoleConfig {
+    fn default() -> Self {
+        Self {
+            bind_addr: default_bind_addr(),
+            port: default_web_port(),
+            auth_required: default_auth_required(),
+            ws_ping_interval_secs: default_ws_ping_interval(),
+        }
+    }
+}
+
+/// Operational status and telemetry of the embedded web console server (T16.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebConsoleStatus {
+    pub running: bool,
+    pub bind_addr: String,
+    pub port: u16,
+    pub connected_clients: usize,
+    pub active_sessions_count: usize,
+    pub url: String,
+}
+
+/// Structured frame exchanged over the WebConsole WebSocket stream (T16.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSocketMessage {
+    pub topic: String,
+    pub payload: String,
+    pub timestamp: u64,
+}
+
+/// Authenticated session token for remote web clients (T16.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthSession {
+    pub token: String,
+    pub created_at: u64,
+    pub expires_at: u64,
+    pub client_label: Option<String>,
+}
+
 // ---------------------------------------------------------------- proposal
 
 /// What is presented to a user before touching anything.
@@ -1641,6 +1711,21 @@ pub enum Request {
         incident_id: String,
         approve_and_merge: bool,
     },
+    /// Start embedded HTTP/WebSocket web console server (T16.4).
+    #[serde(alias = "IniciarWebConsole")]
+    StartWebConsole(WebConsoleConfig),
+    /// Stop embedded HTTP/WebSocket web console server (T16.4).
+    #[serde(alias = "DetenerWebConsole")]
+    StopWebConsole,
+    /// Query operational status of the embedded web console (T16.4).
+    #[serde(alias = "ConsultarWebConsoleStatus")]
+    GetWebConsoleStatus,
+    /// Generate a cryptographic session token for secure web access (T16.4).
+    #[serde(alias = "GenerarTokenWeb")]
+    GenerateWebToken {
+        client_label: Option<String>,
+        ttl_secs: Option<u64>,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -1910,6 +1995,12 @@ pub enum Event {
     /// Asynchronous desktop alert emitted when an incident is detected or fix is ready (T16.3).
     #[serde(alias = "AlertaAutopilot")]
     AutopilotAlert(AutopilotIncident),
+    /// Operational status of the embedded web console (T16.4).
+    #[serde(alias = "EstadoWebConsole")]
+    WebConsoleStatus(WebConsoleStatus),
+    /// Emitted when a web access token is generated (T16.4).
+    #[serde(alias = "TokenWebGenerado")]
+    WebTokenGenerated(WebAuthSession),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3033,5 +3124,52 @@ mod tests {
         let json_res = serde_json::to_string(&req_resolve).expect("serialize resolve req");
         let des_res: Request = serde_json::from_str(&json_res).expect("deserialize resolve req");
         assert_eq!(req_resolve, des_res);
+    }
+
+    #[test]
+    fn test_web_console_types_serialization() {
+        let cfg = WebConsoleConfig {
+            bind_addr: "0.0.0.0".into(),
+            port: 9090,
+            auth_required: true,
+            ws_ping_interval_secs: 15,
+        };
+        let req_start = Request::StartWebConsole(cfg.clone());
+        let json_start = serde_json::to_string(&req_start).expect("serialize start web");
+        let des_start: Request = serde_json::from_str(&json_start).expect("deserialize start web");
+        assert_eq!(req_start, des_start);
+
+        let status = WebConsoleStatus {
+            running: true,
+            bind_addr: "127.0.0.1".into(),
+            port: 8088,
+            connected_clients: 2,
+            active_sessions_count: 3,
+            url: "http://127.0.0.1:8088".into(),
+        };
+        let ev_status = Event::WebConsoleStatus(status.clone());
+        let json_status = serde_json::to_string(&ev_status).expect("serialize web status");
+        let des_status: Event = serde_json::from_str(&json_status).expect("deserialize web status");
+        assert_eq!(ev_status, des_status);
+
+        let session = WebAuthSession {
+            token: "tok_1234567890abcdef".into(),
+            created_at: 1725350000,
+            expires_at: 1725353600,
+            client_label: Some("secondary-laptop".into()),
+        };
+        let ev_token = Event::WebTokenGenerated(session.clone());
+        let json_token = serde_json::to_string(&ev_token).expect("serialize token ev");
+        let des_token: Event = serde_json::from_str(&json_token).expect("deserialize token ev");
+        assert_eq!(ev_token, des_token);
+
+        let ws_msg = WebSocketMessage {
+            topic: "telemetry".into(),
+            payload: "{\"cpu\": 12.5}".into(),
+            timestamp: 1725350000,
+        };
+        let json_ws = serde_json::to_string(&ws_msg).expect("serialize ws msg");
+        let des_ws: WebSocketMessage = serde_json::from_str(&json_ws).expect("deserialize ws msg");
+        assert_eq!(ws_msg, des_ws);
     }
 }

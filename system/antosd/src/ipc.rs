@@ -726,6 +726,30 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::StartWebConsole(config) => {
+            match crate::web::WebEngine::start(&ctx.state, &ctx.workspace, config) {
+                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::StopWebConsole => {
+            match crate::web::WebEngine::stop(&ctx.state) {
+                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetWebConsoleStatus => {
+            match crate::web::WebEngine::status(&ctx.state) {
+                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GenerateWebToken { client_label, ttl_secs } => {
+            match crate::web::WebEngine::generate_token(&ctx.state, client_label, ttl_secs) {
+                Ok(session) => enviar(&mut escritura, &Event::WebTokenGenerated(session))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1132,6 +1156,21 @@ pub fn intencion_remota(
                     if !prop.diff.is_empty() {
                         pantalla.nota(&format!("  • Diff:\n{}", prop.diff))?;
                     }
+                }
+            }
+            Event::WebConsoleStatus(st) => {
+                let status_badge = if st.running { "ACTIVO (En línea)" } else { "DETENIDO" };
+                pantalla.nota(&format!("antOS Web Console · Estado: {status_badge}"))?;
+                pantalla.nota(&format!("  • URL de Acceso:         {}", st.url))?;
+                pantalla.nota(&format!("  • Clientes Conectados:   {}", st.connected_clients))?;
+                pantalla.nota(&format!("  • Sesiones Activas:      {}", st.active_sessions_count))?;
+            }
+            Event::WebTokenGenerated(session) => {
+                pantalla.nota("antOS Web Console · Token de Autenticación Criptográfico:")?;
+                pantalla.nota(&format!("  • Token:     {}", session.token))?;
+                pantalla.nota(&format!("  • Expira en: {}s", session.expires_at.saturating_sub(session.created_at)))?;
+                if let Some(lbl) = session.client_label {
+                    pantalla.nota(&format!("  • Cliente:   {lbl}"))?;
                 }
             }
             Event::Error(m) => bail!("{m}"),

@@ -1,0 +1,11 @@
+name = "web.stop"
+summary = "Detiene el servidor de la consola web remota"
+
+[params]
+
+[effects]
+writes = ["$STATE/web"]
+
+[policy]
+tier = "auto"
+reversible = "never"

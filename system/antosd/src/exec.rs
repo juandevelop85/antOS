@@ -349,6 +349,22 @@ pub enum Change {
         incident_id: String,
         approve: bool,
     },
+    WebStart {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+        config: antos_protocol::WebConsoleConfig,
+    },
+    WebStop {
+        state_dir: PathBuf,
+    },
+    WebStatus {
+        state_dir: PathBuf,
+    },
+    WebToken {
+        state_dir: PathBuf,
+        label: Option<String>,
+        ttl: Option<u64>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -466,7 +482,11 @@ impl Pendiente {
             | Change::AutopilotStop { .. }
             | Change::AutopilotStatus { .. }
             | Change::AutopilotScan { .. }
-            | Change::AutopilotResolve { .. } => {}
+            | Change::AutopilotResolve { .. }
+            | Change::WebStart { .. }
+            | Change::WebStop { .. }
+            | Change::WebStatus { .. }
+            | Change::WebToken { .. } => {}
         }
     }
 }
@@ -1300,6 +1320,44 @@ pub fn changes_for(
                 workspace_dir: ctx.workspace.clone(),
                 incident_id,
                 approve,
+            }])
+        }
+
+        "web.start" => {
+            let bind = a.get("bind").cloned().unwrap_or_else(|| "127.0.0.1".into());
+            let port = a.get("port").and_then(|v| v.parse::<u16>().ok()).unwrap_or(8088);
+            let config = antos_protocol::WebConsoleConfig {
+                bind_addr: bind,
+                port,
+                auth_required: true,
+                ws_ping_interval_secs: 30,
+            };
+            Ok(vec![Change::WebStart {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+                config,
+            }])
+        }
+
+        "web.stop" => {
+            Ok(vec![Change::WebStop {
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "web.status" => {
+            Ok(vec![Change::WebStatus {
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "web.token" => {
+            let label = a.get("label").cloned();
+            let ttl = a.get("ttl").and_then(|v| v.parse::<u64>().ok());
+            Ok(vec![Change::WebToken {
+                state_dir: ctx.state.clone(),
+                label,
+                ttl,
             }])
         }
 
@@ -2305,6 +2363,23 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let inc = crate::autopilot::AutopilotEngine::resolve_incident(state_dir, workspace_dir, incident_id, *approve)?;
                 let action_lbl = if *approve { "Aprobado y aplicado" } else { "Descartado" };
                 output.push(format!("antOS Autopilot · Incidente «{}» {action_lbl} exitosamente (estado: {})", inc.id, inc.status));
+            }
+            Change::WebStart { state_dir, workspace_dir, config } => {
+                let st = crate::web::WebEngine::start(state_dir, workspace_dir, config.clone())?;
+                output.push(format!("antOS Web Console · Servidor iniciado en {}\n  • WebSocket Bridge: {}/ws/events\n  • Estado: {}", st.url, st.url, if st.running { "EN LÍNEA" } else { "DETENIDO" }));
+            }
+            Change::WebStop { state_dir } => {
+                let st = crate::web::WebEngine::stop(state_dir)?;
+                output.push(format!("antOS Web Console · Servidor detenido (activo: {})", st.running));
+            }
+            Change::WebStatus { state_dir } => {
+                let st = crate::web::WebEngine::status(state_dir)?;
+                let badge = if st.running { "ACTIVO (En línea)" } else { "DETENIDO" };
+                output.push(format!("antOS Web Console · Estado: {badge}\n  • URL de Acceso:         {}\n  • Clientes Conectados:   {}\n  • Sesiones Activas:      {}", st.url, st.connected_clients, st.active_sessions_count));
+            }
+            Change::WebToken { state_dir, label, ttl } => {
+                let session = crate::web::WebEngine::generate_token(state_dir, label.clone(), *ttl)?;
+                output.push(format!("antOS Web Console · Token generado exitosamente:\n  • Token:     {}\n  • Expira en: {}s{}", session.token, session.expires_at.saturating_sub(session.created_at), session.client_label.as_ref().map(|l| format!("\n  • Cliente:   {l}")).unwrap_or_default()));
             }
         }
     }

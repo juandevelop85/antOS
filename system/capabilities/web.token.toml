@@ -1,0 +1,13 @@
+name = "web.token"
+summary = "Emite un token temporal de un solo uso para enlace seguro de clientes web"
+
+[params]
+label = { type = "text", optional = true }
+ttl = { type = "integer", optional = true }
+
+[effects]
+writes = ["$STATE/web"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

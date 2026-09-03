@@ -50,6 +50,7 @@ pub mod vm;
 mod voz;
 pub mod vte;
 pub mod wasm;
+pub mod web;
 
 use anyhow::{bail, Result};
 use capability::{Catalog, Tier};
@@ -148,6 +149,7 @@ fn run() -> Result<()> {
         "vm" | "microvm" => cmd_vm(&ctx, &rest[1..]),
         "pkg" | "antpkg" | "package" => cmd_pkg(&ctx, &rest[1..]),
         "autopilot" | "sentinel" | "centinela" => cmd_autopilot(&ctx, &rest[1..]),
+        "web" | "webconsole" | "remote-console" => cmd_web(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -4067,6 +4069,100 @@ fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos autopilot list                                      Historial de incidentes");
             println!("    antos autopilot approve <incident_id>                     Aprueba y aplica fix");
             println!("    antos autopilot reject <incident_id>                      Descarta la propuesta\n");
+        }
+    }
+    Ok(())
+}
+
+// ----------------------------------------------------- web console (T16.4)
+
+fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+
+    match sub {
+        "start" => {
+            let mut bind = "127.0.0.1".to_string();
+            let mut port = 8088u16;
+            let mut i = 1;
+            while i < args.len() {
+                if (args[i] == "--bind" || args[i] == "-b") && i + 1 < args.len() {
+                    bind = args[i + 1].clone();
+                    i += 2;
+                } else if (args[i] == "--port" || args[i] == "-p") && i + 1 < args.len() {
+                    if let Ok(p) = args[i + 1].parse::<u16>() {
+                        port = p;
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+
+            let config = antos_protocol::WebConsoleConfig {
+                bind_addr: bind,
+                port,
+                auth_required: true,
+                ws_ping_interval_secs: 30,
+            };
+
+            println!("\n{} Iniciando consola web remota y bridge WebSocket...", paint("antOS Web Console ·", BOLD));
+            let st = web::WebEngine::start(&ctx.state, &ctx.workspace, config)?;
+            let token_sess = web::WebEngine::generate_token(&ctx.state, Some("admin".into()), Some(86400))?;
+            println!("  Estado:               {}", paint("ACTIVO (En línea)", GREEN));
+            println!("  URL de Acceso:        {}", paint(&st.url, CYAN));
+            println!("  URL con Token:        {}", paint(&format!("{}?token={}", st.url, token_sess.token), BOLD));
+            println!("  WebSocket Bridge:     {}/ws/events\n", st.url);
+        }
+
+        "stop" => {
+            println!("\n{} Deteniendo servidor de consola web...", paint("antOS Web Console ·", BOLD));
+            let st = web::WebEngine::stop(&ctx.state)?;
+            println!("  Estado:               {}\n", paint(if st.running { "ACTIVO" } else { "DETENIDO" }, RED));
+        }
+
+        "token" => {
+            let mut label = None;
+            let mut ttl = None;
+            let mut i = 1;
+            while i < args.len() {
+                if (args[i] == "--label" || args[i] == "-l") && i + 1 < args.len() {
+                    label = Some(args[i + 1].clone());
+                    i += 2;
+                } else if (args[i] == "--ttl" || args[i] == "-t") && i + 1 < args.len() {
+                    if let Ok(v) = args[i + 1].parse::<u64>() {
+                        ttl = Some(v);
+                    }
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+
+            println!("\n{} Generando token de autenticación...", paint("antOS Web Console ·", BOLD));
+            let session = web::WebEngine::generate_token(&ctx.state, label, ttl)?;
+            let st = web::WebEngine::status(&ctx.state)?;
+            println!("  Token:                {}", paint(&session.token, BOLD));
+            println!("  Expira en:            {}s", session.expires_at.saturating_sub(session.created_at));
+            if let Some(ref l) = session.client_label {
+                println!("  Cliente / Dispositivo: {}", l);
+            }
+            println!("  Enlace de Conexión:   {}\n", paint(&format!("{}?token={}", st.url, session.token), CYAN));
+        }
+
+        "status" | _ => {
+            let st = web::WebEngine::status(&ctx.state)?;
+            let status_badge = if st.running { paint("ACTIVO (En línea)", GREEN) } else { paint("DETENIDO", RED) };
+            println!("\n{} Estado del Servidor Web y Bridge WebSocket:", paint("antOS Web Console ·", BOLD));
+            println!("  • Estado:                 {}", status_badge);
+            println!("  • Dirección y Puerto:     {}:{}", st.bind_addr, st.port);
+            println!("  • URL de Acceso:          {}", paint(&st.url, CYAN));
+            println!("  • Clientes Conectados:    {}", st.connected_clients);
+            println!("  • Sesiones Token Activas: {}", st.active_sessions_count);
+            println!("\n  Uso:");
+            println!("    antos web start [--port <puerto>] [--bind <ip>]  Inicia el servidor web");
+            println!("    antos web stop                                  Detiene el servidor");
+            println!("    antos web status                                Muestra estado y métricas");
+            println!("    antos web token [--label <nombre>] [--ttl <s]>  Genera enlace seguro\n");
         }
     }
     Ok(())

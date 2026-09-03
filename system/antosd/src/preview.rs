@@ -359,6 +359,19 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let action = if *approve { "aprueba y fusiona" } else { "descarta" };
                 out.push(Line::Info(format!("{action} la propuesta de solución para incidente «{incident_id}»")));
             }
+            Change::WebStart { config, .. } => {
+                out.push(Line::Info(format!("inicia servidor de consola web en http://{}:{}", config.bind_addr, config.port)));
+            }
+            Change::WebStop { .. } => {
+                out.push(Line::Info("detiene el servidor de la consola web remota".to_string()));
+            }
+            Change::WebStatus { .. } => {
+                out.push(Line::Info("consulta estado de la consola web remota y clientes conectados".to_string()));
+            }
+            Change::WebToken { label, .. } => {
+                let lbl_str = label.as_ref().map(|l| format!(" para «{l}»")).unwrap_or_default();
+                out.push(Line::Info(format!("genera token temporal de acceso seguro{lbl_str}")));
+            }
         }
         pendiente.aplicar(change);
     }

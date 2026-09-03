@@ -1,0 +1,11 @@
+name = "web.status"
+summary = "Muestra la URL de acceso, clientes conectados y estado de la consola web"
+
+[params]
+
+[effects]
+reads = ["$STATE/web"]
+
+[policy]
+tier = "auto"
+reversible = "never"
