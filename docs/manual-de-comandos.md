@@ -53,7 +53,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.32 Gestor de Paquetes y Recetas Inmutables (`antos pkg`)](#432-gestor-de-paquetes-y-recetas-inmutables-antos-pkg)
    - [4.33 Modo Agente Autónomo Continuo (`antos autopilot`)](#433-modo-agente-autónomo-continuo-antos-autopilot)
    - [4.34 Consola Web Remota en Tiempo Real y Bridge WebSocket (`antos web`)](#434-consola-web-remota-en-tiempo-real-y-bridge-websocket-antos-web)
-   - [4.35 Gestión de Proyectos y Control de Versiones Git en Workspace (`antos project` / `antos git`)](#435-gestión-de-proyectos-y-control-de-versiones-git-en-workspace-antos-project--antos-git)
+   - [4.35 Gestión de Proyectos, Selección Activa y Git en Workspace (`antos use` / `antos project` / `antos git`)](#435-gestión-de-proyectos-selección-activa-y-git-en-workspace-antos-use--antos-project--antos-git)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1096,15 +1096,35 @@ antos web stop
 
 ---
 
-### 4.35 Gestión de Proyectos y Control de Versiones Git en Workspace (`antos project` / `antos git`)
+### 4.35 Gestión de Proyectos, Selección Activa y Git en Workspace (`antos use` / `antos project` / `antos git`)
 
-Comandos declarativos y de frontera para inicializar repositorios Git aislados dentro de los proyectos del desarrollador (`workspace/<proyecto>`) sin contaminar el repositorio del sistema operativo antOS:
+Comandos declarativos y de frontera para gestionar proyectos en `workspace/`, fijar el proyecto de trabajo activo (para que todos los comandos del sistema operen sobre él de forma automática sin necesidad de cambiar de directorio) e inicializar repositorios Git aislados sin contaminar el repositorio del sistema operativo antOS:
 
 ```bash
-# Inicializar repositorio Git aislado en un proyecto con rama 'main' y .gitignore adaptado
-antos project init api-service
+# 1. Fijar el proyecto de trabajo activo
+# (A partir de este momento: tickets, git, diffs, agentes, panel, etc. operarán sobre 'api-service')
+antos use api-service
+antos project use api-service
 
-# Inicialización mediante el alias de conveniencia
+# 2. Consultar el proyecto activo actual y su origen (vía 'use' o detección automática)
+antos use
+antos project current
+
+# 3. Listar todos los proyectos en workspace/ (destacando con [ACTIVO] el seleccionado)
+antos project list
+antos project ls
+
+# 4. Operar directamente sobre el proyecto activo desde cualquier directorio
+antos tickets           # Lista los tickets del proyecto activo
+antos git status        # Inspecciona el repositorio Git del proyecto activo
+antos git diff          # Previsualiza cambios locales del proyecto activo
+antos panel             # Despliega el tablero Kanban del proyecto activo
+
+# 5. Restablecer la selección activa (volver al ámbito global o automático por CWD)
+antos use --clear
+
+# 6. Inicializar repositorio Git aislado en un proyecto con rama 'main' y .gitignore adaptado
+antos project init api-service
 antos git init api-service
 
 # Especificar rama principal y stack tecnológico explícitamente
@@ -1113,13 +1133,6 @@ antos project init web-frontend --branch develop --lang typescript
 # Inicializar Git en el proyecto actual si la terminal ya está dentro de su directorio
 cd workspace/api-service
 antos project init
-
-# Listar todos los proyectos presentes en workspace/ con su stack y estado Git
-antos project list
-antos project ls
-
-# Consultar estado de Git del proyecto activo (ramas, staged, modificados, sync)
-antos git status
 ```
 
 ---

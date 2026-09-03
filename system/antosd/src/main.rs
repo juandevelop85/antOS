@@ -151,6 +151,7 @@ fn run() -> Result<()> {
         "autopilot" | "sentinel" | "centinela" => cmd_autopilot(&ctx, &rest[1..]),
         "web" | "webconsole" | "remote-console" => cmd_web(&ctx, &rest[1..]),
         "project" | "projects" | "proyectos" => cmd_project(&ctx, &rest[1..]),
+        "use" => cmd_use(&ctx, &rest[1..]),
         "git" => cmd_git(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
@@ -1624,19 +1625,105 @@ fn cmd_project(ctx: &Ctx, args: &[String]) -> Result<()> {
     match sub {
         "init" => cmd_project_init(ctx, &args[1..]),
         "list" | "ls" => cmd_project_list(ctx),
+        "use" => cmd_use(ctx, &args[1..]),
+        "current" => cmd_use(ctx, &[]),
         _ => {
             println!(
                 "\n{}\n",
                 paint("antOS · Gestión de Proyectos en Workspace (T17.3)", BOLD)
             );
             println!("  Uso:");
+            println!("    antos use <nombre>            Fija el proyecto activo en el workspace");
+            println!("    antos use --clear             Limpia la selección del proyecto activo");
             println!("    antos project init <nombre> [--branch <rama>] [--lang <lenguaje>]");
-            println!("    antos project list");
+            println!("    antos project list            Lista proyectos en workspace/");
             println!("    antos git init [nombre]");
             println!();
             Ok(())
         }
     }
+}
+
+fn cmd_use(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let active_file = ctx.state.join("active_project");
+
+    if let Some(target) = args.first() {
+        if target == "--clear" || target == "clear" || target == "none" || target == "system" {
+            if active_file.exists() {
+                let _ = std::fs::remove_file(&active_file);
+            }
+            println!(
+                "\n{} Selección de proyecto restablecida. antOS operará en ámbito global / automático.\n",
+                paint("antOS ·", BOLD)
+            );
+            return Ok(());
+        }
+
+        // Validar si el proyecto existe en workspace
+        let project_dir = ctx.workspace.join(target);
+        if !project_dir.exists() || !project_dir.is_dir() {
+            println!(
+                "\n{} El proyecto '{}' no existe en {}",
+                paint("antOS Error ·", RED),
+                paint(target, YELLOW),
+                ctx.workspace.display()
+            );
+            let projects = crate::exec::scan_workspace_projects(&ctx.workspace);
+            if !projects.is_empty() {
+                println!("\n  Proyectos disponibles en el workspace:");
+                for p in projects {
+                    let pname = p.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
+                    println!("    • {}", paint(pname, CYAN));
+                }
+            } else {
+                println!("  (no hay proyectos creados aún en workspace/)");
+            }
+            println!(
+                "\n  Puedes inicializarlo con: {}\n",
+                paint(&format!("antos project init {}", target), GREEN)
+            );
+            return Ok(());
+        }
+
+        // Guardar proyecto activo en state
+        std::fs::create_dir_all(&ctx.state)?;
+        std::fs::write(&active_file, target.trim())?;
+
+        println!(
+            "\n{} Proyecto activo fijado en: {}\n  Directorio: {}\n  Todos los comandos de antOS (tickets, git, agentes, panel, etc.) operarán sobre este proyecto por defecto.\n",
+            paint("antOS ·", BOLD),
+            paint(target, GREEN),
+            project_dir.display()
+        );
+    } else {
+        // Mostrar proyecto activo actual
+        println!(
+            "\n{} Estado del Proyecto Activo en Workspace:",
+            paint("antOS ·", BOLD)
+        );
+        if let Some(ref cur) = ctx.current_project {
+            let name = cur.file_name().and_then(|n| n.to_str()).unwrap_or("desconocido");
+            println!("  • Proyecto seleccionado: {}", paint(name, GREEN));
+            println!("  • Ruta en disco:         {}", cur.display());
+            if let Ok(active_name) = std::fs::read_to_string(&active_file) {
+                if active_name.trim() == name {
+                    println!("  • Origen:                Configurado persistentemente vía 'antos use'");
+                } else {
+                    println!("  • Origen:                Detectado automáticamente por directorio actual (CWD)");
+                }
+            } else {
+                println!("  • Origen:                Detectado automáticamente por directorio actual (CWD)");
+            }
+        } else {
+            println!("  • Proyecto seleccionado: {}", paint("(ninguno / ámbito del sistema)", YELLOW));
+            println!("  • Espacio de trabajo:    {}", ctx.workspace.display());
+        }
+        println!("\n  Uso:");
+        println!("    antos use <nombre-proyecto>   Selecciona el proyecto activo para todos los comandos");
+        println!("    antos use --clear             Limpia la selección activa (vuelve a detección automática)");
+        println!("    antos project list            Lista todos los proyectos en workspace/\n");
+    }
+    Ok(())
 }
 
 fn cmd_git(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -1807,15 +1894,25 @@ fn cmd_project_list(ctx: &Ctx) -> Result<()> {
             paint("○ Sin Git", YELLOW)
         };
 
+        let is_active = ctx.current_project.as_ref() == Some(proj);
+        let active_badge = if is_active {
+            format!(" {}", paint("[ACTIVO]", GREEN))
+        } else {
+            String::new()
+        };
+
         println!(
-            "  • {}  [{}]  (stack: {}, {} archivos)",
+            "  • {}{}  [{}]  (stack: {}, {} archivos)",
             paint(&name, BOLD),
+            active_badge,
             git_badge,
             paint(&lang, CYAN),
             file_count
         );
     }
     println!();
+    println!("  Para fijar el proyecto activo en todos los comandos:");
+    println!("    {}\n", paint("antos use <nombre>", CYAN));
 
     Ok(())
 }
@@ -5278,18 +5375,20 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 
     let spec_engine = spec::SpecEngine::global();
-    let tickets = spec_engine.list_tickets(&ctx.workspace)?;
+    let target_ws = ctx.current_project.as_deref().unwrap_or(&ctx.workspace);
+    let tickets = spec_engine.list_tickets(target_ws)?;
     let flow_engine = flow::FlowEngine::global();
     let tasks = flow_engine.list_tasks();
 
+    let banner_text = if let Some(ref cur) = ctx.current_project {
+        let name = cur.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
+        format!("antOS · KANBAN - PROYECTO: {} (Super + A)", name)
+    } else {
+        "antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)".to_string()
+    };
+
     println!("\n{}", paint("╔══════════════════════════════════════════════════════════════════════════════════════╗", BOLD));
-    println!(
-        "║       {}        ║",
-        paint(
-            "antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)",
-            BOLD
-        )
-    );
+    println!("║ {:^84} ║", paint(&banner_text, BOLD));
     println!("{}\n", paint("╚══════════════════════════════════════════════════════════════════════════════════════╝", BOLD));
 
     // Monitor de Agentes

@@ -131,7 +131,7 @@ impl Ctx {
         let system_config = system_config.canonicalize()?;
 
         // ── Step 6: detect active project ───────────────────────────────────
-        let current_project = detect_current_project(&workspace);
+        let current_project = detect_current_project(&workspace, &state);
 
         Ok(Ctx {
             workspace,
@@ -175,6 +175,39 @@ fn find_antos_root_from_cwd() -> Option<PathBuf> {
     }
 }
 
+/// Resolves the currently active project inside `workspace/`.
+///
+/// Precedence order:
+/// 1. The project directory containing `cwd` (if cwd is inside `workspace/<project>`).
+/// 2. The `ANTOS_PROJECT` environment variable (if pointing to an existing directory in `workspace/`).
+/// 3. The persistent selection in `state/active_project` (set via `antos use <project>`).
+/// 4. `None` (running at workspace root or globally).
+fn detect_current_project(workspace: &Path, state: &Path) -> Option<PathBuf> {
+    if let Some(cwd_proj) = detect_project_from_cwd(workspace) {
+        return Some(cwd_proj);
+    }
+
+    if let Some(env_proj) = std::env::var_os("ANTOS_PROJECT") {
+        let p = workspace.join(env_proj);
+        if p.is_dir() && p != workspace {
+            return Some(p);
+        }
+    }
+
+    let active_file = state.join("active_project");
+    if let Ok(content) = std::fs::read_to_string(&active_file) {
+        let name = content.trim();
+        if !name.is_empty() && name != "none" && name != "system" {
+            let p = workspace.join(name);
+            if p.is_dir() && p != workspace {
+                return Some(p);
+            }
+        }
+    }
+
+    None
+}
+
 /// Returns the first-level project directory under `workspace/` that contains
 /// the current working directory, if any.
 ///
@@ -182,7 +215,7 @@ fn find_antos_root_from_cwd() -> Option<PathBuf> {
 /// - `cwd = workspace/api-service/src` → `Some(workspace/api-service)`
 /// - `cwd = workspace`                 → `None` (at the root, not inside a project)
 /// - `cwd = /tmp/other`                → `None`
-fn detect_current_project(workspace: &Path) -> Option<PathBuf> {
+fn detect_project_from_cwd(workspace: &Path) -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     let cwd_canon = cwd.canonicalize().ok().unwrap_or(cwd);
 
@@ -207,16 +240,59 @@ mod tests {
     use super::*;
 
     /// T17.1 — detect_current_project must return None for directories that do
-    /// not reside inside the workspace.
+    /// not reside inside the workspace and when no active project is set.
     #[test]
     fn test_detect_current_project_outside_workspace() {
         let workspace = PathBuf::from("/tmp/antos_fake_workspace");
-        let result = detect_current_project(&workspace);
-        // cwd is inside the antOS repo, not under /tmp/antos_fake_workspace.
+        let state = PathBuf::from("/tmp/antos_fake_state");
+        let result = detect_current_project(&workspace, &state);
         assert!(
             result.is_none(),
             "project detection should return None when cwd is outside workspace"
         );
+    }
+
+    #[test]
+    fn test_detect_current_project_with_persistent_state() {
+        let unique = format!("antos_test_proj_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let root = std::env::temp_dir().join(unique);
+        let workspace = root.join("workspace");
+        let state = root.join("state");
+        let proj = workspace.join("web-api");
+        std::fs::create_dir_all(&proj).expect("create proj");
+        std::fs::create_dir_all(&state).expect("create state");
+
+        // Sin active_project debe ser None
+        assert!(detect_current_project(&workspace, &state).is_none());
+
+        // Con active_project fijado
+        std::fs::write(state.join("active_project"), "web-api").expect("write active_project");
+        let detected = detect_current_project(&workspace, &state);
+        assert_eq!(detected, Some(proj));
+
+        // Con active_project borrado o "none"
+        std::fs::write(state.join("active_project"), "none").expect("write none");
+        assert!(detect_current_project(&workspace, &state).is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_detect_current_project_with_env_var() {
+        let unique = format!("antos_test_proj_env_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let root = std::env::temp_dir().join(unique);
+        let workspace = root.join("workspace");
+        let state = root.join("state");
+        let proj = workspace.join("micro-svc");
+        std::fs::create_dir_all(&proj).expect("create proj");
+        std::fs::create_dir_all(&state).expect("create state");
+
+        std::env::set_var("ANTOS_PROJECT", "micro-svc");
+        let detected = detect_current_project(&workspace, &state);
+        assert_eq!(detected, Some(proj));
+        std::env::remove_var("ANTOS_PROJECT");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// T17.1 — find_antos_root_from_cwd must find the antOS root when invoked

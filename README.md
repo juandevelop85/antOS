@@ -279,20 +279,32 @@ antos undo
 antos undo --ticket T1.1
 ```
 
-### 11. Gestión Declarativa de Proyectos y Git en Workspace (`antos project` / `antos git`)
+### 11. Gestión Declarativa de Proyectos, Selección Activa y Git (`antos use` / `antos project`)
 ```bash
+# Listar todos los proyectos en workspace/ con su estado Git y stack
+antos project list
+
+# Seleccionar un proyecto activo para que todos los comandos operen sobre él
+antos use api-service
+
+# Consultar el proyecto actualmente seleccionado y su origen
+antos use
+
+# Listar tickets del proyecto seleccionado (sin necesidad de flags adicionales)
+antos tickets
+
+# Consultar el estado de Git del proyecto activo
+antos git status
+
+# Limpiar la selección activa y regresar a detección automática / ámbito global
+antos use --clear
+
 # Inicializar repositorio Git aislado con rama main y .gitignore adaptado al stack
 antos project init api-service
 antos git init api-service
 
 # Especificar rama y stack de forma explícita
 antos project init web-app --branch develop --lang typescript
-
-# Listar todos los proyectos en workspace/ con su estado Git y stack
-antos project list
-
-# Consultar el estado de Git del proyecto activo
-antos git status
 ```
 
 ### 12. Arranque Multi-Arquitectura Bare-Metal y Generador UEFI (`builder`)
