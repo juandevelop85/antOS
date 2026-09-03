@@ -57,7 +57,10 @@ use capability::{Catalog, Tier};
 use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
-use planner::{claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner, Planner};
+use planner::{
+    claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner,
+    openai_compat::OpenAiCompatPlanner, Planner,
+};
 use terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
 
 #[derive(Default)]
@@ -861,20 +864,45 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
         Some("local") => Ok(Box::new(LocalPlanner)),
         Some("claude") => Ok(Box::new(ClaudePlanner::from_env()?)),
         Some("ollama" | "local-llm" | "local_llm") => Ok(Box::new(OllamaPlanner::from_env()?)),
+        Some("groq") => Ok(Box::new(OpenAiCompatPlanner::from_preset("groq")?)),
+        Some("openrouter" | "open-router") => Ok(Box::new(OpenAiCompatPlanner::from_preset("openrouter")?)),
+        Some("gemini" | "google") => Ok(Box::new(OpenAiCompatPlanner::from_preset("gemini")?)),
+        Some("opencode" | "localai" | "vllm") => Ok(Box::new(OpenAiCompatPlanner::from_preset("opencode")?)),
+        Some("openai" | "openai_compat" | "compat") => Ok(Box::new(OpenAiCompatPlanner::from_preset("openai")?)),
         Some(other) => {
-            bail!("planificador desconocido: {other} (usa «local», «claude» u «ollama»)")
+            if other.starts_with("http://") || other.starts_with("https://") {
+                Ok(Box::new(OpenAiCompatPlanner::new("custom", other, "default", None)))
+            } else {
+                bail!("planificador desconocido: {other} (usa «local», «ollama», «groq», «openrouter», «gemini», «opencode» o «claude»)")
+            }
         }
-        // Jerarquía de 3 niveles con fallback automático transparente:
-        // 1. Claude si hay clave de API configurada.
-        // 2. Ollama local si está disponible en la máquina.
-        // 3. Planificador local determinista sin dependencias externas.
+        // Jerarquía de fallback transparente:
+        // 1. Proveedores en la nube con free tiers o claves configuradas.
+        // 2. Claude si hay clave de API configurada.
+        // 3. Ollama local si está disponible en la máquina.
+        // 4. OpenCode / llama.cpp local si está disponible en puerto 8080.
+        // 5. Planificador local determinista sin dependencias externas.
         None => {
+            if let Ok(p) = OpenAiCompatPlanner::from_preset("groq") {
+                return Ok(Box::new(p));
+            }
+            if let Ok(p) = OpenAiCompatPlanner::from_preset("openrouter") {
+                return Ok(Box::new(p));
+            }
             if let Ok(p) = ClaudePlanner::from_env() {
+                return Ok(Box::new(p));
+            }
+            if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
                 return Ok(Box::new(p));
             }
             if let Ok(o) = OllamaPlanner::from_env() {
                 if o.is_available() {
                     return Ok(Box::new(o));
+                }
+            }
+            if let Ok(oc) = OpenAiCompatPlanner::from_preset("opencode") {
+                if oc.is_available() {
+                    return Ok(Box::new(oc));
                 }
             }
             Ok(Box::new(LocalPlanner))
