@@ -564,6 +564,46 @@ pub struct ScreenshotResult {
     pub saved_path: Option<String>,
 }
 
+// ------------------------------------------------ Storage & Installer (T15.1)
+
+/// Representa una partición individual dentro de una unidad de almacenamiento.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskPartition {
+    pub number: u32,
+    pub name: String,
+    pub size_bytes: u64,
+    pub fs_type: Option<String>,
+    pub mountpoint: Option<String>,
+    pub is_efi: bool,
+    pub is_bootable: bool,
+    pub uuid: Option<String>,
+}
+
+/// Representa un dispositivo de almacenamiento físico o virtual.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskDevice {
+    pub path: String,
+    pub model: String,
+    pub size_bytes: u64,
+    pub sector_size: u32,
+    pub bus_type: String,
+    pub partition_table: String,
+    pub partitions: Vec<DiskPartition>,
+    pub is_read_only: bool,
+}
+
+/// Plan de particionamiento propuesto para instalación en disco.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PartitionPlan {
+    pub target_device: String,
+    pub clean_install: bool,
+    pub efi_partition_bytes: u64,
+    pub root_partition_bytes: u64,
+    pub swap_partition_bytes: u64,
+    pub aligned_start_sector: u64,
+    pub warnings: Vec<String>,
+}
+
 // -------------------------------------------------------------- propuesta
 
 /// Lo que se le enseña a alguien antes de tocar nada.
@@ -1105,6 +1145,18 @@ pub enum Peticion {
         target: String,
         criteria: Vec<String>,
     },
+    /// Lista los dispositivos de almacenamiento detectados en el sistema (T15.1)
+    ListarDiscos,
+    /// Inspecciona un dispositivo de almacenamiento específico (T15.1)
+    InspeccionarDisco {
+        device: String,
+    },
+    /// Calcula o aplica un esquema de particiones GPT en un disco (T15.1)
+    ParticionarDisco {
+        device: String,
+        clean_install: bool,
+        dry_run: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1253,6 +1305,12 @@ pub enum Evento {
     ResultadoCaptura(ScreenshotResult),
     /// Reporte de auditoría visual multimodal de VisualQA (T14.2)
     ReporteVisualQA(VisualQAReport),
+    /// Lista de dispositivos de almacenamiento detectados (T15.1)
+    ListaDiscos(Vec<DiskDevice>),
+    /// Detalle e inspección de un dispositivo de almacenamiento (T15.1)
+    DetalleDisco(Option<DiskDevice>),
+    /// Plan o resultado de particionamiento (T15.1)
+    PlanParticionamiento(PartitionPlan),
     Error(String),
 }
 
@@ -2007,6 +2065,56 @@ mod tests {
         let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
         let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
         assert_eq!(ev_rep, des_rep);
+    }
+
+    #[test]
+    fn test_serializacion_storage_installer() {
+        let req_list = Peticion::ListarDiscos;
+        let json_list = serde_json::to_string(&req_list).expect("serialize list req");
+        let des_list: Peticion = serde_json::from_str(&json_list).expect("deserialize list req");
+        assert_eq!(req_list, des_list);
+
+        let part = DiskPartition {
+            number: 1,
+            name: "EFI System Partition".into(),
+            size_bytes: 536870912,
+            fs_type: Some("vfat".into()),
+            mountpoint: Some("/boot/efi".into()),
+            is_efi: true,
+            is_bootable: true,
+            uuid: Some("ABCD-1234".into()),
+        };
+
+        let dev = DiskDevice {
+            path: "/dev/nvme0n1".into(),
+            model: "Samsung SSD 980 PRO 1TB".into(),
+            size_bytes: 1000204886016,
+            sector_size: 512,
+            bus_type: "nvme".into(),
+            partition_table: "gpt".into(),
+            partitions: vec![part],
+            is_read_only: false,
+        };
+
+        let ev_dev = Evento::ListaDiscos(vec![dev.clone()]);
+        let json_ev = serde_json::to_string(&ev_dev).expect("serialize list ev");
+        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize list ev");
+        assert_eq!(ev_dev, des_ev);
+
+        let plan = PartitionPlan {
+            target_device: "/dev/nvme0n1".into(),
+            clean_install: true,
+            efi_partition_bytes: 536870912,
+            root_partition_bytes: 900000000000,
+            swap_partition_bytes: 17179869184,
+            aligned_start_sector: 2048,
+            warnings: vec!["El disco se formateará por completo".into()],
+        };
+
+        let ev_plan = Evento::PlanParticionamiento(plan);
+        let json_plan = serde_json::to_string(&ev_plan).expect("serialize plan ev");
+        let des_plan: Evento = serde_json::from_str(&json_plan).expect("deserialize plan ev");
+        assert_eq!(ev_plan, des_plan);
     }
 }
 

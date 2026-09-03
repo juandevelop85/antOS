@@ -264,6 +264,19 @@ pub enum Change {
         target: String,
         criteria: Vec<String>,
     },
+    DiskList {
+        workspace: PathBuf,
+    },
+    DiskInspect {
+        workspace: PathBuf,
+        device: String,
+    },
+    DiskPartition {
+        workspace: PathBuf,
+        device: String,
+        clean: bool,
+        dry_run: bool,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -361,7 +374,10 @@ impl Pendiente {
             | Change::PluginRun { .. }
             | Change::PluginInstall { .. }
             | Change::UiScreenshot { .. }
-            | Change::UiInspectVisual { .. } => {}
+            | Change::UiInspectVisual { .. }
+            | Change::DiskList { .. }
+            | Change::DiskInspect { .. }
+            | Change::DiskPartition { .. } => {}
         }
     }
 }
@@ -985,6 +1001,30 @@ pub fn changes_for(
                 workspace: ctx.workspace.clone(),
                 target,
                 criteria,
+            }])
+        }
+
+        "disk.list" => Ok(vec![Change::DiskList {
+            workspace: ctx.workspace.clone(),
+        }]),
+
+        "disk.inspect" => {
+            let device = a.get("device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            Ok(vec![Change::DiskInspect {
+                workspace: ctx.workspace.clone(),
+                device,
+            }])
+        }
+
+        "disk.partition" => {
+            let device = a.get("device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let clean = a.get("clean").map(|v| v == "true").unwrap_or(false);
+            let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
+            Ok(vec![Change::DiskPartition {
+                workspace: ctx.workspace.clone(),
+                device,
+                clean,
+                dry_run,
             }])
         }
 
@@ -1832,6 +1872,40 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     lines.push(format!("    Recomendación: {}", f.recommendation));
                 }
                 output.push(lines.join("\n"));
+            }
+            Change::DiskList { .. } => {
+                let disks = crate::installer::DiskManager::list_disks()?;
+                let mut lines = Vec::new();
+                lines.push(format!("antOS Almacenamiento · Unidades detectadas ({}):", disks.len()));
+                for d in disks {
+                    let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                    lines.push(format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()));
+                }
+                output.push(lines.join("\n"));
+            }
+            Change::DiskInspect { device, .. } => {
+                let disk = crate::installer::DiskManager::inspect_disk(device)?;
+                match disk {
+                    Some(d) => {
+                        let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                        let mut lines = Vec::new();
+                        lines.push(format!("antOS Almacenamiento · Dispositivo {}:", d.path));
+                        lines.push(format!("  • Modelo: {:.1} GB | Bus: {} | Tabla: {}", gb, d.bus_type, d.partition_table));
+                        for p in d.partitions {
+                            let efi = if p.is_efi { " [EFI]" } else { "" };
+                            lines.push(format!("    - {} ({} MB, {}){}", p.name, p.size_bytes / (1024 * 1024), p.fs_type.as_deref().unwrap_or("none"), efi));
+                        }
+                        output.push(lines.join("\n"));
+                    }
+                    None => {
+                        output.push(format!("Dispositivo «{}» no encontrado", device));
+                    }
+                }
+            }
+            Change::DiskPartition { device, clean, dry_run, .. } => {
+                let plan = crate::installer::DiskManager::plan_partitioning(device, *clean)?;
+                let report = crate::installer::DiskManager::apply_partitioning(device, &plan, *dry_run)?;
+                output.push(report);
             }
         }
     }

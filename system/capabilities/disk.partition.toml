@@ -1,0 +1,14 @@
+name = "disk.partition"
+summary = "Calcula o aplica un esquema de particiones GPT en un dispositivo de almacenamiento"
+
+[params]
+device = { type = "text" }
+clean = { type = "boolean", optional = true }
+dry_run = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$WORKSPACE"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

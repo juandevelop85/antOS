@@ -573,6 +573,20 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("ui.inspect_visual", &[("target", &target)])]));
         }
 
+        // Intenciones de Almacenamiento y Particionamiento (T15.1)
+        if lower.contains("disco") || lower.contains("particion") || lower.contains("partición") || lower.contains("almacenamiento") || lower.contains("storage") || lower.contains("disk") {
+            if lower.contains("particiona") || lower.contains("partition") || lower.contains("formatea") {
+                let dev = after(&words, &["disco", "en", "sobre", "dispositivo", "target"]).unwrap_or_else(|| "/dev/nvme0n1".into());
+                let clean = if lower.contains("limpio") || lower.contains("clean") || lower.contains("completo") { "true" } else { "false" };
+                return Ok(Propuesta::solo(vec![step("disk.partition", &[("device", &dev), ("clean", clean)])]));
+            }
+            if lower.contains("inspecciona") || lower.contains("inspect") || lower.contains("info") || lower.contains("detalle") {
+                let dev = after(&words, &["disco", "dispositivo", "de", "en"]).unwrap_or_else(|| "/dev/nvme0n1".into());
+                return Ok(Propuesta::solo(vec![step("disk.inspect", &[("device", &dev)])]));
+            }
+            return Ok(Propuesta::solo(vec![step("disk.list", &[])]));
+        }
+
         // Intenciones de secretos y concesiones (T5.2)
         if (!lower.contains("busca") && !lower.contains("search"))
             && (lower.contains("secreto")
@@ -1193,5 +1207,26 @@ mod tests {
             .expect("plan visual inspection");
         assert_eq!(p_visual.steps.len(), 1);
         assert_eq!(p_visual.steps[0].capability, "ui.inspect_visual");
+
+        let p_disks = planner
+            .plan("lista los discos del sistema", &catalog)
+            .expect("plan disk list");
+        assert_eq!(p_disks.steps.len(), 1);
+        assert_eq!(p_disks.steps[0].capability, "disk.list");
+
+        let p_inspect = planner
+            .plan("inspecciona el disco /dev/nvme0n1", &catalog)
+            .expect("plan disk inspect");
+        assert_eq!(p_inspect.steps.len(), 1);
+        assert_eq!(p_inspect.steps[0].capability, "disk.inspect");
+        assert_eq!(p_inspect.steps[0].args.get("device").map(|s| s.as_str()), Some("/dev/nvme0n1"));
+
+        let p_part = planner
+            .plan("particiona el disco /dev/sda en modo limpio", &catalog)
+            .expect("plan disk partition");
+        assert_eq!(p_part.steps.len(), 1);
+        assert_eq!(p_part.steps[0].capability, "disk.partition");
+        assert_eq!(p_part.steps[0].args.get("device").map(|s| s.as_str()), Some("/dev/sda"));
+        assert_eq!(p_part.steps[0].args.get("clean").map(|s| s.as_str()), Some("true"));
     }
 }

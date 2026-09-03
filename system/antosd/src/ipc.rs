@@ -576,6 +576,29 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
+        Peticion::ListarDiscos => {
+            match crate::installer::DiskManager::list_disks() {
+                Ok(disks) => enviar(&mut escritura, &Evento::ListaDiscos(disks))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Peticion::InspeccionarDisco { device } => {
+            match crate::installer::DiskManager::inspect_disk(&device) {
+                Ok(opt) => enviar(&mut escritura, &Evento::DetalleDisco(opt))?,
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
+        Peticion::ParticionarDisco { device, clean_install, dry_run } => {
+            match crate::installer::DiskManager::plan_partitioning(&device, clean_install) {
+                Ok(plan) => {
+                    if !dry_run {
+                        let _ = crate::installer::DiskManager::apply_partitioning(&device, &plan, false);
+                    }
+                    enviar(&mut escritura, &Evento::PlanParticionamiento(plan))?;
+                }
+                Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -839,6 +862,28 @@ pub fn intencion_remota(
                     }
                     pantalla.nota(&format!("    Recomendación: {}", f.recommendation))?;
                 }
+            }
+            Evento::ListaDiscos(disks) => {
+                pantalla.nota(&format!("Dispositivos de almacenamiento detectados ({}):", disks.len()))?;
+                for d in disks {
+                    let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                    pantalla.nota(&format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()))?;
+                }
+            }
+            Evento::DetalleDisco(opt) => {
+                if let Some(d) = opt {
+                    let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                    pantalla.nota(&format!("Dispositivo {}: {:.1} GB, Bus: {}, Tabla: {}", d.path, gb, d.bus_type, d.partition_table))?;
+                } else {
+                    pantalla.nota("Dispositivo no encontrado")?;
+                }
+            }
+            Evento::PlanParticionamiento(plan) => {
+                pantalla.nota(&format!("Plan de particionado GPT para {}: ESP: {} MB, Raíz: {} MB",
+                    plan.target_device,
+                    plan.efi_partition_bytes / (1024 * 1024),
+                    plan.root_partition_bytes / (1024 * 1024)
+                ))?;
             }
             Evento::Error(m) => bail!("{m}"),
         }

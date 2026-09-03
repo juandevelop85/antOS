@@ -33,6 +33,7 @@ pub mod barra;
 pub mod boot;
 pub mod wasm;
 pub mod vision;
+pub mod installer;
 mod ipc;
 mod journal;
 mod plan;
@@ -136,6 +137,7 @@ fn run() -> Result<()> {
         "plugin" | "plugins" | "wasm" => cmd_plugin(&ctx, &rest[1..]),
         "screenshot" | "captura" => cmd_screenshot(&ctx, &rest[1..]),
         "qa" => cmd_qa(&ctx, &rest[1..]),
+        "disk" | "storage" | "part" => cmd_disk(&ctx, &rest[1..]),
         "release" | "dist" => cmd_boot(&ctx, &["release".into()]),
         "grant" => cmd_grant(&ctx, &catalog, &rest[1..]),
         "revoke" => cmd_revoke(&ctx, &rest[1..]),
@@ -2169,6 +2171,126 @@ fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("\n{} Inspección de Calidad Visual (antFlow QA):", paint("antOS QA ·", BOLD));
             println!("  Uso:");
             println!("    antos qa visual [target] [criterios...]  Auditoría visual con agente multimodal\n");
+        }
+    }
+    Ok(())
+}
+
+// -------------------------------------------------------- disk & partitioning (T15.1)
+
+fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+
+    match sub {
+        "list" | "ls" => {
+            println!("\n{} Unidades de Almacenamiento Detectadas:", paint("antOS Almacenamiento ·", BOLD));
+            let disks = installer::DiskManager::list_disks()?;
+            if disks.is_empty() {
+                println!("  (no se detectaron unidades de bloque en el sistema)\n");
+                return Ok(());
+            }
+
+            for d in &disks {
+                let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                println!("  • {} ({:.1} GB, Bus: {}, Tabla: {})",
+                    paint(&d.path, CYAN),
+                    gb,
+                    d.bus_type,
+                    d.partition_table
+                );
+                println!("    Modelo:      {}", d.model);
+                println!("    Sectores:    {} bytes / sector (RO: {})", d.sector_size, d.is_read_only);
+                if d.partitions.is_empty() {
+                    println!("    Particiones: (disco sin particiones)");
+                } else {
+                    println!("    Particiones: {} detectadas", d.partitions.len());
+                    for p in &d.partitions {
+                        let p_mb = p.size_bytes / (1024 * 1024);
+                        let efi_badge = if p.is_efi { paint(" [EFI ESP]", GREEN) } else { "".into() };
+                        let fs = p.fs_type.as_deref().unwrap_or("desconocido");
+                        let mount = p.mountpoint.as_deref().unwrap_or("no montada");
+                        println!("      - {} ({:.0} MB, {}) → {}{}",
+                            paint(&p.name, BOLD),
+                            p_mb,
+                            fs,
+                            mount,
+                            efi_badge
+                        );
+                    }
+                }
+                println!();
+            }
+        }
+        "inspect" | "info" => {
+            let target = args.get(1).map(String::as_str).unwrap_or("");
+            if target.is_empty() {
+                bail!("Uso: antos disk inspect <dispositivo>");
+            }
+
+            println!("\n{} Inspeccionando Dispositivo {}:", paint("antOS Almacenamiento ·", BOLD), paint(target, CYAN));
+            let disk = installer::DiskManager::inspect_disk(target)?;
+            match disk {
+                Some(d) => {
+                    let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+                    println!("  • Ruta física:       {}", paint(&d.path, BOLD));
+                    println!("  • Modelo / Vendor:   {}", d.model);
+                    println!("  • Tamaño total:      {:.2} GB ({} bytes)", gb, d.size_bytes);
+                    println!("  • Tamaño de sector:  {} bytes (LBA)", d.sector_size);
+                    println!("  • Tipo de Bus:       {}", d.bus_type);
+                    println!("  • Tabla:             {}", d.partition_table);
+                    println!("  • Solo Lectura:      {}\n", d.is_read_only);
+
+                    println!("  {}:", paint("Mapa de Particiones", BOLD));
+                    if d.partitions.is_empty() {
+                        println!("    (sin particiones registradas)");
+                    } else {
+                        for p in &d.partitions {
+                            let efi_str = if p.is_efi { paint(" [SISTEMA EFI]", GREEN) } else { "".into() };
+                            println!("    #{}: {} | {:.1} MB | FS: {} | UUID: {}{}",
+                                p.number,
+                                paint(&p.name, CYAN),
+                                p.size_bytes as f64 / (1024.0 * 1024.0),
+                                p.fs_type.as_deref().unwrap_or("none"),
+                                p.uuid.as_deref().unwrap_or("N/A"),
+                                efi_str
+                            );
+                        }
+                    }
+                    println!();
+                }
+                None => {
+                    bail!("No se encontró el dispositivo «{}»", target);
+                }
+            }
+        }
+        "partition" | "part" => {
+            let target = args.get(1).map(String::as_str).unwrap_or("");
+            if target.is_empty() {
+                bail!("Uso: antos disk partition <dispositivo> [--clean | --dual-boot] [--apply]");
+            }
+
+            let clean = args.iter().any(|a| a == "--clean");
+            let apply = args.iter().any(|a| a == "--apply");
+            let dry_run = !apply;
+
+            println!("\n{} Calculando esquema de particionado para {}:",
+                paint("antOS Particionador ·", BOLD),
+                paint(target, CYAN)
+            );
+
+            let plan = installer::DiskManager::plan_partitioning(target, clean)?;
+            let report = installer::DiskManager::apply_partitioning(target, &plan, dry_run)?;
+            println!("{}\n", report);
+            if dry_run {
+                println!("  {} Para aplicar estos cambios en el disco use «--apply» (acción destructiva).\n", paint("Nota:", YELLOW));
+            }
+        }
+        _ => {
+            println!("\n{} Gestor de Discos y Particiones GPT:", paint("antOS Almacenamiento ·", BOLD));
+            println!("  Uso:");
+            println!("    antos disk list                           Enumera discos físicos y particiones");
+            println!("    antos disk inspect <dispositivo>          Muestra el mapa de particiones y metadatos");
+            println!("    antos disk partition <dispositivo> [modo] Calcula o aplica tabla GPT (--clean / --dual-boot)\n");
         }
     }
     Ok(())

@@ -1,0 +1,11 @@
+name = "disk.list"
+summary = "Enumera las unidades de almacenamiento físicas y virtuales detectadas en el sistema"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

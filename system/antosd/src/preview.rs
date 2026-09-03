@@ -290,6 +290,17 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::UiInspectVisual { target, .. } => {
                 out.push(Line::Info(format!("ejecuta inspección visual multimodal de «{target}» con el agente VisualQA")));
             }
+            Change::DiskList { .. } => {
+                out.push(Line::Info("lista las unidades de almacenamiento físicas y virtuales del sistema".into()));
+            }
+            Change::DiskInspect { device, .. } => {
+                out.push(Line::Info(format!("inspecciona el mapa de particiones y sistemas de archivos de «{device}»")));
+            }
+            Change::DiskPartition { device, clean, dry_run, .. } => {
+                let m = if *clean { "instalación limpia" } else { "modo dual-boot" };
+                let sim = if *dry_run { " (simulación)" } else { " (aplicando cambios)" };
+                out.push(Line::Info(format!("calcula particionado GPT para «{device}» en {m}{sim}")));
+            }
         }
         pendiente.aplicar(change);
     }

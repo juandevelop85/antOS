@@ -777,6 +777,28 @@ antos boot release
 
 ---
 
+### 4.28 Inspección de Almacenamiento y Particionamiento GPT (`antos disk`)
+
+Subsistema de descubrimiento de hardware de almacenamiento (NVMe, SATA, USB, VirtIO), diagnóstico de tablas de particiones y generador de esquemas GPT con alineación de sectores a 1 MiB para instalación limpia o Dual Boot pacífico:
+
+```bash
+# Enumerar discos físicos, tamaños, buses y particiones hijas
+antos disk list
+
+# Inspeccionar mapa de particiones, UUIDs y sistemas de archivos de un disco
+antos disk inspect /dev/nvme0n1
+antos disk inspect /dev/disk0
+
+# Calcular y previsualizar esquema de particionado GPT (Dry-Run seguro por defecto)
+antos disk partition /dev/nvme0n1
+antos disk partition /dev/nvme0n1 --clean
+
+# Aplicar particionado GPT definitivo (acción destructiva controlada)
+antos disk partition /dev/nvme0n1 --clean --apply
+```
+
+---
+
 ## 5. Recetas y Combinaciones de Uso Avanzadas
 
 ### 🔹 Receta 1: Modo Autónomo Nocturno o Larga Duración (`/goal`)

@@ -1,0 +1,12 @@
+name = "disk.inspect"
+summary = "Inspecciona el mapa de particiones, UUIDs y sistemas de archivos de un disco específico"
+
+[params]
+device = { type = "text" }
+
+[effects]
+reads = ["$WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"
