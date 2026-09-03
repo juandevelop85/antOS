@@ -39,6 +39,11 @@ impl DesktopManager {
                 description: "Abrir visor interactivo de diffs y reversión granular".into(),
             },
             DesktopHotkey {
+                key: "Super+E".into(),
+                action: "open_editor".into(),
+                description: "Abrir el editor de texto predeterminado (Neovim)".into(),
+            },
+            DesktopHotkey {
                 key: "Super+Q".into(),
                 action: "close_window".into(),
                 description: "Cerrar la ventana enfocada actualmente".into(),
@@ -192,6 +197,7 @@ mod tests {
         assert!(hotkeys.iter().any(|h| h.key == "Super+A"));
         assert!(hotkeys.iter().any(|h| h.key == "Super+Return"));
         assert!(hotkeys.iter().any(|h| h.key == "Super+D"));
+        assert!(hotkeys.iter().any(|h| h.key == "Super+E"));
     }
 
     #[test]

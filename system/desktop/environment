@@ -16,3 +16,8 @@ export _JAVA_AWT_WM_NONREPARENTING=1
 # antOS Specific Environment
 export ANTOS_DESKTOP=1
 export ANTOS_COMPOSITOR=labwc
+
+# Default Text Editor (Neovim)
+export EDITOR=nvim
+export VISUAL=nvim
+export ANTOS_DEFAULT_EDITOR=nvim

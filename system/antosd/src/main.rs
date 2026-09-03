@@ -55,7 +55,7 @@ pub mod web;
 
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use capability::{Catalog, Tier};
 use ctx::Ctx;
 use grants::Grants;
@@ -140,6 +140,7 @@ fn run() -> Result<()> {
         "vfs" | "antfs" => cmd_vfs(&ctx, &rest[1..]),
         "ebpf" | "bpf" => cmd_ebpf(&ctx, &rest[1..]),
         "profile" | "perf" | "profiler" => cmd_profile(&ctx, &rest[1..]),
+        "edit" | "editor" | "nvim" => cmd_edit(&rest[1..]),
         "lsp" => cmd_lsp(&ctx, &rest[1..]),
         "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
@@ -3321,10 +3322,10 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
         }
         Some("config" | "conf") => {
-            let editor_str = args.get(1).map(String::as_str).unwrap_or("vscode");
+            let editor_str = args.get(1).map(String::as_str).unwrap_or("neovim");
             let editor_kind = match editor_str.to_lowercase().as_str() {
-                "vscode" | "code" => antos_protocolo::LspEditorKind::VsCode,
                 "neovim" | "nvim" | "vim" => antos_protocolo::LspEditorKind::Neovim,
+                "vscode" | "code" => antos_protocolo::LspEditorKind::VsCode,
                 "helix" | "hx" => antos_protocolo::LspEditorKind::Helix,
                 "emacs" => antos_protocolo::LspEditorKind::Emacs,
                 _ => antos_protocolo::LspEditorKind::Generic,
@@ -3367,8 +3368,45 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
                 "    • antos lsp [stdio]            Inicia el servidor JSON-RPC 2.0 sobre stdio"
             );
             println!("    • antos lsp status             Diagnostica el estado del servidor y conexiones");
-            println!("    • antos lsp config <editor>    Genera configuración para vscode, neovim, helix, emacs\n");
+            println!("    • antos lsp config [editor]    Genera configuración (por defecto Neovim, o vscode/helix/emacs)\n");
         }
+    }
+    Ok(())
+}
+
+// --------------------------------------------------------------------- edit / editor
+
+fn cmd_edit(args: &[String]) -> Result<()> {
+    let editor = std::env::var("EDITOR")
+        .or_else(|_| std::env::var("VISUAL"))
+        .unwrap_or_else(|_| "nvim".to_string());
+
+    let target = args.first().map(String::as_str);
+    if let Some(file) = target {
+        println!(
+            "{} Abriendo '{}' con el editor predeterminado ({})",
+            paint("antOS ·", BOLD),
+            paint(file, CYAN),
+            paint(&editor, GREEN)
+        );
+    } else {
+        println!(
+            "{} Iniciando editor de texto predeterminado ({})",
+            paint("antOS ·", BOLD),
+            paint(&editor, GREEN)
+        );
+    }
+
+    let mut cmd = std::process::Command::new(&editor);
+    if let Some(file) = target {
+        cmd.arg(file);
+    }
+
+    let status = cmd
+        .status()
+        .with_context(|| format!("No se pudo ejecutar el editor '{editor}'"))?;
+    if !status.success() {
+        anyhow::bail!("El editor '{}' finalizó con código no exitoso", editor);
     }
     Ok(())
 }
@@ -5954,6 +5992,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos undo [--ticket id]   revierte el último plan o todos los cambios de un ticket
   antos doctor               comprueba que el recinto es real, atacándolo
   antos diff [proyecto] [ref] visor interactivo de diffs y parches por proyecto
+  antos edit [fichero]       abre el fichero en el editor predeterminado (Neovim / Super + E)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

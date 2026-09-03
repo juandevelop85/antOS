@@ -93,6 +93,11 @@ WantedBy=multi-user.target
         fs::write(systemd_dir.join("antosd.service"), service)
             .context("Escribiendo antosd.service")?;
 
+        // 5. /etc/environment (Default Text Editor: Neovim)
+        let env_content = "EDITOR=nvim\nVISUAL=nvim\nANTOS_DEFAULT_EDITOR=nvim\n";
+        fs::write(etc_dir.join("environment"), env_content)
+            .context("Escribiendo /etc/environment")?;
+
         Ok(())
     }
 
@@ -252,6 +257,7 @@ mod tests {
         assert_eq!(fs::read_to_string(temp.join("etc/timezone")).unwrap().trim(), "Europe/Madrid");
         assert!(fs::read_to_string(temp.join("etc/os-release")).unwrap().contains("antOS"));
         assert!(fs::read_to_string(temp.join("etc/systemd/system/antosd.service")).unwrap().contains("ExecStart=/usr/local/bin/antosd"));
+        assert!(fs::read_to_string(temp.join("etc/environment")).unwrap().contains("EDITOR=nvim"));
         let _ = fs::remove_dir_all(&temp);
     }
 

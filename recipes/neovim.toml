@@ -1,0 +1,19 @@
+# Receta declarativa de antOS Package Manager (antpkg) para Neovim
+
+[package]
+name = "neovim"
+version = "0.10.0"
+description = "Vim-fork enfocado en extensibilidad y usabilidad, editor de texto predeterminado de antOS"
+homepage = "https://neovim.io"
+license = "Apache-2.0"
+binaries = ["nvim"]
+
+[source]
+url = "https://packages.antos.dev/sources/neovim-0.10.0.tar.gz"
+sha256 = "b84511d5964dbe5ff2886a116b490fcfb263ab211e4f4201880a424e6c71c4c1"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = "install -m 755 bin/nvim $OUT/bin/nvim"

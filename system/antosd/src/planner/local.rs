@@ -514,6 +514,13 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("dap.attach", &[("command", &cmd)])]));
         }
 
+        // Intenciones de Editor de Texto (Neovim por defecto)
+        if (lower.contains("editor") || lower.contains("neovim") || lower.contains("nvim") || lower.contains("editar"))
+            && !lower.contains("co-edici") && !lower.contains("pair") {
+            let file = words.iter().find(|w| w.ends_with(".rs") || w.ends_with(".toml") || w.ends_with(".md") || w.ends_with(".json") || w.ends_with(".sh")).cloned().unwrap_or_else(|| "src/main.rs".into());
+            return Ok(Propuesta::solo(vec![step("ui.terminal", &[("command", &format!("nvim {file}"))])]));
+        }
+
         // Intenciones de Escritorio Wayland y Atajos (T13.0)
         if lower.contains("desktop") || lower.contains("escritorio") || lower.contains("wayland") || lower.contains("atajos") || lower.contains("hotkeys") {
             if lower.contains("atajo") || lower.contains("hotkey") || lower.contains("teclado") {
@@ -1592,5 +1599,26 @@ mod tests {
             .expect("plan web stop");
         assert_eq!(p_stop.steps.len(), 1);
         assert_eq!(p_stop.steps[0].capability, "web.stop");
+    }
+
+    #[test]
+    fn test_plan_open_default_editor_neovim() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_edit = planner
+            .plan("abre el editor para src/lib.rs", &catalog)
+            .expect("plan editor");
+        assert_eq!(p_edit.steps.len(), 1);
+        assert_eq!(p_edit.steps[0].capability, "ui.terminal");
+        assert!(p_edit.steps[0].args.get("command").unwrap().contains("nvim src/lib.rs"));
+
+        let p_nvim = planner
+            .plan("editar en neovim", &catalog)
+            .expect("plan nvim");
+        assert_eq!(p_nvim.steps.len(), 1);
+        assert_eq!(p_nvim.steps[0].capability, "ui.terminal");
+        assert!(p_nvim.steps[0].args.get("command").unwrap().contains("nvim"));
     }
 }

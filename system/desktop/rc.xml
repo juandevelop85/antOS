@@ -44,6 +44,11 @@
       <action name="Execute" command="antos intent 'ver diffs'"/>
     </keybind>
 
+    <!-- Super + E: Default Text Editor (Neovim) -->
+    <keybind key="W-e">
+      <action name="Execute" command="antos edit"/>
+    </keybind>
+
     <!-- Window Management Shortcuts -->
     <!-- Super + Q: Close Active Window -->
     <keybind key="W-q">

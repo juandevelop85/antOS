@@ -810,7 +810,10 @@ antos profile list
 
 Servidor LSP embebido para dotar a editores externos (VS Code, Neovim, Helix, Emacs) de autocompletado semántico enriquecido con el contexto de tickets, símbolos del workspace y capacidades tipadas de antOS:
 
-```bash
+# Abrir un archivo o iniciar el editor de texto predeterminado de antOS (Neovim / Super + E)
+antos edit src/main.rs
+antos edit
+
 # Iniciar el servidor LSP sobre stdio (utilizado directamente por editores externos)
 antos lsp
 antos lsp stdio
@@ -818,9 +821,10 @@ antos lsp stdio
 # Consultar el estado del servidor y cantidad de símbolos AST indexados
 antos lsp status
 
-# Generar configuraciones automáticas listas para usar en cada editor
-antos lsp config vscode
+# Generar configuraciones automáticas listas para usar (por defecto Neovim: init.lua)
+antos lsp config
 antos lsp config neovim
+antos lsp config vscode
 antos lsp config helix
 antos lsp config emacs
 ```
@@ -865,6 +869,7 @@ antos desktop keys
 * `Super + A`: Despliega el Centro de Agentes y Tablero de Tickets.
 * `Super + Return`: Lanza la terminal virtual interactiva integrada (`vte`).
 * `Super + D`: Abre el visor interactivo de diffs y reversión (`diff_view`).
+* `Super + E`: Abre el editor de texto predeterminado de antOS (`Neovim` / `antos edit`).
 * `Super + Q`: Cierra la ventana enfocada actualmente.
 * `Alt + Tab`: Conmuta a la siguiente ventana.
 * `Super + F`: Alterna modo pantalla completa.
