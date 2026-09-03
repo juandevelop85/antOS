@@ -690,6 +690,42 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::StartAutopilot(config) => {
+            match crate::autopilot::AutopilotEngine::start(&ctx.state, &ctx.workspace, config) {
+                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::StopAutopilot => {
+            match crate::autopilot::AutopilotEngine::stop(&ctx.state, &ctx.workspace) {
+                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetAutopilotStatus => {
+            match crate::autopilot::AutopilotEngine::status(&ctx.state, &ctx.workspace) {
+                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ListAutopilotIncidents => {
+            match crate::autopilot::AutopilotEngine::list_incidents(&ctx.state) {
+                Ok(list) => enviar(&mut escritura, &Event::AutopilotIncidentsList(list))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ScanAutopilot => {
+            match crate::autopilot::AutopilotEngine::scan_workspace(&ctx.state, &ctx.workspace) {
+                Ok(list) => enviar(&mut escritura, &Event::AutopilotIncidentsList(list))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ResolveAutopilotIncident { incident_id, approve_and_merge } => {
+            match crate::autopilot::AutopilotEngine::resolve_incident(&ctx.state, &ctx.workspace, &incident_id, approve_and_merge) {
+                Ok(inc) => enviar(&mut escritura, &Event::AutopilotAlert(inc))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1062,6 +1098,40 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
                 for d in details {
                     pantalla.nota(&format!("  {d}"))?;
+                }
+            }
+            Event::AutopilotStatus(st) => {
+                let active_badge = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };
+                pantalla.nota(&format!("antOS Autopilot · Estado: {active_badge}"))?;
+                pantalla.nota(&format!("  • Espacio de trabajo: {}", st.workspace_path))?;
+                pantalla.nota(&format!("  • Intervalo sondeo:   {}s", st.poll_interval_secs))?;
+                pantalla.nota(&format!("  • Incidentes activos: {}", st.active_incidents_count))?;
+                pantalla.nota(&format!("  • Total resueltos:    {}", st.resolved_incidents_count))?;
+                if let Some(ts) = st.last_scan_timestamp {
+                    pantalla.nota(&format!("  • Último escaneo:     {ts}"))?;
+                }
+            }
+            Event::AutopilotIncidentsList(list) => {
+                if list.is_empty() {
+                    pantalla.nota("antOS Autopilot: No hay incidencias activas en el repositorio.")?;
+                } else {
+                    pantalla.nota(&format!("antOS Autopilot · Incidencias Registradas ({}):", list.len()))?;
+                    for inc in list {
+                        pantalla.nota(&format!("  • [{}] {} en «{}» [{}] — {}",
+                            inc.id, inc.incident_type, inc.file_path, inc.status, inc.error_message
+                        ))?;
+                    }
+                }
+            }
+            Event::AutopilotAlert(inc) => {
+                pantalla.nota(&format!("antOS Autopilot · Alerta de Incidencia [{}] en «{}»:", inc.id, inc.file_path))?;
+                pantalla.nota(&format!("  • Error:  {}", inc.error_message))?;
+                pantalla.nota(&format!("  • Estado: {}", inc.status))?;
+                if let Some(ref prop) = inc.fix_proposal {
+                    pantalla.nota(&format!("  • Solución: {} (Rama: {})", prop.title, prop.branch))?;
+                    if !prop.diff.is_empty() {
+                        pantalla.nota(&format!("  • Diff:\n{}", prop.diff))?;
+                    }
                 }
             }
             Event::Error(m) => bail!("{m}"),

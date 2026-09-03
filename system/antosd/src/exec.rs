@@ -326,6 +326,29 @@ pub enum Change {
     PackageVerify {
         state_dir: PathBuf,
     },
+    AutopilotStart {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+        config: antos_protocol::AutopilotConfig,
+    },
+    AutopilotStop {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+    },
+    AutopilotStatus {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+    },
+    AutopilotScan {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+    },
+    AutopilotResolve {
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+        incident_id: String,
+        approve: bool,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -438,7 +461,12 @@ impl Pendiente {
             | Change::PackageRemove { .. }
             | Change::PackageRollback { .. }
             | Change::PackageList { .. }
-            | Change::PackageVerify { .. } => {}
+            | Change::PackageVerify { .. }
+            | Change::AutopilotStart { .. }
+            | Change::AutopilotStop { .. }
+            | Change::AutopilotStatus { .. }
+            | Change::AutopilotScan { .. }
+            | Change::AutopilotResolve { .. } => {}
         }
     }
 }
@@ -1223,6 +1251,55 @@ pub fn changes_for(
         "pkg.verify" => {
             Ok(vec![Change::PackageVerify {
                 state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "autopilot.start" => {
+            let interval = a.get("interval").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5);
+            let auto_merge = a.get("auto_merge").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
+            let config = antos_protocol::AutopilotConfig {
+                enabled: true,
+                poll_interval_secs: interval,
+                watch_paths: Vec::new(),
+                auto_merge,
+                target_branch: "master".to_string(),
+            };
+            Ok(vec![Change::AutopilotStart {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+                config,
+            }])
+        }
+
+        "autopilot.stop" => {
+            Ok(vec![Change::AutopilotStop {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+            }])
+        }
+
+        "autopilot.status" => {
+            Ok(vec![Change::AutopilotStatus {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+            }])
+        }
+
+        "autopilot.scan" => {
+            Ok(vec![Change::AutopilotScan {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+            }])
+        }
+
+        "autopilot.resolve" => {
+            let incident_id = a.get("incident_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere incident_id"))?;
+            let approve = a.get("approve").and_then(|v| v.parse::<bool>().ok()).unwrap_or(true);
+            Ok(vec![Change::AutopilotResolve {
+                state_dir: ctx.state.clone(),
+                workspace_dir: ctx.workspace.clone(),
+                incident_id,
+                approve,
             }])
         }
 
@@ -2198,6 +2275,36 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = vec![format!("antpkg · {status_lbl} ({} paquetes comprobados):", count)];
                 lines.extend(details);
                 output.push(lines.join("\n"));
+            }
+            Change::AutopilotStart { state_dir, workspace_dir, config } => {
+                let st = crate::autopilot::AutopilotEngine::start(state_dir, workspace_dir, config.clone())?;
+                output.push(format!("antOS Autopilot · Centinela iniciado (intervalo: {}s)\n  • Incidentes detectados: {}\n  • Espacio de trabajo: {}", st.poll_interval_secs, st.active_incidents_count, st.workspace_path));
+            }
+            Change::AutopilotStop { state_dir, workspace_dir } => {
+                let st = crate::autopilot::AutopilotEngine::stop(state_dir, workspace_dir)?;
+                output.push(format!("antOS Autopilot · Centinela detenido (activo: {})\n  • Total incidentes resueltos: {}", st.active, st.resolved_incidents_count));
+            }
+            Change::AutopilotStatus { state_dir, workspace_dir } => {
+                let st = crate::autopilot::AutopilotEngine::status(state_dir, workspace_dir)?;
+                let status_lbl = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };
+                output.push(format!("antOS Autopilot · Estado: {status_lbl}\n  • Intervalo: {}s\n  • Incidentes activos: {}\n  • Incidentes resueltos: {}", st.poll_interval_secs, st.active_incidents_count, st.resolved_incidents_count));
+            }
+            Change::AutopilotScan { state_dir, workspace_dir } => {
+                let new_incs = crate::autopilot::AutopilotEngine::scan_workspace(state_dir, workspace_dir)?;
+                if new_incs.is_empty() {
+                    output.push("antOS Autopilot · Escaneo finalizado: repositorio limpio sin incidentes".to_string());
+                } else {
+                    let mut lines = vec![format!("antOS Autopilot · Escaneo finalizado: {} incidentes detectados con propuestas listas para aprobación:", new_incs.len())];
+                    for inc in new_incs {
+                        lines.push(format!("  • [{}] {} en «{}»: {}", inc.id, inc.incident_type, inc.file_path, inc.error_message));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::AutopilotResolve { state_dir, workspace_dir, incident_id, approve } => {
+                let inc = crate::autopilot::AutopilotEngine::resolve_incident(state_dir, workspace_dir, incident_id, *approve)?;
+                let action_lbl = if *approve { "Aprobado y aplicado" } else { "Descartado" };
+                output.push(format!("antOS Autopilot · Incidente «{}» {action_lbl} exitosamente (estado: {})", inc.id, inc.status));
             }
         }
     }

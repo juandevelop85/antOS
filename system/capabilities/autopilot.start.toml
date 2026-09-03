@@ -1,0 +1,13 @@
+name = "autopilot.start"
+summary = "Inicia el modo centinela autónomo continuo para vigilar y auto-corregir el workspace"
+
+[params]
+interval = { type = "integer", optional = true }
+auto_merge = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$STATE/autopilot"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

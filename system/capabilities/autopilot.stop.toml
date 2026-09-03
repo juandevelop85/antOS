@@ -1,0 +1,11 @@
+name = "autopilot.stop"
+summary = "Detiene la vigilancia del modo centinela autónomo continuo"
+
+[params]
+
+[effects]
+writes = ["$STATE/autopilot"]
+
+[policy]
+tier = "auto"
+reversible = "never"

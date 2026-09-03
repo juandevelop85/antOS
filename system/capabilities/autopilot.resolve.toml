@@ -1,0 +1,13 @@
+name = "autopilot.resolve"
+summary = "Aprueba y fusiona o descarta la solución propuesta a un incidente detectado por Autopilot"
+
+[params]
+incident_id = { type = "text", optional = false }
+approve = { type = "boolean", optional = true }
+
+[effects]
+writes = ["$WORKSPACE", "$STATE/autopilot"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

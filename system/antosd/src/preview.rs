@@ -343,6 +343,22 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::PackageVerify { .. } => {
                 out.push(Line::Info("verifica sumas de comprobación SHA-256 e integridad de paquetes".to_string()));
             }
+            Change::AutopilotStart { config, .. } => {
+                out.push(Line::Info(format!("inicia centinela autónomo continuo Autopilot (intervalo: {}s)", config.poll_interval_secs)));
+            }
+            Change::AutopilotStop { .. } => {
+                out.push(Line::Info("detiene la vigilancia del centinela autónomo continuo Autopilot".to_string()));
+            }
+            Change::AutopilotStatus { .. } => {
+                out.push(Line::Info("consulta estado de vigilancia y métricas de incidencias Autopilot".to_string()));
+            }
+            Change::AutopilotScan { .. } => {
+                out.push(Line::Info("escanea el workspace para detectar incidencias y generar propuestas de corrección".to_string()));
+            }
+            Change::AutopilotResolve { incident_id, approve, .. } => {
+                let action = if *approve { "aprueba y fusiona" } else { "descarta" };
+                out.push(Line::Info(format!("{action} la propuesta de solución para incidente «{incident_id}»")));
+            }
         }
         pendiente.aplicar(change);
     }

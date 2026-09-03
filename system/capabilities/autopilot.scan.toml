@@ -1,0 +1,12 @@
+name = "autopilot.scan"
+summary = "Dispara un escaneo reactivo del workspace para detectar fallos y generar propuestas de corrección"
+
+[params]
+
+[effects]
+reads = ["$WORKSPACE"]
+writes = ["$STATE/autopilot"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

@@ -1,0 +1,11 @@
+name = "autopilot.status"
+summary = "Retorna el estado de vigilancia y métricas de incidentes detectados y resueltos"
+
+[params]
+
+[effects]
+reads = ["$STATE/autopilot"]
+
+[policy]
+tier = "auto"
+reversible = "never"

@@ -119,6 +119,11 @@ impl Planner for LocalPlanner {
             && !lower.contains("kernel")
             && !lower.contains("plugin")
             && !lower.contains("wasm")
+            && !lower.contains("pkg")
+            && !lower.contains("paquete")
+            && !lower.contains("package")
+            && !lower.contains("autopilot")
+            && !lower.contains("centinela")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -707,6 +712,38 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("pkg.install", &[
                     ("package", &pkg_name),
                     ("dry_run", dry_run),
+                ])]));
+            }
+        }
+
+        // Intenciones de Autopilot Daemon (T16.3)
+        if lower.contains("autopilot") || lower.contains("centinela") || lower.contains("sentinel") || lower.contains("incidente") || lower.contains("incident") {
+            if lower.contains("stop") || lower.contains("deten") || lower.contains("para") || lower.contains("cancela") {
+                return Ok(Propuesta::solo(vec![step("autopilot.stop", &[])]));
+            } else if lower.contains("status") || lower.contains("estado") || lower.contains("metricas") || lower.contains("métricas") {
+                return Ok(Propuesta::solo(vec![step("autopilot.status", &[])]));
+            } else if lower.contains("scan") || lower.contains("escanea") || lower.contains("revisa") || lower.contains("busca fallos") {
+                return Ok(Propuesta::solo(vec![step("autopilot.scan", &[])]));
+            } else if lower.contains("aprueba") || lower.contains("approve") || lower.contains("merge") || lower.contains("resuelve") || lower.contains("descarta") || lower.contains("reject") {
+                let inc_id = after(&words, &["incidente", "incident"])
+                    .or_else(|| {
+                        let candidate = after(&words, &["aprueba", "approve", "descarta", "reject", "resuelve"])?;
+                        if candidate == "la" || candidate == "el" || candidate == "propuesta" || candidate == "proposal" || candidate == "del" {
+                            words.last().cloned()
+                        } else {
+                            Some(candidate)
+                        }
+                    })
+                    .unwrap_or_else(|| "inc-1".into());
+                let approve = if lower.contains("descarta") || lower.contains("reject") { "false" } else { "true" };
+                return Ok(Propuesta::solo(vec![step("autopilot.resolve", &[
+                    ("incident_id", &inc_id),
+                    ("approve", approve),
+                ])]));
+            } else {
+                let interval = after(&words, &["intervalo", "interval", "cada", "every"]).unwrap_or_else(|| "5".into());
+                return Ok(Propuesta::solo(vec![step("autopilot.start", &[
+                    ("interval", &interval),
                 ])]));
             }
         }
@@ -1450,5 +1487,45 @@ mod tests {
             .expect("plan pkg verify");
         assert_eq!(p_pkg_vf.steps.len(), 1);
         assert_eq!(p_pkg_vf.steps[0].capability, "pkg.verify");
+    }
+
+    #[test]
+    fn test_plan_autopilot_sentinela() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_start = planner
+            .plan("inicia el modo autopilot continuo con intervalo 10", &catalog)
+            .expect("plan autopilot start");
+        assert_eq!(p_start.steps.len(), 1);
+        assert_eq!(p_start.steps[0].capability, "autopilot.start");
+        assert_eq!(p_start.steps[0].args.get("interval").map(|s| s.as_str()), Some("10"));
+
+        let p_status = planner
+            .plan("muestra el estado de autopilot", &catalog)
+            .expect("plan autopilot status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "autopilot.status");
+
+        let p_scan = planner
+            .plan("escanea el workspace con el centinela", &catalog)
+            .expect("plan autopilot scan");
+        assert_eq!(p_scan.steps.len(), 1);
+        assert_eq!(p_scan.steps[0].capability, "autopilot.scan");
+
+        let p_resolve = planner
+            .plan("aprueba la propuesta del incidente inc-42", &catalog)
+            .expect("plan autopilot resolve");
+        assert_eq!(p_resolve.steps.len(), 1);
+        assert_eq!(p_resolve.steps[0].capability, "autopilot.resolve");
+        assert_eq!(p_resolve.steps[0].args.get("incident_id").map(|s| s.as_str()), Some("inc-42"));
+        assert_eq!(p_resolve.steps[0].args.get("approve").map(|s| s.as_str()), Some("true"));
+
+        let p_stop = planner
+            .plan("deten el modo autopilot", &catalog)
+            .expect("plan autopilot stop");
+        assert_eq!(p_stop.steps.len(), 1);
+        assert_eq!(p_stop.steps[0].capability, "autopilot.stop");
     }
 }
