@@ -4,9 +4,10 @@ summary = "Actualiza el estado de un ticket técnico en el catálogo del proyect
 [params]
 ticket_id = { type = "text" }
 status = { type = "text" }
+project = { type = "slug", optional = true }
 
 [effects]
-writes = ["$WORKSPACE/docs/tickets/"]
+writes = ["$WORKSPACE/docs/tickets/", "$WORKSPACE/{project}/docs/tickets/"]
 
 [policy]
 tier = "confirm"

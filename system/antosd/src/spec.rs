@@ -310,28 +310,48 @@ pub fn slugify(texto: &str) -> String {
         .join("-")
 }
 
-/// Encuentra o crea el directorio de tickets (`docs/tickets/`).
-pub fn find_or_create_tickets_dir(inicio: &Path) -> Result<PathBuf> {
-    if let Some(d) = find_tickets_dir(inicio) {
-        return Ok(d);
+/// Computes the default ceiling directory for ticket discovery starting from `workspace_path`.
+///
+/// Projects living inside `workspace/` (or subdirectories of the antOS repository under `workspace/`)
+/// must NOT ascend into the antOS repository root, preventing developer projects from inheriting
+/// the OS system tickets.
+pub fn default_ceiling_for(workspace_path: &Path) -> Option<PathBuf> {
+    let antos_root = crate::git::detect_antos_root()?;
+    let ws_canon = workspace_path
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_path.to_path_buf());
+    let root_canon = antos_root
+        .canonicalize()
+        .unwrap_or_else(|_| antos_root.clone());
+
+    let ws_dir = root_canon.join("workspace");
+    if ws_canon.starts_with(&ws_dir) && ws_canon != root_canon {
+        Some(root_canon)
+    } else {
+        None
     }
-    let default_dir = inicio.join("docs").join("tickets");
-    fs::create_dir_all(&default_dir)?;
-    let readme = default_dir.join("README.md");
-    if !readme.exists() {
-        let content = "# Catálogo y Hoja de Ruta de Tickets\n\n| Fase | ID | Título | Estado |\n| :--- | :--- | :--- | :--- |\n";
-        let _ = fs::write(&readme, content);
-    }
-    Ok(default_dir)
 }
 
-/// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`).
-pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
+/// Ceiling-aware variant of [`find_tickets_dir`].
+///
+/// `ceiling` is the exclusive upper bound: if traversal reaches this directory
+/// without having found a tickets directory, the function returns `None`.
+pub fn find_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
     let mut actual = inicio
         .canonicalize()
         .unwrap_or_else(|_| inicio.to_path_buf());
+    let ceiling_canon = ceiling
+        .and_then(|c| c.canonicalize().ok())
+        .or_else(|| ceiling.map(|c| c.to_path_buf()));
 
     loop {
+        // Stop if we have reached (or passed) the ceiling directory.
+        if let Some(ref ceil) = ceiling_canon {
+            if actual == *ceil {
+                break;
+            }
+        }
+
         let candidatos = [
             actual.join("docs").join("tickets"),
             actual.join("specs"),
@@ -351,6 +371,49 @@ pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Finds an existing tickets directory within the ceiling, or creates `<inicio>/docs/tickets/`
+/// with an initial project-scoped `README.md`.
+pub fn find_or_create_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> Result<PathBuf> {
+    if let Some(d) = find_tickets_dir_with_ceiling(inicio, ceiling) {
+        return Ok(d);
+    }
+    let default_dir = inicio.join("docs").join("tickets");
+    fs::create_dir_all(&default_dir)?;
+    let readme = default_dir.join("README.md");
+    if !readme.exists() {
+        let proj_name = inicio
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Proyecto".to_string());
+        let content = format!(
+            "# {proj_name} · Catálogo y Hoja de Ruta de Tickets\n\n\
+            Este directorio contiene las especificaciones y backlog técnico para el proyecto **{proj_name}**.\n\n\
+            | Fase | ID | Título | Estado |\n\
+            | :--- | :--- | :--- | :--- |\n"
+        );
+        let _ = fs::write(&readme, content);
+    }
+    Ok(default_dir)
+}
+
+/// Encuentra o crea el directorio de tickets (`docs/tickets/`).
+pub fn find_or_create_tickets_dir(inicio: &Path) -> Result<PathBuf> {
+    let ceiling = default_ceiling_for(inicio);
+    find_or_create_tickets_dir_with_ceiling(inicio, ceiling.as_deref())
+}
+
+/// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`)
+/// aplicando el techo de contención por defecto.
+pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
+    let ceiling = default_ceiling_for(inicio);
+    find_tickets_dir_with_ceiling(inicio, ceiling.as_deref())
+}
+
+/// Encuentra el directorio de tickets ascendiendo sin ningún techo de contención.
+pub fn find_tickets_dir_unbounded(inicio: &Path) -> Option<PathBuf> {
+    find_tickets_dir_with_ceiling(inicio, None)
 }
 
 /// Alias compatible.
@@ -744,5 +807,76 @@ mod tests {
         assert_eq!(detalle.status, TicketStatus::Completed);
 
         let _ = fs::remove_dir_all(&ws);
+    }
+
+    // ────────────────────────────────────────────────────── T17.4 tests ──
+
+    /// T17.4 — A project under workspace/ without its own tickets directory must NOT
+    /// inherit the antOS operating system tickets (docs/tickets/).
+    #[test]
+    fn test_workspace_project_does_not_inherit_system_tickets() {
+        let antos_root = crate::git::detect_antos_root().expect("antos root");
+        let ws_project = antos_root.join("workspace").join(format!("test_no_tickets_{}", std::process::id()));
+        let _ = fs::create_dir_all(&ws_project);
+
+        let engine = SpecEngine::global();
+        let tickets = engine.list_tickets(&ws_project).expect("list tickets");
+        let _ = fs::remove_dir_all(&ws_project);
+
+        assert!(
+            tickets.is_empty(),
+            "A project under workspace/ without its own tickets must NOT inherit system tickets; got {} tickets",
+            tickets.len()
+        );
+    }
+
+    /// T17.4 — SpecEngine can create, list, and update tickets independently within
+    /// a developer project under workspace/.
+    #[test]
+    fn test_project_tickets_lifecycle_isolated() {
+        let antos_root = crate::git::detect_antos_root().expect("antos root");
+        let ws_project = antos_root.join("workspace").join(format!("test_proj_spec_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&ws_project);
+        fs::create_dir_all(&ws_project).expect("create proj");
+
+        let engine = SpecEngine::global();
+
+        // 1. Initially 0 tickets
+        let tickets_init = engine.list_tickets(&ws_project).expect("list");
+        assert!(tickets_init.is_empty(), "must be empty initially");
+
+        // 2. Create ticket in project
+        let ticket_file = engine
+            .create_ticket(
+                &ws_project,
+                "T1.1",
+                "Modulo de Autenticacion JWT",
+                Some("Implementar JWT en el microservicio"),
+                Some("Fase 1"),
+            )
+            .expect("create ticket");
+
+        assert!(ticket_file.exists());
+        assert!(ws_project.join("docs/tickets/README.md").exists());
+
+        // 3. List tickets of project
+        let tickets = engine.list_tickets(&ws_project).expect("list");
+        assert_eq!(tickets.len(), 1);
+        assert_eq!(tickets[0].id, "T1.1");
+        assert_eq!(tickets[0].title, "Modulo de Autenticacion JWT");
+        assert_eq!(tickets[0].status, TicketStatus::Pending);
+
+        // 4. Update status in project
+        engine
+            .update_ticket_status(&ws_project, "T1.1", TicketStatus::Completed)
+            .expect("update status");
+
+        let detail = engine
+            .get_ticket(&ws_project, "T1.1")
+            .expect("get ticket")
+            .expect("detail");
+        assert_eq!(detail.status, TicketStatus::Completed);
+
+        let _ = fs::remove_dir_all(&ws_project);
     }
 }

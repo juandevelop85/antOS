@@ -764,29 +764,38 @@ pub fn changes_for(
             let title = a.get("title").cloned().ok_or_else(|| anyhow::anyhow!("title requerido"))?;
             let description = a.get("description").cloned();
             let phase = a.get("phase").cloned();
+            let target_ws = a.get("project")
+                .map(|p| ctx.workspace.join(p))
+                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
             Ok(vec![Change::TicketCreate {
                 ticket_id,
                 title,
                 description,
                 phase,
-                workspace: ctx.workspace.clone(),
+                workspace: target_ws,
             }])
         }
 
         "spec.update_ticket" => {
             let ticket_id = a.get("ticket_id").cloned().ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
             let status = a.get("status").cloned().unwrap_or_else(|| "completado".into());
+            let target_ws = a.get("project")
+                .map(|p| ctx.workspace.join(p))
+                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
             Ok(vec![Change::TicketUpdateStatus {
                 ticket_id,
                 status,
-                workspace: ctx.workspace.clone(),
+                workspace: target_ws,
             }])
         }
 
         "spec.list_tickets" => {
             let filter = a.get("filter").cloned();
+            let target_ws = a.get("project")
+                .map(|p| ctx.workspace.join(p))
+                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
             Ok(vec![Change::TicketList {
-                workspace: ctx.workspace.clone(),
+                workspace: target_ws,
                 filter,
             }])
         }

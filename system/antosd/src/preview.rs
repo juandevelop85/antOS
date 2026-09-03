@@ -126,11 +126,12 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::SecretRead { key, .. } => {
                 out.push(Line::Info(format!("lee secreto {key} de la bóveda")));
             }
-            Change::TicketCreate { ticket_id, title, phase, .. } => {
+            Change::TicketCreate { ticket_id, title, phase, workspace, .. } => {
                 let f_str = phase.as_deref().map(|f| format!(" [{f}]")).unwrap_or_default();
-                out.push(Line::Info(format!("crea especificación / ticket {ticket_id}: «{title}»{f_str}")));
-                out.push(Line::Add(format!("  + crear archivo docs/tickets/{ticket_id}-*.md")));
-                out.push(Line::Add(format!("  + actualizar índice maestro docs/tickets/README.md")));
+                let ws_name = workspace.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
+                out.push(Line::Info(format!("crea especificación / ticket {ticket_id}: «{title}»{f_str} ({ws_name})")));
+                out.push(Line::Add(format!("  + crear archivo {}/docs/tickets/{ticket_id}-*.md", workspace.display())));
+                out.push(Line::Add(format!("  + actualizar índice maestro {}/docs/tickets/README.md", workspace.display())));
             }
             Change::TicketUpdateStatus { ticket_id, status, .. } => {
                 out.push(Line::Info(format!("actualiza estado del ticket {ticket_id} a «{status}»")));

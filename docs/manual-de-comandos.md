@@ -279,22 +279,32 @@ antos panel -d T2.1
 
 ### 4.4 Especificaciones y Tickets (`antos tickets` / `antos ticket`)
 
-Motor *SpecEngine* para indexación, creación y actualización de especificaciones de desarrollo:
+Motor *SpecEngine* para indexación, creación y actualización de especificaciones de desarrollo con soporte multi-proyecto y aislamiento estricto de frontera (*ceiling*):
 
 ```bash
-# Listar todos los tickets del proyecto con su fase, ID y estado actual
+# Listar tickets en el contexto actual:
+# - Si se invoca desde workspace/<proyecto>: lista exclusivamente los tickets de ese proyecto.
+# - Si se invoca desde workspace/: muestra un resumen de tickets por proyecto.
+# - Si se invoca desde la raíz de antOS: lista los tickets del sistema operativo.
 antos tickets
 
+# Listar tickets de un proyecto específico del workspace (desde cualquier directorio)
+antos tickets api-service
+antos tickets --project api-service
+
+# Forzar la inspección de tickets del sistema operativo antOS
+antos tickets --system
+
 # Ver el detalle técnico estructurado de un ticket específico
-antos ticket T1.3
+antos ticket T1.1 --project api-service
+antos ticket T1.3                               # En antOS o ámbito actual
 
-# Crear un nuevo ticket técnico dinámico en docs/tickets/
-antos ticket new T9.1 "Integración con sistema de métricas Prometheus" --fase "Fase 9" --desc "Añadir colector de métricas en antosd"
+# Crear un nuevo ticket técnico dinámico en el catálogo independiente de un proyecto
+antos ticket new T1.1 "Autenticación JWT" --project api-service --fase "Fase 1" --desc "Endpoints de login y tokens"
 
-# Actualizar el estado de un ticket en su archivo Markdown y en el README
-antos ticket status T9.1 en_progreso
-antos ticket status T9.1 en_revision
-antos ticket status T9.1 completado
+# Actualizar el estado de un ticket en el catálogo del proyecto correspondiente
+antos ticket status T1.1 en_progreso --project api-service
+antos ticket status T1.1 completado --project api-service
 ```
 
 ---

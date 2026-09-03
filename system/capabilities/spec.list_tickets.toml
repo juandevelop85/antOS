@@ -3,9 +3,10 @@ summary = "Lista todos los tickets y especificaciones técnicas del proyecto"
 
 [params]
 filter = { type = "text", optional = true }
+project = { type = "slug", optional = true }
 
 [effects]
-reads = ["$WORKSPACE/docs/tickets/"]
+reads = ["$WORKSPACE/docs/tickets/", "$WORKSPACE/{project}/docs/tickets/"]
 
 [policy]
 tier = "auto"
