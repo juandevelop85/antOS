@@ -6,47 +6,47 @@
 
 extern crate antos_protocol as antos_protocolo;
 
-mod blast;
-mod capability;
-mod ctx;
-mod exec;
-mod grants;
-pub mod git;
-pub mod net;
-pub mod spec;
-pub mod env;
-pub mod flow;
-pub mod memory;
-pub mod service;
-pub mod vault;
-pub mod diff_view;
-pub mod vte;
-pub mod notification;
-pub mod mesh;
-pub mod distributed;
-pub mod vfs;
-pub mod vfs_guard;
-pub mod ebpf;
-pub mod profiler;
-pub mod lsp;
-pub mod collab;
-pub mod desktop;
 pub mod barra;
+mod blast;
 pub mod boot;
-pub mod wasm;
-pub mod vision;
+mod capability;
+pub mod collab;
+mod ctx;
+pub mod desktop;
+pub mod diff_view;
+pub mod distributed;
+pub mod ebpf;
+pub mod env;
+mod exec;
+pub mod flow;
+pub mod git;
+mod grants;
 pub mod installer;
 mod ipc;
 mod journal;
+pub mod lsp;
+pub mod memory;
+pub mod mesh;
+pub mod net;
+pub mod notification;
 mod plan;
 mod planner;
 mod preview;
+pub mod profiler;
 mod protocolo;
 mod sandbox;
+pub mod service;
 mod sesion;
 mod snapshot;
+pub mod spec;
 mod terminal;
+pub mod vault;
+pub mod vfs;
+pub mod vfs_guard;
+pub mod vision;
 mod voz;
+pub mod vte;
+pub mod wasm;
 
 use anyhow::{bail, Result};
 use capability::{Catalog, Tier};
@@ -54,7 +54,7 @@ use ctx::Ctx;
 use grants::Grants;
 use journal::{Outcome, Record};
 use planner::{claude::ClaudePlanner, local::LocalPlanner, ollama::OllamaPlanner, Planner};
-use terminal::{ellipsis, paint, tier_color, BOLD, DIM, GREEN, RED, YELLOW, BLUE, CYAN};
+use terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
 
 #[derive(Default)]
 struct Opts {
@@ -171,7 +171,14 @@ fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result
 
     let planificador = pick_planner_por_nombre(opts.planner.as_deref())?;
     let mut terminal = terminal::Terminal::new(opts.assume_yes);
-    sesion::intencion(ctx, catalog, intent, &*planificador, opts.dry_run, &mut terminal)
+    sesion::intencion(
+        ctx,
+        catalog,
+        intent,
+        &*planificador,
+        opts.dry_run,
+        &mut terminal,
+    )
 }
 
 // --------------------------------------------------------------------- voz
@@ -188,7 +195,10 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
             println!("  {linea}");
         }
         println!();
-        println!("{}", paint("elige uno con: antos escucha --dispositivo N", DIM));
+        println!(
+            "{}",
+            paint("elige uno con: antos escucha --dispositivo N", DIM)
+        );
         return Ok(());
     }
 
@@ -227,7 +237,10 @@ fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> R
         None => {
             println!(
                 "  {}",
-                paint(&format!("grabando {segundos} s desde {dispositivo} · habla ahora"), BOLD)
+                paint(
+                    &format!("grabando {segundos} s desde {dispositivo} · habla ahora"),
+                    BOLD
+                )
             );
             voz.grabar(segundos, &captura, &dispositivo)?;
         }
@@ -286,7 +299,11 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     if let Some(raw_tid) = ticket_id_arg {
         let tid = raw_tid.to_uppercase();
-        println!("\n{} {}", paint("antOS · Reversión granular de ticket", BOLD), paint(&tid, YELLOW));
+        println!(
+            "\n{} {}",
+            paint("antOS · Reversión granular de ticket", BOLD),
+            paint(&tid, YELLOW)
+        );
 
         let mut reversiones = 0;
         let mut idxs_a_revertir = Vec::new();
@@ -306,7 +323,11 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
             let wt_path = ctx.state.join("worktrees").join(&ticket_clean);
             if wt_path.exists() {
                 let _ = std::fs::remove_dir_all(&wt_path);
-                println!("  {} Worktree efímero ({}) limpiado.", paint("✓", GREEN), wt_path.display());
+                println!(
+                    "  {} Worktree efímero ({}) limpiado.",
+                    paint("✓", GREEN),
+                    wt_path.display()
+                );
                 reversiones += 1;
             }
 
@@ -321,7 +342,12 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
             let snap_id = records[idx].snapshot.clone().unwrap();
             let snap = snapshot::load(&snap_id, &ctx.snapshots_dir())?;
 
-            println!("  {} Transacción {}: «{}»", paint("↩", DIM), paint(&records[idx].id, DIM), records[idx].intent);
+            println!(
+                "  {} Transacción {}: «{}»",
+                paint("↩", DIM),
+                paint(&records[idx].id, DIM),
+                records[idx].intent
+            );
             for line in snapshot::restore(&snap)? {
                 println!("    {line}");
             }
@@ -350,11 +376,19 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
         let wt_path = ctx.state.join("worktrees").join(&ticket_clean);
         if wt_path.exists() {
             let _ = std::fs::remove_dir_all(&wt_path);
-            println!("  {} Worktree efímero ({}) eliminado.", paint("✓", GREEN), wt_path.display());
+            println!(
+                "  {} Worktree efímero ({}) eliminado.",
+                paint("✓", GREEN),
+                wt_path.display()
+            );
         }
 
         journal::rewrite(&ctx.journal_path(), &records)?;
-        println!("\n  {} Reversión completada: {} transacción(es) revertida(s).\n", paint("✓", GREEN), reversiones);
+        println!(
+            "\n  {} Reversión completada: {} transacción(es) revertida(s).\n",
+            paint("✓", GREEN),
+            reversiones
+        );
         return Ok(());
     }
 
@@ -371,7 +405,11 @@ fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
     let snap = snapshot::load(&snap_id, &ctx.snapshots_dir())?;
 
     println!();
-    println!("{} {}", paint("deshaciendo", BOLD), paint(&format!("«{}»", records[idx].intent), DIM));
+    println!(
+        "{} {}",
+        paint("deshaciendo", BOLD),
+        paint(&format!("«{}»", records[idx].intent), DIM)
+    );
     for line in snapshot::restore(&snap)? {
         println!("  {line}");
     }
@@ -409,15 +447,29 @@ fn cmd_caps(catalog: &Catalog, ctx: &Ctx) -> Result<()> {
     for cap in catalog.caps.values() {
         let mut nivel = cap.policy.tier.label().to_string();
         if cap.policy.tier == Tier::Grant {
-            nivel.push_str(if grants.is_granted(&cap.name) { " · concedida" } else { " · denegada" });
+            nivel.push_str(if grants.is_granted(&cap.name) {
+                " · concedida"
+            } else {
+                " · denegada"
+            });
         }
         println!();
-        println!("  {}  {}", paint(&cap.name, BOLD), paint(&nivel, tier_color(cap.policy.tier)));
+        println!(
+            "  {}  {}",
+            paint(&cap.name, BOLD),
+            paint(&nivel, tier_color(cap.policy.tier))
+        );
         println!("    {}", paint(&cap.summary, DIM));
         let params = cap
             .params
             .iter()
-            .map(|(n, s)| if s.optional || s.default.is_some() { format!("[{n}]") } else { n.clone() })
+            .map(|(n, s)| {
+                if s.optional || s.default.is_some() {
+                    format!("[{n}]")
+                } else {
+                    n.clone()
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ");
         if !params.is_empty() {
@@ -468,7 +520,10 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
     let _ = std::fs::remove_file(&fuga);
 
     if intento.is_err() && !quedo_escrito {
-        marca(true, "escritura fuera de lo declarado: la deniega el kernel");
+        marca(
+            true,
+            "escritura fuera de lo declarado: la deniega el kernel",
+        );
     } else {
         fallos += 1;
         marca(false, "escritura fuera de lo declarado: SE COMPLETÓ");
@@ -492,7 +547,10 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         marca(true, "escritura dentro de lo declarado: permitida");
     } else {
         fallos += 1;
-        marca(false, "escritura dentro de lo declarado: BLOQUEADA (el recinto es demasiado estrecho)");
+        marca(
+            false,
+            "escritura dentro de lo declarado: BLOQUEADA (el recinto es demasiado estrecho)",
+        );
     }
 
     // 3) leer fuera de lo declarado. Es la garantía que separa a Landlock de
@@ -501,7 +559,9 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
     std::fs::write(&secreto, "credencial de mentira")?;
     let lectura = sandbox::run(
         &*jail,
-        &[exec::Change::Read { path: secreto.clone() }],
+        &[exec::Change::Read {
+            path: secreto.clone(),
+        }],
         &solo_workspace,
     );
     let _ = std::fs::remove_file(&secreto);
@@ -515,13 +575,23 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         (false, _) => println!(
             "  {} {}",
             paint("·", YELLOW),
-            paint("lectura fuera de lo declarado: este motor no confina lecturas", DIM)
+            paint(
+                "lectura fuera de lo declarado: este motor no confina lecturas",
+                DIM
+            )
         ),
     }
 
     // 4) red. Se prueba en los dos sentidos para no confundir «bloqueada»
     //    con «esta máquina no tiene internet».
-    let con_red = sandbox::Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![], quota: None };
+    let con_red = sandbox::Policy {
+        writes: vec![],
+        reads: vec![],
+        dirs: vec![],
+        network: true,
+        allowed_secrets: vec![],
+        quota: None,
+    };
     let alcanzable_declarando = sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
     let alcanzable_sin_declarar = sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
 
@@ -534,7 +604,10 @@ fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         (false, _) => println!(
             "  {} {}",
             paint("?", YELLOW),
-            paint("red: no concluyente — esta máquina no llega a internet", DIM)
+            paint(
+                "red: no concluyente — esta máquina no llega a internet",
+                DIM
+            )
         ),
     }
 
@@ -560,7 +633,14 @@ fn cmd_log(ctx: &Ctx) -> Result<()> {
     }
     println!();
     println!("{}", paint("bitácora", BOLD));
-    for r in records.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
+    for r in records
+        .iter()
+        .rev()
+        .take(20)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
         let mark = match r.outcome {
             Outcome::Ejecutado if r.reverted => paint("↩", DIM),
             Outcome::Ejecutado => paint("✓", GREEN),
@@ -597,7 +677,10 @@ fn cmd_grant(ctx: &Ctx, catalog: &Catalog, args: &[String]) -> Result<()> {
     // Si no está en el catálogo directamente, comprobar si es un permiso de secreto o ruta
     if let Ok(cap) = catalog.get(cap_name) {
         if cap.policy.tier != Tier::Grant {
-            bail!("{cap_name} es de nivel «{}»: no necesita concesión", cap.policy.tier.label());
+            bail!(
+                "{cap_name} es de nivel «{}»: no necesita concesión",
+                cap.policy.tier.label()
+            );
         }
     }
 
@@ -635,7 +718,11 @@ fn cmd_revoke(ctx: &Ctx, args: &[String]) -> Result<()> {
     let mut grants = Grants::load(&ctx.grants_path())?;
     grants.revoke(cap_name);
     grants.save(&ctx.grants_path())?;
-    println!("\n{} Concesión revocada: «{}».\n", paint("🔒 REVOCADA", DIM), paint(cap_name, BOLD));
+    println!(
+        "\n{} Concesión revocada: «{}».\n",
+        paint("🔒 REVOCADA", DIM),
+        paint(cap_name, BOLD)
+    );
     Ok(())
 }
 
@@ -645,22 +732,38 @@ fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         "set" => {
-            let key = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
-            let val = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
+            let key = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
+            let val = args
+                .get(2)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos secret set <CLAVE> <VALOR>"))?;
             vault::set_secret(&ctx.state, key, val)?;
-            println!("\n{} Secreto «{}» almacenado de forma segura en la bóveda de antOS.\n", paint("✓", GREEN), paint(key, BOLD));
+            println!(
+                "\n{} Secreto «{}» almacenado de forma segura en la bóveda de antOS.\n",
+                paint("✓", GREEN),
+                paint(key, BOLD)
+            );
         }
         "get" => {
-            let key = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos secret get <CLAVE>"))?;
+            let key = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos secret get <CLAVE>"))?;
             match vault::get_secret(&ctx.state, key, &grants) {
                 Ok(Some(v)) => {
                     println!("\n{} {key} = {}\n", paint("🔑", BOLD), paint(&v, GREEN));
                 }
                 Ok(None) => {
-                    println!("\n{} El secreto «{key}» no existe en la bóveda.\n", paint("○", DIM));
+                    println!(
+                        "\n{} El secreto «{key}» no existe en la bóveda.\n",
+                        paint("○", DIM)
+                    );
                 }
                 Err(e) => {
-                    println!("\n{} {e}\n", paint("🛡️ Cero Autoridad Ambiental (Bloqueado):", RED));
+                    println!(
+                        "\n{} {e}\n",
+                        paint("🛡️ Cero Autoridad Ambiental (Bloqueado):", RED)
+                    );
                 }
             }
         }
@@ -668,16 +771,29 @@ fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
             let list = vault::list_secrets(&ctx.state)?;
             let active_grants = grants.list_active();
 
-            println!("\n{}", paint("antOS · Bóveda de Secretos y Blindaje Zero Environmental Authority (T5.2)", BOLD));
-            
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Bóveda de Secretos y Blindaje Zero Environmental Authority (T5.2)",
+                    BOLD
+                )
+            );
+
             // Concesiones activas
             println!("  {}", paint("● CONCESIONES ACTIVAS", BOLD));
             if active_grants.is_empty() {
-                println!("    {} No hay concesiones activas. Blindaje al 100%.", paint("○", DIM));
+                println!(
+                    "    {} No hay concesiones activas. Blindaje al 100%.",
+                    paint("○", DIM)
+                );
             } else {
                 for g in active_grants {
                     let mins_left = ((g.expires_at - chrono::Local::now().timestamp()) / 60).max(1);
-                    let reason_str = g.reason.as_deref().map(|r| format!(" (motivo: «{r}»)")).unwrap_or_default();
+                    let reason_str = g
+                        .reason
+                        .as_deref()
+                        .map(|r| format!(" (motivo: «{r}»)"))
+                        .unwrap_or_default();
                     println!(
                         "    {} {:<20} expira en {:>2} min{reason_str}",
                         paint("●", GREEN),
@@ -689,7 +805,10 @@ fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!();
 
             // Secretos almacenados
-            println!("  {}", paint("● SECRETOS EN BÓVEDA ($STATE/vault.json)", BOLD));
+            println!(
+                "  {}",
+                paint("● SECRETOS EN BÓVEDA ($STATE/vault.json)", BOLD)
+            );
             if list.is_empty() {
                 println!("    No hay secretos en la bóveda.");
                 println!("    Guarda uno con: antos secret set <CLAVE> <VALOR>\n");
@@ -703,7 +822,8 @@ fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 );
                 println!("    ├──────────────────────────────┼──────────────┼────────────────────────────┤");
                 for s in list {
-                    let has_grant = grants.is_granted("secret.read") || grants.is_granted(&format!("secret.{}", s.key));
+                    let has_grant = grants.is_granted("secret.read")
+                        || grants.is_granted(&format!("secret.{}", s.key));
                     let acc_str = if has_grant {
                         paint("🔓 Concedido", GREEN)
                     } else {
@@ -730,7 +850,9 @@ pub(crate) fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Pl
         Some("local") => Ok(Box::new(LocalPlanner)),
         Some("claude") => Ok(Box::new(ClaudePlanner::from_env()?)),
         Some("ollama" | "local-llm" | "local_llm") => Ok(Box::new(OllamaPlanner::from_env()?)),
-        Some(other) => bail!("planificador desconocido: {other} (usa «local», «claude» u «ollama»)"),
+        Some(other) => {
+            bail!("planificador desconocido: {other} (usa «local», «claude» u «ollama»)")
+        }
         // Jerarquía de 3 niveles con fallback automático transparente:
         // 1. Claude si hay clave de API configurada.
         // 2. Ollama local si está disponible en la máquina.
@@ -767,26 +889,42 @@ fn cmd_llm(args: &[String]) -> Result<()> {
             }
 
             let models = ollama.list_models()?;
-            println!("\n{}", paint("antOS · Modelos LLM Locales Disponibles (Ollama)", BOLD));
+            println!(
+                "\n{}",
+                paint("antOS · Modelos LLM Locales Disponibles (Ollama)", BOLD)
+            );
             println!("  Endpoint: {}", paint(&ollama.endpoint, GREEN));
             println!("  Modelo Activo: {}\n", paint(&ollama.model, BOLD));
 
             if models.is_empty() {
                 println!("  No hay modelos descargados en Ollama.");
-                println!("  Descarga uno con: ollama pull qwen2.5-coder o ollama pull deepseek-coder\n");
+                println!(
+                    "  Descarga uno con: ollama pull qwen2.5-coder o ollama pull deepseek-coder\n"
+                );
             } else {
                 for m in models {
                     let is_active = m.starts_with(&ollama.model) || ollama.model.starts_with(&m);
-                    let mark = if is_active { paint("●", GREEN) } else { paint("○", DIM) };
-                    let tag = if is_active { paint("(activo)", YELLOW) } else { "".to_string() };
+                    let mark = if is_active {
+                        paint("●", GREEN)
+                    } else {
+                        paint("○", DIM)
+                    };
+                    let tag = if is_active {
+                        paint("(activo)", YELLOW)
+                    } else {
+                        "".to_string()
+                    };
                     println!("  {mark} {:<30} {tag}", paint(&m, BOLD));
                 }
                 println!();
             }
         }
         "status" | _ => {
-            println!("\n{}", paint("antOS · Estado de Motores de Inferencia LLM (T6.1)", BOLD));
-            
+            println!(
+                "\n{}",
+                paint("antOS · Estado de Motores de Inferencia LLM (T6.1)", BOLD)
+            );
+
             // 1. Proveedor Claude
             let claude_status = match ClaudePlanner::from_env() {
                 Ok(_) => paint("● Conectado (Clave API detectada)", GREEN),
@@ -810,7 +948,10 @@ fn cmd_llm(args: &[String]) -> Result<()> {
 
             if is_ollama_up {
                 if let Ok(models) = ollama.list_models() {
-                    println!("    Modelos instalados: {}", paint(&format!("{} modelos", models.len()), GREEN));
+                    println!(
+                        "    Modelos instalados: {}",
+                        paint(&format!("{} modelos", models.len()), GREEN)
+                    );
                 }
             } else {
                 println!("    Nota: Para arrancar Ollama ejecuta: ollama serve");
@@ -818,7 +959,10 @@ fn cmd_llm(args: &[String]) -> Result<()> {
 
             // 3. Fallback determinista
             println!("\n  ● Planificador Determinista Local:");
-            println!("    Estado: {}", paint("● Siempre activo (Reglas locales deterministas)", GREEN));
+            println!(
+                "    Estado: {}",
+                paint("● Siempre activo (Reglas locales deterministas)", GREEN)
+            );
             println!();
         }
     }
@@ -834,7 +978,11 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         "index" | "reindex" => {
-            println!("\n{} Escaneando e indexando espacio de trabajo: {}", paint("●", GREEN), paint(&ctx.workspace.display().to_string(), BOLD));
+            println!(
+                "\n{} Escaneando e indexando espacio de trabajo: {}",
+                paint("●", GREEN),
+                paint(&ctx.workspace.display().to_string(), BOLD)
+            );
             let store = memory::MemoryEngine::index_workspace(&ctx.workspace)?;
             memory::MemoryEngine::save(&store, &db_path)?;
             println!(
@@ -860,14 +1008,23 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
             let store = if db_path.exists() {
                 memory::MemoryEngine::load(&db_path)?
             } else {
-                println!("{} No existe índice previo. Indexando espacio de trabajo por primera vez...", paint("i", YELLOW));
+                println!(
+                    "{} No existe índice previo. Indexando espacio de trabajo por primera vez...",
+                    paint("i", YELLOW)
+                );
                 let s = memory::MemoryEngine::index_workspace(&ctx.workspace)?;
                 memory::MemoryEngine::save(&s, &db_path)?;
                 s
             };
 
             let hits = memory::MemoryEngine::search(&store, query, limit);
-            println!("\n{}", paint(&format!("antOS · Búsqueda Semántica Vectorial para «{query}»"), BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    &format!("antOS · Búsqueda Semántica Vectorial para «{query}»"),
+                    BOLD
+                )
+            );
             println!("  Resultados encontrados: {}\n", hits.len());
 
             if hits.is_empty() {
@@ -876,7 +1033,14 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
                 for (idx, h) in hits.iter().enumerate() {
                     let score_badge = paint(&format!("[{:.2}]", h.score), GREEN);
                     let kind_badge = paint(&format!("{:?}", h.kind), DIM);
-                    println!("  {}. {} {} {}:{}", idx + 1, score_badge, kind_badge, paint(&h.path, BOLD), h.line_start);
+                    println!(
+                        "  {}. {} {} {}:{}",
+                        idx + 1,
+                        score_badge,
+                        kind_badge,
+                        paint(&h.path, BOLD),
+                        h.line_start
+                    );
                     println!("     Título: {}", paint(&h.title, YELLOW));
                     println!("     Extracto: {}\n", paint(&h.snippet, DIM));
                 }
@@ -892,19 +1056,40 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
                 s
             };
 
-            println!("\n{}", paint("antOS · Grafo de Contexto y Dependencias del Proyecto", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Grafo de Contexto y Dependencias del Proyecto",
+                    BOLD
+                )
+            );
             match target {
                 Some(t) => {
                     let related = store.graph.related_to(t);
-                    println!("  Relaciones para símbolo o archivo «{}»: {}\n", paint(t, BOLD), related.len());
+                    println!(
+                        "  Relaciones para símbolo o archivo «{}»: {}\n",
+                        paint(t, BOLD),
+                        related.len()
+                    );
                     for (node, edge) in related {
-                        println!("    • {:<18} ──> {} ({})", format!("{:?}", edge), paint(&node.label, BOLD), node.kind);
+                        println!(
+                            "    • {:<18} ──> {} ({})",
+                            format!("{:?}", edge),
+                            paint(&node.label, BOLD),
+                            node.kind
+                        );
                     }
                     println!();
                 }
                 None => {
-                    println!("  Total de nodos:   {}", paint(&store.graph.nodes.len().to_string(), GREEN));
-                    println!("  Total de aristas: {}\n", paint(&store.graph.edges.len().to_string(), GREEN));
+                    println!(
+                        "  Total de nodos:   {}",
+                        paint(&store.graph.nodes.len().to_string(), GREEN)
+                    );
+                    println!(
+                        "  Total de aristas: {}\n",
+                        paint(&store.graph.edges.len().to_string(), GREEN)
+                    );
                     println!("  Usa: antos memory graph <nodo> para inspeccionar relaciones.");
                     println!("  Ejemplo: antos memory graph ticket:T6.1 o file:system/antosd/src/main.rs\n");
                 }
@@ -912,19 +1097,40 @@ fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         "status" | _ => {
             let exists = db_path.exists();
-            println!("\n{}", paint("antOS · Memoria Semántica y Grafo de Contexto (T6.2)", BOLD));
-            println!("  Ubicación: {}", paint(&db_path.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS · Memoria Semántica y Grafo de Contexto (T6.2)", BOLD)
+            );
+            println!(
+                "  Ubicación: {}",
+                paint(&db_path.display().to_string(), DIM)
+            );
             if exists {
                 if let Ok(store) = memory::MemoryEngine::load(&db_path) {
                     println!("  Estado:    {}", paint("● Activo / Sincronizado", GREEN));
-                    println!("  Fragmentos: {}", paint(&store.chunks.len().to_string(), BOLD));
-                    println!("  Nodos:      {}", paint(&store.graph.nodes.len().to_string(), BOLD));
-                    println!("  Aristas:    {}", paint(&store.graph.edges.len().to_string(), BOLD));
+                    println!(
+                        "  Fragmentos: {}",
+                        paint(&store.chunks.len().to_string(), BOLD)
+                    );
+                    println!(
+                        "  Nodos:      {}",
+                        paint(&store.graph.nodes.len().to_string(), BOLD)
+                    );
+                    println!(
+                        "  Aristas:    {}",
+                        paint(&store.graph.edges.len().to_string(), BOLD)
+                    );
                 } else {
-                    println!("  Estado:    {}", paint("! Archivo de memoria corrupto", RED));
+                    println!(
+                        "  Estado:    {}",
+                        paint("! Archivo de memoria corrupto", RED)
+                    );
                 }
             } else {
-                println!("  Estado:    {}", paint("○ Sin indexar (Ejecuta: antos memory index)", YELLOW));
+                println!(
+                    "  Estado:    {}",
+                    paint("○ Sin indexar (Ejecuta: antos memory index)", YELLOW)
+                );
             }
             println!();
         }
@@ -943,21 +1149,42 @@ fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
             let profile_arg = args.get(1).map(String::as_str);
             let profile = match profile_arg {
                 Some(p) => env::EnvProfile::from_str_loose(p).ok_or_else(|| {
-                    anyhow::anyhow!("perfil desconocido «{p}». Opciones válidas: rust, node, python, go, base")
+                    anyhow::anyhow!(
+                        "perfil desconocido «{p}». Opciones válidas: rust, node, python, go, base"
+                    )
                 })?,
-                None => env::EnvEngine::detect_stack(&ctx.workspace).unwrap_or(env::EnvProfile::Base),
+                None => {
+                    env::EnvEngine::detect_stack(&ctx.workspace).unwrap_or(env::EnvProfile::Base)
+                }
             };
 
             let summary = env::EnvEngine::init_profile(&ctx.workspace, profile, true, true)?;
-            println!("\n{} Perfil de entorno declarativo inicializado exitosamente.", paint("✓", GREEN));
+            println!(
+                "\n{} Perfil de entorno declarativo inicializado exitosamente.",
+                paint("✓", GREEN)
+            );
             println!("  Perfil:   {}", paint(&summary.profile, BOLD));
-            println!("  Archivos: {}", paint(&summary.created_files.join(", "), GREEN));
+            println!(
+                "  Archivos: {}",
+                paint(&summary.created_files.join(", "), GREEN)
+            );
             println!("  Paquetes: {}\n", paint(&summary.packages.join(", "), DIM));
-            println!("  Ejecuta: antos env sync para comprobar la disponibilidad de las herramientas.\n");
+            println!(
+                "  Ejecuta: antos env sync para comprobar la disponibilidad de las herramientas.\n"
+            );
         }
         "sync" | "check" => {
-            println!("\n{}", paint("antOS · Sincronización y Diagnóstico de Toolchains (T7.1)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Sincronización y Diagnóstico de Toolchains (T7.1)",
+                    BOLD
+                )
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             let statuses = env::EnvEngine::check_toolchains(&ctx.workspace)?;
             let mut all_ok = true;
@@ -965,31 +1192,54 @@ fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
             for s in statuses {
                 if s.available {
                     let loc = s.path.unwrap_or_default();
-                    println!("  {} {:<16} ({})", paint("✓", GREEN), paint(&s.name, BOLD), paint(&loc, DIM));
+                    println!(
+                        "  {} {:<16} ({})",
+                        paint("✓", GREEN),
+                        paint(&s.name, BOLD),
+                        paint(&loc, DIM)
+                    );
                 } else {
                     all_ok = false;
-                    println!("  {} {:<16} ({})", paint("✗", RED), paint(&s.name, BOLD), paint("no instalado en el sistema o nix-store", RED));
+                    println!(
+                        "  {} {:<16} ({})",
+                        paint("✗", RED),
+                        paint(&s.name, BOLD),
+                        paint("no instalado en el sistema o nix-store", RED)
+                    );
                 }
             }
 
             println!();
             if all_ok {
-                println!("  {} Todas las toolchains declaradas están disponibles y operativas.\n", paint("✓ Entorno listo:", GREEN));
+                println!(
+                    "  {} Todas las toolchains declaradas están disponibles y operativas.\n",
+                    paint("✓ Entorno listo:", GREEN)
+                );
             } else {
                 println!("  {} Faltan herramientas por aprovisionar. Puedes usar devbox shell o nix develop.\n", paint("! Advertencia:", YELLOW));
             }
         }
         "status" | _ => {
-            println!("\n{}", paint("antOS · Estado del Perfil de Entorno (T7.1)", BOLD));
+            println!(
+                "\n{}",
+                paint("antOS · Estado del Perfil de Entorno (T7.1)", BOLD)
+            );
             let cfg = env::EnvEngine::load_config(&ctx.workspace)?;
 
             match cfg {
                 Some(c) => {
                     println!("  Perfil activo:      {}", paint(&c.profile, GREEN));
-                    println!("  Paquetes declarados: {}", paint(&c.packages.join(", "), BOLD));
+                    println!(
+                        "  Paquetes declarados: {}",
+                        paint(&c.packages.join(", "), BOLD)
+                    );
                     let statuses = env::EnvEngine::check_toolchains(&ctx.workspace)?;
                     let available_count = statuses.iter().filter(|s| s.available).count();
-                    println!("  Disponibilidad:     {}/{} herramientas en PATH\n", available_count, statuses.len());
+                    println!(
+                        "  Disponibilidad:     {}/{} herramientas en PATH\n",
+                        available_count,
+                        statuses.len()
+                    );
                 }
                 None => {
                     let detected = env::EnvEngine::detect_stack(&ctx.workspace);
@@ -1046,19 +1296,43 @@ fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
 
             sandbox::quota::save_quota(&ctx.workspace, &q)?;
-            println!("\n{} Cuotas de recursos de sandbox actualizadas.", paint("✓", GREEN));
-            println!("  • Timeout:   {}s", paint(&q.timeout_secs.to_string(), BOLD));
-            println!("  • Memoria:   {} MB", paint(&q.max_memory_mb.to_string(), BOLD));
-            println!("  • CPU:       {}%", paint(&q.cpu_quota_percent.to_string(), BOLD));
-            println!("  • Max PIDs:  {} procesos\n", paint(&q.max_pids.to_string(), BOLD));
+            println!(
+                "\n{} Cuotas de recursos de sandbox actualizadas.",
+                paint("✓", GREEN)
+            );
+            println!(
+                "  • Timeout:   {}s",
+                paint(&q.timeout_secs.to_string(), BOLD)
+            );
+            println!(
+                "  • Memoria:   {} MB",
+                paint(&q.max_memory_mb.to_string(), BOLD)
+            );
+            println!(
+                "  • CPU:       {}%",
+                paint(&q.cpu_quota_percent.to_string(), BOLD)
+            );
+            println!(
+                "  • Max PIDs:  {} procesos\n",
+                paint(&q.max_pids.to_string(), BOLD)
+            );
         }
         "reset" => {
             let def = sandbox::quota::ResourceQuota::default();
             sandbox::quota::save_quota(&ctx.workspace, &def)?;
-            println!("\n{} Cuotas de sandbox restablecidas a los valores por defecto del sistema.\n", paint("✓", GREEN));
+            println!(
+                "\n{} Cuotas de sandbox restablecidas a los valores por defecto del sistema.\n",
+                paint("✓", GREEN)
+            );
         }
         "status" | _ => {
-            println!("\n{}", paint("antOS · Cuotas y Límites de Recursos para Sandboxes (T7.2)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Cuotas y Límites de Recursos para Sandboxes (T7.2)",
+                    BOLD
+                )
+            );
             let q = sandbox::quota::load_quota(&ctx.workspace)?;
             let cgroup_avail = sandbox::quota::CgroupV2Manager::is_available();
 
@@ -1069,11 +1343,25 @@ fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
 
             println!("  Mecanismo:          {backend}");
-            println!("  Timeout de agente:  {}", paint(&format!("{}s", q.timeout_secs), GREEN));
-            println!("  Límite de memoria:  {}", paint(&format!("{} MB", q.max_memory_mb), GREEN));
-            println!("  Cuota de CPU:       {}", paint(&format!("{}%", q.cpu_quota_percent), GREEN));
-            println!("  Límite de procesos: {}\n", paint(&format!("{} PIDs", q.max_pids), GREEN));
-            println!("  Usa antos quota set [--timeout N] [--memory N] [--cpu N] para modificar.\n");
+            println!(
+                "  Timeout de agente:  {}",
+                paint(&format!("{}s", q.timeout_secs), GREEN)
+            );
+            println!(
+                "  Límite de memoria:  {}",
+                paint(&format!("{} MB", q.max_memory_mb), GREEN)
+            );
+            println!(
+                "  Cuota de CPU:       {}",
+                paint(&format!("{}%", q.cpu_quota_percent), GREEN)
+            );
+            println!(
+                "  Límite de procesos: {}\n",
+                paint(&format!("{} PIDs", q.max_pids), GREEN)
+            );
+            println!(
+                "  Usa antos quota set [--timeout N] [--memory N] [--cpu N] para modificar.\n"
+            );
         }
     }
 
@@ -1084,8 +1372,14 @@ fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
     let target = args.first().map(String::as_str).unwrap_or("HEAD");
-    println!("\n{}", paint("antOS · Visor Interactivo de Diffs y Parches (T8.1)", BOLD));
-    println!("  Espacio de trabajo: {}", paint(&ctx.workspace.display().to_string(), DIM));
+    println!(
+        "\n{}",
+        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1)", BOLD)
+    );
+    println!(
+        "  Espacio de trabajo: {}",
+        paint(&ctx.workspace.display().to_string(), DIM)
+    );
     println!("  Objetivo:           {}\n", paint(target, BOLD));
 
     let git_out = std::process::Command::new("git")
@@ -1099,14 +1393,20 @@ fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
             let files = diff_view::DiffEngine::parse_unified_diff(&diff_str);
 
             if files.is_empty() {
-                println!("  {} No hay cambios ni diferencias pendientes contra «{target}».\n", paint("✓ Repositorio limpio:", GREEN));
+                println!(
+                    "  {} No hay cambios ni diferencias pendientes contra «{target}».\n",
+                    paint("✓ Repositorio limpio:", GREEN)
+                );
             } else {
                 let rendered = diff_view::DiffEngine::render_terminal(&files);
                 print!("{rendered}");
             }
         }
         _ => {
-            println!("  {} No se pudo invocar git diff en el espacio de trabajo.\n", paint("✗ Error:", RED));
+            println!(
+                "  {} No se pudo invocar git diff en el espacio de trabajo.\n",
+                paint("✗ Error:", RED)
+            );
         }
     }
 
@@ -1117,8 +1417,14 @@ fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 fn cmd_terminal(args: &[String]) -> Result<()> {
     let mut session = vte::TerminalSession::new("vte-cli");
-    println!("\n{}", paint("antOS · Consola Terminal VTE Embebida (T8.1)", BOLD));
-    println!("  Shell interactivo:  {}\n", paint(&session.active_shell, GREEN));
+    println!(
+        "\n{}",
+        paint("antOS · Consola Terminal VTE Embebida (T8.1)", BOLD)
+    );
+    println!(
+        "  Shell interactivo:  {}\n",
+        paint(&session.active_shell, GREEN)
+    );
 
     if args.is_empty() {
         println!("  Consola terminal interactiva lista. Para ejecutar comandos usa:");
@@ -1143,8 +1449,14 @@ fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         Some("approve" | "aprobar") => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos notify approve <ID>"))?;
-            let (ok, msg) = engine.handle_action(&ctx.workspace, id, antos_protocolo::NotificationAction::Approve)?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos notify approve <ID>"))?;
+            let (ok, msg) = engine.handle_action(
+                &ctx.workspace,
+                id,
+                antos_protocolo::NotificationAction::Approve,
+            )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
             } else {
@@ -1152,8 +1464,14 @@ fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         Some("reject" | "rechazar" | "rollback") => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos notify reject <ID>"))?;
-            let (ok, msg) = engine.handle_action(&ctx.workspace, id, antos_protocolo::NotificationAction::Reject)?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos notify reject <ID>"))?;
+            let (ok, msg) = engine.handle_action(
+                &ctx.workspace,
+                id,
+                antos_protocolo::NotificationAction::Reject,
+            )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
             } else {
@@ -1161,8 +1479,14 @@ fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         Some("dismiss" | "descartar") => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos notify dismiss <ID>"))?;
-            let (ok, msg) = engine.handle_action(&ctx.workspace, id, antos_protocolo::NotificationAction::Dismiss)?;
+            let id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos notify dismiss <ID>"))?;
+            let (ok, msg) = engine.handle_action(
+                &ctx.workspace,
+                id,
+                antos_protocolo::NotificationAction::Dismiss,
+            )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
             } else {
@@ -1171,29 +1495,63 @@ fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         Some("clear" | "limpiar") => {
             let count = engine.clear(&ctx.workspace)?;
-            println!("\n{} Se limpiaron {} notificaciones leídas.\n", paint("✓", GREEN), count);
+            println!(
+                "\n{} Se limpiaron {} notificaciones leídas.\n",
+                paint("✓", GREEN),
+                count
+            );
         }
         _ => {
             let list = engine.list(&ctx.workspace)?;
-            println!("\n{}", paint("antOS · Bandeja de Notificaciones y Aprobaciones Asíncronas (T8.2)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Bandeja de Notificaciones y Aprobaciones Asíncronas (T8.2)",
+                    BOLD
+                )
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             if list.is_empty() {
-                println!("  {} No hay notificaciones ni aprobaciones pendientes.\n", paint("✓ Bandeja al día:", GREEN));
-                println!("  Los agentes multi-agente antFlow notificarán aquí cuando completen tareas.");
+                println!(
+                    "  {} No hay notificaciones ni aprobaciones pendientes.\n",
+                    paint("✓ Bandeja al día:", GREEN)
+                );
+                println!(
+                    "  Los agentes multi-agente antFlow notificarán aquí cuando completen tareas."
+                );
                 println!("  Comandos: antos notify approve <ID> | antos notify reject <ID>\n");
             } else {
                 for n in &list {
-                    let mark = if n.read { paint("○ leída", DIM) } else { paint("● NUEVA", YELLOW) };
+                    let mark = if n.read {
+                        paint("○ leída", DIM)
+                    } else {
+                        paint("● NUEVA", YELLOW)
+                    };
                     let kind_badge = match n.kind {
-                        antos_protocolo::NotificationKind::ApprovalRequired => paint("⚠️ APROBACIÓN REQUERIDA", YELLOW),
-                        antos_protocolo::NotificationKind::TaskFinished => paint("✓ TAREA COMPLETADA", GREEN),
+                        antos_protocolo::NotificationKind::ApprovalRequired => {
+                            paint("⚠️ APROBACIÓN REQUERIDA", YELLOW)
+                        }
+                        antos_protocolo::NotificationKind::TaskFinished => {
+                            paint("✓ TAREA COMPLETADA", GREEN)
+                        }
                         antos_protocolo::NotificationKind::QAFailed => paint("✗ QA FALLIDO", RED),
-                        antos_protocolo::NotificationKind::SecurityAlert => paint("🛡️ ALERTA SEGURIDAD", RED),
+                        antos_protocolo::NotificationKind::SecurityAlert => {
+                            paint("🛡️ ALERTA SEGURIDAD", RED)
+                        }
                         antos_protocolo::NotificationKind::System => paint("ℹ️ SISTEMA", CYAN),
                     };
 
-                    println!("  {} [{}] {} — {}", mark, paint(&n.id, BOLD), kind_badge, paint(&n.ticket_id, BOLD));
+                    println!(
+                        "  {} [{}] {} — {}",
+                        mark,
+                        paint(&n.id, BOLD),
+                        kind_badge,
+                        paint(&n.ticket_id, BOLD)
+                    );
                     println!("     {}: {}", paint("Título", DIM), n.title);
                     println!("     {}: {}\n", paint("Detalle", DIM), n.body);
                 }
@@ -1213,17 +1571,29 @@ fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         Some("connect" | "conectar" | "add") => {
-            let addr = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos mesh connect <IP:PUERTO|MULTIADDR>"))?;
+            let addr = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos mesh connect <IP:PUERTO|MULTIADDR>"))?;
             let peer = engine.connect_peer(&ctx.workspace, addr)?;
-            println!("\n{} Conectado al nodo peer en la malla antMesh.", paint("✓", GREEN));
+            println!(
+                "\n{} Conectado al nodo peer en la malla antMesh.",
+                paint("✓", GREEN)
+            );
             println!("  • Nodo ID:    {}", paint(&peer.id, BOLD));
             println!("  • Hostname:   {}", paint(&peer.hostname, BOLD));
             println!("  • Dirección:  {}", paint(&peer.address, YELLOW));
-            println!("  • Latencia:   {} ms", paint(&peer.latency_ms.to_string(), GREEN));
-            println!("  • Recursos:   {} cores CPU, {} MB RAM, VRAM: {:?}",
+            println!(
+                "  • Latencia:   {} ms",
+                paint(&peer.latency_ms.to_string(), GREEN)
+            );
+            println!(
+                "  • Recursos:   {} cores CPU, {} MB RAM, VRAM: {:?}",
                 peer.resources.cpu_cores, peer.resources.memory_mb, peer.resources.vram_mb
             );
-            println!("  • Modelos:    {}\n", peer.resources.available_models.join(", "));
+            println!(
+                "  • Modelos:    {}\n",
+                peer.resources.available_models.join(", ")
+            );
         }
         Some("pair" | "token" | "emparejar") => {
             let token = engine.generate_pairing_token(&ctx.workspace)?;
@@ -1231,32 +1601,59 @@ fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
-                    .unwrap_or(0)
-            ) / 60).max(1);
+                    .unwrap_or(0),
+            ) / 60)
+                .max(1);
 
-            println!("\n{}", paint("antOS · Token de Emparejamiento antMesh (T9.1)", BOLD));
+            println!(
+                "\n{}",
+                paint("antOS · Token de Emparejamiento antMesh (T9.1)", BOLD)
+            );
             println!("  Token de enlace:    {}", paint(&token.token, GREEN));
             println!("  Identidad del nodo: {}", paint(&token.node_id, BOLD));
-            println!("  Válido durante:     {} minutos", paint(&expires_mins.to_string(), YELLOW));
-            println!("\n  Usa «{}» en el nodo remoto para unirte a este clúster.\n",
+            println!(
+                "  Válido durante:     {} minutos",
+                paint(&expires_mins.to_string(), YELLOW)
+            );
+            println!(
+                "\n  Usa «{}» en el nodo remoto para unirte a este clúster.\n",
                 paint(&format!("antos mesh connect <ESTA_IP>:9042"), BOLD)
             );
         }
         Some("status" | "list") | _ => {
             let status = engine.status(&ctx.workspace)?;
-            println!("\n{}", paint("antOS · Red P2P Cifrada antMesh (T9.1)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS · Red P2P Cifrada antMesh (T9.1)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             println!("  {}", paint("● NODO LOCAL", BOLD));
-            println!("    ID criptográfico: {}", paint(&status.local_node.id, BOLD));
-            println!("    Hostname:         {}", paint(&status.local_node.hostname, BOLD));
-            println!("    Dirección escucha:{}", paint(&status.local_node.address, YELLOW));
-            println!("    Capacidades:      {} cores CPU · {} MB RAM · VRAM: {:?}",
+            println!(
+                "    ID criptográfico: {}",
+                paint(&status.local_node.id, BOLD)
+            );
+            println!(
+                "    Hostname:         {}",
+                paint(&status.local_node.hostname, BOLD)
+            );
+            println!(
+                "    Dirección escucha:{}",
+                paint(&status.local_node.address, YELLOW)
+            );
+            println!(
+                "    Capacidades:      {} cores CPU · {} MB RAM · VRAM: {:?}",
                 status.local_node.resources.cpu_cores,
                 status.local_node.resources.memory_mb,
                 status.local_node.resources.vram_mb
             );
-            println!("    Modelos locales:  {}\n", status.local_node.resources.available_models.join(", "));
+            println!(
+                "    Modelos locales:  {}\n",
+                status.local_node.resources.available_models.join(", ")
+            );
 
             println!("  {}", paint("● PEERS CONECTADOS EN LA MALLA", BOLD));
             if status.peers.is_empty() {
@@ -1265,7 +1662,11 @@ fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!("    Usa «antos mesh connect <IP:9042>» para vincular un nodo remoto.\n");
             } else {
                 for p in &status.peers {
-                    let conn_mark = if p.connected { paint("● conectado", GREEN) } else { paint("○ desconectado", DIM) };
+                    let conn_mark = if p.connected {
+                        paint("● conectado", GREEN)
+                    } else {
+                        paint("○ desconectado", DIM)
+                    };
                     println!(
                         "    {} [{}] {} · {} ({} ms)",
                         conn_mark,
@@ -1274,8 +1675,11 @@ fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
                         paint(&p.address, YELLOW),
                         paint(&p.latency_ms.to_string(), GREEN)
                     );
-                    println!("       Recursos: {} cores, {} MB RAM, modelos: {}",
-                        p.resources.cpu_cores, p.resources.memory_mb, p.resources.available_models.join(", ")
+                    println!(
+                        "       Recursos: {} cores, {} MB RAM, modelos: {}",
+                        p.resources.cpu_cores,
+                        p.resources.memory_mb,
+                        p.resources.available_models.join(", ")
                     );
                 }
                 println!();
@@ -1294,15 +1698,24 @@ fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         Some("dispatch" | "despacha") => {
-            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos swarm dispatch <TID> [--role <coder|qa>] [--node <ID>]"))?;
+            let ticket_id = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("uso: antos swarm dispatch <TID> [--role <coder|qa>] [--node <ID>]")
+            })?;
             let role = if args.iter().any(|a| a == "--qa") {
                 antos_protocolo::AgentRole::QA
             } else {
                 antos_protocolo::AgentRole::Coder
             };
-            let node_target = args.iter().position(|a| a == "--node" || a == "-n").and_then(|i| args.get(i + 1)).map(String::as_str);
+            let node_target = args
+                .iter()
+                .position(|a| a == "--node" || a == "-n")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str);
             let task = engine.dispatch_remote_role(&ctx.workspace, ticket_id, role, node_target)?;
-            println!("\n{} Tarea distribuida despachada al Swarm.", paint("✓", GREEN));
+            println!(
+                "\n{} Tarea distribuida despachada al Swarm.",
+                paint("✓", GREEN)
+            );
             println!("  • Tarea ID:   {}", paint(&task.task_id, BOLD));
             println!("  • Ticket:     {}", paint(&task.ticket_id, YELLOW));
             println!("  • Rol:        {}", paint(task.role.nombre(), BOLD));
@@ -1315,18 +1728,33 @@ fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         _ => {
             let status = engine.status(&ctx.workspace)?;
-            println!("\n{}", paint("antOS · Centro de Control Swarm Multi-Nodo (T9.2)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS · Centro de Control Swarm Multi-Nodo (T9.2)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
-            println!("  Nodos en el clúster: {} · Tareas activas: {}\n",
+            println!(
+                "  Nodos en el clúster: {} · Tareas activas: {}\n",
                 paint(&status.nodes.len().to_string(), BOLD),
                 paint(&status.total_tasks.to_string(), GREEN)
             );
 
             for n in &status.nodes {
-                let badge = if n.is_local { paint("● LOCAL", GREEN) } else { paint("🌐 REMOTO", CYAN) };
-                let vram_str = n.vram_available_mb.map(|v| format!("{} MB VRAM", v)).unwrap_or_else(|| "N/A".into());
-                println!("  {} [{}] {} · {} ({} CPUs · {})",
+                let badge = if n.is_local {
+                    paint("● LOCAL", GREEN)
+                } else {
+                    paint("🌐 REMOTO", CYAN)
+                };
+                let vram_str = n
+                    .vram_available_mb
+                    .map(|v| format!("{} MB VRAM", v))
+                    .unwrap_or_else(|| "N/A".into());
+                println!(
+                    "  {} [{}] {} · {} ({} CPUs · {})",
                     badge,
                     paint(&n.node_id, BOLD),
                     paint(&n.hostname, BOLD),
@@ -1339,7 +1767,8 @@ fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!("     {} Sin tareas en ejecución.", paint("○", DIM));
                 } else {
                     for t in &n.running_tasks {
-                        println!("     └─ Tarea {}: rol {:?} en rama {} [{}]",
+                        println!(
+                            "     └─ Tarea {}: rol {:?} en rama {} [{}]",
                             paint(&t.task_id, BOLD),
                             t.role,
                             paint(&t.worktree_branch, DIM),
@@ -1365,66 +1794,135 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
         Some("mount" | "monta") => {
             let target = args.get(1).map(String::as_str);
             let path = engine.mount(&ctx.workspace, target)?;
-            println!("\n{} Sistema de ficheros semántico /antfs montado con éxito.", paint("✓", GREEN));
-            println!("  • Punto de montaje: {}", paint(&path.display().to_string(), BOLD));
-            println!("  • Inspección:       {} o {}\n", paint(&format!("ls {}", path.display()), YELLOW), paint(&format!("cat {}/README.antfs", path.display()), YELLOW));
+            println!(
+                "\n{} Sistema de ficheros semántico /antfs montado con éxito.",
+                paint("✓", GREEN)
+            );
+            println!(
+                "  • Punto de montaje: {}",
+                paint(&path.display().to_string(), BOLD)
+            );
+            println!(
+                "  • Inspección:       {} o {}\n",
+                paint(&format!("ls {}", path.display()), YELLOW),
+                paint(&format!("cat {}/README.antfs", path.display()), YELLOW)
+            );
         }
         Some("unmount" | "umount" | "desmonta") => {
             let target = args.get(1).map(String::as_str);
             engine.unmount(&ctx.workspace, target)?;
-            println!("\n{} Sistema de ficheros semántico /antfs desmontado correctamente.\n", paint("✓", GREEN));
+            println!(
+                "\n{} Sistema de ficheros semántico /antfs desmontado correctamente.\n",
+                paint("✓", GREEN)
+            );
         }
         Some("ls" | "list") => {
             let vpath = args.get(1).map(String::as_str).unwrap_or("/antfs");
             let entries = engine.list_dir(&ctx.workspace, vpath)?;
-            println!("\n{} Listado de {}", paint("antOS VFS ·", BOLD), paint(vpath, YELLOW));
+            println!(
+                "\n{} Listado de {}",
+                paint("antOS VFS ·", BOLD),
+                paint(vpath, YELLOW)
+            );
             if entries.is_empty() {
                 println!("  (directorio vacío)\n");
             } else {
                 for e in entries {
-                    let mark = if e.is_dir { paint("📁", BLUE) } else { paint("📄", GREEN) };
-                    println!("  {} {:<26} {:<15} ({} bytes)", mark, paint(&e.name, BOLD), paint(&e.node_type, DIM), e.size);
+                    let mark = if e.is_dir {
+                        paint("📁", BLUE)
+                    } else {
+                        paint("📄", GREEN)
+                    };
+                    println!(
+                        "  {} {:<26} {:<15} ({} bytes)",
+                        mark,
+                        paint(&e.name, BOLD),
+                        paint(&e.node_type, DIM),
+                        e.size
+                    );
                 }
                 println!();
             }
         }
         Some("cat" | "read" | "lee") => {
-            let vpath = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos vfs read <ruta_virtual> (ej. /antfs/symbols/structs/MeshStatus)"))?;
+            let vpath = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos vfs read <ruta_virtual> (ej. /antfs/symbols/structs/MeshStatus)"
+                )
+            })?;
             let content = engine.read_path(&ctx.workspace, vpath)?;
             println!("\n{}\n", content);
         }
         Some("symbols" | "simbolos" | "símbolos") => {
             let symbols = engine.discover_symbols(&ctx.workspace)?;
-            println!("\n{} ({} descubiertos)\n", paint("antOS VFS · Símbolos Semánticos del Proyecto", BOLD), paint(&symbols.len().to_string(), GREEN));
+            println!(
+                "\n{} ({} descubiertos)\n",
+                paint("antOS VFS · Símbolos Semánticos del Proyecto", BOLD),
+                paint(&symbols.len().to_string(), GREEN)
+            );
             for cat in &["structs", "functions", "enums", "traits"] {
                 let cat_syms: Vec<_> = symbols.iter().filter(|s| &s.category == cat).collect();
                 if !cat_syms.is_empty() {
-                    println!("  {} {} ({}):", paint("●", YELLOW), paint(*cat, BOLD), cat_syms.len());
+                    println!(
+                        "  {} {} ({}):",
+                        paint("●", YELLOW),
+                        paint(*cat, BOLD),
+                        cat_syms.len()
+                    );
                     for s in cat_syms {
-                        println!("    • {:<28} {}:{}", paint(&s.name, BOLD), paint(&s.file_path, DIM), s.line_number);
+                        println!(
+                            "    • {:<28} {}:{}",
+                            paint(&s.name, BOLD),
+                            paint(&s.file_path, DIM),
+                            s.line_number
+                        );
                     }
                     println!();
                 }
             }
         }
         Some("validate" | "check" | "valida") => {
-            let rel = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos vfs validate <archivo> (ej. src/main.rs)"))?;
+            let rel = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("uso: antos vfs validate <archivo> (ej. src/main.rs)")
+            })?;
             let abs_path = ctx.workspace.join(rel);
             if !abs_path.exists() {
-                bail!("el archivo «{}» no existe en el espacio de trabajo", abs_path.display());
+                bail!(
+                    "el archivo «{}» no existe en el espacio de trabajo",
+                    abs_path.display()
+                );
             }
             let text = std::fs::read_to_string(&abs_path)?;
             let guard = vfs_guard::VfsGuardEngine::global();
             let res = guard.validate_content(rel, &text);
-            println!("\n{} Validación de integridad sintáctica VFS", paint("antOS ·", BOLD));
+            println!(
+                "\n{} Validación de integridad sintáctica VFS",
+                paint("antOS ·", BOLD)
+            );
             println!("  Archivo:  {}", paint(rel, YELLOW));
-            println!("  Lenguaje: {} ({} líneas)\n", paint(&res.language, BOLD), res.line_count);
+            println!(
+                "  Lenguaje: {} ({} líneas)\n",
+                paint(&res.language, BOLD),
+                res.line_count
+            );
             if res.is_valid {
-                println!("  {} El archivo es sintácticamente válido y seguro para persistir.\n", paint("✓ Aprobado:", GREEN));
+                println!(
+                    "  {} El archivo es sintácticamente válido y seguro para persistir.\n",
+                    paint("✓ Aprobado:", GREEN)
+                );
             } else {
-                println!("  {} Se detectaron {} problema(s) sintáctico(s):", paint("✗ Rechazado:", RED), res.errors.len());
+                println!(
+                    "  {} Se detectaron {} problema(s) sintáctico(s):",
+                    paint("✗ Rechazado:", RED),
+                    res.errors.len()
+                );
                 for err in res.errors {
-                    println!("    • Línea {}, columna {}: {}", paint(&err.line.to_string(), YELLOW), err.column, err.message);
+                    println!(
+                        "    • Línea {}, columna {}: {}",
+                        paint(&err.line.to_string(), YELLOW),
+                        err.column,
+                        err.message
+                    );
                 }
                 println!();
             }
@@ -1432,11 +1930,34 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
         Some("guard" | "guardia" | "interceptor") => {
             let guard = vfs_guard::VfsGuardEngine::global();
             let status = guard.status()?;
-            println!("\n{}", paint("antOS VFS · Interceptor de Escrituras Semánticas (T10.2)", BOLD));
-            let state_str = if status.enabled { paint("● ACTIVO (ENFORCING)", GREEN) } else { paint("○ INACTIVO", DIM) };
+            println!(
+                "\n{}",
+                paint(
+                    "antOS VFS · Interceptor de Escrituras Semánticas (T10.2)",
+                    BOLD
+                )
+            );
+            let state_str = if status.enabled {
+                paint("● ACTIVO (ENFORCING)", GREEN)
+            } else {
+                paint("○ INACTIVO", DIM)
+            };
             println!("  Estado del interceptor:   {}", state_str);
-            println!("  Escrituras interceptadas: {}", paint(&status.total_intercepted.to_string(), BOLD));
-            println!("  Escrituras rechazadas:    {}", paint(&status.total_rejected.to_string(), if status.total_rejected > 0 { RED } else { GREEN }));
+            println!(
+                "  Escrituras interceptadas: {}",
+                paint(&status.total_intercepted.to_string(), BOLD)
+            );
+            println!(
+                "  Escrituras rechazadas:    {}",
+                paint(
+                    &status.total_rejected.to_string(),
+                    if status.total_rejected > 0 {
+                        RED
+                    } else {
+                        GREEN
+                    }
+                )
+            );
             if !status.rejected_paths.is_empty() {
                 println!("\n  Ficheros protegidos contra corrupción sintáctica:");
                 for p in status.rejected_paths {
@@ -1447,16 +1968,35 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         _ => {
             let status = engine.status(&ctx.workspace)?;
-            println!("\n{}", paint("antOS · Sistema de Ficheros Virtual FUSE (/antfs) - T10.1 & T10.2", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Sistema de Ficheros Virtual FUSE (/antfs) - T10.1 & T10.2",
+                    BOLD
+                )
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
-            let mnt_badge = if status.is_mounted { paint("● MONTADO", GREEN) } else { paint("○ NO MONTADO", DIM) };
+            let mnt_badge = if status.is_mounted {
+                paint("● MONTADO", GREEN)
+            } else {
+                paint("○ NO MONTADO", DIM)
+            };
             println!("  Estado del VFS:     {}", mnt_badge);
             if let Some(mnt) = status.mount_point {
                 println!("  Punto de montaje:   {}", paint(&mnt, YELLOW));
             }
-            println!("  Símbolos AST:       {} indexados", paint(&status.total_symbols.to_string(), BOLD));
-            println!("  Módulos navegables: {} en /antfs/graph\n", paint(&status.total_modules.to_string(), BOLD));
+            println!(
+                "  Símbolos AST:       {} indexados",
+                paint(&status.total_symbols.to_string(), BOLD)
+            );
+            println!(
+                "  Módulos navegables: {} en /antfs/graph\n",
+                paint(&status.total_modules.to_string(), BOLD)
+            );
 
             println!("  Subcomandos disponibles:");
             println!("    • antos vfs symbols          Lista símbolos AST (structs, functions, enums, traits)");
@@ -1465,7 +2005,9 @@ fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • antos vfs mount [ruta]     Proyecta /antfs en el disco local");
             println!("    • antos vfs unmount [ruta]   Desmonta la proyección /antfs");
             println!("    • antos vfs validate <file>  Valida la integridad sintáctica antes de persistir");
-            println!("    • antos vfs guard            Muestra métricas del interceptor de escrituras\n");
+            println!(
+                "    • antos vfs guard            Muestra métricas del interceptor de escrituras\n"
+            );
         }
     }
     Ok(())
@@ -1480,8 +2022,14 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
     match sub {
         Some("status" | "info" | "estado") => {
             let status = engine.status()?;
-            println!("\n{}", paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             let lsm_badge = if status.lsm_enabled {
                 paint("● KERNEL LSM ACTIVO (BPF Enforcing)", GREEN)
@@ -1493,9 +2041,25 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             for probe in status.active_probes {
                 println!("    • {}", paint(&probe, CYAN));
             }
-            println!("  Capacidad del ring buffer: {} entradas (uso: {})", status.ring_buffer_capacity, status.ring_buffer_utilization);
-            println!("  Eventos capturados:        {}", paint(&status.total_events_captured.to_string(), BOLD));
-            println!("  Violaciones bloqueadas:    {}\n", paint(&status.total_violations_blocked.to_string(), if status.total_violations_blocked > 0 { RED } else { GREEN }));
+            println!(
+                "  Capacidad del ring buffer: {} entradas (uso: {})",
+                status.ring_buffer_capacity, status.ring_buffer_utilization
+            );
+            println!(
+                "  Eventos capturados:        {}",
+                paint(&status.total_events_captured.to_string(), BOLD)
+            );
+            println!(
+                "  Violaciones bloqueadas:    {}\n",
+                paint(
+                    &status.total_violations_blocked.to_string(),
+                    if status.total_violations_blocked > 0 {
+                        RED
+                    } else {
+                        GREEN
+                    }
+                )
+            );
         }
         Some("trace" | "traza") => {
             let pid_opt = args.get(1).and_then(|p| p.parse::<u32>().ok());
@@ -1503,7 +2067,10 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                 Some(pid) => engine.trace_pid(pid),
                 None => engine.get_audit_log(25),
             };
-            println!("\n{} Traza en vivo de syscalls y eventos de seguridad", paint("antOS eBPF ·", BOLD));
+            println!(
+                "\n{} Traza en vivo de syscalls y eventos de seguridad",
+                paint("antOS eBPF ·", BOLD)
+            );
             if let Some(p) = pid_opt {
                 println!("  Filtro por PID: {}\n", paint(&p.to_string(), YELLOW));
             } else {
@@ -1519,8 +2086,14 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                         antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔ BLOCK", RED),
                         antos_protocolo::EbpfSecurityAction::Audited => paint("👁 AUDIT", YELLOW),
                     };
-                    println!("  {} [{}] PID {}:{} ➔ {} ({:?})",
-                        mark, paint(&ev.id, DIM), ev.pid, paint(&ev.comm, BOLD), paint(&ev.target_resource, YELLOW), ev.hook
+                    println!(
+                        "  {} [{}] PID {}:{} ➔ {} ({:?})",
+                        mark,
+                        paint(&ev.id, DIM),
+                        ev.pid,
+                        paint(&ev.comm, BOLD),
+                        paint(&ev.target_resource, YELLOW),
+                        ev.hook
                     );
                     if let Some(ref r) = ev.violation_reason {
                         println!("      └─ {}", paint(r, DIM));
@@ -1530,9 +2103,16 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         Some("audit" | "log" | "registro") => {
-            let limit = args.get(1).and_then(|l| l.parse::<usize>().ok()).unwrap_or(20);
+            let limit = args
+                .get(1)
+                .and_then(|l| l.parse::<usize>().ok())
+                .unwrap_or(20);
             let events = engine.get_audit_log(limit);
-            println!("\n{} Registro de auditoría eBPF (últimos {} eventos)\n", paint("antOS eBPF ·", BOLD), events.len());
+            println!(
+                "\n{} Registro de auditoría eBPF (últimos {} eventos)\n",
+                paint("antOS eBPF ·", BOLD),
+                events.len()
+            );
             if events.is_empty() {
                 println!("  (registro vacío)\n");
             } else {
@@ -1542,8 +2122,14 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                         antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔", RED),
                         antos_protocolo::EbpfSecurityAction::Audited => paint("👁", YELLOW),
                     };
-                    println!("  {} [{}] {:<18} PID {}:{} ➔ {}",
-                        mark, paint(&ev.id, DIM), format!("{:?}", ev.hook), ev.pid, paint(&ev.comm, BOLD), ev.target_resource
+                    println!(
+                        "  {} [{}] {:<18} PID {}:{} ➔ {}",
+                        mark,
+                        paint(&ev.id, DIM),
+                        format!("{:?}", ev.hook),
+                        ev.pid,
+                        paint(&ev.comm, BOLD),
+                        ev.target_resource
                     );
                 }
                 println!();
@@ -1557,24 +2143,42 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                 "syscall" => antos_protocolo::EbpfHookKind::SyscallTrace,
                 _ => antos_protocolo::EbpfHookKind::FileOpen,
             };
-            let target = args.get(2).map(String::as_str).unwrap_or_else(|| match hook {
-                antos_protocolo::EbpfHookKind::SocketConnect => "192.168.1.50:4444",
-                antos_protocolo::EbpfHookKind::FileOpen => "/etc/shadow",
-                antos_protocolo::EbpfHookKind::BprmCheckSecurity => "/bin/nc",
-                antos_protocolo::EbpfHookKind::SyscallTrace => "ptrace",
-            });
+            let target = args
+                .get(2)
+                .map(String::as_str)
+                .unwrap_or_else(|| match hook {
+                    antos_protocolo::EbpfHookKind::SocketConnect => "192.168.1.50:4444",
+                    antos_protocolo::EbpfHookKind::FileOpen => "/etc/shadow",
+                    antos_protocolo::EbpfHookKind::BprmCheckSecurity => "/bin/nc",
+                    antos_protocolo::EbpfHookKind::SyscallTrace => "ptrace",
+                });
 
             let ev = engine.simulate_violation(hook, target);
-            println!("\n{} Simulación de intento de evasión de sandbox", paint("antOS eBPF ·", BOLD));
+            println!(
+                "\n{} Simulación de intento de evasión de sandbox",
+                paint("antOS eBPF ·", BOLD)
+            );
             println!("  Hook interceptado: {:?}", ev.hook);
-            println!("  Recurso objetivo:  {}", paint(&ev.target_resource, YELLOW));
+            println!(
+                "  Recurso objetivo:  {}",
+                paint(&ev.target_resource, YELLOW)
+            );
             println!("  Acción del kernel: {}", paint("⛔ BLOQUEADO", RED));
-            println!("  Alerta disparada:  {} Se envió notificación prioritaria a la bandeja Wayland.\n", paint("✓", GREEN));
+            println!(
+                "  Alerta disparada:  {} Se envió notificación prioritaria a la bandeja Wayland.\n",
+                paint("✓", GREEN)
+            );
         }
         _ => {
             let status = engine.status()?;
-            println!("\n{}", paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS · Supervisor Kernel eBPF LSM (T11.1)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             let lsm_badge = if status.lsm_enabled {
                 paint("● KERNEL LSM ACTIVO", GREEN)
@@ -1583,14 +2187,33 @@ fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
             println!("  Soporte:            {}", lsm_badge);
             println!("  Sondas activas:     {}", status.active_probes.len());
-            println!("  Eventos capturados: {}", paint(&status.total_events_captured.to_string(), BOLD));
-            println!("  Bloqueos evasión:   {}\n", paint(&status.total_violations_blocked.to_string(), if status.total_violations_blocked > 0 { RED } else { GREEN }));
+            println!(
+                "  Eventos capturados: {}",
+                paint(&status.total_events_captured.to_string(), BOLD)
+            );
+            println!(
+                "  Bloqueos evasión:   {}\n",
+                paint(
+                    &status.total_violations_blocked.to_string(),
+                    if status.total_violations_blocked > 0 {
+                        RED
+                    } else {
+                        GREEN
+                    }
+                )
+            );
 
             println!("  Subcomandos disponibles:");
-            println!("    • antos ebpf status            Diagnóstico de sondas y soporte de kernel");
-            println!("    • antos ebpf trace [pid]       Traza de llamadas al sistema en tiempo real");
+            println!(
+                "    • antos ebpf status            Diagnóstico de sondas y soporte de kernel"
+            );
+            println!(
+                "    • antos ebpf trace [pid]       Traza de llamadas al sistema en tiempo real"
+            );
             println!("    • antos ebpf audit [limit]     Registro de auditoría del ring buffer");
-            println!("    • antos ebpf simulate <tipo>   Simula evasión (file|socket|bprm) y alerta\n");
+            println!(
+                "    • antos ebpf simulate <tipo>   Simula evasión (file|socket|bprm) y alerta\n"
+            );
         }
     }
     Ok(())
@@ -1609,7 +2232,11 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
             } else {
                 "cargo test".to_string()
             };
-            println!("\n{} Ejecutando perfilado continuo para: {}", paint("antOS Profiler ·", BOLD), paint(&command, YELLOW));
+            println!(
+                "\n{} Ejecutando perfilado continuo para: {}",
+                paint("antOS Profiler ·", BOLD),
+                paint(&command, YELLOW)
+            );
             let report = engine.run_and_profile(&ctx.workspace, &command)?;
 
             let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
@@ -1621,26 +2248,56 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!("\n{}", paint("Resultado del Perfilado:", BOLD));
             println!("  Estado del comando:       {}", status_badge);
-            println!("  Duración de Wall-Clock:   {} ms", paint(&report.duration_ms.to_string(), BOLD));
-            println!("  Tiempo de CPU:            {} ms usuario, {} ms sistema", report.cpu_user_ms, report.cpu_sys_ms);
-            println!("  Memoria Pico (RSS):       {} MB", paint(&format!("{peak_mb:.2}"), CYAN));
+            println!(
+                "  Duración de Wall-Clock:   {} ms",
+                paint(&report.duration_ms.to_string(), BOLD)
+            );
+            println!(
+                "  Tiempo de CPU:            {} ms usuario, {} ms sistema",
+                report.cpu_user_ms, report.cpu_sys_ms
+            );
+            println!(
+                "  Memoria Pico (RSS):       {} MB",
+                paint(&format!("{peak_mb:.2}"), CYAN)
+            );
             println!("  Fallas de Página (Faults): {}\n", report.page_faults);
 
             if !report.hotspots.is_empty() {
-                println!("{}", paint("  Puntos Calientes de Ejecución (Hotspots):", BOLD));
+                println!(
+                    "{}",
+                    paint("  Puntos Calientes de Ejecución (Hotspots):", BOLD)
+                );
                 for h in report.hotspots {
-                    println!("    • {:<32} CPU: {:>4.1}% | Mem: {:>4.1}% ({} muestras)",
-                        paint(&h.name, YELLOW), h.percentage_cpu, h.percentage_memory, h.calls_or_samples
+                    println!(
+                        "    • {:<32} CPU: {:>4.1}% | Mem: {:>4.1}% ({} muestras)",
+                        paint(&h.name, YELLOW),
+                        h.percentage_cpu,
+                        h.percentage_memory,
+                        h.calls_or_samples
                     );
                 }
                 println!();
             }
 
             if !report.suggestions.is_empty() {
-                println!("{}", paint("  Recomendaciones de Optimización para Agentes Coder / QA:", BOLD));
+                println!(
+                    "{}",
+                    paint(
+                        "  Recomendaciones de Optimización para Agentes Coder / QA:",
+                        BOLD
+                    )
+                );
                 for s in report.suggestions {
-                    let impact_color = if s.potential_impact.contains("Alto") { RED } else { YELLOW };
-                    println!("    ★ [{}] {}", paint(&s.potential_impact, impact_color), paint(&s.title, BOLD));
+                    let impact_color = if s.potential_impact.contains("Alto") {
+                        RED
+                    } else {
+                        YELLOW
+                    };
+                    println!(
+                        "    ★ [{}] {}",
+                        paint(&s.potential_impact, impact_color),
+                        paint(&s.title, BOLD)
+                    );
                     println!("      └─ {}", paint(&s.description, DIM));
                     if let Some(target) = s.target_symbol_or_path {
                         println!("         Objetivo: {}", paint(&target, CYAN));
@@ -1651,15 +2308,28 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         Some("top" | "hotspots" | "cuellos") => {
             let (hotspots, _) = engine.analyze_aggregate(&ctx.workspace);
-            println!("\n{}", paint("antOS Profiler · Top Cuellos de Botella (Hotspots)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS Profiler · Top Cuellos de Botella (Hotspots)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             if hotspots.is_empty() {
-                println!("  (no hay hotspots registrados; ejecuta «antos profile run <comando>»)\n");
+                println!(
+                    "  (no hay hotspots registrados; ejecuta «antos profile run <comando>»)\n"
+                );
             } else {
                 for (idx, h) in hotspots.iter().enumerate() {
-                    println!("  {}. {:<32} CPU: {:>5.1}% | Mem: {:>5.1}% ({} llamadas)",
-                        idx + 1, paint(&h.name, YELLOW), h.percentage_cpu, h.percentage_memory, h.calls_or_samples
+                    println!(
+                        "  {}. {:<32} CPU: {:>5.1}% | Mem: {:>5.1}% ({} llamadas)",
+                        idx + 1,
+                        paint(&h.name, YELLOW),
+                        h.percentage_cpu,
+                        h.percentage_memory,
+                        h.calls_or_samples
                     );
                 }
                 println!();
@@ -1667,16 +2337,32 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         Some("analyze" | "analiza" | "sugerencias") => {
             let (hotspots, suggestions) = engine.analyze_aggregate(&ctx.workspace);
-            println!("\n{}", paint("antOS Profiler · Análisis y Recomendaciones Técnicas", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint("antOS Profiler · Análisis y Recomendaciones Técnicas", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             if suggestions.is_empty() {
-                println!("  (sin recomendaciones activas; ejecuta «antos profile run <comando>»)\n");
+                println!(
+                    "  (sin recomendaciones activas; ejecuta «antos profile run <comando>»)\n"
+                );
             } else {
                 println!("  Puntos calientes consolidados: {}\n", hotspots.len());
                 for s in suggestions {
-                    let impact_color = if s.potential_impact.contains("Alto") { RED } else { YELLOW };
-                    println!("  ★ [{}] {}", paint(&s.potential_impact, impact_color), paint(&s.title, BOLD));
+                    let impact_color = if s.potential_impact.contains("Alto") {
+                        RED
+                    } else {
+                        YELLOW
+                    };
+                    println!(
+                        "  ★ [{}] {}",
+                        paint(&s.potential_impact, impact_color),
+                        paint(&s.title, BOLD)
+                    );
                     println!("    └─ {}", paint(&s.description, DIM));
                 }
                 println!();
@@ -1684,16 +2370,30 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         Some("list" | "reports" | "reportes" | "historial") => {
             let reports = engine.load_reports(&ctx.workspace);
-            println!("\n{}", paint("antOS Profiler · Histórico de Reportes de Rendimiento", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS Profiler · Histórico de Reportes de Rendimiento",
+                    BOLD
+                )
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
 
             if reports.is_empty() {
                 println!("  (no hay reportes guardados)\n");
             } else {
                 for r in reports {
                     let peak_mb = r.peak_memory_bytes as f64 / (1024.0 * 1024.0);
-                    println!("  • [{}] «{}» — {} ms | {:.1} MB RSS (código {})",
-                        paint(&r.id, DIM), paint(&r.command, BOLD), r.duration_ms, peak_mb, r.exit_code
+                    println!(
+                        "  • [{}] «{}» — {} ms | {:.1} MB RSS (código {})",
+                        paint(&r.id, DIM),
+                        paint(&r.command, BOLD),
+                        r.duration_ms,
+                        peak_mb,
+                        r.exit_code
                     );
                 }
                 println!();
@@ -1701,15 +2401,30 @@ fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         _ => {
             let reports = engine.load_reports(&ctx.workspace);
-            println!("\n{}", paint("antOS · Profiler Continuo de Runtime (T11.2)", BOLD));
-            println!("  Espacio de trabajo: {}\n", paint(&ctx.workspace.display().to_string(), DIM));
-            println!("  Reportes registrados:   {}", paint(&reports.len().to_string(), BOLD));
+            println!(
+                "\n{}",
+                paint("antOS · Profiler Continuo de Runtime (T11.2)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo: {}\n",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
+            println!(
+                "  Reportes registrados:   {}",
+                paint(&reports.len().to_string(), BOLD)
+            );
 
             println!("  Subcomandos disponibles:");
-            println!("    • antos profile run <cmd>      Ejecuta y perfila un comando en tiempo real");
+            println!(
+                "    • antos profile run <cmd>      Ejecuta y perfila un comando en tiempo real"
+            );
             println!("    • antos profile top            Lista los principales puntos calientes (hotspots)");
-            println!("    • antos profile analyze        Sintetiza recomendaciones para Coder y QA");
-            println!("    • antos profile list           Muestra el histórico de reportes guardados\n");
+            println!(
+                "    • antos profile analyze        Sintetiza recomendaciones para Coder y QA"
+            );
+            println!(
+                "    • antos profile list           Muestra el histórico de reportes guardados\n"
+            );
         }
     }
     Ok(())
@@ -1724,13 +2439,35 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
     match sub {
         Some("status" | "info") => {
             let status = server.get_status(&ctx.workspace);
-            println!("\n{}", paint("antOS · Unified Language Server Protocol (LSP)", BOLD));
-            println!("  Espacio de trabajo:     {}", paint(&ctx.workspace.display().to_string(), DIM));
-            println!("  Estado del servidor:    {}", if status.running { paint("Activo", GREEN) } else { paint("En espera", YELLOW) });
-            println!("  Transporte:             {}", paint(&status.transport, CYAN));
+            println!(
+                "\n{}",
+                paint("antOS · Unified Language Server Protocol (LSP)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo:     {}",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
+            println!(
+                "  Estado del servidor:    {}",
+                if status.running {
+                    paint("Activo", GREEN)
+                } else {
+                    paint("En espera", YELLOW)
+                }
+            );
+            println!(
+                "  Transporte:             {}",
+                paint(&status.transport, CYAN)
+            );
             println!("  Clientes conectados:    {}", status.connected_clients);
-            println!("  Símbolos AST indexados: {}", paint(&status.indexed_symbols_count.to_string(), BOLD));
-            println!("  Capacidades LSP:        {}\n", paint(&status.capabilities.join(", "), DIM));
+            println!(
+                "  Símbolos AST indexados: {}",
+                paint(&status.indexed_symbols_count.to_string(), BOLD)
+            );
+            println!(
+                "  Capacidades LSP:        {}\n",
+                paint(&status.capabilities.join(", "), DIM)
+            );
         }
         Some("config" | "conf") => {
             let editor_str = args.get(1).map(String::as_str).unwrap_or("vscode");
@@ -1743,8 +2480,15 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
 
             let (snippet, target_file) = server.generate_config(editor_kind, &ctx.workspace);
-            println!("\n{} Configuración de antOS LSP para: {}", paint("antOS LSP ·", BOLD), paint(editor_kind.name(), YELLOW));
-            println!("  Archivo de configuración: {}\n", paint(&target_file, CYAN));
+            println!(
+                "\n{} Configuración de antOS LSP para: {}",
+                paint("antOS LSP ·", BOLD),
+                paint(editor_kind.name(), YELLOW)
+            );
+            println!(
+                "  Archivo de configuración: {}\n",
+                paint(&target_file, CYAN)
+            );
             println!("{}\n", snippet);
         }
         Some("stdio" | "run" | "start") => {
@@ -1755,11 +2499,22 @@ fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         _ => {
             let status = server.get_status(&ctx.workspace);
-            println!("\n{}", paint("antOS · Unified Language Server Protocol (LSP)", BOLD));
-            println!("  Espacio de trabajo:     {}", paint(&ctx.workspace.display().to_string(), DIM));
-            println!("  Símbolos AST indexados: {}\n", paint(&status.indexed_symbols_count.to_string(), BOLD));
+            println!(
+                "\n{}",
+                paint("antOS · Unified Language Server Protocol (LSP)", BOLD)
+            );
+            println!(
+                "  Espacio de trabajo:     {}",
+                paint(&ctx.workspace.display().to_string(), DIM)
+            );
+            println!(
+                "  Símbolos AST indexados: {}\n",
+                paint(&status.indexed_symbols_count.to_string(), BOLD)
+            );
             println!("  Subcomandos disponibles:");
-            println!("    • antos lsp [stdio]            Inicia el servidor JSON-RPC 2.0 sobre stdio");
+            println!(
+                "    • antos lsp [stdio]            Inicia el servidor JSON-RPC 2.0 sobre stdio"
+            );
             println!("    • antos lsp status             Diagnostica el estado del servidor y conexiones");
             println!("    • antos lsp config <editor>    Genera configuración para vscode, neovim, helix, emacs\n");
         }
@@ -1774,7 +2529,14 @@ fn cmd_pair(ctx: &Ctx, args: &[String]) -> Result<()> {
     let first = args.first().map(String::as_str);
 
     let (ticket_id, file_path) = match first {
-        Some(arg) if arg.starts_with('T') && arg.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) => {
+        Some(arg)
+            if arg.starts_with('T')
+                && arg
+                    .chars()
+                    .nth(1)
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false) =>
+        {
             let file = args.get(1).map(String::as_str).unwrap_or("src/main.rs");
             (Some(arg.to_string()), file.to_string())
         }
@@ -1782,21 +2544,44 @@ fn cmd_pair(ctx: &Ctx, args: &[String]) -> Result<()> {
         None => (None, "src/main.rs".to_string()),
     };
 
-    println!("\n{} Iniciando sesión interactiva de Pair Programming con Coder...", paint("antOS Pair ·", BOLD));
+    println!(
+        "\n{} Iniciando sesión interactiva de Pair Programming con Coder...",
+        paint("antOS Pair ·", BOLD)
+    );
     let status = engine.start_session(&ctx.workspace, &file_path, ticket_id)?;
 
     println!("\n{}", paint("Sesión de Co-Edición Activa:", BOLD));
-    println!("  ID de Sesión:          {}", paint(&status.session_id, CYAN));
-    println!("  Archivo compartido:    {}", paint(&status.file_path, YELLOW));
-    println!("  Colaboradores:         {}", paint(&status.collaborators.join(" & "), GREEN));
+    println!(
+        "  ID de Sesión:          {}",
+        paint(&status.session_id, CYAN)
+    );
+    println!(
+        "  Archivo compartido:    {}",
+        paint(&status.file_path, YELLOW)
+    );
+    println!(
+        "  Colaboradores:         {}",
+        paint(&status.collaborators.join(" & "), GREEN)
+    );
     if let Some(ref t) = status.active_ticket_id {
         println!("  Ticket vinculado:      {}", paint(t, BOLD));
     }
-    println!("  Tamaño del buffer:     {} caracteres\n", status.buffer_length);
+    println!(
+        "  Tamaño del buffer:     {} caracteres\n",
+        status.buffer_length
+    );
 
-    println!("{}", paint("Cursores y Sugerencias de Código (Ghost Text):", BOLD));
+    println!(
+        "{}",
+        paint("Cursores y Sugerencias de Código (Ghost Text):", BOLD)
+    );
     for c in &status.cursors {
-        println!("  • [{}] Línea {}, Columna {}", paint(&c.client_id, BOLD), c.line, c.character);
+        println!(
+            "  • [{}] Línea {}, Columna {}",
+            paint(&c.client_id, BOLD),
+            c.line,
+            c.character
+        );
         if let Some(ref ghost) = c.ghost_text {
             println!("      └─ Ghost text sugerido: {}", paint(ghost, DIM));
         }
@@ -1815,7 +2600,11 @@ fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
         "cargo test".to_string()
     };
 
-    println!("\n{} Conectando adaptador de depuración DAP para: {}", paint("antOS DAP Debugger ·", BOLD), paint(&command, YELLOW));
+    println!(
+        "\n{} Conectando adaptador de depuración DAP para: {}",
+        paint("antOS DAP Debugger ·", BOLD),
+        paint(&command, YELLOW)
+    );
     let mut dap = collab::DapServer::new("dap-cli".into(), command.clone());
     let bp = dap.add_breakpoint("src/main.rs", 1);
 
@@ -1823,7 +2612,10 @@ fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
     println!("  ID de Sesión:          {}", paint(&dap.session_id, CYAN));
     println!("  Comando en sandbox:    {}", paint(&dap.command, BOLD));
     println!("  Estado:                {}", paint(&dap.state, GREEN));
-    println!("  Punto de interrupción: {}:{} (verificado: {})\n", bp.file_path, bp.line, bp.verified);
+    println!(
+        "  Punto de interrupción: {}:{} (verificado: {})\n",
+        bp.file_path, bp.line, bp.verified
+    );
 
     println!("{}", paint("Pila de Llamadas (Call Stack):", BOLD));
     for (i, frame) in dap.call_stack.iter().enumerate() {
@@ -1833,7 +2625,12 @@ fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
 
     println!("{}", paint("Variables Locales en Alcance:", BOLD));
     for var in &dap.variables {
-        println!("  • {:<16} ({}) = {}", paint(&var.name, YELLOW), var.type_name, paint(&var.value, CYAN));
+        println!(
+            "  • {:<16} ({}) = {}",
+            paint(&var.name, YELLOW),
+            var.type_name,
+            paint(&var.value, CYAN)
+        );
     }
     println!();
 
@@ -1847,30 +2644,65 @@ fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
     match sub {
         "start" | "iniciar" | "run" => {
             let nested = args.iter().any(|a| a == "--nested" || a == "-n");
-            println!("\n{} Inicializando entorno gráfico Wayland de antOS...", paint("antOS Desktop ·", BOLD));
+            println!(
+                "\n{} Inicializando entorno gráfico Wayland de antOS...",
+                paint("antOS Desktop ·", BOLD)
+            );
             let _ = desktop::DesktopManager::sync_configuration(&ctx.workspace)?;
             let out = desktop::DesktopManager::start_session(&ctx.workspace, nested)?;
             println!("{out}");
         }
         "keys" | "hotkeys" | "atajos" => {
             let keys = desktop::DesktopManager::get_hotkeys();
-            println!("\n{} Atajos de Teclado Globales del Entorno de Escritorio:", paint("antOS Desktop ·", BOLD));
-            println!("  {:<16} {:<24} {}", paint("ATAJO", BOLD), paint("ACCIÓN", BOLD), paint("DESCRIPCIÓN", BOLD));
+            println!(
+                "\n{} Atajos de Teclado Globales del Entorno de Escritorio:",
+                paint("antOS Desktop ·", BOLD)
+            );
+            println!(
+                "  {:<16} {:<24} {}",
+                paint("ATAJO", BOLD),
+                paint("ACCIÓN", BOLD),
+                paint("DESCRIPCIÓN", BOLD)
+            );
             println!("  {}", "─".repeat(78));
             for k in keys {
-                println!("  {:<16} {:<24} {}", paint(&k.key, CYAN), paint(&k.action, YELLOW), k.description);
+                println!(
+                    "  {:<16} {:<24} {}",
+                    paint(&k.key, CYAN),
+                    paint(&k.action, YELLOW),
+                    k.description
+                );
             }
             println!();
         }
         "status" | "estado" | _ => {
             let status = desktop::DesktopManager::get_status();
-            let st = if status.running { paint("En ejecución", GREEN) } else { paint("Inactivo / Headless", DIM) };
-            println!("\n{} Diagnóstico de Sesión Gráfica Wayland:", paint("antOS Desktop ·", BOLD));
+            let st = if status.running {
+                paint("En ejecución", GREEN)
+            } else {
+                paint("Inactivo / Headless", DIM)
+            };
+            println!(
+                "\n{} Diagnóstico de Sesión Gráfica Wayland:",
+                paint("antOS Desktop ·", BOLD)
+            );
             println!("  Estado:                {}", st);
-            println!("  Compositor:            {}", paint(&status.compositor_name, CYAN));
-            println!("  WAYLAND_DISPLAY:       {}", paint(status.wayland_display.as_deref().unwrap_or("ninguno"), YELLOW));
+            println!(
+                "  Compositor:            {}",
+                paint(&status.compositor_name, CYAN)
+            );
+            println!(
+                "  WAYLAND_DISPLAY:       {}",
+                paint(
+                    status.wayland_display.as_deref().unwrap_or("ninguno"),
+                    YELLOW
+                )
+            );
             println!("  Clientes de capa:      {}", status.active_clients_count);
-            println!("  Atajos registrados:    {} combinaciones globales\n", status.registered_hotkeys.len());
+            println!(
+                "  Atajos registrados:    {} combinaciones globales\n",
+                status.registered_hotkeys.len()
+            );
             println!("  Uso:");
             println!("    antos desktop start       Arranca la sesión de escritorio");
             println!("    antos desktop keys        Muestra todos los atajos de teclado globales");
@@ -1904,26 +2736,60 @@ fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
                 urgent: args.iter().any(|a| a == "--urgent" || a == "-u"),
             };
             manager.emit_alert(alert)?;
-            println!("\n{} Alerta visual emitida a la barra de escritorio: «{}»\n", paint("antOS Barra ·", BOLD), paint(&msg, GREEN));
+            println!(
+                "\n{} Alerta visual emitida a la barra de escritorio: «{}»\n",
+                paint("antOS Barra ·", BOLD),
+                paint(&msg, GREEN)
+            );
         }
         "status" | "telemetry" | "telemetria" | _ => {
             let t = manager.get_telemetry();
             let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
-            println!("\n{} Telemetría en Tiempo Real de la Barra de Escritorio:", paint("antOS Barra ·", BOLD));
-            println!("  • eBPF LSM Guard:       {}", if t.ebpf_lsm_active { paint("Activo", GREEN) } else { paint("Auditoría", YELLOW) });
-            println!("  • Violaciones LSM:      {}", if t.ebpf_violations_count > 0 { paint(&t.ebpf_violations_count.to_string(), RED) } else { paint("0", GREEN) });
+            println!(
+                "\n{} Telemetría en Tiempo Real de la Barra de Escritorio:",
+                paint("antOS Barra ·", BOLD)
+            );
+            println!(
+                "  • eBPF LSM Guard:       {}",
+                if t.ebpf_lsm_active {
+                    paint("Activo", GREEN)
+                } else {
+                    paint("Auditoría", YELLOW)
+                }
+            );
+            println!(
+                "  • Violaciones LSM:      {}",
+                if t.ebpf_violations_count > 0 {
+                    paint(&t.ebpf_violations_count.to_string(), RED)
+                } else {
+                    paint("0", GREEN)
+                }
+            );
             println!("  • Consumo RSS Pico:     {:.2} MB", mb);
             println!("  • CPU Estimada:         {:.1}%", t.profiler_cpu_percent);
-            println!("  • Sesión de Pair:       {}", paint(t.active_pair_session.as_deref().unwrap_or("inactiva"), CYAN));
-            println!("  • Nodos antMesh:        {} vecinos descubiertos", t.mesh_peers_count);
-            println!("  • Notificaciones:       {} pendientes", t.active_notifications_count);
+            println!(
+                "  • Sesión de Pair:       {}",
+                paint(t.active_pair_session.as_deref().unwrap_or("inactiva"), CYAN)
+            );
+            println!(
+                "  • Nodos antMesh:        {} vecinos descubiertos",
+                t.mesh_peers_count
+            );
+            println!(
+                "  • Notificaciones:       {} pendientes",
+                t.active_notifications_count
+            );
             println!("\n  Alertas recientes en cola:");
             let alerts = manager.get_alerts(3);
             if alerts.is_empty() {
                 println!("    (sin alertas recientes)");
             } else {
                 for a in alerts {
-                    let u = if a.urgent { paint("[URGENTE]", RED) } else { paint("[INFO]", CYAN) };
+                    let u = if a.urgent {
+                        paint("[URGENTE]", RED)
+                    } else {
+                        paint("[INFO]", CYAN)
+                    };
                     println!("    • {u} {}: {}", a.category, a.message);
                 }
             }
@@ -1941,12 +2807,22 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         "build" | "compile" => {
-            println!("\n{} Compilando kernel no_std y empaquetando imagen BIOS/UEFI...", paint("antOS Boot ·", BOLD));
+            println!(
+                "\n{} Compilando kernel no_std y empaquetando imagen BIOS/UEFI...",
+                paint("antOS Boot ·", BOLD)
+            );
             let img = engine.build(&ctx.workspace)?;
-            println!("  {} {}\n", paint("✓ Imagen generada:", GREEN), img.display());
+            println!(
+                "  {} {}\n",
+                paint("✓ Imagen generada:", GREEN),
+                img.display()
+            );
         }
         "test" | "check" => {
-            println!("\n{} Ejecutando prueba automatizada de arranque en QEMU (headless)...", paint("antOS Boot ·", BOLD));
+            println!(
+                "\n{} Ejecutando prueba automatizada de arranque en QEMU (headless)...",
+                paint("antOS Boot ·", BOLD)
+            );
             let res = engine.test_boot(&ctx.workspace)?;
             println!("{}\n", res);
         }
@@ -1972,30 +2848,73 @@ fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         "iso" => {
-            println!("\n{} Construyendo imagen Live ISO autoarrancable...", paint("antOS Boot ·", BOLD));
+            println!(
+                "\n{} Construyendo imagen Live ISO autoarrancable...",
+                paint("antOS Boot ·", BOLD)
+            );
             let iso = engine.build_iso(&ctx.workspace)?;
-            println!("  {} {}\n", paint("✓ Live ISO generada:", GREEN), iso.display());
+            println!(
+                "  {} {}\n",
+                paint("✓ Live ISO generada:", GREEN),
+                iso.display()
+            );
         }
         "release" | "dist" => {
-            println!("\n{} Ejecutando pipeline oficial de empaquetado release...", paint("antOS Release ·", BOLD));
+            println!(
+                "\n{} Ejecutando pipeline oficial de empaquetado release...",
+                paint("antOS Release ·", BOLD)
+            );
             let res = engine.build_release(&ctx.workspace)?;
             println!("{}\n", res);
         }
         "status" | _ => {
             let st = engine.status(&ctx.workspace);
-            println!("\n{} Estado del Pipeline de Arranque Bare Metal:", paint("antOS Boot ·", BOLD));
+            println!(
+                "\n{} Estado del Pipeline de Arranque Bare Metal:",
+                paint("antOS Boot ·", BOLD)
+            );
             println!("  • Arquitectura:         {}", paint(&st.target_arch, CYAN));
-            println!("  • Binario Kernel ELF:   {} ({})",
-                if st.kernel_elf_exists { paint("Presente", GREEN) } else { paint("No compilado", YELLOW) },
-                if st.kernel_elf_exists { format!("{} KiB", st.kernel_elf_size_bytes / 1024) } else { "0 B".into() }
+            println!(
+                "  • Binario Kernel ELF:   {} ({})",
+                if st.kernel_elf_exists {
+                    paint("Presente", GREEN)
+                } else {
+                    paint("No compilado", YELLOW)
+                },
+                if st.kernel_elf_exists {
+                    format!("{} KiB", st.kernel_elf_size_bytes / 1024)
+                } else {
+                    "0 B".into()
+                }
             );
-            println!("  • Imagen BIOS/MBR:      {} ({})",
-                if st.bios_image_exists { paint("Presente", GREEN) } else { paint("No generada", YELLOW) },
-                if st.bios_image_exists { format!("{:.1} MB", st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)) } else { "0 B".into() }
+            println!(
+                "  • Imagen BIOS/MBR:      {} ({})",
+                if st.bios_image_exists {
+                    paint("Presente", GREEN)
+                } else {
+                    paint("No generada", YELLOW)
+                },
+                if st.bios_image_exists {
+                    format!(
+                        "{:.1} MB",
+                        st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)
+                    )
+                } else {
+                    "0 B".into()
+                }
             );
-            println!("  • Emulador QEMU:        {}", if st.qemu_installed { paint("Disponible (qemu-system-x86_64)", GREEN) } else { paint("No instalado", RED) });
+            println!(
+                "  • Emulador QEMU:        {}",
+                if st.qemu_installed {
+                    paint("Disponible (qemu-system-x86_64)", GREEN)
+                } else {
+                    paint("No instalado", RED)
+                }
+            );
             println!("\n  Uso:");
-            println!("    antos boot build      Compila el kernel no_std y crea la imagen de disco");
+            println!(
+                "    antos boot build      Compila el kernel no_std y crea la imagen de disco"
+            );
             println!("    antos boot test       Prueba automatizada de arranque en QEMU headless");
             println!("    antos boot qemu       Lanza la máquina virtual interactiva en QEMU");
             println!("    antos boot iso        Genera la imagen Live ISO autoarrancable");
@@ -2014,13 +2933,20 @@ fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
     match sub {
         "list" | "ls" => {
             let list = wasm::PluginManager::list_plugins(&plugins_dir);
-            println!("\n{} Plugins WebAssembly (WASM) Registrados:", paint("antOS ·", BOLD));
+            println!(
+                "\n{} Plugins WebAssembly (WASM) Registrados:",
+                paint("antOS ·", BOLD)
+            );
             if list.is_empty() {
-                println!("  (no hay plugins instalados en {})\n", plugins_dir.display());
+                println!(
+                    "  (no hay plugins instalados en {})\n",
+                    plugins_dir.display()
+                );
             } else {
                 for p in list {
                     let kb = (p.wasm_size_bytes + 1023) / 1024;
-                    println!("  • {} v{} ({} KiB) - {}",
+                    println!(
+                        "  • {} v{} ({} KiB) - {}",
                         paint(&p.name, GREEN),
                         paint(&p.version, CYAN),
                         kb,
@@ -2034,9 +2960,14 @@ fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
         "install" => {
             let path_str = args.get(1).map(String::as_str).unwrap_or(".");
             let src = ctx.workspace.join(path_str);
-            println!("\n{} Instalando plugin desde {}...", paint("antOS ·", BOLD), src.display());
+            println!(
+                "\n{} Instalando plugin desde {}...",
+                paint("antOS ·", BOLD),
+                src.display()
+            );
             let summary = wasm::PluginManager::install_plugin(&plugins_dir, &src)?;
-            println!("  {} {} v{} (acciones: {})\n",
+            println!(
+                "  {} {} v{} (acciones: {})\n",
                 paint("✓ Plugin instalado:", GREEN),
                 summary.name,
                 summary.version,
@@ -2056,14 +2987,20 @@ fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
 
-            println!("\n{} Ejecutando plugin [{}:{}] en sandbox aislado WASM...",
-                paint("antOS ·", BOLD), name, action
+            println!(
+                "\n{} Ejecutando plugin [{}:{}] en sandbox aislado WASM...",
+                paint("antOS ·", BOLD),
+                name,
+                action
             );
             let res = wasm::PluginManager::run_plugin(&plugins_dir, name, action, &params);
             if res.success {
                 println!("  {} {}", paint("✓ Resultado:", GREEN), res.output);
                 println!("    Ciclos de instrucción:  {}", res.fuel_consumed);
-                println!("    Memoria lineal:         {} KiB (cuota máx: 64 MB)\n", res.memory_allocated_bytes / 1024);
+                println!(
+                    "    Memoria lineal:         {} KiB (cuota máx: 64 MB)\n",
+                    res.memory_allocated_bytes / 1024
+                );
             } else {
                 let err = res.error.unwrap_or_else(|| "Error desconocido".into());
                 println!("  {} {}\n", paint("✗ Error:", RED), err);
@@ -2071,11 +3008,16 @@ fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!("\n{} Gestor de Plugins WebAssembly (WASM):", paint("antOS Plugins ·", BOLD));
+            println!(
+                "\n{} Gestor de Plugins WebAssembly (WASM):",
+                paint("antOS Plugins ·", BOLD)
+            );
             println!("  Uso:");
             println!("    antos plugin list                   Enumera plugins instalados");
             println!("    antos plugin install <directorio>   Instala un plugin con plugin.toml");
-            println!("    antos plugin run <nombre> [accion]  Ejecuta una acción en sandbox WASM\n");
+            println!(
+                "    antos plugin run <nombre> [accion]  Ejecuta una acción en sandbox WASM\n"
+            );
         }
     }
     Ok(())
@@ -2107,15 +3049,31 @@ fn cmd_screenshot(ctx: &Ctx, args: &[String]) -> Result<()> {
         None
     };
 
-    println!("\n{} Captura de Pantalla Wayland:", paint("antOS Screencopy ·", BOLD));
+    println!(
+        "\n{} Captura de Pantalla Wayland:",
+        paint("antOS Screencopy ·", BOLD)
+    );
     let engine = vision::VisionEngine::global();
     let res = engine.capture_screen(actual_target, path.as_deref())?;
 
     let saved = res.saved_path.as_deref().unwrap_or("en memoria");
-    println!("  {} Captura completada para «{}»", paint("✓", GREEN), res.target);
+    println!(
+        "  {} Captura completada para «{}»",
+        paint("✓", GREEN),
+        res.target
+    );
     println!("    Destino:      {}", saved);
-    println!("    Resolución:   {}x{} píxeles ({})", res.width, res.height, res.format.to_uppercase());
-    println!("    Tamaño:       {} KiB ({} bytes)\n", res.size_bytes / 1024, res.size_bytes);
+    println!(
+        "    Resolución:   {}x{} píxeles ({})",
+        res.width,
+        res.height,
+        res.format.to_uppercase()
+    );
+    println!(
+        "    Tamaño:       {} KiB ({} bytes)\n",
+        res.size_bytes / 1024,
+        res.size_bytes
+    );
     Ok(())
 }
 
@@ -2135,7 +3093,10 @@ fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
                 ]
             };
 
-            println!("\n{} Agente Multimodal VisualQA:", paint("antOS QA Visual ·", BOLD));
+            println!(
+                "\n{} Agente Multimodal VisualQA:",
+                paint("antOS QA Visual ·", BOLD)
+            );
             println!("  Objetivo: {}", paint(target, CYAN));
             println!("  Criterios evaluados: {}\n", criteria.len());
 
@@ -2150,7 +3111,12 @@ fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!("  {} {}", paint("Resultado:", BOLD), status_badge);
             println!("  Resumen:     {}", report.summary);
-            println!("  Resolución:  {}x{} píxeles ({} KiB)\n", report.image_width, report.image_height, report.image_size_bytes / 1024);
+            println!(
+                "  Resolución:  {}x{} píxeles ({} KiB)\n",
+                report.image_width,
+                report.image_height,
+                report.image_size_bytes / 1024
+            );
 
             println!("  {}:", paint("Hallazgos de Inspección", BOLD));
             for f in &report.findings {
@@ -2159,7 +3125,12 @@ fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
                     "warning" => paint("[ADVERTENCIA]", YELLOW),
                     _ => paint("[INFO]", CYAN),
                 };
-                println!("    • {} {}: {}", sev, paint(&f.category, BOLD), f.description);
+                println!(
+                    "    • {} {}: {}",
+                    sev,
+                    paint(&f.category, BOLD),
+                    f.description
+                );
                 if let Some(ref coords) = f.coordinates {
                     println!("      Coordenadas:   {}", coords);
                 }
@@ -2172,7 +3143,10 @@ fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!("\n{} Inspección de Calidad Visual (antFlow QA):", paint("antOS QA ·", BOLD));
+            println!(
+                "\n{} Inspección de Calidad Visual (antFlow QA):",
+                paint("antOS QA ·", BOLD)
+            );
             println!("  Uso:");
             println!("    antos qa visual [target] [criterios...]  Auditoría visual con agente multimodal\n");
         }
@@ -2187,7 +3161,10 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         "list" | "ls" => {
-            println!("\n{} Unidades de Almacenamiento Detectadas:", paint("antOS Almacenamiento ·", BOLD));
+            println!(
+                "\n{} Unidades de Almacenamiento Detectadas:",
+                paint("antOS Almacenamiento ·", BOLD)
+            );
             let disks = installer::DiskManager::list_disks()?;
             if disks.is_empty() {
                 println!("  (no se detectaron unidades de bloque en el sistema)\n");
@@ -2196,24 +3173,33 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
 
             for d in &disks {
                 let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                println!("  • {} ({:.1} GB, Bus: {}, Tabla: {})",
+                println!(
+                    "  • {} ({:.1} GB, Bus: {}, Tabla: {})",
                     paint(&d.path, CYAN),
                     gb,
                     d.bus_type,
                     d.partition_table
                 );
                 println!("    Modelo:      {}", d.model);
-                println!("    Sectores:    {} bytes / sector (RO: {})", d.sector_size, d.is_read_only);
+                println!(
+                    "    Sectores:    {} bytes / sector (RO: {})",
+                    d.sector_size, d.is_read_only
+                );
                 if d.partitions.is_empty() {
                     println!("    Particiones: (disco sin particiones)");
                 } else {
                     println!("    Particiones: {} detectadas", d.partitions.len());
                     for p in &d.partitions {
                         let p_mb = p.size_bytes / (1024 * 1024);
-                        let efi_badge = if p.is_efi { paint(" [EFI ESP]", GREEN) } else { "".into() };
+                        let efi_badge = if p.is_efi {
+                            paint(" [EFI ESP]", GREEN)
+                        } else {
+                            "".into()
+                        };
                         let fs = p.fs_type.as_deref().unwrap_or("desconocido");
                         let mount = p.mountpoint.as_deref().unwrap_or("no montada");
-                        println!("      - {} ({:.0} MB, {}) → {}{}",
+                        println!(
+                            "      - {} ({:.0} MB, {}) → {}{}",
                             paint(&p.name, BOLD),
                             p_mb,
                             fs,
@@ -2231,14 +3217,21 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
                 bail!("Uso: antos disk inspect <dispositivo>");
             }
 
-            println!("\n{} Inspeccionando Dispositivo {}:", paint("antOS Almacenamiento ·", BOLD), paint(target, CYAN));
+            println!(
+                "\n{} Inspeccionando Dispositivo {}:",
+                paint("antOS Almacenamiento ·", BOLD),
+                paint(target, CYAN)
+            );
             let disk = installer::DiskManager::inspect_disk(target)?;
             match disk {
                 Some(d) => {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
                     println!("  • Ruta física:       {}", paint(&d.path, BOLD));
                     println!("  • Modelo / Vendor:   {}", d.model);
-                    println!("  • Tamaño total:      {:.2} GB ({} bytes)", gb, d.size_bytes);
+                    println!(
+                        "  • Tamaño total:      {:.2} GB ({} bytes)",
+                        gb, d.size_bytes
+                    );
                     println!("  • Tamaño de sector:  {} bytes (LBA)", d.sector_size);
                     println!("  • Tipo de Bus:       {}", d.bus_type);
                     println!("  • Tabla:             {}", d.partition_table);
@@ -2249,8 +3242,13 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
                         println!("    (sin particiones registradas)");
                     } else {
                         for p in &d.partitions {
-                            let efi_str = if p.is_efi { paint(" [SISTEMA EFI]", GREEN) } else { "".into() };
-                            println!("    #{}: {} | {:.1} MB | FS: {} | UUID: {}{}",
+                            let efi_str = if p.is_efi {
+                                paint(" [SISTEMA EFI]", GREEN)
+                            } else {
+                                "".into()
+                            };
+                            println!(
+                                "    #{}: {} | {:.1} MB | FS: {} | UUID: {}{}",
                                 p.number,
                                 paint(&p.name, CYAN),
                                 p.size_bytes as f64 / (1024.0 * 1024.0),
@@ -2277,7 +3275,8 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
             let apply = args.iter().any(|a| a == "--apply");
             let dry_run = !apply;
 
-            println!("\n{} Calculando esquema de particionado para {}:",
+            println!(
+                "\n{} Calculando esquema de particionado para {}:",
                 paint("antOS Particionador ·", BOLD),
                 paint(target, CYAN)
             );
@@ -2290,7 +3289,10 @@ fn cmd_disk(_ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         _ => {
-            println!("\n{} Gestor de Discos y Particiones GPT:", paint("antOS Almacenamiento ·", BOLD));
+            println!(
+                "\n{} Gestor de Discos y Particiones GPT:",
+                paint("antOS Almacenamiento ·", BOLD)
+            );
             println!("  Uso:");
             println!("    antos disk list                           Enumera discos físicos y particiones");
             println!("    antos disk inspect <dispositivo>          Muestra el mapa de particiones y metadatos");
@@ -2307,7 +3309,10 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         "list" | "disks" => {
-            println!("\n{} Discos Compatibles para Instalación de antOS:", paint("antOS Instalador ·", BOLD));
+            println!(
+                "\n{} Discos Compatibles para Instalación de antOS:",
+                paint("antOS Instalador ·", BOLD)
+            );
             let disks = installer::DiskManager::list_disks()?;
             if disks.is_empty() {
                 println!("  (no se detectaron unidades de almacenamiento compatibles)\n");
@@ -2330,7 +3335,13 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
                     paint("Recomendado: Sistema Principal Limpio", YELLOW)
                 };
 
-                println!("  [{}] {} ({:.1} GB, Bus: {})", idx + 1, paint(&d.path, BOLD), gb, d.bus_type);
+                println!(
+                    "  [{}] {} ({:.1} GB, Bus: {})",
+                    idx + 1,
+                    paint(&d.path, BOLD),
+                    gb,
+                    d.bus_type
+                );
                 println!("      Modelo:       {}", d.model);
                 println!("      Estado:       {} | {}", status_str, mode_rec);
                 println!("      Particiones:  {} existentes\n", d.partitions.len());
@@ -2382,14 +3393,36 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
                 dry_run,
             };
 
-            let mode_str = if clean_install { "Sistema Principal (Limpio)" } else { "Sistema Secundario (Dual Boot)" };
-            println!("\n{} Iniciando Despliegue de antOS:", paint("antOS Instalador ·", BOLD));
+            let mode_str = if clean_install {
+                "Sistema Principal (Limpio)"
+            } else {
+                "Sistema Secundario (Dual Boot)"
+            };
+            println!(
+                "\n{} Iniciando Despliegue de antOS:",
+                paint("antOS Instalador ·", BOLD)
+            );
             println!("  • Dispositivo:      {}", paint(&target_device, CYAN));
             println!("  • Modo de instalación: {}", paint(mode_str, BOLD));
-            println!("  • Modo de ejecución:   {}\n", if dry_run { paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW) } else { paint("INSTALACIÓN EN DISCO REAL", RED) });
+            println!(
+                "  • Modo de ejecución:   {}\n",
+                if dry_run {
+                    paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW)
+                } else {
+                    paint("INSTALACIÓN EN DISCO REAL", RED)
+                }
+            );
 
             let report = installer::DeployEngine::deploy_system(&config, &ctx.workspace)?;
-            println!("  {}: {}", paint("Resultado", BOLD), if report.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) });
+            println!(
+                "  {}: {}",
+                paint("Resultado", BOLD),
+                if report.success {
+                    paint("EXITOSO", GREEN)
+                } else {
+                    paint("FALLIDO", RED)
+                }
+            );
             println!("  {}\n", report.summary);
             println!("  {}:", paint("Pasos Ejecutados", BOLD));
             for s in &report.steps {
@@ -2406,9 +3439,27 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         "wizard" | "gui" => {
-            println!("\n{}", paint("╔════════════════════════════════════════════════════════════════╗", CYAN));
-            println!("{}", paint("║           antOS · Asistente de Instalación Guiada             ║", BOLD));
-            println!("{}\n", paint("╚════════════════════════════════════════════════════════════════╝", CYAN));
+            println!(
+                "\n{}",
+                paint(
+                    "╔════════════════════════════════════════════════════════════════╗",
+                    CYAN
+                )
+            );
+            println!(
+                "{}",
+                paint(
+                    "║           antOS · Asistente de Instalación Guiada             ║",
+                    BOLD
+                )
+            );
+            println!(
+                "{}\n",
+                paint(
+                    "╚════════════════════════════════════════════════════════════════╝",
+                    CYAN
+                )
+            );
 
             let disks = installer::DiskManager::list_disks()?;
             if disks.is_empty() {
@@ -2417,15 +3468,29 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             let chosen_disk = &disks[0];
             let has_efi = chosen_disk.partitions.iter().any(|p| p.is_efi);
-            let mode_str = if has_efi { "Dual Boot (preservando partición EFI y SO vecino)" } else { "Sistema Principal Completo" };
+            let mode_str = if has_efi {
+                "Dual Boot (preservando partición EFI y SO vecino)"
+            } else {
+                "Sistema Principal Completo"
+            };
 
-            println!("  Disco detectado para instalación: {} ({:.1} GB)",
+            println!(
+                "  Disco detectado para instalación: {} ({:.1} GB)",
                 paint(&chosen_disk.path, CYAN),
                 chosen_disk.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
             );
-            println!("  Modo seleccionado automáticamente: {}", paint(mode_str, GREEN));
-            println!("  Usuario predeterminado:           {}", paint("antos", BOLD));
-            println!("  Hostname:                         {}", paint("antos-box", BOLD));
+            println!(
+                "  Modo seleccionado automáticamente: {}",
+                paint(mode_str, GREEN)
+            );
+            println!(
+                "  Usuario predeterminado:           {}",
+                paint("antos", BOLD)
+            );
+            println!(
+                "  Hostname:                         {}",
+                paint("antos-box", BOLD)
+            );
             println!("\n  Ejecutando simulación de instalación guiada...");
 
             let cfg = antos_protocolo::InstallConfig {
@@ -2439,15 +3504,32 @@ fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
 
             let report = installer::DeployEngine::deploy_system(&cfg, &ctx.workspace)?;
-            println!("\n  {} {}", paint("✓ Verificación de instalación completada:", GREEN), report.summary);
+            println!(
+                "\n  {} {}",
+                paint("✓ Verificación de instalación completada:", GREEN),
+                report.summary
+            );
             println!("    • Partición ESP:   {}", report.efi_partition);
             println!("    • Partición Raíz:  {}", report.root_partition);
-            println!("    • Pasos validados: {}/{}", report.steps.len(), report.steps.len());
+            println!(
+                "    • Pasos validados: {}/{}",
+                report.steps.len(),
+                report.steps.len()
+            );
             println!("\n  Para proceder a instalar en vivo sobre este equipo, ejecute:");
-            println!("    {}\n", paint(&format!("antos install run --target {} --apply", chosen_disk.path), CYAN));
+            println!(
+                "    {}\n",
+                paint(
+                    &format!("antos install run --target {} --apply", chosen_disk.path),
+                    CYAN
+                )
+            );
         }
         _ => {
-            println!("\n{} Asistente de Instalación en Disco Duro y Dual Boot:", paint("antOS Instalador ·", BOLD));
+            println!(
+                "\n{} Asistente de Instalación en Disco Duro y Dual Boot:",
+                paint("antOS Instalador ·", BOLD)
+            );
             println!("  Uso:");
             println!("    antos install list                           Enumera discos compatibles y sugerencias de modo");
             println!("    antos install wizard                         Asistente interactivo guiado de instalación");
@@ -2475,10 +3557,18 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            println!("\n{} Sondeando sistemas operativos en «{}»:", paint("antOS Bootloader ·", BOLD), esp_path);
-            let entries = installer::BootloaderEngine::probe_operating_systems(std::path::Path::new(&esp_path))?;
+            println!(
+                "\n{} Sondeando sistemas operativos en «{}»:",
+                paint("antOS Bootloader ·", BOLD),
+                esp_path
+            );
+            let entries = installer::BootloaderEngine::probe_operating_systems(
+                std::path::Path::new(&esp_path),
+            )?;
             if entries.is_empty() {
-                println!("  (no se detectaron sistemas operativos en el directorio especificado)\n");
+                println!(
+                    "  (no se detectaron sistemas operativos en el directorio especificado)\n"
+                );
                 return Ok(());
             }
 
@@ -2491,7 +3581,10 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
                 };
                 println!("  [{}] {} {}", idx + 1, badge, paint(&os.name, BOLD));
                 println!("      Ruta binario EFI:  {}", os.efi_path);
-                println!("      Dispositivo/Part:  {} (Partición #{})\n", os.disk_device, os.partition_number);
+                println!(
+                    "      Dispositivo/Part:  {} (Partición #{})\n",
+                    os.disk_device, os.partition_number
+                );
             }
         }
         "install" | "deploy" => {
@@ -2539,7 +3632,10 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
 
             let esp = std::path::PathBuf::from(if dry_run {
-                ctx.workspace.join("target/esp-staging").display().to_string()
+                ctx.workspace
+                    .join("target/esp-staging")
+                    .display()
+                    .to_string()
             } else {
                 esp_path.clone()
             });
@@ -2554,15 +3650,33 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
                 dry_run,
             };
 
-            println!("\n{} Instalando Gestor de Arranque UEFI (systemd-boot):", paint("antOS Bootloader ·", BOLD));
+            println!(
+                "\n{} Instalando Gestor de Arranque UEFI (systemd-boot):",
+                paint("antOS Bootloader ·", BOLD)
+            );
             println!("  • Directorio ESP:     {}", paint(&config.esp_mount, CYAN));
             println!("  • Dispositivo destino: {}", paint(&target_device, CYAN));
             println!("  • Partición EFI:      #{}", efi_partition);
             println!("  • Timeout menú:       {} segundos", timeout_seconds);
-            println!("  • Modo de ejecución:  {}\n", if dry_run { paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW) } else { paint("ESCRITURA EN ESP Y NVRAM", RED) });
+            println!(
+                "  • Modo de ejecución:  {}\n",
+                if dry_run {
+                    paint("SIMULACIÓN SEGURA (Dry-Run)", YELLOW)
+                } else {
+                    paint("ESCRITURA EN ESP Y NVRAM", RED)
+                }
+            );
 
             let report = installer::BootloaderEngine::install_bootloader(&config)?;
-            println!("  {}: {}", paint("Resultado", BOLD), if report.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) });
+            println!(
+                "  {}: {}",
+                paint("Resultado", BOLD),
+                if report.success {
+                    paint("EXITOSO", GREEN)
+                } else {
+                    paint("FALLIDO", RED)
+                }
+            );
             println!("  {}\n", report.summary);
             println!("  {}:", paint("Entradas de Arranque Generadas", BOLD));
             for e in &report.entries_configured {
@@ -2572,11 +3686,17 @@ fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    {}\n", paint(&report.efibootmgr_command, CYAN));
 
             if dry_run {
-                println!("  {} Para aplicar estos cambios en el firmware UEFI use «--apply».\n", paint("Nota:", YELLOW));
+                println!(
+                    "  {} Para aplicar estos cambios en el firmware UEFI use «--apply».\n",
+                    paint("Nota:", YELLOW)
+                );
             }
         }
         _ => {
-            println!("\n{} Gestor de Arranque UEFI y Dual Boot:", paint("antOS Bootloader ·", BOLD));
+            println!(
+                "\n{} Gestor de Arranque UEFI y Dual Boot:",
+                paint("antOS Bootloader ·", BOLD)
+            );
             println!("  Uso:");
             println!("    antos bootloader probe [--esp <ruta>]        Sondea sistemas operativos instalados");
             println!("    antos bootloader install [--esp <ruta>]      Genera y valida la configuración de systemd-boot");
@@ -2594,9 +3714,17 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match sub {
         Some("new" | "create" | "add") => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"))?;
-            let title = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"))?;
-            
+            let id = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"
+                )
+            })?;
+            let title = args.get(2).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos ticket new <ID> <Título> [--fase \"...\"] [--desc \"...\"]"
+                )
+            })?;
+
             let phase = args
                 .iter()
                 .position(|a| a == "--fase" || a == "-f")
@@ -2609,7 +3737,13 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 .and_then(|i| args.get(i + 1))
                 .cloned();
 
-            let path = engine.create_ticket(&ctx.workspace, id, title, desc.as_deref(), phase.as_deref())?;
+            let path = engine.create_ticket(
+                &ctx.workspace,
+                id,
+                title,
+                desc.as_deref(),
+                phase.as_deref(),
+            )?;
             println!(
                 "\n{} Ticket {} creado exitosamente en {}.\n",
                 paint("✓", GREEN),
@@ -2619,11 +3753,21 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
             return Ok(());
         }
         Some("status" | "set-status") => {
-            let id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"))?;
-            let status_raw = args.get(2).ok_or_else(|| anyhow::anyhow!("uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"))?;
+            let id = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"
+                )
+            })?;
+            let status_raw = args.get(2).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos ticket status <ID> <completado|progreso|revision|pendiente>"
+                )
+            })?;
             let st = match status_raw.to_lowercase().as_str() {
                 "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completado,
-                "progreso" | "en_progreso" | "in_progress" => antos_protocolo::TicketStatus::EnProgreso,
+                "progreso" | "en_progreso" | "in_progress" => {
+                    antos_protocolo::TicketStatus::EnProgreso
+                }
                 "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::EnRevision,
                 _ => antos_protocolo::TicketStatus::Pendiente,
             };
@@ -2682,7 +3826,10 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
         return Ok(());
     }
 
-    println!("\n{}", paint("antOS · Catálogo y Hoja de Ruta de Tickets", BOLD));
+    println!(
+        "\n{}",
+        paint("antOS · Catálogo y Hoja de Ruta de Tickets", BOLD)
+    );
     println!();
     println!(
         "  {:<8} {:<8} {:<55} {}",
@@ -2720,10 +3867,16 @@ fn cmd_ports(args: &[String]) -> Result<()> {
     let filtro = args.first().and_then(|a| a.parse::<u16>().ok());
     let puertos = net::diagnosticar_puertos(filtro)?;
 
-    println!("\n{}", paint("antOS · Diagnóstico de Puertos y Procesos", BOLD));
+    println!(
+        "\n{}",
+        paint("antOS · Diagnóstico de Puertos y Procesos", BOLD)
+    );
     if puertos.is_empty() {
         if let Some(p) = filtro {
-            println!("  El puerto {} está libre.\n", paint(&format!(":{p}"), GREEN));
+            println!(
+                "  El puerto {} está libre.\n",
+                paint(&format!(":{p}"), GREEN)
+            );
         } else {
             println!("  No se detectaron puertos de desarrollo en escucha activa.\n");
         }
@@ -2765,7 +3918,10 @@ fn cmd_ports(args: &[String]) -> Result<()> {
 
 fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
     if args.is_empty() || args[0] == "list" || args[0] == "roles" {
-        println!("\n{}", paint("antOS · Roles de Agentes Especializados (antFlow)", BOLD));
+        println!(
+            "\n{}",
+            paint("antOS · Roles de Agentes Especializados (antFlow)", BOLD)
+        );
         let roles = [
             antos_protocolo::AgentRole::Arquitecto,
             antos_protocolo::AgentRole::Coder,
@@ -2775,7 +3931,10 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
         for r in roles {
             println!("\n  {} {}", paint("●", GREEN), paint(r.nombre(), BOLD));
             println!("    {}", paint(r.descripcion(), DIM));
-            println!("    {}", paint(&format!("Directiva: {}", r.prompt_sistema()), DIM));
+            println!(
+                "    {}",
+                paint(&format!("Directiva: {}", r.prompt_sistema()), DIM)
+            );
         }
         println!();
         return Ok(());
@@ -2783,21 +3942,44 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     match args[0].as_str() {
         "run" => {
-            let ticket_id = args.get(1).ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto]"))?;
+            let ticket_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto]"))?;
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
-            let node_target = args.iter().position(|a| a == "--node" || a == "-n" || a == "--remote").and_then(|i| args.get(i + 1));
+            let node_target = args
+                .iter()
+                .position(|a| a == "--node" || a == "-n" || a == "--remote")
+                .and_then(|i| args.get(i + 1));
 
-            println!("\n{}", paint(&format!("antOS · Orquestador antFlow para {ticket_id}"), BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    &format!("antOS · Orquestador antFlow para {ticket_id}"),
+                    BOLD
+                )
+            );
 
             if let Some(target) = node_target {
-                println!("  {} Despachando rol a nodo remoto Swarm: {}", paint("🌐", CYAN), paint(target, BOLD));
-                let _ = distributed::SwarmEngine::global().dispatch_remote_role(&ctx.workspace, ticket_id, antos_protocolo::AgentRole::Coder, Some(target))?;
+                println!(
+                    "  {} Despachando rol a nodo remoto Swarm: {}",
+                    paint("🌐", CYAN),
+                    paint(target, BOLD)
+                );
+                let _ = distributed::SwarmEngine::global().dispatch_remote_role(
+                    &ctx.workspace,
+                    ticket_id,
+                    antos_protocolo::AgentRole::Coder,
+                    Some(target),
+                )?;
             }
 
             let engine = flow::FlowEngine::global();
 
             let task = if auto {
-                println!("  {} Ejecutando pipeline automatizado de agentes...", paint("▶", GREEN));
+                println!(
+                    "  {} Ejecutando pipeline automatizado de agentes...",
+                    paint("▶", GREEN)
+                );
                 engine.ejecutar_pipeline_worktree(&ctx.workspace, &ctx.state, ticket_id, &[])?
             } else {
                 engine.iniciar_tarea(&ctx.workspace, &ctx.state, ticket_id)?
@@ -2816,15 +3998,29 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!("  Auditoría:      {}", paint(resumen, GREEN));
             }
 
-            println!("\n  {}", paint("Historial de Transiciones de Agentes:", BOLD));
+            println!(
+                "\n  {}",
+                paint("Historial de Transiciones de Agentes:", BOLD)
+            );
             for t in &task.historial {
-                let rol_fmt = t.rol.map(|r| format!(" [{}]", r.nombre())).unwrap_or_default();
-                println!("    • {}{}: {}", paint(t.estado_nuevo.etiqueta(), BOLD), paint(&rol_fmt, DIM), t.detalle);
+                let rol_fmt = t
+                    .rol
+                    .map(|r| format!(" [{}]", r.nombre()))
+                    .unwrap_or_default();
+                println!(
+                    "    • {}{}: {}",
+                    paint(t.estado_nuevo.etiqueta(), BOLD),
+                    paint(&rol_fmt, DIM),
+                    t.detalle
+                );
             }
 
             if let Some(diff) = &task.diff_preview {
                 if !diff.is_empty() {
-                    println!("\n  {}", paint("Previsualización de Diff Consolidado:", BOLD));
+                    println!(
+                        "\n  {}",
+                        paint("Previsualización de Diff Consolidado:", BOLD)
+                    );
                     println!("    {}", diff.replace('\n', "\n    "));
                 }
             }
@@ -2836,9 +4032,18 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             let engine = flow::FlowEngine::global();
             if let Some(tid) = ticket_id {
                 if let Some(task) = engine.consultar_tarea(tid) {
-                    println!("\n{}", paint(&format!("antOS · Estado de Tarea antFlow [{}]", task.ticket_id), BOLD));
+                    println!(
+                        "\n{}",
+                        paint(
+                            &format!("antOS · Estado de Tarea antFlow [{}]", task.ticket_id),
+                            BOLD
+                        )
+                    );
                     println!("  Estado:     {}", task.estado.etiqueta());
-                    println!("  Rol Activo: {}", task.rol_actual.map(|r| r.nombre()).unwrap_or("Ninguno"));
+                    println!(
+                        "  Rol Activo: {}",
+                        task.rol_actual.map(|r| r.nombre()).unwrap_or("Ninguno")
+                    );
                     if let Some(wt) = &task.worktree_path {
                         println!("  Worktree:   {}", paint(wt, DIM));
                     }
@@ -2888,22 +4093,59 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
     match sub {
         "up" | "start" => {
-            let svc = args.get(1).ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. antos service up postgres)"))?;
+            let svc = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "debes especificar el nombre del servicio (ej. antos service up postgres)"
+                )
+            })?;
             let port = args.get(2).and_then(|p| p.parse::<u16>().ok());
             let db = args.get(3).map(String::as_str);
 
-            println!("\n{} Aprovisionando servicio efímero «{}»...", paint("⚡", BOLD), paint(svc, YELLOW));
+            println!(
+                "\n{} Aprovisionando servicio efímero «{}»...",
+                paint("⚡", BOLD),
+                paint(svc, YELLOW)
+            );
             let info = service::start_service(svc, port, db, &ctx.state, &ctx.workspace)?;
-            println!("  {} Servicio:      {}", paint("●", GREEN), paint(&info.name, BOLD));
-            println!("  {} Puerto:        {}", paint("●", GREEN), paint(&info.port.to_string(), YELLOW));
-            println!("  {} Estado:        {}", paint("●", GREEN), paint(&info.status, GREEN));
-            println!("  {} Variable .env: {}={}", paint("●", GREEN), paint(&info.env_var_key, BOLD), paint(&info.env_var_value, CYAN));
-            println!("  {} Almacenamiento: {}\n", paint("●", GREEN), paint(&info.data_dir, DIM));
+            println!(
+                "  {} Servicio:      {}",
+                paint("●", GREEN),
+                paint(&info.name, BOLD)
+            );
+            println!(
+                "  {} Puerto:        {}",
+                paint("●", GREEN),
+                paint(&info.port.to_string(), YELLOW)
+            );
+            println!(
+                "  {} Estado:        {}",
+                paint("●", GREEN),
+                paint(&info.status, GREEN)
+            );
+            println!(
+                "  {} Variable .env: {}={}",
+                paint("●", GREEN),
+                paint(&info.env_var_key, BOLD),
+                paint(&info.env_var_value, CYAN)
+            );
+            println!(
+                "  {} Almacenamiento: {}\n",
+                paint("●", GREEN),
+                paint(&info.data_dir, DIM)
+            );
         }
         "down" | "stop" => {
-            let svc = args.get(1).ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. antos service down postgres)"))?;
+            let svc = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "debes especificar el nombre del servicio (ej. antos service down postgres)"
+                )
+            })?;
             service::stop_service(svc, &ctx.state)?;
-            println!("\n{} Servicio «{}» detenido y limpiado.\n", paint("✓", GREEN), paint(svc, BOLD));
+            println!(
+                "\n{} Servicio «{}» detenido y limpiado.\n",
+                paint("✓", GREEN),
+                paint(svc, BOLD)
+            );
         }
         "status" | "list" | _ => {
             let svc_filter = if sub != "status" && sub != "list" {
@@ -2913,10 +4155,18 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
 
             let services = service::get_service_status(svc_filter, &ctx.state)?;
-            println!("\n{}", paint("antOS · Servicios Locales Efímeros de Desarrollo (T5.1)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "antOS · Servicios Locales Efímeros de Desarrollo (T5.1)",
+                    BOLD
+                )
+            );
             if services.is_empty() {
                 println!("  No hay servicios efímeros aprovisionados.");
-                println!("  Inicia uno con: antos service up <postgres|redis|mariadb|meilisearch>\n");
+                println!(
+                    "  Inicia uno con: antos service up <postgres|redis|mariadb|meilisearch>\n"
+                );
             } else {
                 println!("  ┌────────────────┬────────┬───────────┬─────────────────────────────────────────────────────────┐");
                 println!(
@@ -2935,7 +4185,11 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
                     };
                     println!(
                         "  │ {:<14} │ {:<6} │ {:<20} │ {}={} │",
-                        s.name, s.port, st_fmt, paint(&s.env_var_key, BOLD), ellipsis(&s.env_var_value, 38)
+                        s.name,
+                        s.port,
+                        st_fmt,
+                        paint(&s.env_var_key, BOLD),
+                        ellipsis(&s.env_var_value, 38)
                     );
                 }
                 println!("  └────────────────┴────────┴───────────┴─────────────────────────────────────────────────────────┘\n");
@@ -2948,8 +4202,16 @@ fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
 fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     if let Some(pos) = args.iter().position(|a| a == "--dispatch" || a == "-d") {
         if let Some(target_ticket) = args.get(pos + 1) {
-            println!("\n{} Despachando ticket {} al equipo multi-agente antFlow...", paint("🚀", BOLD), paint(target_ticket, YELLOW));
-            let run_args = vec!["run".to_string(), target_ticket.clone(), "--auto".to_string()];
+            println!(
+                "\n{} Despachando ticket {} al equipo multi-agente antFlow...",
+                paint("🚀", BOLD),
+                paint(target_ticket, YELLOW)
+            );
+            let run_args = vec![
+                "run".to_string(),
+                target_ticket.clone(),
+                "--auto".to_string(),
+            ];
             return cmd_agent(ctx, &run_args);
         }
     }
@@ -2960,11 +4222,20 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     let tasks = flow_engine.list_tasks();
 
     println!("\n{}", paint("╔══════════════════════════════════════════════════════════════════════════════════════╗", BOLD));
-    println!("║       {}        ║", paint("antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)", BOLD));
+    println!(
+        "║       {}        ║",
+        paint(
+            "antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)",
+            BOLD
+        )
+    );
     println!("{}\n", paint("╚══════════════════════════════════════════════════════════════════════════════════════╝", BOLD));
 
     // Monitor de Agentes
-    println!("  {}", paint("● MONITOR DE AGENTES ACTIVOS (antFlow)", BOLD));
+    println!(
+        "  {}",
+        paint("● MONITOR DE AGENTES ACTIVOS (antFlow)", BOLD)
+    );
     let roles = [
         ("📐 Arquitecto", antos_protocolo::AgentRole::Arquitecto),
         ("💻 Coder", antos_protocolo::AgentRole::Coder),
@@ -2975,7 +4246,12 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     for (etiqueta_rol, rol) in roles {
         let active_tasks: Vec<_> = tasks.iter().filter(|t| t.rol_actual == Some(rol)).collect();
         if active_tasks.is_empty() {
-            println!("    {} {:<18} {}", paint("○", DIM), etiqueta_rol, paint("[Inactivo / En espera]", DIM));
+            println!(
+                "    {} {:<18} {}",
+                paint("○", DIM),
+                etiqueta_rol,
+                paint("[Inactivo / En espera]", DIM)
+            );
         } else {
             for t in active_tasks {
                 println!(
@@ -2992,10 +4268,22 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     println!();
 
     // Columnas Kanban
-    let pendientes: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::Pendiente).collect();
-    let en_progreso: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::EnProgreso).collect();
-    let en_revision: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::EnRevision).collect();
-    let completados: Vec<_> = tickets.iter().filter(|t| t.estado == antos_protocolo::TicketStatus::Completado).collect();
+    let pendientes: Vec<_> = tickets
+        .iter()
+        .filter(|t| t.estado == antos_protocolo::TicketStatus::Pendiente)
+        .collect();
+    let en_progreso: Vec<_> = tickets
+        .iter()
+        .filter(|t| t.estado == antos_protocolo::TicketStatus::EnProgreso)
+        .collect();
+    let en_revision: Vec<_> = tickets
+        .iter()
+        .filter(|t| t.estado == antos_protocolo::TicketStatus::EnRevision)
+        .collect();
+    let completados: Vec<_> = tickets
+        .iter()
+        .filter(|t| t.estado == antos_protocolo::TicketStatus::Completado)
+        .collect();
 
     println!("  {}", paint("● TABLERO DE TICKETS (docs/tickets/)", BOLD));
     println!("  ┌────────────────────────┬────────────────────────┬────────────────────────┬────────────────────────┐");
@@ -3012,16 +4300,33 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     );
     println!("  ├────────────────────────┼────────────────────────┼────────────────────────┼────────────────────────┤");
 
-    let max_filas = [pendientes.len(), en_progreso.len(), en_revision.len(), completados.len()]
-        .into_iter()
-        .max()
-        .unwrap_or(0);
+    let max_filas = [
+        pendientes.len(),
+        en_progreso.len(),
+        en_revision.len(),
+        completados.len(),
+    ]
+    .into_iter()
+    .max()
+    .unwrap_or(0);
 
     for i in 0..max_filas {
-        let col1 = pendientes.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
-        let col2 = en_progreso.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
-        let col3 = en_revision.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
-        let col4 = completados.get(i).map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14))).unwrap_or_default();
+        let col1 = pendientes
+            .get(i)
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .unwrap_or_default();
+        let col2 = en_progreso
+            .get(i)
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .unwrap_or_default();
+        let col3 = en_revision
+            .get(i)
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .unwrap_or_default();
+        let col4 = completados
+            .get(i)
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .unwrap_or_default();
 
         println!(
             "  │ {:<22} │ {:<22} │ {:<22} │ {:<22} │",
@@ -3030,8 +4335,16 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
     println!("  └────────────────────────┴────────────────────────┴────────────────────────┴────────────────────────┘");
 
-    println!("\n  {} Usa {} para despachar un ticket al equipo de agentes.", paint("💡", YELLOW), paint("antos panel --dispatch <TID>", BOLD));
-    println!("  {} Usa {} para lanzar la interfaz gráfica Wayland/GTK4.\n", paint("🖥️", BOLD), paint("antos-barra", BOLD));
+    println!(
+        "\n  {} Usa {} para despachar un ticket al equipo de agentes.",
+        paint("💡", YELLOW),
+        paint("antos panel --dispatch <TID>", BOLD)
+    );
+    println!(
+        "  {} Usa {} para lanzar la interfaz gráfica Wayland/GTK4.\n",
+        paint("🖥️", BOLD),
+        paint("antos-barra", BOLD)
+    );
 
     Ok(())
 }
