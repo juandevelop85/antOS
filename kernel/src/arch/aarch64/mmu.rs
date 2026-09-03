@@ -33,15 +33,21 @@ const DESC_BLOCK: u64 = 0b01;
 const ATTR_DEVICE: u64 = 0 << 2;
 const ATTR_NORMAL: u64 = 1 << 2;
 
-// Access Permissions and flags
+// Access Permissions and flags:
+// AP[2:1]: 0b00 = EL1 only, 0b01 = EL1 and EL0 Read/Write
 const AP_RW_EL1: u64 = 0 << 6;
+const AP_RW_USER: u64 = 1 << 6;
 const SH_INNER: u64 = 0b11 << 8;
 const SH_OUTER: u64 = 0b10 << 8;
 const ACCESS_FLAG: u64 = 1 << 10;
 const PXN_FLAG: u64 = 1 << 53;
 const UXN_FLAG: u64 = 1 << 54;
 
-const NORMAL_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_EL1 | SH_INNER | ACCESS_FLAG;
+pub const USER_SPACE_VIRT: u64 = 0x0040_0000;
+pub const USER_SPACE_PHYS: u64 = 0x4100_0000;
+
+const NORMAL_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_EL1 | SH_INNER | ACCESS_FLAG | UXN_FLAG;
+const USER_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_USER | SH_INNER | ACCESS_FLAG | PXN_FLAG;
 const DEVICE_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_DEVICE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
 
 pub struct ArmMmu;
@@ -87,6 +93,10 @@ pub fn init() {
 
         // L1[1] -> 1 GiB Block mapping RAM (0x4000_0000..0x8000_0000) as Normal Cacheable memory
         L1_TABLE.entries[1] = 0x4000_0000 | NORMAL_BLOCK_FLAGS;
+
+        // User Space mapping: 0x0040_0000..0x0060_0000 (Index 2 = 0x0040_0000 / 2MiB)
+        // Mapped to physical RAM with EL0 Read/Write/Execute permissions
+        L2_TABLE_PERIPHERALS.entries[2] = USER_SPACE_PHYS | USER_BLOCK_FLAGS;
 
         // L2 mappings for peripherals in 0..1 GiB (each entry covers 2 MiB):
         // GIC at 0x0800_0000..0x0820_0000 (Index 64 = 0x0800_0000 / 2MiB)

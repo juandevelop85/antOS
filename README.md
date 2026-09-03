@@ -4,10 +4,10 @@
 
 [![Version](https://img.shields.io/badge/Release-v0.1.0-brightgreen.svg)](CHANGELOG.md)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-151%2F151%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-154%2F154%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-48%2F49%20(Fase%2018%20Activa)-blue.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-49%2F49%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 
 ---
@@ -419,7 +419,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 18** | [T18.1](docs/tickets/T18.1-abstraccion-de-capa-de-hardware-hal-y-desacoplamiento-de-arquitectura-en-kernel.md) · Abstracción de Capa de Hardware (HAL) y Desacoplamiento de Arquitectura en Kernel | ✅ Completado |
 | **Fase 18** | [T18.2](docs/tickets/T18.2-arranque-aarch64-consola-serie-pl011-y-vectores-de-excepcion-vbar-el1.md) · Arranque AArch64, Consola Serie PL011 y Vectores de Excepción VBAR_EL1 | ✅ Completado |
 | **Fase 18** | [T18.3](docs/tickets/T18.3-paginacion-aarch64-ttbr0-ttbr1-y-controlador-de-interrupciones-gic.md) · Paginación AArch64 (TTBR0/TTBR1) y Controlador de Interrupciones GIC | ✅ Completado |
-| **Fase 18** | [T18.4](docs/tickets/T18.4-llamadas-al-sistema-svc-en-aarch64-y-generacion-de-imagenes-uefi-bootaa64-efi.md) · Llamadas al Sistema (SVC) en AArch64 y Generación de Imágenes UEFI (BOOTAA64.EFI) | ⏳ Pendiente |
+| **Fase 18** | [T18.4](docs/tickets/T18.4-llamadas-al-sistema-svc-en-aarch64-y-generacion-de-imagenes-uefi-bootaa64-efi.md) · Llamadas al Sistema (SVC) en AArch64 y Generación de Imágenes UEFI (BOOTAA64.EFI) | ✅ Completado |
 
 ---
 

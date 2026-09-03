@@ -116,6 +116,17 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     println!("  ticks        {} pulsos de temporizador verificados con éxito", arch::aarch64::timer::ticks());
 
     println!();
+    println!("espacio de usuario (EL0) y llamadas al sistema (SVC)");
+    let (user_entry, user_sp, arg0, arg1) = unsafe {
+        arch::aarch64::syscall::setup_test_userspace()
+    };
+    println!("  transición   saltando a EL0 en {user_entry:#x} con sp {user_sp:#x}");
+    let exit_code = unsafe {
+        arch::aarch64::syscall::enter_user_mode(user_entry, user_sp, arg0, arg1)
+    };
+    println!("  retorno      el programa EL0 finalizó limpiamente con código de salida {exit_code}");
+
+    println!();
     println!("sistema operativo listo (AArch64 bare metal)");
 
     halt_loop()

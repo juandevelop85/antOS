@@ -250,6 +250,12 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         return;
     }
 
+    // Handle Syscall (SVC #0 from EL0, EC == 0x15)
+    if ec == 0x15 {
+        crate::arch::aarch64::syscall::dispatch(ctx);
+        return;
+    }
+
     let mut serial = crate::arch::aarch64::pl011::emergency();
     let vector_name = match vector_id {
         0 => "Current EL with SP0 (Synchronous)",

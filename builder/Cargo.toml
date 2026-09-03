@@ -13,3 +13,5 @@ edition = "2021"
 # compiler_builtins). Es un desajuste upstream, no nuestro. Volveremos al
 # arranque UEFI más adelante, cuando se resuelva o con Limine.
 bootloader = { version = "0.11", default-features = false, features = ["bios"] }
+fatfs = "0.3.6"
+gpt = "4.1.0"
