@@ -54,31 +54,31 @@ impl FlowEngine {
         let mut task = FlowTask {
             id: id.clone(),
             ticket_id: ticket_upper.clone(),
-            estado: FlowState::Pendiente,
-            rol_actual: Some(AgentRole::Arquitecto),
+            state: FlowState::Pending,
+            current_role: Some(AgentRole::Architect),
             worktree_path: Some(wt_path.display().to_string()),
             branch_name: Some(branch_name.clone()),
-            reintentos_qa: 0,
-            max_reintentos_qa: 3,
+            qa_retries: 0,
+            max_qa_retries: 3,
             diff_preview: None,
-            resumen_auditoria: None,
-            historial: Vec::new(),
+            audit_summary: None,
+            history: Vec::new(),
         };
 
-        // Initial transition: Pendiente -> Planificando (Arquitecto)
-        task.historial.push(FlowTransition {
-            timestamp_segundos: timestamp,
-            estado_anterior: FlowState::Pendiente,
-            estado_nuevo: FlowState::Planificando,
-            rol: Some(AgentRole::Arquitecto),
-            detalle: format!(
+        // Initial transition: Pending -> Planning (Architect)
+        task.history.push(FlowTransition {
+            timestamp_seconds: timestamp,
+            old_state: FlowState::Pending,
+            new_state: FlowState::Planning,
+            role: Some(AgentRole::Architect),
+            detail: format!(
                 "Arquitecto analizando especificación: «{}» ({} criterios de aceptación)",
-                detalle_ticket.titulo,
-                detalle_ticket.criterios_aceptacion.len()
+                detalle_ticket.title,
+                detalle_ticket.acceptance_criteria.len()
             ),
         });
-        task.estado = FlowState::Planificando;
-        task.rol_actual = Some(AgentRole::Arquitecto);
+        task.state = FlowState::Planning;
+        task.current_role = Some(AgentRole::Architect);
 
         lock.insert(ticket_upper.clone(), task.clone());
         Ok(task)
@@ -108,118 +108,118 @@ impl FlowEngine {
             .get_mut(&ticket_upper)
             .ok_or_else(|| anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»"))?;
 
-        let timestamp = ahora_segundos();
-        let anterior = task.estado;
+        let timestamp = now_secs();
+        let anterior = task.state;
 
         match anterior {
-            FlowState::Planificando => {
+            FlowState::Planning => {
                 // Arquitecto terminó -> pasa a Coder
-                task.estado = FlowState::Implementando;
-                task.rol_actual = Some(AgentRole::Coder);
-                task.historial.push(FlowTransition {
-                    timestamp_segundos: timestamp,
-                    estado_anterior: anterior,
-                    estado_nuevo: task.estado,
-                    rol: task.rol_actual,
-                    detalle: if detalle.is_empty() {
+                task.state = FlowState::Implementing;
+                task.current_role = Some(AgentRole::Coder);
+                task.history.push(FlowTransition {
+                    timestamp_seconds: timestamp,
+                    old_state: anterior,
+                    new_state: task.state,
+                    role: task.current_role,
+                    detail: if detalle.is_empty() {
                         "Plan aprobado por Arquitecto. Coder iniciando cambios en Worktree.".into()
                     } else {
                         detalle.to_string()
                     },
                 });
             }
-            FlowState::Implementando => {
+            FlowState::Implementing => {
                 // Coder terminó -> pasa a QA
-                task.estado = FlowState::VerificandoTests;
-                task.rol_actual = Some(AgentRole::QA);
-                task.historial.push(FlowTransition {
-                    timestamp_segundos: timestamp,
-                    estado_anterior: anterior,
-                    estado_nuevo: task.estado,
-                    rol: task.rol_actual,
-                    detalle: if detalle.is_empty() {
+                task.state = FlowState::Testing;
+                task.current_role = Some(AgentRole::QA);
+                task.history.push(FlowTransition {
+                    timestamp_seconds: timestamp,
+                    old_state: anterior,
+                    new_state: task.state,
+                    role: task.current_role,
+                    detail: if detalle.is_empty() {
                         "Código generado. Agente QA ejecutando pruebas en Sandbox.".into()
                     } else {
                         detalle.to_string()
                     },
                 });
             }
-            FlowState::VerificandoTests => {
+            FlowState::Testing => {
                 if test_exitoso {
                     // QA aprobó -> pasa a Auditor
-                    task.estado = FlowState::RevisionAuditor;
-                    task.rol_actual = Some(AgentRole::Auditor);
-                    task.historial.push(FlowTransition {
-                        timestamp_segundos: timestamp,
-                        estado_anterior: anterior,
-                        estado_nuevo: task.estado,
-                        rol: task.rol_actual,
-                        detalle: if detalle.is_empty() {
+                    task.state = FlowState::Reviewing;
+                    task.current_role = Some(AgentRole::Auditor);
+                    task.history.push(FlowTransition {
+                        timestamp_seconds: timestamp,
+                        old_state: anterior,
+                        new_state: task.state,
+                        role: task.current_role,
+                        detail: if detalle.is_empty() {
                             "Todas las pruebas pasaron en verde. Auditor verificando diff y seguridad.".into()
                         } else {
                             detalle.to_string()
                         },
                     });
-                } else if task.reintentos_qa < task.max_reintentos_qa {
+                } else if task.qa_retries < task.max_qa_retries {
                     // QA falló -> realimentar a Coder para corrección
-                    task.reintentos_qa += 1;
-                    task.estado = FlowState::Implementando;
-                    task.rol_actual = Some(AgentRole::Coder);
-                    task.historial.push(FlowTransition {
-                        timestamp_segundos: timestamp,
-                        estado_anterior: anterior,
-                        estado_nuevo: task.estado,
-                        rol: task.rol_actual,
-                        detalle: format!(
+                    task.qa_retries += 1;
+                    task.state = FlowState::Implementing;
+                    task.current_role = Some(AgentRole::Coder);
+                    task.history.push(FlowTransition {
+                        timestamp_seconds: timestamp,
+                        old_state: anterior,
+                        new_state: task.state,
+                        role: task.current_role,
+                        detail: format!(
                             "Tests fallaron (intento {}/{}). Realimentando errores a Coder: {detalle}",
-                            task.reintentos_qa, task.max_reintentos_qa
+                            task.qa_retries, task.max_qa_retries
                         ),
                     });
                 } else {
                     // Superó límite de reintentos
-                    task.estado = FlowState::Fallido;
-                    task.rol_actual = None;
-                    task.historial.push(FlowTransition {
-                        timestamp_segundos: timestamp,
-                        estado_anterior: anterior,
-                        estado_nuevo: FlowState::Fallido,
-                        rol: None,
-                        detalle: format!(
+                    task.state = FlowState::Failed;
+                    task.current_role = None;
+                    task.history.push(FlowTransition {
+                        timestamp_seconds: timestamp,
+                        old_state: anterior,
+                        new_state: FlowState::Failed,
+                        role: None,
+                        detail: format!(
                             "Límite de reintentos excedido ({}/{}). Tarea marcada como fallida.",
-                            task.reintentos_qa, task.max_reintentos_qa
+                            task.qa_retries, task.max_qa_retries
                         ),
                     });
                 }
             }
-            FlowState::RevisionAuditor => {
+            FlowState::Reviewing => {
                 // Auditor terminó -> listo para aprobación del desarrollador
-                task.estado = FlowState::ListoParaAprobacion;
-                task.rol_actual = None;
-                task.resumen_auditoria = Some("Diff verificado sin violaciones de radio de impacto.".into());
-                task.historial.push(FlowTransition {
-                    timestamp_segundos: timestamp,
-                    estado_anterior: anterior,
-                    estado_nuevo: task.estado,
-                    rol: None,
-                    detalle: if detalle.is_empty() {
+                task.state = FlowState::ReadyForApproval;
+                task.current_role = None;
+                task.audit_summary = Some("Diff verificado sin violaciones de radio de impacto.".into());
+                task.history.push(FlowTransition {
+                    timestamp_seconds: timestamp,
+                    old_state: anterior,
+                    new_state: task.state,
+                    role: None,
+                    detail: if detalle.is_empty() {
                         "Auditoría completada. Esperando confirmación final del desarrollador.".into()
                     } else {
                         detalle.to_string()
                     },
                 });
             }
-            FlowState::ListoParaAprobacion => {
+            FlowState::ReadyForApproval => {
                 bail!("la tarea ya está esperando aprobación final del usuario");
             }
-            FlowState::Fusionado => {
+            FlowState::Merged => {
                 bail!("la tarea ya fue fusionada");
             }
-            FlowState::Fallido => {
+            FlowState::Failed => {
                 bail!("la tarea está en estado fallido");
             }
-            FlowState::Pendiente => {
-                task.estado = FlowState::Planificando;
-                task.rol_actual = Some(AgentRole::Arquitecto);
+            FlowState::Pending => {
+                task.state = FlowState::Planning;
+                task.current_role = Some(AgentRole::Architect);
             }
         }
 
@@ -246,25 +246,25 @@ impl FlowEngine {
             .ok_or_else(|| anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»"))?;
 
         let timestamp = now_secs();
-        let anterior = task.estado;
+        let anterior = task.state;
 
         if decision {
-            task.estado = FlowState::Fusionado;
-            task.historial.push(FlowTransition {
-                timestamp_segundos: timestamp,
-                estado_anterior: anterior,
-                estado_nuevo: FlowState::Fusionado,
-                rol: None,
-                detalle: "Aprobado por el desarrollador. Cambios integrados a la rama principal.".into(),
+            task.state = FlowState::Merged;
+            task.history.push(FlowTransition {
+                timestamp_seconds: timestamp,
+                old_state: anterior,
+                new_state: FlowState::Merged,
+                role: None,
+                detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal.".into(),
             });
         } else {
-            task.estado = FlowState::Fallido;
-            task.historial.push(FlowTransition {
-                timestamp_segundos: timestamp,
-                estado_anterior: anterior,
-                estado_nuevo: FlowState::Fallido,
-                rol: None,
-                detalle: "Rechazado por el desarrollador. Worktree descartado.".into(),
+            task.state = FlowState::Failed;
+            task.history.push(FlowTransition {
+                timestamp_seconds: timestamp,
+                old_state: anterior,
+                new_state: FlowState::Failed,
+                role: None,
+                detail: "Rechazado por el desarrollador. Worktree descartado.".into(),
             });
         }
 
@@ -376,7 +376,7 @@ impl FlowEngine {
             let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
             if let Some(t) = lock.get_mut(&ticket_upper) {
                 t.diff_preview = Some(diff);
-                t.resumen_auditoria = Some("Suite de tests ejecutada en sandbox con éxito (100% verde).".into());
+                t.audit_summary = Some("Suite de tests ejecutada en sandbox con éxito (100% verde).".into());
                 task = t.clone();
             }
         }
@@ -528,41 +528,41 @@ mod tests {
             .expect("iniciar tarea T3.1");
 
         assert_eq!(task.ticket_id, "T3.1");
-        assert_eq!(task.estado, FlowState::Planificando);
-        assert_eq!(task.rol_actual, Some(AgentRole::Arquitecto));
+        assert_eq!(task.state, FlowState::Planning);
+        assert_eq!(task.current_role, Some(AgentRole::Architect));
 
         // 2. Arquitecto termina plan -> Coder
         let task = engine
             .avanzar_fase("T3.1", "arquitectura validada", true)
             .expect("avanzar a Coder");
-        assert_eq!(task.estado, FlowState::Implementando);
-        assert_eq!(task.rol_actual, Some(AgentRole::Coder));
+        assert_eq!(task.state, FlowState::Implementing);
+        assert_eq!(task.current_role, Some(AgentRole::Coder));
 
         // 3. Coder termina código -> QA
         let task = engine
             .avanzar_fase("T3.1", "codigo generado", true)
             .expect("avanzar a QA");
-        assert_eq!(task.estado, FlowState::VerificandoTests);
-        assert_eq!(task.rol_actual, Some(AgentRole::QA));
+        assert_eq!(task.state, FlowState::Testing);
+        assert_eq!(task.current_role, Some(AgentRole::QA));
 
         // 4. QA pasa tests -> Auditor
         let task = engine
             .avanzar_fase("T3.1", "tests pasaron en verde", true)
             .expect("avanzar a Auditor");
-        assert_eq!(task.estado, FlowState::RevisionAuditor);
-        assert_eq!(task.rol_actual, Some(AgentRole::Auditor));
+        assert_eq!(task.state, FlowState::Reviewing);
+        assert_eq!(task.current_role, Some(AgentRole::Auditor));
 
         // 5. Auditor termina revisión -> Listo para aprobación
         let task = engine
             .avanzar_fase("T3.1", "auditoria completada", true)
             .expect("avanzar a ListoParaAprobacion");
-        assert_eq!(task.estado, FlowState::ListoParaAprobacion);
-        assert_eq!(task.rol_actual, None);
+        assert_eq!(task.state, FlowState::ReadyForApproval);
+        assert_eq!(task.current_role, None);
 
         // 6. Aprobación final -> Fusionado
         let task = engine.aprobar_tarea("T3.1", true).expect("aprobar tarea");
-        assert_eq!(task.estado, FlowState::Fusionado);
-        assert_eq!(task.historial.len(), 6);
+        assert_eq!(task.state, FlowState::Merged);
+        assert_eq!(task.history.len(), 6);
     }
 
     #[test]
@@ -573,17 +573,17 @@ mod tests {
 
         // Iniciar con ticket T1.1
         let _ = engine.iniciar_tarea(&cwd, &state_dir, "T1.1");
-        let _ = engine.avanzar_fase("T1.1", "plan", true); // -> Implementando
-        let _ = engine.avanzar_fase("T1.1", "codigo", true); // -> VerificandoTests
+        let _ = engine.avanzar_fase("T1.1", "plan", true); // -> Implementing
+        let _ = engine.avanzar_fase("T1.1", "codigo", true); // -> Testing
 
-        // QA reporta fallo -> debe volver a Implementando con reintento 1
+        // QA reporta fallo -> debe volver a Implementing con reintento 1
         let task_reintento = engine
             .avanzar_fase("T1.1", "assertion failed line 42", false)
             .expect("reintento QA");
 
-        assert_eq!(task_reintento.estado, FlowState::Implementando);
-        assert_eq!(task_reintento.reintentos_qa, 1);
-        assert_eq!(task_reintento.rol_actual, Some(AgentRole::Coder));
+        assert_eq!(task_reintento.state, FlowState::Implementing);
+        assert_eq!(task_reintento.qa_retries, 1);
+        assert_eq!(task_reintento.current_role, Some(AgentRole::Coder));
     }
 
     #[test]
@@ -608,8 +608,8 @@ mod tests {
             .expect("ejecutar pipeline");
 
         assert_eq!(task.ticket_id, "T9.1");
-        assert_eq!(task.estado, FlowState::ListoParaAprobacion);
-        assert!(task.resumen_auditoria.is_some());
+        assert_eq!(task.state, FlowState::ReadyForApproval);
+        assert!(task.audit_summary.is_some());
 
         // Limpiar directorio temporal de prueba
         let _ = std::fs::remove_dir_all(&temp_dir);

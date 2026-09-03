@@ -3919,24 +3919,24 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!(
                         "\n{} {}  {}",
                         paint(&t.id, BOLD),
-                        paint(&t.fase, DIM),
-                        t.estado.etiqueta()
+                        paint(&t.phase, DIM),
+                        t.status.etiqueta()
                     );
-                    println!("{}", paint(&t.titulo, BOLD));
+                    println!("{}", paint(&t.title, BOLD));
                     println!();
                     println!("{}", paint("Descripción:", BOLD));
-                    println!("  {}", t.descripcion);
-                    if !t.alcance_tecnico.is_empty() {
+                    println!("  {}", t.description);
+                    if !t.technical_scope.is_empty() {
                         println!();
                         println!("{}", paint("Alcance Técnico:", BOLD));
-                        for a in &t.alcance_tecnico {
+                        for a in &t.technical_scope {
                             println!("  • {a}");
                         }
                     }
-                    if !t.criterios_aceptacion.is_empty() {
+                    if !t.acceptance_criteria.is_empty() {
                         println!();
                         println!("{}", paint("Criterios de Aceptación:", BOLD));
-                        for c in &t.criterios_aceptacion {
+                        for c in &t.acceptance_criteria {
                             println!("  • {c}");
                         }
                     }
@@ -3974,15 +3974,15 @@ fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     let mut completados = 0;
     for t in &tickets {
-        if t.estado == antos_protocolo::TicketStatus::Completado {
+        if t.status == antos_protocolo::TicketStatus::Completed {
             completados += 1;
         }
         println!(
             "  {:<8} {:<8} {:<55} {}",
-            paint(&t.fase, DIM),
+            paint(&t.phase, DIM),
             paint(&t.id, BOLD),
-            ellipsis(&t.titulo, 53),
-            t.estado.etiqueta()
+            ellipsis(&t.title, 53),
+            t.status.etiqueta()
         );
     }
     println!("  {}", "─".repeat(88));
@@ -4061,11 +4061,11 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             antos_protocolo::AgentRole::Auditor,
         ];
         for r in roles {
-            println!("\n  {} {}", paint("●", GREEN), paint(r.nombre(), BOLD));
-            println!("    {}", paint(r.descripcion(), DIM));
+            println!("\n  {} {}", paint("●", GREEN), paint(r.name(), BOLD));
+            println!("    {}", paint(r.description(), DIM));
             println!(
                 "    {}",
-                paint(&format!("Directiva: {}", r.prompt_sistema()), DIM)
+                paint(&format!("Directive: {}", r.system_prompt()), DIM)
             );
         }
         println!();
@@ -4119,14 +4119,14 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!("  Tarea ID:       {}", paint(&task.id, YELLOW));
             println!("  Ticket:         {}", paint(&task.ticket_id, BOLD));
-            println!("  Estado:         {}", task.estado.etiqueta());
+            println!("  Estado:         {}", task.state.label());
             if let Some(wt) = &task.worktree_path {
                 println!("  Worktree:       {}", paint(wt, DIM));
             }
             if let Some(br) = &task.branch_name {
                 println!("  Rama de Agente: {}", paint(br, GREEN));
             }
-            if let Some(resumen) = &task.resumen_auditoria {
+            if let Some(resumen) = &task.audit_summary {
                 println!("  Auditoría:      {}", paint(resumen, GREEN));
             }
 
@@ -4134,16 +4134,16 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                 "\n  {}",
                 paint("Historial de Transiciones de Agentes:", BOLD)
             );
-            for t in &task.historial {
+            for t in &task.history {
                 let rol_fmt = t
-                    .rol
+                    .role
                     .map(|r| format!(" [{}]", r.nombre()))
                     .unwrap_or_default();
                 println!(
                     "    • {}{}: {}",
-                    paint(t.estado_nuevo.etiqueta(), BOLD),
+                    paint(t.new_state.label(), BOLD),
                     paint(&rol_fmt, DIM),
-                    t.detalle
+                    t.detail
                 );
             }
 
@@ -4171,10 +4171,10 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                             BOLD
                         )
                     );
-                    println!("  Estado:     {}", task.estado.etiqueta());
+                    println!("  Estado:     {}", task.state.label());
                     println!(
                         "  Rol Activo: {}",
-                        task.rol_actual.map(|r| r.nombre()).unwrap_or("Ninguno")
+                        task.current_role.map(|r| r.nombre()).unwrap_or("Ninguno")
                     );
                     if let Some(wt) = &task.worktree_path {
                         println!("  Worktree:   {}", paint(wt, DIM));
@@ -4186,8 +4186,8 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                         println!("\n  Previsualización Diff:\n    {diff}");
                     }
                     println!("\n  Transiciones:");
-                    for h in &task.historial {
-                        println!("    • [{}] {}", h.estado_nuevo.etiqueta(), h.detalle);
+                    for h in &task.history {
+                        println!("    • [{}] {}", h.new_state.label(), h.detail);
                     }
                     println!();
                 } else {
@@ -4203,8 +4203,8 @@ fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                         println!(
                             "  • {:<8} {:<30} (reintentos QA: {})",
                             paint(&t.ticket_id, BOLD),
-                            t.estado.etiqueta(),
-                            t.reintentos_qa
+                            t.state.label(),
+                            t.qa_retries
                         );
                     }
                     println!();
@@ -4369,14 +4369,14 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
         paint("● MONITOR DE AGENTES ACTIVOS (antFlow)", BOLD)
     );
     let roles = [
-        ("📐 Arquitecto", antos_protocolo::AgentRole::Arquitecto),
+        ("📐 Arquitecto", antos_protocolo::AgentRole::Architect),
         ("💻 Coder", antos_protocolo::AgentRole::Coder),
         ("🧪 QA / Tester", antos_protocolo::AgentRole::QA),
         ("🛡️ Auditor", antos_protocolo::AgentRole::Auditor),
     ];
 
     for (etiqueta_rol, rol) in roles {
-        let active_tasks: Vec<_> = tasks.iter().filter(|t| t.rol_actual == Some(rol)).collect();
+        let active_tasks: Vec<_> = tasks.iter().filter(|t| t.current_role == Some(rol)).collect();
         if active_tasks.is_empty() {
             println!(
                 "    {} {:<18} {}",
@@ -4390,7 +4390,7 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
                     "    {} {:<18} {} → Tarea: {} ({})",
                     paint("●", GREEN),
                     paint(etiqueta_rol, BOLD),
-                    paint(t.estado.etiqueta(), YELLOW),
+                    paint(t.state.label(), YELLOW),
                     paint(&t.ticket_id, BOLD),
                     t.worktree_path.as_deref().unwrap_or("sandbox")
                 );
@@ -4402,19 +4402,19 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     // Columnas Kanban
     let pendientes: Vec<_> = tickets
         .iter()
-        .filter(|t| t.estado == antos_protocolo::TicketStatus::Pendiente)
+        .filter(|t| t.status == antos_protocolo::TicketStatus::Pending)
         .collect();
     let en_progreso: Vec<_> = tickets
         .iter()
-        .filter(|t| t.estado == antos_protocolo::TicketStatus::EnProgreso)
+        .filter(|t| t.status == antos_protocolo::TicketStatus::InProgress)
         .collect();
     let en_revision: Vec<_> = tickets
         .iter()
-        .filter(|t| t.estado == antos_protocolo::TicketStatus::EnRevision)
+        .filter(|t| t.status == antos_protocolo::TicketStatus::InReview)
         .collect();
     let completados: Vec<_> = tickets
         .iter()
-        .filter(|t| t.estado == antos_protocolo::TicketStatus::Completado)
+        .filter(|t| t.status == antos_protocolo::TicketStatus::Completed)
         .collect();
 
     println!("  {}", paint("● TABLERO DE TICKETS (docs/tickets/)", BOLD));
@@ -4445,19 +4445,19 @@ fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     for i in 0..max_filas {
         let col1 = pendientes
             .get(i)
-            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
         let col2 = en_progreso
             .get(i)
-            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
         let col3 = en_revision
             .get(i)
-            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
         let col4 = completados
             .get(i)
-            .map(|t| format!("{} {}", t.id, ellipsis(&t.titulo, 14)))
+            .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
 
         println!(

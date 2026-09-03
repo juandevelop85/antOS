@@ -13,7 +13,7 @@ use crate::grants::Grants;
 use crate::journal::{self, Outcome, Record};
 use crate::plan::{self, Plan, Step};
 use crate::planner::Planner;
-use crate::protocolo::{Interlocutor, Propuesta, Radio, Recinto, Resultado};
+use crate::protocolo::{BlastRadius, Enclosure, ExecutionResult, Interlocutor, Proposal};
 use crate::{exec, preview, sandbox, snapshot};
 use anyhow::{bail, Result};
 
@@ -72,26 +72,26 @@ pub fn intencion(
 
     let jail = sandbox::for_host();
 
-    let propuesta = Propuesta {
-        cambios: preview::render(ctx, &changes),
-        radio: Radio {
-            escribe: radius.writes.iter().map(|p| ctx.display(p)).collect(),
-            borra: radius.deletes.iter().map(|p| ctx.display(p)).collect(),
-            lee: radius.reads.iter().map(|p| ctx.display(p)).collect(),
-            sistema: radius
+    let propuesta = Proposal {
+        changes: preview::render(ctx, &changes),
+        blast_radius: BlastRadius {
+            writes: radius.writes.iter().map(|p| ctx.display(p)).collect(),
+            deletes: radius.deletes.iter().map(|p| ctx.display(p)).collect(),
+            reads: radius.reads.iter().map(|p| ctx.display(p)).collect(),
+            system: radius
                 .system
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect(),
-            red: radius.network.iter().cloned().collect(),
+            network: radius.network.iter().cloned().collect(),
         },
-        nivel: tier,
-        razones: reasons.clone(),
-        recinto: Recinto {
-            motor: jail.name().to_string(),
-            garantiza: jail.guarantees().to_string(),
+        tier,
+        reasons: reasons.clone(),
+        enclosure: Enclosure {
+            engine: jail.name().to_string(),
+            guarantees: jail.guarantees().to_string(),
         },
-        seco,
+        dry_run: seco,
         plan: plan.clone(),
     };
 
@@ -167,10 +167,10 @@ pub fn intencion(
     }
     if !aprobado {
         journal::append(&ctx.journal_path(), &record)?;
-        con.resultado(&Resultado {
+        con.resultado(&ExecutionResult {
             ok: false,
-            mensaje: "cancelado".into(),
-            instantanea: None,
+            message: "cancelado".into(),
+            snapshot: None,
         })?;
         return Ok(());
     }
@@ -197,10 +197,10 @@ pub fn intencion(
             for salida in outputs.iter().filter(|o| !o.is_empty()) {
                 con.salida(salida)?;
             }
-            con.resultado(&Resultado {
+            con.resultado(&ExecutionResult {
                 ok: true,
-                mensaje: "✓ ejecutado".into(),
-                instantanea: record.snapshot.clone(),
+                message: "✓ ejecutado".into(),
+                snapshot: record.snapshot.clone(),
             })?;
             Ok(())
         }

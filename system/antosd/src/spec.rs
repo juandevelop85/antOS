@@ -110,8 +110,8 @@ impl SpecEngine {
                     .iter()
                     .find(|t| t.id.to_uppercase() == id_normalizado)
                 {
-                    ruta_archivo = Some(PathBuf::from(&t.ruta_archivo));
-                    estado_ticket = t.estado;
+                    ruta_archivo = Some(PathBuf::from(&t.file_path));
+                    estado_ticket = t.status;
                 }
             }
         }
@@ -395,7 +395,7 @@ fn indexar_directorio_tickets(
     for path in archivos_tickets {
         if let Ok(contenido) = fs::read_to_string(&path) {
             if let Some(summary) = parsear_summary_ticket(&path, &contenido, &estados_map) {
-                estados_map.insert(summary.id.clone(), summary.estado);
+                estados_map.insert(summary.id.clone(), summary.status);
                 summaries.push(summary);
             }
         }
@@ -485,10 +485,10 @@ fn parsear_summary_ticket(
 
     Some(TicketSummary {
         id: id_extraido,
-        fase,
-        titulo,
-        estado,
-        ruta_archivo: ruta.display().to_string(),
+        phase: fase,
+        title: titulo,
+        status: estado,
+        file_path: ruta.display().to_string(),
     })
 }
 
@@ -588,13 +588,13 @@ pub fn parsear_archivo_ticket(
 
     Ok(TicketDetail {
         id,
-        fase,
-        titulo,
-        estado,
-        ruta_archivo: ruta.display().to_string(),
-        descripcion,
-        alcance_tecnico,
-        criterios_aceptacion,
+        phase: fase,
+        title: titulo,
+        status: estado,
+        file_path: ruta.display().to_string(),
+        description: descripcion,
+        technical_scope: alcance_tecnico,
+        acceptance_criteria: criterios_aceptacion,
     })
 }
 
@@ -662,28 +662,28 @@ mod tests {
             .iter()
             .find(|t| t.id == "T0.1")
             .expect("T0.1 debe existir");
-        assert_eq!(t01.estado, TicketStatus::Completado);
+        assert_eq!(t01.status, TicketStatus::Completed);
 
         let t11 = tickets
             .iter()
             .find(|t| t.id == "T1.1")
             .expect("T1.1 debe existir");
-        assert_eq!(t11.estado, TicketStatus::Completado);
+        assert_eq!(t11.status, TicketStatus::Completed);
 
         let t12 = tickets
             .iter()
             .find(|t| t.id == "T1.2")
             .expect("T1.2 debe existir");
-        assert_eq!(t12.estado, TicketStatus::Completado);
+        assert_eq!(t12.status, TicketStatus::Completed);
 
         let t13 = tickets
             .iter()
             .find(|t| t.id == "T1.3")
             .expect("T1.3 debe existir");
         assert!(
-            t13.titulo.contains("Indexador y Parser")
-                || t13.titulo.contains("Spec-Engine")
-                || t13.titulo.contains("tickets")
+            t13.title.contains("Indexador y Parser")
+                || t13.title.contains("Spec-Engine")
+                || t13.title.contains("tickets")
         );
     }
 
@@ -697,10 +697,10 @@ mod tests {
             .expect("detalle T1.3");
 
         assert_eq!(detalle.id, "T1.3");
-        assert_eq!(detalle.fase, "Fase 1");
-        assert!(!detalle.descripcion.is_empty());
-        assert!(!detalle.alcance_tecnico.is_empty());
-        assert!(!detalle.criterios_aceptacion.is_empty());
+        assert_eq!(detalle.phase, "Fase 1");
+        assert!(!detalle.description.is_empty());
+        assert!(!detalle.technical_scope.is_empty());
+        assert!(!detalle.acceptance_criteria.is_empty());
     }
 
     #[test]
@@ -731,17 +731,17 @@ mod tests {
         let tickets = engine.list_tickets(&ws).expect("listar");
         assert_eq!(tickets.len(), 1);
         assert_eq!(tickets[0].id, "T99.1");
-        assert_eq!(tickets[0].estado, TicketStatus::Pendiente);
+        assert_eq!(tickets[0].status, TicketStatus::Pending);
 
         // 3. Actualizar estado
         engine
-            .update_ticket_status(&ws, "T99.1", TicketStatus::Completado)
+            .update_ticket_status(&ws, "T99.1", TicketStatus::Completed)
             .expect("update");
         let detalle = engine
             .get_ticket(&ws, "T99.1")
             .expect("get")
             .expect("exists");
-        assert_eq!(detalle.estado, TicketStatus::Completado);
+        assert_eq!(detalle.status, TicketStatus::Completed);
 
         let _ = fs::remove_dir_all(&ws);
     }

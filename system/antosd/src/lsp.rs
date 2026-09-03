@@ -259,15 +259,15 @@ language-servers = [ "antos-lsp" ]
         let tickets = spec_engine.list_tickets(workspace).unwrap_or_default();
 
         for ticket in tickets {
-            let status_mark = if ticket.estado == TicketStatus::Completado { "✅" } else { "⏳" };
+            let status_mark = if ticket.status == TicketStatus::Completed { "✅" } else { "⏳" };
             items.push(json!({
                 "label": ticket.id.clone(),
                 "kind": 15, // Snippet / Reference
-                "detail": format!("antOS Ticket: {} ({}) [{}]", ticket.titulo, ticket.fase, status_mark),
+                "detail": format!("antOS Ticket: {} ({}) [{}]", ticket.title, ticket.phase, status_mark),
                 "documentation": {
                     "kind": "markdown",
                     "value": format!("### Ticket {}\n**Título:** {}\n**Fase:** {}\n**Estado:** {}",
-                        ticket.id, ticket.titulo, ticket.fase, status_mark)
+                        ticket.id, ticket.title, ticket.phase, status_mark)
                 },
                 "insertText": ticket.id
             }));
@@ -354,10 +354,10 @@ language-servers = [ "antos-lsp" ]
         if word.starts_with('T') && word.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) {
             let spec_engine = crate::spec::SpecEngine::global();
             if let Ok(Some(detail)) = spec_engine.get_ticket(workspace, &word) {
-                let status_icon = if detail.estado == TicketStatus::Completado { "✅ Completado" } else { "⏳ Pendiente" };
+                let status_icon = if detail.status == TicketStatus::Completed { "✅ Completado" } else { "⏳ Pendiente" };
                 let markdown = format!(
                     "### antOS Ticket: {} · {}\n\n**Fase:** {}\n**Estado:** {}\n\n---\n{}",
-                    detail.id, detail.titulo, detail.fase, status_icon, detail.descripcion
+                    detail.id, detail.title, detail.phase, status_icon, detail.description
                 );
                 return json!({
                     "contents": {

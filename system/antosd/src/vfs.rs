@@ -384,9 +384,9 @@ impl VfsEngine {
                     {
                         return Ok(format!(
                             "Branch: {}\nClean: {}\nModified: {}\nStaged: {}\n",
-                            status.rama.as_deref().unwrap_or("detached"),
+                            status.branch.as_deref().unwrap_or("detached"),
                             status.is_clean(),
-                            status.modificados.len(),
+                            status.modified.len(),
                             status.staged.len()
                         ));
                     }

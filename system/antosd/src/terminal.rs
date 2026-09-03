@@ -84,7 +84,7 @@ impl Interlocutor for Terminal {
 
         println!();
         println!("{}", paint("cambios", BOLD));
-        for line in &propuesta.cambios {
+        for line in &propuesta.changes {
             match line {
                 Line::Info(t) => println!("  {t}"),
                 Line::Add(t) => println!("  {}", paint(&format!("+{t}"), GREEN)),
@@ -94,46 +94,46 @@ impl Interlocutor for Terminal {
 
         println!();
         println!("{}", paint("radio de impacto", BOLD));
-        let radio = &propuesta.radio;
+        let radio = &propuesta.blast_radius;
         for (etiqueta, rutas) in [
-            ("escribe ", &radio.escribe),
-            ("borra   ", &radio.borra),
-            ("lee     ", &radio.lee),
+            ("escribe ", &radio.writes),
+            ("borra   ", &radio.deletes),
+            ("lee     ", &radio.reads),
         ] {
             if !rutas.is_empty() {
                 println!("  {etiqueta}  {}", ellipsis(&rutas.join(", "), 68));
             }
         }
-        if !radio.sistema.is_empty() {
+        if !radio.system.is_empty() {
             println!(
                 "  {}  {}",
                 paint("SISTEMA ", RED),
-                ellipsis(&radio.sistema.join(", "), 68)
+                ellipsis(&radio.system.join(", "), 68)
             );
         }
-        if !radio.red.is_empty() {
-            println!("  red       {}", radio.red.join(", "));
+        if !radio.network.is_empty() {
+            println!("  red       {}", radio.network.join(", "));
         }
         println!(
             "  nivel     {} {}",
-            paint(propuesta.nivel.label(), tier_color(propuesta.nivel)),
-            paint(&format!("— {}", propuesta.razones.join("; ")), DIM)
+            paint(propuesta.tier.label(), tier_color(propuesta.tier)),
+            paint(&format!("— {}", propuesta.reasons.join("; ")), DIM)
         );
-        let color_recinto = if propuesta.recinto.motor == "ninguno" { RED } else { GREEN };
+        let color_recinto = if propuesta.enclosure.engine == "ninguno" { RED } else { GREEN };
         println!(
             "  recinto   {} {}",
-            paint(&propuesta.recinto.motor, color_recinto),
-            paint(&format!("— {}", propuesta.recinto.garantiza), DIM)
+            paint(&propuesta.enclosure.engine, color_recinto),
+            paint(&format!("— {}", propuesta.enclosure.guarantees), DIM)
         );
 
-        if propuesta.seco {
+        if propuesta.dry_run {
             println!();
             println!("{}", paint("· marcha en seco, no se ejecuta nada", DIM));
             return Ok(false);
         }
 
         // Nivel automático: no hay nada que preguntar.
-        if propuesta.nivel == Tier::Auto {
+        if propuesta.tier == Tier::Auto {
             return Ok(true);
         }
 
@@ -164,16 +164,16 @@ impl Interlocutor for Terminal {
     fn resultado(&mut self, resultado: &Resultado) -> Result<()> {
         println!();
         if !resultado.ok {
-            println!("{} {}", paint("✗", RED), resultado.mensaje);
+            println!("{} {}", paint("✗", RED), resultado.message);
             return Ok(());
         }
-        match &resultado.instantanea {
+        match &resultado.snapshot {
             Some(id) => println!(
                 "{} {}",
-                paint(&resultado.mensaje, GREEN),
+                paint(&resultado.message, GREEN),
                 paint(&format!("· instantánea {id} · «antos undo» lo revierte"), DIM)
             ),
-            None => println!("{}", paint(&resultado.mensaje, GREEN)),
+            None => println!("{}", paint(&resultado.message, GREEN)),
         }
         Ok(())
     }

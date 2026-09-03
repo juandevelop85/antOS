@@ -5,7 +5,7 @@
 
 extern crate antos_protocol as antos_protocol;
 
-use antos_protocol::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Request, Propuesta, TicketStatus, TicketSummary, Tier};
+use antos_protocol::{AgentRole, Event, FlowState, FlowTask, GitRepoStatus, Line, Proposal, Request, TicketStatus, TicketSummary, Tier};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
@@ -320,8 +320,8 @@ fn query_git_status_async(git_badge: Label) {
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
             if reader.read_line(&mut line).is_ok() {
-                if let Ok(event) = serde_json::from_str::<Evento>(line.trim()) {
-                    if let Evento::EstadoGit(status) = event {
+                if let Ok(event) = serde_json::from_str::<Event>(line.trim()) {
+                    if let Event::GitStatus(status) = event {
                         gtk4::glib::idle_add_local(move || {
                             update_git_badge(&git_badge, &status);
                             gtk4::glib::ControlFlow::Break
@@ -340,9 +340,9 @@ fn query_git_status_async(git_badge: Label) {
 }
 
 fn update_git_badge(badge: &Label, status: &GitRepoStatus) {
-    let branch = status.rama.as_deref().unwrap_or("HEAD");
-    let dirty_count = status.modificados.len() + status.sin_seguimiento.len();
-    if status.limpio {
+    let branch = status.branch.as_deref().unwrap_or("HEAD");
+    let dirty_count = status.modified.len() + status.untracked.len();
+    if status.clean {
         badge.set_text(&format!("🌿 {branch} ✓"));
         badge.add_css_class("clean");
     } else {
@@ -372,7 +372,7 @@ fn query_telemetry_async(
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
             if reader.read_line(&mut line).is_ok() {
-                if let Ok(Evento::EstadoBarraTelemetry(t)) = serde_json::from_str::<Evento>(line.trim()) {
+                if let Ok(Event::BarraTelemetryStatus(t)) = serde_json::from_str::<Event>(line.trim()) {
                     let eb = ebpf_badge.clone();
                     let pb = profiler_badge.clone();
                     let prb = pair_badge.clone();
@@ -466,7 +466,7 @@ fn load_kanban_board_async(
                 let mut reader = BufReader::new(&stream);
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Evento::ListaTickets(list)) = serde_json::from_str::<Evento>(line.trim()) {
+                    if let Ok(Event::TicketList(list)) = serde_json::from_str::<Event>(line.trim()) {
                         tickets = list;
                     }
                 }
@@ -483,7 +483,7 @@ fn load_kanban_board_async(
                 let mut reader = BufReader::new(&stream);
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Evento::ListaFlows(list)) = serde_json::from_str::<Evento>(line.trim()) {
+                    if let Ok(Event::FlowList(list)) = serde_json::from_str::<Event>(line.trim()) {
                         flows = list;
                     }
                 }
@@ -517,14 +517,14 @@ fn render_kanban_view(
     agent_bar.add_css_class("agent-monitor-bar");
 
     let roles = [
-        ("📐 Arquitecto", AgentRole::Arquitecto),
+        ("📐 Arquitecto", AgentRole::Architect),
         ("💻 Coder", AgentRole::Coder),
         ("🧪 QA / Tester", AgentRole::QA),
         ("🛡️ Auditor", AgentRole::Auditor),
     ];
 
     for (role_title, role) in roles {
-        let active = flows.iter().any(|f| f.rol_actual == Some(role));
+        let active = flows.iter().any(|f| f.current_role == Some(role));
         let badge = make_label(role_title, "agent-badge");
         if active {
             badge.add_css_class("active");
@@ -542,28 +542,28 @@ fn render_kanban_view(
 
     let col_backlog = create_kanban_column(
         "⏳ BACKLOG",
-        tickets.iter().filter(|t| t.estado == TicketStatus::Pendiente),
+        tickets.iter().filter(|t| t.status == TicketStatus::Pending),
         input.clone(),
         stream_writer.clone(),
         true,
     );
     let col_progress = create_kanban_column(
         "🔄 EN PROGRESO",
-        tickets.iter().filter(|t| t.estado == TicketStatus::EnProgreso),
+        tickets.iter().filter(|t| t.status == TicketStatus::InProgress),
         input.clone(),
         stream_writer.clone(),
         false,
     );
     let col_review = create_kanban_column(
         "🔍 EN REVISIÓN",
-        tickets.iter().filter(|t| t.estado == TicketStatus::EnRevision),
+        tickets.iter().filter(|t| t.status == TicketStatus::InReview),
         input.clone(),
         stream_writer.clone(),
         false,
     );
     let col_done = create_kanban_column(
         "✅ COMPLETADO",
-        tickets.iter().filter(|t| t.estado == TicketStatus::Completado),
+        tickets.iter().filter(|t| t.status == TicketStatus::Completed),
         input.clone(),
         stream_writer.clone(),
         false,
@@ -607,8 +607,8 @@ where
         let card = GtkBox::new(Orientation::Vertical, 4);
         card.add_css_class("kanban-card");
 
-        let id_lbl = make_label(&format!("{} · {}", t.id, t.fase), "kanban-card-id");
-        let title_lbl = make_label(&t.titulo, "kanban-card-title");
+        let id_lbl = make_label(&format!("{} · {}", t.id, t.phase), "kanban-card-id");
+        let title_lbl = make_label(&t.title, "kanban-card-title");
         card.append(&id_lbl);
         card.append(&title_lbl);
 
@@ -650,7 +650,7 @@ fn start_session(
     text: &str,
     planner: Option<String>,
     dry_run: bool,
-) -> Result<(UnixStream, Receiver<Evento>), String> {
+) -> Result<(UnixStream, Receiver<Event>), String> {
     let path = socket_path();
     let stream = UnixStream::connect(&path).map_err(|e| {
         format!(
@@ -684,7 +684,7 @@ fn start_session(
             match buffer.read_line(&mut line) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
-                    if let Ok(event) = serde_json::from_str::<Evento>(line.trim()) {
+                    if let Ok(event) = serde_json::from_str::<Event>(line.trim()) {
                         if sender.send(event).is_err() {
                             break;
                         }
@@ -698,7 +698,7 @@ fn start_session(
 }
 
 fn listen_events(
-    events: Receiver<Evento>,
+    events: Receiver<Event>,
     content: GtkBox,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
     input: Entry,
@@ -706,37 +706,37 @@ fn listen_events(
     gtk4::glib::timeout_add_local(std::time::Duration::from_millis(35), move || {
         while let Ok(event) = events.try_recv() {
             match event {
-                Evento::Inicio { .. } => {}
-                Evento::Nota(text) => {
+                Event::Start { .. } => {}
+                Event::Note(text) => {
                     empty_box(&content);
                     content.append(&make_label(&format!("antOS: {text}"), "radio"));
                 }
-                Evento::Propuesta(proposal) => {
+                Event::Proposal(proposal) => {
                     empty_box(&content);
                     render_proposal(&content, &proposal, stream_writer.clone());
                 }
-                Evento::EstadoFlow(Some(task)) => {
+                Event::FlowStatus(Some(task)) => {
                     empty_box(&content);
                     render_flow_task(&content, &task, stream_writer.clone());
                 }
-                Evento::TransicionFlow {
-                    estado_nuevo,
-                    rol,
-                    detalle,
+                Event::FlowTransition {
+                    new_state,
+                    role,
+                    detail,
                     ..
                 } => {
-                    let role_label = rol.map(|r| r.name()).unwrap_or("System");
-                    let transition_text = format!("{}: {} [{}]", estado_nuevo.label(), detalle, role_label);
+                    let role_label = role.map(|r| r.name()).unwrap_or("System");
+                    let transition_text = format!("{}: {} [{}]", new_state.label(), detail, role_label);
                     content.append(&make_label(&transition_text, "paso"));
                 }
-                Evento::Salida(text) => content.append(&make_label(&text, "paso")),
-                Evento::Resultado(result) => {
+                Event::Output(text) => content.append(&make_label(&text, "paso")),
+                Event::Result(result) => {
                     let class = if result.ok { "ok" } else { "error" };
-                    content.append(&make_label(&result.mensaje, class));
+                    content.append(&make_label(&result.message, class));
                     input.set_sensitive(true);
                     input.set_text("");
                 }
-                Evento::Error(err_msg) => {
+                Event::Error(err_msg) => {
                     render_error(&content, &err_msg);
                     input.set_sensitive(true);
                 }
@@ -749,12 +749,12 @@ fn listen_events(
 
 fn render_proposal(
     content: &GtkBox,
-    proposal: &Propuesta,
+    proposal: &Proposal,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
     let sheet = GtkBox::new(Orientation::Vertical, 10);
     sheet.add_css_class("hoja");
-    sheet.add_css_class(level_css_class(proposal.nivel));
+    sheet.add_css_class(level_css_class(proposal.tier));
 
     // 1 · Plan steps
     sheet.append(&make_label("PLAN", "etiqueta"));
@@ -774,7 +774,7 @@ fn render_proposal(
     // 2 · Syntax highlighted Diff viewer
     sheet.append(&make_label("CAMBIOS", "etiqueta"));
     let diff_list = GtkBox::new(Orientation::Vertical, 0);
-    for line in &proposal.cambios {
+    for line in &proposal.changes {
         let (text, css_class) = match line {
             Line::Info(t) => (t.clone(), "info"),
             Line::Add(t) => (format!("+{t}"), "mas"),
@@ -796,11 +796,11 @@ fn render_proposal(
     // 3 · Blast radius breakdown
     sheet.append(&make_label("RADIO DE IMPACTO", "etiqueta"));
     for (name, paths) in [
-        ("escribe", &proposal.radio.escribe),
-        ("borra", &proposal.radio.borra),
-        ("lee", &proposal.radio.lee),
-        ("SISTEMA", &proposal.radio.sistema),
-        ("red", &proposal.radio.red),
+        ("escribe", &proposal.blast_radius.writes),
+        ("borra", &proposal.blast_radius.deletes),
+        ("lee", &proposal.blast_radius.reads),
+        ("SISTEMA", &proposal.blast_radius.system),
+        ("red", &proposal.blast_radius.network),
     ] {
         if !paths.is_empty() {
             sheet.append(&make_label(
@@ -813,18 +813,18 @@ fn render_proposal(
     let tier_label = make_label(
         &format!(
             "nivel     {} — {}",
-            proposal.nivel.label(),
-            proposal.razones.join("; ")
+            proposal.tier.label(),
+            proposal.reasons.join("; ")
         ),
         "nivel",
     );
-    tier_label.add_css_class(level_css_class(proposal.nivel));
+    tier_label.add_css_class(level_css_class(proposal.tier));
     sheet.append(&tier_label);
 
     sheet.append(&make_label(
         &format!(
             "recinto   {} — {}",
-            proposal.recinto.motor, proposal.recinto.garantiza
+            proposal.enclosure.engine, proposal.enclosure.guarantees
         ),
         "radio",
     ));
@@ -832,7 +832,7 @@ fn render_proposal(
     content.append(&sheet);
 
     // 4 · Decision buttons
-    if proposal.nivel == Tier::Auto || proposal.seco {
+    if proposal.tier == Tier::Auto || proposal.dry_run {
         return;
     }
 
@@ -875,11 +875,11 @@ fn render_flow_task(
 
     sheet.append(&make_label("antFlow · TAREA DE AGENTES", "etiqueta"));
     sheet.append(&make_label(
-        &format!("Ticket: {} | Estado: {}", task.ticket_id, task.estado.label()),
+        &format!("Ticket: {} | Estado: {}", task.ticket_id, task.state.label()),
         "nivel",
     ));
 
-    if let Some(role) = task.rol_actual {
+    if let Some(role) = task.current_role {
         sheet.append(&make_label(
             &format!("Rol Activo: {} ({})", role.name(), role.description()),
             "paso",
@@ -912,7 +912,7 @@ fn render_flow_task(
 
     content.append(&sheet);
 
-    if task.estado == FlowState::ListoParaAprobacion {
+    if task.state == FlowState::ReadyForApproval {
         let button_box = GtkBox::new(Orientation::Horizontal, 10);
         button_box.set_halign(Align::End);
 

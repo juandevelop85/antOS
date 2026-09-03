@@ -133,17 +133,17 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
     // 3. Obtener estado de archivos y conteo de líneas
     let (modificados, staged, sin_seguimiento) = obtener_archivos_y_diffs(repo_root)?;
 
-    let limpio = modificados.is_empty() && staged.is_empty() && sin_seguimiento.is_empty();
+    let clean = modificados.is_empty() && staged.is_empty() && sin_seguimiento.is_empty();
 
     Ok(GitRepoStatus {
-        rama,
+        branch: rama,
         head_commit,
-        delante,
-        detras,
-        modificados,
+        ahead: delante,
+        behind: detras,
+        modified: modificados,
         staged,
-        sin_seguimiento,
-        limpio,
+        untracked: sin_seguimiento,
+        clean,
     })
 }
 
@@ -270,10 +270,10 @@ fn obtener_archivos_y_diffs(
             };
             let (add, del) = stats_staged.get(&ruta).copied().unwrap_or((0, 0));
             staged.push(GitFileDiffSummary {
-                ruta: ruta.clone(),
-                lineas_anadidas: add,
-                lineas_borradas: del,
-                estado,
+                path: ruta.clone(),
+                added_lines: add,
+                deleted_lines: del,
+                status: estado,
             });
         }
 
@@ -290,10 +290,10 @@ fn obtener_archivos_y_diffs(
             };
             let (add, del) = stats_unstaged.get(&ruta).copied().unwrap_or((0, 0));
             modificados.push(GitFileDiffSummary {
-                ruta,
-                lineas_anadidas: add,
-                lineas_borradas: del,
-                estado,
+                path: ruta,
+                added_lines: add,
+                deleted_lines: del,
+                status: estado,
             });
         }
     }
@@ -432,7 +432,7 @@ mod tests {
         assert!(resultado.is_some(), "antOS debe ser reconocido como repo Git");
         let status = resultado.unwrap();
         // antOS tiene rama y head commit definidos
-        assert!(status.rama.is_some() || status.head_commit.is_some());
+        assert!(status.branch.is_some() || status.head_commit.is_some());
     }
 
     #[test]
@@ -485,7 +485,7 @@ mod tests {
         let resultado = analyzer.consultar_estado(&dir_temp).expect("analisis repo vacio");
         assert!(resultado.is_some(), "debe detectar repo recién inicializado");
         let status = resultado.unwrap();
-        assert!(status.limpio);
+        assert!(status.clean);
 
         let _ = fs::remove_dir_all(&dir_temp);
     }

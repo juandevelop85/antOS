@@ -1205,11 +1205,11 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::GitStatus { repo_root } => {
                 if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(repo_root)? {
                     let lineas = vec![
-                        format!("rama: {}", status.rama.unwrap_or_else(|| "HEAD desacoplado".into())),
-                        format!("commits: +{} / -{}", status.delante, status.detras),
-                        format!("modificados: {}", status.modificados.len()),
+                        format!("rama: {}", status.branch.unwrap_or_else(|| "HEAD desacoplado".into())),
+                        format!("commits: +{} / -{}", status.ahead, status.behind),
+                        format!("modificados: {}", status.modified.len()),
                         format!("staged: {}", status.staged.len()),
-                        format!("sin seguimiento: {}", status.sin_seguimiento.len()),
+                        format!("sin seguimiento: {}", status.untracked.len()),
                     ];
                     output.push(lineas.join("\n"));
                 } else {
@@ -1448,12 +1448,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push(format!("tickets en el proyecto: {}", tickets.len()));
                 for t in tickets {
                     if let Some(ref f) = filter {
-                        let st_str = format!("{:?}", t.estado).to_lowercase();
+                        let st_str = format!("{:?}", t.status).to_lowercase();
                         if !st_str.contains(&f.to_lowercase()) {
                             continue;
                         }
                     }
-                    lines.push(format!("  - [{}] {} [{:?}] ({})", t.id, t.titulo, t.estado, t.fase));
+                    lines.push(format!("  - [{}] {} [{:?}] ({})", t.id, t.title, t.status, t.phase));
                 }
                 output.push(lines.join("\n"));
             }

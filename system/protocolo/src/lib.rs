@@ -1,20 +1,20 @@
-//! El contrato entre el demonio de antOS y sus clientes.
+//! The IPC contract between the antOS daemon and its clients.
 //!
-//! Vivía dentro de `antosd` mientras el único cliente era su propio terminal.
-//! Sale a un crate aparte en cuanto aparece un segundo cliente —la barra de
-//! intención— porque la alternativa sería que cada uno tuviera su copia de
-//! estos tipos. Un protocolo duplicado es un protocolo que diverge.
+//! Originally lived inside `antosd` when the only client was its own terminal.
+//! Extracted into a standalone crate as soon as a second client appeared—the
+//! intention bar—because the alternative would be each having its own copy of
+//! these types. A duplicated protocol is a diverging protocol.
 //!
-//! Aquí NO hay lógica: ni se decide un nivel de permiso, ni se calcula un
-//! diff, ni se valida nada. Eso vive en el demonio, y es deliberado — un
-//! cliente que pudiera calcular su propio nivel podría elegirlo.
+//! There is NO execution logic here: permission tiers are not decided, diffs
+//! are not calculated, and nothing is validated. That belongs in the daemon by
+//! design—a client capable of computing its own tier could simply choose it.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-// ------------------------------------------------------------ nivel y plan
+// ------------------------------------------------------------ tier and plan
 
-/// El orden de las variantes ES la escala: Auto < Confirm < Grant.
+/// The order of variants IS the scale: Auto < Confirm < Grant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tier {
@@ -23,8 +23,8 @@ pub enum Tier {
     Grant,
 }
 
-/// El suelo de la escala. Que el valor por defecto sea el nivel MÁS permisivo
-/// es seguro precisamente porque la derivación solo sabe subir.
+/// The base of the scale. The default value being the most permissive level
+/// is safe precisely because derivation only elevates privileges upward.
 impl Default for Tier {
     fn default() -> Self {
         Tier::Auto
@@ -33,6 +33,14 @@ impl Default for Tier {
 
 impl Tier {
     pub fn label(self) -> &'static str {
+        match self {
+            Tier::Auto => "auto",
+            Tier::Confirm => "confirm",
+            Tier::Grant => "grant",
+        }
+    }
+
+    pub fn label_es(self) -> &'static str {
         match self {
             Tier::Auto => "automático",
             Tier::Confirm => "confirmación",
@@ -64,7 +72,7 @@ pub enum Line {
     Del(String),
 }
 
-// ----------------------------------------------------------- diff interactivo (T8.1)
+// ----------------------------------------------------------- interactive diff (T8.1)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,7 +130,7 @@ pub struct DiffFile {
     pub hunks: Vec<DiffHunk>,
 }
 
-// ----------------------------------------------------------- notificaciones (T8.2)
+// ----------------------------------------------------------- notifications (T8.2)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -155,7 +163,7 @@ pub struct NotificationItem {
     pub actions: Vec<NotificationAction>,
 }
 
-// ----------------------------------------------------------- red p2p / antMesh (T9.1)
+// ----------------------------------------------------------- p2p network / antMesh (T9.1)
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeResources {
@@ -189,7 +197,7 @@ pub struct MeshStatus {
     pub peers: Vec<PeerNode>,
 }
 
-// ----------------------------------------------------------- swarm distribuido (T9.2)
+// ----------------------------------------------------------- distributed swarm (T9.2)
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwarmTaskAssignment {
@@ -220,7 +228,7 @@ pub struct SwarmStatus {
     pub total_tasks: usize,
 }
 
-// ----------------------------------------------------------- vfs semantico (T10.1)
+// ----------------------------------------------------------- semantic vfs (T10.1)
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VfsEntry {
@@ -308,7 +316,7 @@ pub struct EbpfStatus {
     pub ring_buffer_utilization: usize,
 }
 
-// --------------------------------------------- profiler continuo de runtime (T11.2)
+// --------------------------------------------- continuous runtime profiler (T11.2)
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -352,7 +360,7 @@ pub struct ProfileReport {
 
 // ---------------------------------------------------------------- LSP (T12.1)
 
-/// Tipo de editor o cliente de desarrollo compatible con el servidor LSP de antOS.
+/// Type of editor or developer client compatible with the antOS LSP server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LspEditorKind {
@@ -385,7 +393,7 @@ impl LspEditorKind {
     }
 }
 
-/// Estado del servidor LSP embebido de antOS.
+/// Status of the embedded antOS LSP server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LspServerStatus {
     pub running: bool,
@@ -399,7 +407,7 @@ pub struct LspServerStatus {
 
 // ---------------------------------------------------- Collab & DAP (T12.2)
 
-/// Posición de un cursor virtual en una sesión de co-edición colaborativa.
+/// Virtual cursor position in a collaborative co-editing session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollabCursor {
     pub client_id: String,
@@ -408,7 +416,7 @@ pub struct CollabCursor {
     pub ghost_text: Option<String>,
 }
 
-/// Estado de una sesión de co-edición en tiempo real (CRDT).
+/// Status of a real-time collaborative editing session (CRDT).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollabSessionStatus {
     pub session_id: String,
@@ -419,7 +427,7 @@ pub struct CollabSessionStatus {
     pub active_ticket_id: Option<String>,
 }
 
-/// Punto de interrupción en una sesión de depuración aislada DAP.
+/// Breakpoint in an isolated DAP debugging session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapBreakpoint {
     pub id: usize,
@@ -428,7 +436,7 @@ pub struct DapBreakpoint {
     pub verified: bool,
 }
 
-/// Variable inspeccionada en tiempo de depuración.
+/// Inspected variable during debugging.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapVariable {
     pub name: String,
@@ -436,7 +444,7 @@ pub struct DapVariable {
     pub type_name: String,
 }
 
-/// Estado de una sesión DAP de depuración aislada en sandbox.
+/// Status of a sandbox-isolated DAP debugging session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapSessionStatus {
     pub session_id: String,
@@ -450,7 +458,7 @@ pub struct DapSessionStatus {
 
 // ------------------------------------------------ Desktop Session (T13.0)
 
-/// Atajo de teclado global del escritorio antOS.
+/// Global desktop hotkey in antOS.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopHotkey {
     pub key: String,
@@ -458,7 +466,7 @@ pub struct DesktopHotkey {
     pub description: String,
 }
 
-/// Estado del entorno de escritorio gráfico Wayland.
+/// Status of the Wayland graphical desktop environment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopSessionStatus {
     pub running: bool,
@@ -470,7 +478,7 @@ pub struct DesktopSessionStatus {
 
 // ------------------------------------------------ Barra Telemetry (T13.1)
 
-/// Alerta o notificación visual emitida hacia la barra de escritorio.
+/// Visual alert or notification emitted to the desktop bar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BarraAlert {
     pub category: String,
@@ -478,7 +486,7 @@ pub struct BarraAlert {
     pub urgent: bool,
 }
 
-/// Telemetría consolidada en tiempo real para la barra de escritorio antOS.
+/// Real-time consolidated telemetry for the antOS desktop bar.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BarraTelemetry {
     pub ebpf_lsm_active: bool,
@@ -493,7 +501,7 @@ pub struct BarraTelemetry {
 
 // ------------------------------------------------ Boot Pipeline (T13.2)
 
-/// Estado del pipeline de arranque bare metal y emulación QEMU.
+/// Status of the bare-metal boot pipeline and QEMU emulation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootPipelineStatus {
     pub kernel_elf_exists: bool,
@@ -506,7 +514,7 @@ pub struct BootPipelineStatus {
 
 // ------------------------------------------------ WASM Plugins (T14.1)
 
-/// Resumen de un plugin WebAssembly instalado en antOS.
+/// Summary of an installed WebAssembly plugin in antOS.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginSummary {
     pub name: String,
@@ -516,7 +524,7 @@ pub struct PluginSummary {
     pub wasm_size_bytes: u64,
 }
 
-/// Resultado de la ejecución de una acción en un plugin WASM.
+/// Result of executing an action on a WASM plugin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginResult {
     pub plugin: String,
@@ -530,7 +538,7 @@ pub struct PluginResult {
 
 // ------------------------------------------------ Visual QA & Screencopy (T14.2)
 
-/// Hallazgo específico detectado durante la inspección visual multimodal.
+/// Specific finding detected during multimodal visual inspection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisualFinding {
     pub category: String,
@@ -540,7 +548,7 @@ pub struct VisualFinding {
     pub recommendation: String,
 }
 
-/// Reporte consolidado de auditoría de interfaz gráfica generado por VisualQA.
+/// Consolidated graphical interface audit report generated by VisualQA.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisualQAReport {
     pub target: String,
@@ -552,7 +560,7 @@ pub struct VisualQAReport {
     pub summary: String,
 }
 
-/// Resultado de una captura de pantalla Wayland.
+/// Result of a Wayland screencopy capture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenshotResult {
     pub target: String,
@@ -566,7 +574,7 @@ pub struct ScreenshotResult {
 
 // ------------------------------------------------ Storage & Installer (T15.1)
 
-/// Representa una partición individual dentro de una unidad de almacenamiento.
+/// Individual partition within a storage drive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiskPartition {
     pub number: u32,
@@ -579,7 +587,7 @@ pub struct DiskPartition {
     pub uuid: Option<String>,
 }
 
-/// Representa un dispositivo de almacenamiento físico o virtual.
+/// Physical or virtual block storage device.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiskDevice {
     pub path: String,
@@ -592,7 +600,7 @@ pub struct DiskDevice {
     pub is_read_only: bool,
 }
 
-/// Plan de particionamiento propuesto para instalación en disco.
+/// Proposed partitioning plan for installation to disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PartitionPlan {
     pub target_device: String,
@@ -604,7 +612,7 @@ pub struct PartitionPlan {
     pub warnings: Vec<String>,
 }
 
-/// Configuración de instalación del sistema operativo antOS (T15.2).
+/// Operating system installation configuration (T15.2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub target_device: String,
@@ -630,7 +638,7 @@ impl Default for InstallConfig {
     }
 }
 
-/// Paso individual en el pipeline de instalación.
+/// Individual step in the installation pipeline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallStep {
     pub name: String,
@@ -638,7 +646,7 @@ pub struct InstallStep {
     pub completed: bool,
 }
 
-/// Reporte de finalización o simulación del despliegue del sistema (T15.2).
+/// Final completion or simulation report for system deployment (T15.2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallReport {
     pub target_device: String,
@@ -651,7 +659,7 @@ pub struct InstallReport {
     pub summary: String,
 }
 
-/// Entrada de sistema operativo detectado para arranque dual (T15.3).
+/// Detected operating system entry for dual-boot configurations (T15.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OsEntry {
     pub name: String,
@@ -661,7 +669,7 @@ pub struct OsEntry {
     pub partition_number: u32,
 }
 
-/// Configuración de instalación del cargador de arranque UEFI (T15.3).
+/// Configuration for UEFI bootloader deployment (T15.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootloaderConfig {
     pub esp_mount: String,
@@ -687,7 +695,7 @@ impl Default for BootloaderConfig {
     }
 }
 
-/// Reporte de configuración o instalación del bootloader UEFI (T15.3).
+/// Deployment and configuration report for UEFI bootloader (T15.3).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootloaderReport {
     pub success: bool,
@@ -700,7 +708,7 @@ pub struct BootloaderReport {
 
 // ----------------------------------------------------------- microvms (T16.1)
 
-/// Configuración para instanciar una microVM efímera con aislamiento por hardware.
+/// Configuration to instantiate an ephemeral microVM with hardware isolation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MicrovmConfig {
     pub vm_id: String,
@@ -728,7 +736,7 @@ impl Default for MicrovmConfig {
     }
 }
 
-/// Estado de soporte y salud del hipervisor KVM / Cloud-Hypervisor.
+/// Health and support status of KVM / Cloud-Hypervisor hypervisor engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MicrovmStatus {
     pub kvm_available: bool,
@@ -739,7 +747,7 @@ pub struct MicrovmStatus {
     pub kernel_version: String,
 }
 
-/// Instancia activa o registrada de una microVM efímera.
+/// Active or registered ephemeral microVM instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MicrovmInstance {
     pub id: String,
@@ -752,7 +760,7 @@ pub struct MicrovmInstance {
     pub command: Option<String>,
 }
 
-/// Resultado de ejecución de un comando dentro de una microVM.
+/// Result of executing a command inside an ephemeral microVM.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MicrovmExecResult {
     pub vm_id: String,
@@ -764,56 +772,73 @@ pub struct MicrovmExecResult {
     pub success: bool,
 }
 
-// -------------------------------------------------------------- propuesta
+// ---------------------------------------------------------------- proposal
 
-/// Lo que se le enseña a alguien antes de tocar nada.
+/// What is presented to a user before touching anything.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Propuesta {
+pub struct Proposal {
     pub plan: Plan,
-    pub cambios: Vec<Line>,
-    pub radio: Radio,
-    pub nivel: Tier,
-    pub razones: Vec<String>,
-    pub recinto: Recinto,
-    /// Si es `true`, no se ejecutará pase lo que pase: solo se está mirando.
-    pub seco: bool,
+    #[serde(alias = "cambios")]
+    pub changes: Vec<Line>,
+    #[serde(alias = "radio")]
+    pub blast_radius: BlastRadius,
+    #[serde(alias = "nivel")]
+    pub tier: Tier,
+    #[serde(alias = "razones")]
+    pub reasons: Vec<String>,
+    #[serde(alias = "recinto")]
+    pub enclosure: Enclosure,
+    /// If `true`, nothing will be executed: it is a dry run / preview.
+    #[serde(alias = "seco")]
+    pub dry_run: bool,
 }
 
-/// Los efectos DECLARADOS, ya resueltos a texto.
+/// The declared effects, resolved to readable paths.
 ///
-/// Se resuelven en el demonio y no en el cliente a propósito: un cliente no
-/// debería necesitar acceso al sistema de ficheros para enseñar un plan.
+/// Resolved in the daemon and not the client on purpose: a client
+/// should not need filesystem access to show a plan.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Radio {
-    pub escribe: Vec<String>,
-    pub borra: Vec<String>,
-    pub lee: Vec<String>,
-    pub sistema: Vec<String>,
-    pub red: Vec<String>,
+pub struct BlastRadius {
+    #[serde(alias = "escribe")]
+    pub writes: Vec<String>,
+    #[serde(alias = "borra")]
+    pub deletes: Vec<String>,
+    #[serde(alias = "lee")]
+    pub reads: Vec<String>,
+    #[serde(alias = "sistema")]
+    pub system: Vec<String>,
+    #[serde(alias = "red")]
+    pub network: Vec<String>,
 }
 
+/// Execution sandbox enclosure parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Recinto {
-    pub motor: String,
-    pub garantiza: String,
+pub struct Enclosure {
+    #[serde(alias = "motor")]
+    pub engine: String,
+    #[serde(alias = "garantiza")]
+    pub guarantees: String,
 }
 
+/// Outcome of executing a plan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Resultado {
+pub struct ExecutionResult {
     pub ok: bool,
-    pub mensaje: String,
-    pub instantanea: Option<String>,
+    #[serde(alias = "mensaje")]
+    pub message: String,
+    #[serde(alias = "instantanea")]
+    pub snapshot: Option<String>,
 }
 
-/// English aliases for core execution protocol types.
-pub type Proposal = Propuesta;
-pub type BlastRadius = Radio;
-pub type Enclosure = Recinto;
-pub type ExecutionResult = Resultado;
+/// Type aliases for backwards compatibility.
+pub type Propuesta = Proposal;
+pub type Radio = BlastRadius;
+pub type Recinto = Enclosure;
+pub type Resultado = ExecutionResult;
 
-// ------------------------------------------------- introspección git (T1.1)
+// ----------------------------------------------------- git introspection (T1.1)
 
-/// Estado de modificación de un archivo rastreado o no rastreado en Git.
+/// Modification status of a tracked or untracked file in Git.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GitFileStatus {
@@ -825,103 +850,143 @@ pub enum GitFileStatus {
     Conflicted,
 }
 
-/// Resumen granular de cambios en un archivo dentro del repositorio.
+/// Granular change summary for a file inside the repository.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitFileDiffSummary {
-    pub ruta: String,
-    pub lineas_anadidas: usize,
-    pub lineas_borradas: usize,
-    pub estado: GitFileStatus,
+    #[serde(alias = "ruta")]
+    pub path: String,
+    #[serde(alias = "lineas_anadidas")]
+    pub added_lines: usize,
+    #[serde(alias = "lineas_borradas")]
+    pub deleted_lines: usize,
+    #[serde(alias = "estado")]
+    pub status: GitFileStatus,
 }
 
-/// Estado global de un repositorio Git en el espacio de trabajo.
+/// Global status of a Git repository in the workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct GitRepoStatus {
-    /// Rama activa actual (ej. `main`, `feature/x`) o `None` si es HEAD desacoplado.
-    pub rama: Option<String>,
-    /// Hash abreviado o completo del commit HEAD.
+    /// Current active branch (e.g. `main`, `feature/x`) or `None` if detached HEAD.
+    #[serde(alias = "rama")]
+    pub branch: Option<String>,
+    /// Short or full commit hash of HEAD.
     pub head_commit: Option<String>,
-    /// Cantidad de commits locales por delante del upstream remoto.
-    pub delante: usize,
-    /// Cantidad de commits locales por detrás del upstream remoto.
-    pub detras: usize,
-    /// Archivos con modificaciones en el árbol de trabajo (no staged).
-    pub modificados: Vec<GitFileDiffSummary>,
-    /// Archivos preparados en el índice (staged).
+    /// Number of local commits ahead of remote upstream.
+    #[serde(alias = "delante")]
+    pub ahead: usize,
+    /// Number of local commits behind remote upstream.
+    #[serde(alias = "detras")]
+    pub behind: usize,
+    /// Files with unstaged modifications in working tree.
+    #[serde(alias = "modificados")]
+    pub modified: Vec<GitFileDiffSummary>,
+    /// Files staged in the index.
     pub staged: Vec<GitFileDiffSummary>,
-    /// Archivos no rastreados en el repositorio.
-    pub sin_seguimiento: Vec<String>,
-    /// Indica si el árbol de trabajo y el índice están totalmente limpios.
-    pub limpio: bool,
+    /// Untracked files in the repository.
+    #[serde(alias = "sin_seguimiento")]
+    pub untracked: Vec<String>,
+    /// Indicates if both working tree and index are clean.
+    #[serde(alias = "limpio")]
+    pub clean: bool,
 }
 
 impl GitRepoStatus {
     pub fn is_clean(&self) -> bool {
-        self.modificados.is_empty() && self.staged.is_empty() && self.sin_seguimiento.is_empty()
+        self.modified.is_empty() && self.staged.is_empty() && self.untracked.is_empty()
     }
 
-    /// Helper para verificar si el estado no tiene modificaciones ni archivos pendientes.
+    /// Helper for backwards compatibility.
     pub fn es_limpio(&self) -> bool {
         self.is_clean()
     }
 }
 
-// ------------------------------------------------ spec engine y tickets (T1.3)
+// ------------------------------------------------- spec engine and tickets (T1.3)
 
-/// Estado de un ticket de especificación o desarrollo.
+/// Status of a specification or development ticket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TicketStatus {
-    Pendiente,
-    EnProgreso,
-    EnRevision,
-    Completado,
+    #[serde(alias = "Pendiente")]
+    Pending,
+    #[serde(alias = "EnProgreso")]
+    InProgress,
+    #[serde(alias = "EnRevision")]
+    InReview,
+    #[serde(alias = "Completado")]
+    Completed,
 }
 
+#[allow(non_upper_case_globals)]
 impl TicketStatus {
+    pub const Pendiente: Self = Self::Pending;
+    pub const EnProgreso: Self = Self::InProgress;
+    pub const EnRevision: Self = Self::InReview;
+    pub const Completado: Self = Self::Completed;
+
     pub fn label(&self) -> &'static str {
         match self {
-            TicketStatus::Pendiente => "Pending",
-            TicketStatus::EnProgreso => "In Progress",
-            TicketStatus::EnRevision => "In Review",
-            TicketStatus::Completado => "Completed",
+            TicketStatus::Pending => "Pending",
+            TicketStatus::InProgress => "In Progress",
+            TicketStatus::InReview => "In Review",
+            TicketStatus::Completed => "Completed",
+        }
+    }
+
+    pub fn tag(&self) -> &'static str {
+        match self {
+            TicketStatus::Pending => "⏳ Pending",
+            TicketStatus::InProgress => "🔄 In Progress",
+            TicketStatus::InReview => "🔍 In Review",
+            TicketStatus::Completed => "✅ Completed",
         }
     }
 
     pub fn etiqueta(&self) -> &'static str {
         match self {
-            TicketStatus::Pendiente => "⏳ Pendiente",
-            TicketStatus::EnProgreso => "🔄 En Progreso",
-            TicketStatus::EnRevision => "🔍 En Revisión",
-            TicketStatus::Completado => "✅ Completado",
+            TicketStatus::Pending => "⏳ Pendiente",
+            TicketStatus::InProgress => "🔄 En Progreso",
+            TicketStatus::InReview => "🔍 En Revisión",
+            TicketStatus::Completed => "✅ Completado",
         }
     }
 }
 
-/// Resumen de un ticket para listados y tableros Kanban.
+/// Summary of a ticket for listings and Kanban boards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketSummary {
     pub id: String,
-    pub fase: String,
-    pub titulo: String,
-    pub estado: TicketStatus,
-    pub ruta_archivo: String,
+    #[serde(alias = "fase")]
+    pub phase: String,
+    #[serde(alias = "titulo")]
+    pub title: String,
+    #[serde(alias = "estado")]
+    pub status: TicketStatus,
+    #[serde(alias = "ruta_archivo")]
+    pub file_path: String,
 }
 
-/// Detalle completo de un ticket parseado desde Markdown.
+/// Full details of a ticket parsed from Markdown.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketDetail {
     pub id: String,
-    pub fase: String,
-    pub titulo: String,
-    pub estado: TicketStatus,
-    pub ruta_archivo: String,
-    pub descripcion: String,
-    pub alcance_tecnico: Vec<String>,
-    pub criterios_aceptacion: Vec<String>,
+    #[serde(alias = "fase")]
+    pub phase: String,
+    #[serde(alias = "titulo")]
+    pub title: String,
+    #[serde(alias = "estado")]
+    pub status: TicketStatus,
+    #[serde(alias = "ruta_archivo")]
+    pub file_path: String,
+    #[serde(alias = "descripcion")]
+    pub description: String,
+    #[serde(alias = "alcance_tecnico")]
+    pub technical_scope: Vec<String>,
+    #[serde(alias = "criterios_aceptacion")]
+    pub acceptance_criteria: Vec<String>,
 }
 
-/// Información de diagnóstico de un puerto TCP en escucha.
+/// Diagnostic info for a listening TCP port.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortDiagnosticInfo {
     pub port: u16,
@@ -931,23 +996,27 @@ pub struct PortDiagnosticInfo {
     pub working_dir: Option<String>,
 }
 
-// ---------------------------------------------------------------- antFlow: multi-agente (T3.1)
+// ---------------------------------------------------- antFlow: multi-agent (T3.1)
 
-/// Rol especializado de un agente dentro del flujo antFlow.
+/// Specialized agent role within the antFlow lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
-    Arquitecto,
+    #[serde(alias = "Arquitecto")]
+    Architect,
     Coder,
     QA,
     Auditor,
     VisualQA,
 }
 
+#[allow(non_upper_case_globals)]
 impl AgentRole {
+    pub const Arquitecto: Self = Self::Architect;
+
     pub fn name(&self) -> &'static str {
         match self {
-            AgentRole::Arquitecto => "Architect",
+            AgentRole::Architect => "Architect",
             AgentRole::Coder => "Coder",
             AgentRole::QA => "QA / Tester",
             AgentRole::Auditor => "Security Auditor",
@@ -957,7 +1026,7 @@ impl AgentRole {
 
     pub fn nombre(&self) -> &'static str {
         match self {
-            AgentRole::Arquitecto => "Arquitecto",
+            AgentRole::Architect => "Arquitecto",
             AgentRole::Coder => "Coder",
             AgentRole::QA => "QA / Tester",
             AgentRole::Auditor => "Auditor de Seguridad",
@@ -967,7 +1036,7 @@ impl AgentRole {
 
     pub fn description(&self) -> &'static str {
         match self {
-            AgentRole::Arquitecto => {
+            AgentRole::Architect => {
                 "Technical planning, ticket breakdown and architecture design."
             }
             AgentRole::Coder => {
@@ -981,19 +1050,9 @@ impl AgentRole {
         }
     }
 
-    pub fn descripcion(&self) -> &'static str {
-        match self {
-            AgentRole::Arquitecto => "Planificación técnica, descomposición de tickets y diseño de arquitectura.",
-            AgentRole::Coder => "Implementación modular de cambios y refactorización en el worktree.",
-            AgentRole::QA => "Generación y ejecución de pruebas automatizadas en sandbox.",
-            AgentRole::Auditor => "Revisión de diffs, seguridad, estilo y radio de impacto.",
-            AgentRole::VisualQA => "Inspección visual multimodal de interfaces gráficas, capturas de pantalla y regresión visual.",
-        }
-    }
-
     pub fn system_prompt(&self) -> &'static str {
         match self {
-            AgentRole::Arquitecto => {
+            AgentRole::Architect => {
                 "You are the Architect Agent of antOS. Your goal is to break down technical tickets \
                  into atomic steps, validate dependencies, and design the architecture adhering \
                  to crate boundaries and zero unwraps in production."
@@ -1021,91 +1080,121 @@ impl AgentRole {
         }
     }
 
+    #[deprecated(note = "use description")]
+    pub fn descripcion(&self) -> &'static str {
+        self.description()
+    }
+
+    #[deprecated(note = "use system_prompt")]
     pub fn prompt_sistema(&self) -> &'static str {
         self.system_prompt()
     }
 }
 
-/// Estado en la máquina de estados del ciclo de vida de una tarea en antFlow.
+/// Lifecycle state machine for an antFlow task.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FlowState {
-    Pendiente,
-    Planificando,
-    Implementando,
-    VerificandoTests,
-    RevisionAuditor,
-    ListoParaAprobacion,
-    Fusionado,
-    Fallido,
+    #[serde(alias = "Pendiente")]
+    Pending,
+    #[serde(alias = "Planificando")]
+    Planning,
+    #[serde(alias = "Implementando")]
+    Implementing,
+    #[serde(alias = "VerificandoTests")]
+    Testing,
+    #[serde(alias = "RevisionAuditor")]
+    Reviewing,
+    #[serde(alias = "ListoParaAprobacion")]
+    ReadyForApproval,
+    #[serde(alias = "Fusionado")]
+    Merged,
+    #[serde(alias = "Fallido")]
+    Failed,
 }
 
+#[allow(non_upper_case_globals)]
 impl FlowState {
+    pub const Pendiente: Self = Self::Pending;
+    pub const Planificando: Self = Self::Planning;
+    pub const Implementando: Self = Self::Implementing;
+    pub const VerificandoTests: Self = Self::Testing;
+    pub const RevisionAuditor: Self = Self::Reviewing;
+    pub const ListoParaAprobacion: Self = Self::ReadyForApproval;
+    pub const Fusionado: Self = Self::Merged;
+    pub const Fallido: Self = Self::Failed;
     pub fn label(&self) -> &'static str {
         match self {
-            FlowState::Pendiente => "Pending",
-            FlowState::Planificando => "Planning (Architect)",
-            FlowState::Implementando => "Implementing (Coder)",
-            FlowState::VerificandoTests => "Running Tests (QA)",
-            FlowState::RevisionAuditor => "Reviewing (Auditor)",
-            FlowState::ListoParaAprobacion => "Ready for Approval",
-            FlowState::Fusionado => "Merged",
-            FlowState::Fallido => "Failed",
+            FlowState::Pending => "Pending",
+            FlowState::Planning => "Planning (Architect)",
+            FlowState::Implementing => "Implementing (Coder)",
+            FlowState::Testing => "Running Tests (QA)",
+            FlowState::Reviewing => "Reviewing (Auditor)",
+            FlowState::ReadyForApproval => "Ready for Approval",
+            FlowState::Merged => "Merged",
+            FlowState::Failed => "Failed",
         }
     }
 
-    pub fn etiqueta(&self) -> &'static str {
+    pub fn tag(&self) -> &'static str {
         match self {
-            FlowState::Pendiente => "⏳ Pendiente",
-            FlowState::Planificando => "📐 Planificando (Arquitecto)",
-            FlowState::Implementando => "💻 Implementando (Coder)",
-            FlowState::VerificandoTests => "🧪 Verificando Tests (QA)",
-            FlowState::RevisionAuditor => "🛡️ Revisión (Auditor)",
-            FlowState::ListoParaAprobacion => "✨ Listo para Aprobación",
-            FlowState::Fusionado => "✅ Fusionado",
-            FlowState::Fallido => "❌ Fallido",
+            FlowState::Pending => "⏳ Pending",
+            FlowState::Planning => "📐 Planning (Architect)",
+            FlowState::Implementing => "💻 Implementing (Coder)",
+            FlowState::Testing => "🧪 Testing (QA)",
+            FlowState::Reviewing => "🛡️ Reviewing (Auditor)",
+            FlowState::ReadyForApproval => "✨ Ready for Approval",
+            FlowState::Merged => "✅ Merged",
+            FlowState::Failed => "❌ Failed",
         }
     }
 
     pub fn active_role(&self) -> Option<AgentRole> {
         match self {
-            FlowState::Planificando => Some(AgentRole::Arquitecto),
-            FlowState::Implementando => Some(AgentRole::Coder),
-            FlowState::VerificandoTests => Some(AgentRole::QA),
-            FlowState::RevisionAuditor => Some(AgentRole::Auditor),
+            FlowState::Planning => Some(AgentRole::Architect),
+            FlowState::Implementing => Some(AgentRole::Coder),
+            FlowState::Testing => Some(AgentRole::QA),
+            FlowState::Reviewing => Some(AgentRole::Auditor),
             _ => None,
         }
     }
-
-    pub fn rol_activo(&self) -> Option<AgentRole> {
-        self.active_role()
-    }
 }
 
-/// Registro de una transición de estado en el flujo.
+/// Record of a lifecycle state transition in antFlow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowTransition {
-    pub timestamp_segundos: u64,
-    pub estado_anterior: FlowState,
-    pub estado_nuevo: FlowState,
-    pub rol: Option<AgentRole>,
-    pub detalle: String,
+    #[serde(alias = "timestamp_segundos")]
+    pub timestamp_seconds: u64,
+    #[serde(alias = "estado_anterior")]
+    pub old_state: FlowState,
+    #[serde(alias = "estado_nuevo")]
+    pub new_state: FlowState,
+    #[serde(alias = "rol")]
+    pub role: Option<AgentRole>,
+    #[serde(alias = "detalle")]
+    pub detail: String,
 }
 
-/// Tarea activa o histórica gestionada por el orquestador antFlow.
+/// Active or historical task orchestrated by antFlow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowTask {
     pub id: String,
     pub ticket_id: String,
-    pub estado: FlowState,
-    pub rol_actual: Option<AgentRole>,
+    #[serde(alias = "estado")]
+    pub state: FlowState,
+    #[serde(alias = "rol_actual")]
+    pub current_role: Option<AgentRole>,
     pub worktree_path: Option<String>,
     pub branch_name: Option<String>,
-    pub reintentos_qa: u32,
-    pub max_reintentos_qa: u32,
+    #[serde(alias = "reintentos_qa")]
+    pub qa_retries: u32,
+    #[serde(alias = "max_reintentos_qa")]
+    pub max_qa_retries: u32,
     pub diff_preview: Option<String>,
-    pub resumen_auditoria: Option<String>,
-    pub historial: Vec<FlowTransition>,
+    #[serde(alias = "resumen_auditoria")]
+    pub audit_summary: Option<String>,
+    #[serde(alias = "historial")]
+    pub history: Vec<FlowTransition>,
 }
 
 // ---------------------------------------------------------------- mensajes
@@ -1368,183 +1457,256 @@ pub enum Request {
     QueryMicrovmStatus,
 }
 
-/// Alias para compatibilidad con código existente en español.
+/// Type aliases for backwards compatibility.
 pub type Peticion = Request;
 
+/// The IPC event stream emitted by the antOS daemon to connected clients.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Evento {
-    Inicio {
-        intencion: String,
-        planificador: String,
+pub enum Event {
+    /// Initial notification when an intent planning process starts.
+    #[serde(alias = "Inicio")]
+    Start {
+        #[serde(alias = "intencion")]
+        intent: String,
+        #[serde(alias = "planificador")]
+        planner: String,
     },
-    Nota(String),
-    Propuesta(Box<Propuesta>),
-    Salida(String),
-    Resultado(Resultado),
-    /// Respuesta con el estado detallado del repositorio Git.
-    EstadoGit(GitRepoStatus),
-    /// Respuesta cuando el directorio consultado no es un repositorio Git válido.
-    NoEsRepoGit,
-    /// Respuesta con el listado de tickets encontrados en el workspace.
-    ListaTickets(Vec<TicketSummary>),
-    /// Respuesta con el detalle de un ticket específico.
-    DetalleTicket(Option<TicketDetail>),
-    /// Respuesta con el listado de puertos diagnosticados.
-    EstadoPuertos(Vec<PortDiagnosticInfo>),
-    /// Estado detallado de una tarea de agentes antFlow.
-    EstadoFlow(Option<FlowTask>),
-    /// Listado de todas las tareas antFlow.
-    ListaFlows(Vec<FlowTask>),
-    /// Notificación de transición de estado en antFlow.
-    TransicionFlow {
+    /// Informational note or execution milestone.
+    #[serde(alias = "Nota")]
+    Note(String),
+    /// Proposed plan and blast radius for review before execution.
+    #[serde(alias = "Propuesta")]
+    Proposal(Box<Proposal>),
+    /// Output line from command or tool execution.
+    #[serde(alias = "Salida")]
+    Output(String),
+    /// Final execution outcome of a plan.
+    #[serde(alias = "Resultado")]
+    Result(ExecutionResult),
+    /// Detailed status of the Git repository in the workspace.
+    #[serde(alias = "EstadoGit")]
+    GitStatus(GitRepoStatus),
+    /// Emitted when queried path is not a valid Git repository.
+    #[serde(alias = "NoEsRepoGit")]
+    NotGitRepo,
+    /// List of technical tickets parsed from the workspace.
+    #[serde(alias = "ListaTickets")]
+    TicketList(Vec<TicketSummary>),
+    /// Full detail of a specific ticket.
+    #[serde(alias = "DetalleTicket")]
+    TicketDetail(Option<TicketDetail>),
+    /// Diagnostic info for listening TCP ports and associated processes.
+    #[serde(alias = "EstadoPuertos")]
+    PortsStatus(Vec<PortDiagnosticInfo>),
+    /// Detailed status of an antFlow agent workflow task.
+    #[serde(alias = "EstadoFlow")]
+    FlowStatus(Option<FlowTask>),
+    /// Listing of all antFlow tasks.
+    #[serde(alias = "ListaFlows")]
+    FlowList(Vec<FlowTask>),
+    /// Real-time state transition event in antFlow.
+    #[serde(alias = "TransicionFlow")]
+    FlowTransition {
         ticket_id: String,
-        estado_anterior: FlowState,
-        estado_nuevo: FlowState,
-        rol: Option<AgentRole>,
-        detalle: String,
+        #[serde(alias = "estado_anterior")]
+        old_state: FlowState,
+        #[serde(alias = "estado_nuevo")]
+        new_state: FlowState,
+        #[serde(alias = "rol")]
+        role: Option<AgentRole>,
+        #[serde(alias = "detalle")]
+        detail: String,
     },
-    /// Respuesta con diffs estructurados y coloreados sintácticamente (T8.1)
-    DiffEstructurado(Vec<DiffFile>),
-    /// Respuesta con la lista de notificaciones activas (T8.2)
-    ListaNotificaciones(Vec<NotificationItem>),
-    /// Respuesta al ejecutar una acción sobre una notificación (T8.2)
-    ResultadoNotificacion {
+    /// Structured and syntax-highlighted diffs (T8.1).
+    #[serde(alias = "DiffEstructurado")]
+    StructuredDiff(Vec<DiffFile>),
+    /// Active system and agent notifications (T8.2).
+    #[serde(alias = "ListaNotificaciones")]
+    NotificationList(Vec<NotificationItem>),
+    /// Result of an action performed on a notification (T8.2).
+    #[serde(alias = "ResultadoNotificacion")]
+    NotificationResult {
         id: String,
         success: bool,
         message: String,
     },
-    /// Respuesta con el estado de la malla antMesh y lista de peers (T9.1)
-    EstadoMesh(MeshStatus),
-    /// Token de emparejamiento generado para un nuevo nodo (T9.1)
-    TokenEmparejamientoGenerado(PairingToken),
-    /// Resultado de la conexión a un nodo peer (T9.1)
-    ResultadoConexionPeer {
+    /// Status of the P2P antMesh network and connected peers (T9.1).
+    #[serde(alias = "EstadoMesh")]
+    MeshStatus(MeshStatus),
+    /// Pairing token generated for a new peer node (T9.1).
+    #[serde(alias = "TokenEmparejamientoGenerado")]
+    PairingTokenGenerated(PairingToken),
+    /// Result of connecting to a remote peer node (T9.1).
+    #[serde(alias = "ResultadoConexionPeer")]
+    PeerConnectionResult {
         address: String,
         success: bool,
         message: String,
     },
-    /// Respuesta con el estado del clúster Swarm y roles asignados (T9.2)
-    EstadoSwarm(SwarmStatus),
-    /// Resultado del despacho de un rol a un nodo Swarm (T9.2)
-    ResultadoDespachoSwarm {
+    /// Status of the distributed swarm cluster (T9.2).
+    #[serde(alias = "EstadoSwarm")]
+    SwarmStatus(SwarmStatus),
+    /// Result of dispatching an agent role to a swarm node (T9.2).
+    #[serde(alias = "ResultadoDespachoSwarm")]
+    SwarmDispatchResult {
         ticket_id: String,
         role: AgentRole,
         assigned_node_id: String,
         success: bool,
         message: String,
     },
-    /// Listado de entradas virtuales en un directorio de /antfs (T10.1)
-    ListadoVfs {
+    /// Virtual directory listing in /antfs (T10.1).
+    #[serde(alias = "ListadoVfs")]
+    VfsList {
         virtual_path: String,
         entries: Vec<VfsEntry>,
     },
-    /// Contenido virtual de un nodo semántico o diff en /antfs (T10.1)
-    ContenidoVfs {
+    /// Virtual content of a semantic file or diff in /antfs (T10.1).
+    #[serde(alias = "ContenidoVfs")]
+    VfsContent {
         virtual_path: String,
         content: String,
     },
-    /// Resultado de montar, desmontar o consultar el VFS (T10.1)
-    ResultadoVfs {
+    /// Result of VFS mount, unmount, or query operations (T10.1).
+    #[serde(alias = "ResultadoVfs")]
+    VfsResult {
         action: String,
         success: bool,
         message: String,
     },
-    /// Resultado de la validación sintáctica previa a disco (T10.2)
-    ResultadoValidacionVfs(ValidationResult),
-    /// Estado del interceptor de escrituras semánticas (T10.2)
-    EstadoGuardVfs(VfsGuardStatus),
-    /// Estado de las sondas kernel eBPF LSM (T11.1)
-    EstadoEbpf(EbpfStatus),
-    /// Eventos de seguridad y trazas del ring buffer eBPF (T11.1)
-    AuditLogEbpf(Vec<EbpfSecurityEvent>),
-    /// Resultado de una acción o simulación eBPF (T11.1)
-    ResultadoEbpf {
+    /// Pre-commit semantic syntax validation result (T10.2).
+    #[serde(alias = "ResultadoValidacionVfs")]
+    VfsValidationResult(ValidationResult),
+    /// Status of the semantic write guard interceptor (T10.2).
+    #[serde(alias = "EstadoGuardVfs")]
+    VfsGuardStatus(VfsGuardStatus),
+    /// Status of the kernel eBPF LSM security supervisor (T11.1).
+    #[serde(alias = "EstadoEbpf")]
+    EbpfStatus(EbpfStatus),
+    /// Audit log trace events from the eBPF ring buffer (T11.1).
+    #[serde(alias = "AuditLogEbpf")]
+    EbpfAuditLog(Vec<EbpfSecurityEvent>),
+    /// Result of an eBPF management action or probe simulation (T11.1).
+    #[serde(alias = "ResultadoEbpf")]
+    EbpfResult {
         action: String,
         success: bool,
         message: String,
     },
-    /// Reporte detallado de ejecución bajo el profiler (T11.2)
-    ReporteProfiler(ProfileReport),
-    /// Histórico de reportes de profiling (T11.2)
-    ListaReportesProfiler(Vec<ProfileReport>),
-    /// Diagnóstico de puntos calientes y sugerencias para agentes (T11.2)
-    AnalisisProfiler {
+    /// Detailed profiling execution report (T11.2).
+    #[serde(alias = "ReporteProfiler")]
+    ProfilerReport(ProfileReport),
+    /// Historical list of profiling reports (T11.2).
+    #[serde(alias = "ListaReportesProfiler")]
+    ProfilerReportList(Vec<ProfileReport>),
+    /// Profiler analysis with hotspots and optimization suggestions (T11.2).
+    #[serde(alias = "AnalisisProfiler")]
+    ProfilerAnalysis {
         hotspots: Vec<ProfileHotspot>,
         suggestions: Vec<ProfileSuggestion>,
     },
-    /// Estado del servidor LSP embebido de antOS (T12.1)
-    EstadoLsp(LspServerStatus),
-    /// Configuración recomendada para conectar un editor externo al servidor LSP (T12.1)
-    ConfiguracionLsp {
+    /// Embedded LSP server status (T12.1).
+    #[serde(alias = "EstadoLsp")]
+    LspStatus(LspServerStatus),
+    /// Editor configuration helper for connecting to the LSP server (T12.1).
+    #[serde(alias = "ConfiguracionLsp")]
+    LspConfiguration {
         editor: LspEditorKind,
         config_content: String,
         target_file: String,
     },
-    /// Estado de la sesión de co-edición y programación en pareja (T12.2)
-    EstadoCollabSession(CollabSessionStatus),
-    /// Estado de la sesión de depuración supervisada DAP (T12.2)
-    EstadoDapSession(DapSessionStatus),
-    /// Resultado de una acción de colaboración o delta CRDT (T12.2)
-    ResultadoCollab {
+    /// Real-time collaborative editing session status (T12.2).
+    #[serde(alias = "EstadoCollabSession")]
+    CollabSessionStatus(CollabSessionStatus),
+    /// Isolated DAP debugging session status (T12.2).
+    #[serde(alias = "EstadoDapSession")]
+    DapSessionStatus(DapSessionStatus),
+    /// Result of a collaborative editing or CRDT sync operation (T12.2).
+    #[serde(alias = "ResultadoCollab")]
+    CollabResult {
         action: String,
         success: bool,
         message: String,
     },
-    /// Resultado de una operación DAP (breakpoint, step, eval) (T12.2)
-    ResultadoDap {
+    /// Result of a DAP debugger operation (T12.2).
+    #[serde(alias = "ResultadoDap")]
+    DapResult {
         action: String,
         success: bool,
         message: String,
     },
-    /// Estado del entorno de escritorio gráfico Wayland (T13.0)
-    EstadoDesktop(DesktopSessionStatus),
-    /// Listado de atajos de teclado del escritorio (T13.0)
-    ListaDesktopHotkeys(Vec<DesktopHotkey>),
-    /// Estado consolidado de telemetría para la barra de escritorio (T13.1)
-    EstadoBarraTelemetry(BarraTelemetry),
-    /// Alerta o notificación visual emitida a la barra (T13.1)
-    AlertaBarra(BarraAlert),
-    /// Estado del pipeline de arranque bare metal y binarios (T13.2)
-    EstadoBoot(BootPipelineStatus),
-    /// Resultado de la ejecución del pipeline de arranque (T13.2)
-    ResultadoBoot {
+    /// Wayland graphical desktop session status (T13.0).
+    #[serde(alias = "EstadoDesktop")]
+    DesktopStatus(DesktopSessionStatus),
+    /// Listing of registered desktop hotkeys (T13.0).
+    #[serde(alias = "ListaDesktopHotkeys")]
+    DesktopHotkeysList(Vec<DesktopHotkey>),
+    /// Real-time desktop bar telemetry status (T13.1).
+    #[serde(alias = "EstadoBarraTelemetry")]
+    BarraTelemetryStatus(BarraTelemetry),
+    /// Visual desktop bar alert or notification (T13.1).
+    #[serde(alias = "AlertaBarra")]
+    BarraAlert(BarraAlert),
+    /// Bare-metal boot pipeline status (T13.2).
+    #[serde(alias = "EstadoBoot")]
+    BootStatus(BootPipelineStatus),
+    /// Execution output of a boot pipeline action (T13.2).
+    #[serde(alias = "ResultadoBoot")]
+    BootResult {
         action: String,
         output: String,
         success: bool,
     },
-    /// Listado de plugins WebAssembly disponibles (T14.1)
-    ListaPlugins(Vec<PluginSummary>),
-    /// Resultado de la ejecución de una acción de plugin WASM (T14.1)
-    ResultadoPlugin(PluginResult),
-    /// Resultado de la captura de pantalla Wayland (T14.2)
-    ResultadoCaptura(ScreenshotResult),
-    /// Reporte de auditoría visual multimodal de VisualQA (T14.2)
-    ReporteVisualQA(VisualQAReport),
-    /// Lista de dispositivos de almacenamiento detectados (T15.1)
-    ListaDiscos(Vec<DiskDevice>),
-    /// Detalle e inspección de un dispositivo de almacenamiento (T15.1)
-    DetalleDisco(Option<DiskDevice>),
-    /// Plan o resultado de particionamiento (T15.1)
-    PlanParticionamiento(PartitionPlan),
-    /// Reporte de instalación del sistema base antOS (T15.2)
-    ReporteInstalacion(InstallReport),
-    /// Lista de sistemas operativos detectados en la máquina (T15.3)
-    SistemasOperativosDetectados(Vec<OsEntry>),
-    /// Reporte de instalación y configuración de bootloader UEFI (T15.3)
-    ReporteBootloader(BootloaderReport),
-    /// Estado y diagnóstico del hipervisor de microVMs (T16.1)
-    EstadoMicrovm(MicrovmStatus),
-    /// Lista de microVMs activas (T16.1)
-    ListaMicrovms(Vec<MicrovmInstance>),
-    /// Resultado de ejecución de comando dentro de la microVM (T16.1)
-    ResultadoMicrovm(MicrovmExecResult),
+    /// List of available WebAssembly plugins (T14.1).
+    #[serde(alias = "ListaPlugins")]
+    PluginList(Vec<PluginSummary>),
+    /// Execution result from a WebAssembly plugin action (T14.1).
+    #[serde(alias = "ResultadoPlugin")]
+    PluginResult(PluginResult),
+    /// Result of a Wayland screen capture (T14.2).
+    #[serde(alias = "ResultadoCaptura")]
+    ScreenshotResult(ScreenshotResult),
+    /// Visual QA audit and regression report (T14.2).
+    #[serde(alias = "ReporteVisualQA")]
+    VisualQAReport(VisualQAReport),
+    /// List of detected disk storage devices (T15.1).
+    #[serde(alias = "ListaDiscos")]
+    DiskList(Vec<DiskDevice>),
+    /// Detailed inspection of a disk device (T15.1).
+    #[serde(alias = "DetalleDisco")]
+    DiskDetail(Option<DiskDevice>),
+    /// Disk partitioning plan or simulation (T15.1).
+    #[serde(alias = "PlanParticionamiento")]
+    PartitionPlan(PartitionPlan),
+    /// Base operating system deployment report (T15.2).
+    #[serde(alias = "ReporteInstalacion")]
+    InstallReport(InstallReport),
+    /// Detected operating systems on disk for dual-boot (T15.3).
+    #[serde(alias = "SistemasOperativosDetectados")]
+    DetectedOperatingSystems(Vec<OsEntry>),
+    /// UEFI bootloader installation and configuration report (T15.3).
+    #[serde(alias = "ReporteBootloader")]
+    BootloaderReport(BootloaderReport),
+    /// Status and diagnostic of the microVM hypervisor (T16.1).
+    #[serde(alias = "EstadoMicrovm")]
+    MicrovmStatus(MicrovmStatus),
+    /// Listing of active microVMs (T16.1).
+    #[serde(alias = "ListaMicrovms")]
+    MicrovmList(Vec<MicrovmInstance>),
+    /// Result of executing a command inside a microVM (T16.1).
+    #[serde(alias = "ResultadoMicrovm")]
+    MicrovmResult(MicrovmExecResult),
+    /// General error message.
+    #[serde(alias = "Error")]
     Error(String),
 }
 
-/// Alias semánticos para clientes y especificaciones IPC.
-pub type Mensaje = Peticion;
-pub type Respuesta = Evento;
-pub type Event = Evento;
+/// Backwards compatibility type aliases.
+pub type Evento = Event;
+pub type Mensaje = Request;
+pub type Respuesta = Event;
+pub type Message = Request;
+pub type Response = Event;
 
 // ------------------------------------------------------------------- tests
 
@@ -1553,76 +1715,77 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_serializacion_git_repo_status() {
+    fn test_git_repo_status_serialization() {
         let status = GitRepoStatus {
-            rama: Some("main".into()),
+            branch: Some("main".into()),
             head_commit: Some("a1b2c3d".into()),
-            delante: 2,
-            detras: 0,
-            modificados: vec![GitFileDiffSummary {
-                ruta: "system/protocolo/src/lib.rs".into(),
-                lineas_anadidas: 45,
-                lineas_borradas: 2,
-                estado: GitFileStatus::Modified,
+            ahead: 2,
+            behind: 0,
+            modified: vec![GitFileDiffSummary {
+                path: "system/protocolo/src/lib.rs".into(),
+                added_lines: 45,
+                deleted_lines: 2,
+                status: GitFileStatus::Modified,
             }],
             staged: vec![GitFileDiffSummary {
-                ruta: "Cargo.toml".into(),
-                lineas_anadidas: 1,
-                lineas_borradas: 0,
-                estado: GitFileStatus::Created,
+                path: "Cargo.toml".into(),
+                added_lines: 1,
+                deleted_lines: 0,
+                status: GitFileStatus::Created,
             }],
-            sin_seguimiento: vec!["scratch.txt".into()],
-            limpio: false,
+            untracked: vec!["scratch.txt".into()],
+            clean: false,
         };
 
-        let json = serde_json::to_string(&status).expect("debe serializar a JSON");
-        let deserializado: GitRepoStatus =
-            serde_json::from_str(&json).expect("debe deserializar desde JSON");
+        let json = serde_json::to_string(&status).expect("should serialize to JSON");
+        let deserialized: GitRepoStatus =
+            serde_json::from_str(&json).expect("should deserialize from JSON");
 
-        assert_eq!(status, deserializado);
-        assert!(!deserializado.es_limpio());
+        assert_eq!(status, deserialized);
+        assert!(!deserialized.is_clean());
+        assert!(!deserialized.es_limpio());
     }
 
     #[test]
-    fn test_serializacion_peticion_consultar_estado_git() {
-        let peticion = Request::QueryGitStatus {
+    fn test_query_git_status_request_serialization() {
+        let request = Request::QueryGitStatus {
             workspace_path: "/Users/dev/workspace".into(),
         };
 
-        let json = serde_json::to_string(&peticion).expect("debe serializar petición");
-        let deserializado: Request =
-            serde_json::from_str(&json).expect("debe deserializar petición");
+        let json = serde_json::to_string(&request).expect("should serialize request");
+        let deserialized: Request =
+            serde_json::from_str(&json).expect("should deserialize request");
 
-        assert_eq!(peticion, deserializado);
+        assert_eq!(request, deserialized);
     }
 
     #[test]
-    fn test_serializacion_respuesta_estado_git_y_no_es_repo() {
-        let resp_ok = Respuesta::EstadoGit(GitRepoStatus {
-            rama: Some("feature/git-inspector".into()),
-            limpio: true,
+    fn test_git_status_and_not_repo_response_serialization() {
+        let resp_ok = Response::GitStatus(GitRepoStatus {
+            branch: Some("feature/git-inspector".into()),
+            clean: true,
             ..Default::default()
         });
 
-        let json_ok = serde_json::to_string(&resp_ok).expect("debe serializar EstadoGit");
-        let deserializado_ok: Evento =
-            serde_json::from_str(&json_ok).expect("debe deserializar EstadoGit");
-        assert_eq!(resp_ok, deserializado_ok);
+        let json_ok = serde_json::to_string(&resp_ok).expect("should serialize GitStatus");
+        let deserialized_ok: Event =
+            serde_json::from_str(&json_ok).expect("should deserialize GitStatus");
+        assert_eq!(resp_ok, deserialized_ok);
 
-        let resp_no_repo = Respuesta::NoEsRepoGit;
+        let resp_no_repo = Response::NotGitRepo;
         let json_no_repo =
-            serde_json::to_string(&resp_no_repo).expect("debe serializar NoEsRepoGit");
-        let deserializado_no_repo: Evento =
-            serde_json::from_str(&json_no_repo).expect("debe deserializar NoEsRepoGit");
-        assert_eq!(resp_no_repo, deserializado_no_repo);
+            serde_json::to_string(&resp_no_repo).expect("should serialize NotGitRepo");
+        let deserialized_no_repo: Event =
+            serde_json::from_str(&json_no_repo).expect("should deserialize NotGitRepo");
+        assert_eq!(resp_no_repo, deserialized_no_repo);
     }
 
     #[test]
-    fn test_compatibilidad_mensajes_existentes() {
-        // Formato legado en español soportado por serde alias
+    fn test_existing_message_compatibility() {
+        // Legacy format in Spanish supported via serde alias
         let legacy_json =
             r#"{"Intencion":{"texto":"compilar kernel","planificador":"reglas","seco":false}}"#;
-        let des_legacy: Request = serde_json::from_str(legacy_json).expect("deserializar legado");
+        let des_legacy: Request = serde_json::from_str(legacy_json).expect("deserialize legacy");
         match des_legacy {
             Request::Intent {
                 text,
@@ -1633,103 +1796,108 @@ mod tests {
                 assert_eq!(planner, Some("reglas".into()));
                 assert!(!dry_run);
             }
-            _ => panic!("debe ser Intent"),
+            _ => panic!("must be Intent"),
         }
 
-        // Formato moderno en inglés
-        let peticion_intencion = Request::Intent {
+        // Modern format in English
+        let intent_request = Request::Intent {
             text: "compilar kernel".into(),
             planner: Some("reglas".into()),
             dry_run: false,
         };
-        let json = serde_json::to_string(&peticion_intencion).expect("serializar intencion");
-        let deserializado: Request = serde_json::from_str(&json).expect("deserializar intencion");
-        assert_eq!(peticion_intencion, deserializado);
+        let json = serde_json::to_string(&intent_request).expect("serialize intent");
+        let deserialized: Request = serde_json::from_str(&json).expect("deserialize intent");
+        assert_eq!(intent_request, deserialized);
 
-        let evento_nota = Evento::Nota("analizando dependencias".into());
-        let json_nota = serde_json::to_string(&evento_nota).expect("serializar nota");
-        let deserializado_nota: Evento =
-            serde_json::from_str(&json_nota).expect("deserializar nota");
-        assert_eq!(evento_nota, deserializado_nota);
+        let event_note = Event::Note("analizando dependencias".into());
+        let json_note = serde_json::to_string(&event_note).expect("serialize note");
+        let deserialized_note: Event =
+            serde_json::from_str(&json_note).expect("deserialize note");
+        assert_eq!(event_note, deserialized_note);
+
+        // Legacy Spanish event deserialization check
+        let legacy_ev_json = r#"{"Nota":"hola mundo"}"#;
+        let des_ev: Event = serde_json::from_str(legacy_ev_json).expect("deserialize legacy note");
+        assert_eq!(des_ev, Event::Note("hola mundo".into()));
     }
 
     #[test]
-    fn test_serializacion_tickets_protocolo() {
+    fn test_tickets_protocol_serialization() {
         let ticket = TicketDetail {
             id: "T1.3".into(),
-            fase: "Fase 1".into(),
-            titulo: "Indexador y parser de tickets".into(),
-            estado: TicketStatus::EnProgreso,
-            ruta_archivo: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
-            descripcion: "Construir indexador de tickets".into(),
-            alcance_tecnico: vec!["Parser markdown".into(), "Mensajes IPC".into()],
-            criterios_aceptacion: vec!["Comando antos tickets".into()],
+            phase: "Phase 1".into(),
+            title: "Ticket parser and indexer".into(),
+            status: TicketStatus::InProgress,
+            file_path: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
+            description: "Build ticket indexer".into(),
+            technical_scope: vec!["Markdown parser".into(), "IPC messages".into()],
+            acceptance_criteria: vec!["antos tickets command".into()],
         };
 
-        let json = serde_json::to_string(&ticket).expect("serializar ticket");
-        let deserializado: TicketDetail = serde_json::from_str(&json).expect("deserializar ticket");
-        assert_eq!(ticket, deserializado);
+        let json = serde_json::to_string(&ticket).expect("serialize ticket");
+        let deserialized: TicketDetail = serde_json::from_str(&json).expect("deserialize ticket");
+        assert_eq!(ticket, deserialized);
 
-        let peticion_listar = Request::ListTickets {
+        let list_request = Request::ListTickets {
             workspace_path: "/workspace".into(),
         };
-        let json_peticion =
-            serde_json::to_string(&peticion_listar).expect("serializar peticion listar");
-        let des_peticion: Request =
-            serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
-        assert_eq!(peticion_listar, des_peticion);
+        let json_request =
+            serde_json::to_string(&list_request).expect("serialize list request");
+        let des_request: Request =
+            serde_json::from_str(&json_request).expect("deserialize list request");
+        assert_eq!(list_request, des_request);
 
-        let respuesta_lista = Evento::ListaTickets(vec![TicketSummary {
+        let list_response = Event::TicketList(vec![TicketSummary {
             id: "T1.3".into(),
-            fase: "Fase 1".into(),
-            titulo: "Indexador y parser de tickets".into(),
-            estado: TicketStatus::EnProgreso,
-            ruta_archivo: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
+            phase: "Phase 1".into(),
+            title: "Ticket parser and indexer".into(),
+            status: TicketStatus::InProgress,
+            file_path: "docs/tickets/T1.3-spec-engine-tickets-parser.md".into(),
         }]);
-        let json_resp = serde_json::to_string(&respuesta_lista).expect("serializar lista tickets");
-        let des_resp: Evento =
-            serde_json::from_str(&json_resp).expect("deserializar lista tickets");
-        assert_eq!(respuesta_lista, des_resp);
+        let json_resp = serde_json::to_string(&list_response).expect("serialize ticket list");
+        let des_resp: Event =
+            serde_json::from_str(&json_resp).expect("deserialize ticket list");
+        assert_eq!(list_response, des_resp);
 
-        let info_puerto = PortDiagnosticInfo {
+        let port_info = PortDiagnosticInfo {
             port: 3000,
             pid: 12345,
             process_name: "node".into(),
             command: "node server.js".into(),
             working_dir: Some("/app".into()),
         };
-        let json_puerto = serde_json::to_string(&info_puerto).expect("serializar puerto");
-        let des_puerto: PortDiagnosticInfo =
-            serde_json::from_str(&json_puerto).expect("deserializar puerto");
-        assert_eq!(info_puerto, des_puerto);
+        let json_port = serde_json::to_string(&port_info).expect("serialize port");
+        let des_port: PortDiagnosticInfo =
+            serde_json::from_str(&json_port).expect("deserialize port");
+        assert_eq!(port_info, des_port);
 
         let task = FlowTask {
             id: "flow-1".into(),
             ticket_id: "T3.1".into(),
-            estado: FlowState::Planificando,
-            rol_actual: Some(AgentRole::Arquitecto),
+            state: FlowState::Planning,
+            current_role: Some(AgentRole::Architect),
             worktree_path: Some("/state/worktrees/t3.1".into()),
             branch_name: Some("agent/t3.1".into()),
-            reintentos_qa: 0,
-            max_reintentos_qa: 3,
-            diff_preview: Some("+ nuevo modulo flow".into()),
-            resumen_auditoria: Some("arquitectura aprobada".into()),
-            historial: vec![FlowTransition {
-                timestamp_segundos: 1700000000,
-                estado_anterior: FlowState::Pendiente,
-                estado_nuevo: FlowState::Planificando,
-                rol: Some(AgentRole::Arquitecto),
-                detalle: "asignando tarea al arquitecto".into(),
+            qa_retries: 0,
+            max_qa_retries: 3,
+            diff_preview: Some("+ new flow module".into()),
+            audit_summary: Some("architecture approved".into()),
+            history: vec![FlowTransition {
+                timestamp_seconds: 1700000000,
+                old_state: FlowState::Pending,
+                new_state: FlowState::Planning,
+                role: Some(AgentRole::Architect),
+                detail: "assigning task to architect".into(),
             }],
         };
 
-        let json_task = serde_json::to_string(&task).expect("serializar task");
-        let des_task: FlowTask = serde_json::from_str(&json_task).expect("deserializar task");
+        let json_task = serde_json::to_string(&task).expect("serialize task");
+        let des_task: FlowTask = serde_json::from_str(&json_task).expect("deserialize task");
         assert_eq!(task, des_task);
     }
 
     #[test]
-    fn test_serializacion_diff_estructurado() {
+    fn test_structured_diff_serialization() {
         let diff_file = DiffFile {
             old_path: "src/main.rs".into(),
             new_path: "src/main.rs".into(),
@@ -1786,19 +1954,19 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
         assert_eq!(req, des_req);
 
-        let event = Evento::DiffEstructurado(vec![diff_file.clone()]);
+        let event = Event::StructuredDiff(vec![diff_file.clone()]);
         let json_ev = serde_json::to_string(&event).expect("serialize event");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize event");
         assert_eq!(event, des_ev);
     }
 
     #[test]
-    fn test_serializacion_notificaciones() {
+    fn test_notifications_serialization() {
         let notif = NotificationItem {
             id: "notif-1".into(),
             ticket_id: "T8.2".into(),
-            title: "Revisión requerida para T8.2".into(),
-            body: "Agente QA validó todos los tests con éxito.".into(),
+            title: "Review required for T8.2".into(),
+            body: "QA agent validated all tests successfully.".into(),
             kind: NotificationKind::ApprovalRequired,
             created_at: 1700000000,
             read: false,
@@ -1818,14 +1986,14 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req notif");
         assert_eq!(req, des_req);
 
-        let event = Evento::ListaNotificaciones(vec![notif.clone()]);
+        let event = Event::NotificationList(vec![notif.clone()]);
         let json_ev = serde_json::to_string(&event).expect("serialize event notif");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize event notif");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize event notif");
         assert_eq!(event, des_ev);
     }
 
     #[test]
-    fn test_serializacion_antmesh() {
+    fn test_antmesh_serialization() {
         let peer = PeerNode {
             id: "node-e4f812".into(),
             hostname: "workstation-gpu".into(),
@@ -1854,14 +2022,14 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize mesh req");
         assert_eq!(req, des_req);
 
-        let event = Evento::EstadoMesh(status.clone());
+        let event = Event::MeshStatus(status.clone());
         let json_ev = serde_json::to_string(&event).expect("serialize mesh event");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize mesh event");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize mesh event");
         assert_eq!(event, des_ev);
     }
 
     #[test]
-    fn test_serializacion_swarm() {
+    fn test_swarm_serialization() {
         let task = SwarmTaskAssignment {
             task_id: "task-001".into(),
             ticket_id: "T9.2".into(),
@@ -1898,14 +2066,14 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize swarm req");
         assert_eq!(req, des_req);
 
-        let event = Evento::EstadoSwarm(swarm_status.clone());
+        let event = Event::SwarmStatus(swarm_status.clone());
         let json_ev = serde_json::to_string(&event).expect("serialize swarm event");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize swarm event");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize swarm event");
         assert_eq!(event, des_ev);
     }
 
     #[test]
-    fn test_serializacion_vfs() {
+    fn test_vfs_serialization() {
         let entry = VfsEntry {
             path: "/antfs/symbols/structs/MeshStatus".into(),
             name: "MeshStatus".into(),
@@ -1922,17 +2090,17 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize vfs req");
         assert_eq!(req, des_req);
 
-        let event = Evento::ListadoVfs {
+        let event = Event::VfsList {
             virtual_path: "/antfs/symbols".into(),
             entries: vec![entry],
         };
         let json_ev = serde_json::to_string(&event).expect("serialize vfs event");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize vfs event");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize vfs event");
         assert_eq!(event, des_ev);
     }
 
     #[test]
-    fn test_serializacion_vfs_guard() {
+    fn test_vfs_guard_serialization() {
         let err = SyntaxValidationError {
             line: 42,
             column: 15,
@@ -1961,19 +2129,19 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize guard req");
         assert_eq!(req, des_req);
 
-        let ev1 = Evento::ResultadoValidacionVfs(val_res);
+        let ev1 = Event::VfsValidationResult(val_res);
         let json_ev1 = serde_json::to_string(&ev1).expect("serialize val res");
-        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize val res");
+        let des_ev1: Event = serde_json::from_str(&json_ev1).expect("deserialize val res");
         assert_eq!(ev1, des_ev1);
 
-        let ev2 = Evento::EstadoGuardVfs(guard_status);
+        let ev2 = Event::VfsGuardStatus(guard_status);
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize guard status");
-        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize guard status");
+        let des_ev2: Event = serde_json::from_str(&json_ev2).expect("deserialize guard status");
         assert_eq!(ev2, des_ev2);
     }
 
     #[test]
-    fn test_serializacion_ebpf() {
+    fn test_ebpf_serialization() {
         let status = EbpfStatus {
             available: true,
             lsm_enabled: true,
@@ -2007,19 +2175,19 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize ebpf req");
         assert_eq!(req, des_req);
 
-        let ev1 = Evento::EstadoEbpf(status);
+        let ev1 = Event::EbpfStatus(status);
         let json_ev1 = serde_json::to_string(&ev1).expect("serialize ebpf status");
-        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize ebpf status");
+        let des_ev1: Event = serde_json::from_str(&json_ev1).expect("deserialize ebpf status");
         assert_eq!(ev1, des_ev1);
 
-        let ev2 = Evento::AuditLogEbpf(vec![event]);
+        let ev2 = Event::EbpfAuditLog(vec![event]);
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize ebpf log");
-        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize ebpf log");
+        let des_ev2: Event = serde_json::from_str(&json_ev2).expect("deserialize ebpf log");
         assert_eq!(ev2, des_ev2);
     }
 
     #[test]
-    fn test_serializacion_profiler() {
+    fn test_profiler_serialization() {
         let hotspot = ProfileHotspot {
             name: "calculate_embeddings".into(),
             percentage_cpu: 64.5,
@@ -2028,9 +2196,9 @@ mod tests {
         };
         let suggestion = ProfileSuggestion {
             kind: ProfileSuggestionKind::CpuOptimization,
-            title: "Evitar clonado superfluo en cálculo de embeddings".into(),
-            description: "El buffer se clona dentro del bucle de cálculo. Reemplazar por paso por referencia (&[f32]).".into(),
-            potential_impact: "Alto (-45% CPU)".into(),
+            title: "Avoid superfluous cloning in embeddings calculation".into(),
+            description: "The buffer is cloned inside the calculation loop. Replace with reference passing (&[f32]).".into(),
+            potential_impact: "High (-45% CPU)".into(),
             target_symbol_or_path: Some("system/antosd/src/memory.rs".into()),
         };
         let report = ProfileReport {
@@ -2054,14 +2222,14 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize profiler req");
         assert_eq!(req, des_req);
 
-        let ev1 = Evento::ReporteProfiler(report);
+        let ev1 = Event::ProfilerReport(report);
         let json_ev1 = serde_json::to_string(&ev1).expect("serialize report");
-        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize report");
+        let des_ev1: Event = serde_json::from_str(&json_ev1).expect("deserialize report");
         assert_eq!(ev1, des_ev1);
     }
 
     #[test]
-    fn test_serializacion_lsp() {
+    fn test_lsp_serialization() {
         let status = LspServerStatus {
             running: true,
             transport: "stdio".into(),
@@ -2084,23 +2252,23 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize lsp status req");
         assert_eq!(req, des_req);
 
-        let ev1 = Evento::EstadoLsp(status);
+        let ev1 = Event::LspStatus(status);
         let json_ev1 = serde_json::to_string(&ev1).expect("serialize lsp status ev");
-        let des_ev1: Evento = serde_json::from_str(&json_ev1).expect("deserialize lsp status ev");
+        let des_ev1: Event = serde_json::from_str(&json_ev1).expect("deserialize lsp status ev");
         assert_eq!(ev1, des_ev1);
 
-        let ev2 = Evento::ConfiguracionLsp {
+        let ev2 = Event::LspConfiguration {
             editor: LspEditorKind::Neovim,
             config_content: "vim.lsp.start({ name = 'antos-lsp', cmd = {'antos', 'lsp'} })".into(),
             target_file: "init.lua".into(),
         };
         let json_ev2 = serde_json::to_string(&ev2).expect("serialize lsp config ev");
-        let des_ev2: Evento = serde_json::from_str(&json_ev2).expect("deserialize lsp config ev");
+        let des_ev2: Event = serde_json::from_str(&json_ev2).expect("deserialize lsp config ev");
         assert_eq!(ev2, des_ev2);
     }
 
     #[test]
-    fn test_serializacion_collab_y_dap() {
+    fn test_collab_and_dap_serialization() {
         let cursor = CollabCursor {
             client_id: "agent-coder".into(),
             line: 42,
@@ -2125,9 +2293,9 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize collab req");
         assert_eq!(req_collab, des_req);
 
-        let ev_collab = Evento::EstadoCollabSession(collab_status);
+        let ev_collab = Event::CollabSessionStatus(collab_status);
         let json_ev = serde_json::to_string(&ev_collab).expect("serialize collab ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize collab ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize collab ev");
         assert_eq!(ev_collab, des_ev);
 
         let dap_status = DapSessionStatus {
@@ -2149,24 +2317,24 @@ mod tests {
             }],
         };
 
-        let ev_dap = Evento::EstadoDapSession(dap_status);
+        let ev_dap = Event::DapSessionStatus(dap_status);
         let json_dap = serde_json::to_string(&ev_dap).expect("serialize dap ev");
-        let des_dap: Evento = serde_json::from_str(&json_dap).expect("deserialize dap ev");
+        let des_dap: Event = serde_json::from_str(&json_dap).expect("deserialize dap ev");
         assert_eq!(ev_dap, des_dap);
     }
 
     #[test]
-    fn test_serializacion_desktop() {
+    fn test_desktop_serialization() {
         let hotkeys = vec![
             DesktopHotkey {
                 key: "Super+Space".into(),
                 action: "toggle_intent_bar".into(),
-                description: "Abrir o enfocar la barra de intenciones".into(),
+                description: "Open or focus intent bar".into(),
             },
             DesktopHotkey {
                 key: "Super+A".into(),
                 action: "toggle_agent_center".into(),
-                description: "Abrir Centro de Control de Agentes".into(),
+                description: "Open Agent Control Center".into(),
             },
         ];
 
@@ -2183,19 +2351,19 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize desktop req");
         assert_eq!(req_status, des_req);
 
-        let ev_status = Evento::EstadoDesktop(status);
+        let ev_status = Event::DesktopStatus(status);
         let json_ev = serde_json::to_string(&ev_status).expect("serialize desktop ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize desktop ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize desktop ev");
         assert_eq!(ev_status, des_ev);
 
-        let ev_keys = Evento::ListaDesktopHotkeys(hotkeys);
+        let ev_keys = Event::DesktopHotkeysList(hotkeys);
         let json_keys = serde_json::to_string(&ev_keys).expect("serialize keys ev");
-        let des_keys: Evento = serde_json::from_str(&json_keys).expect("deserialize keys ev");
+        let des_keys: Event = serde_json::from_str(&json_keys).expect("deserialize keys ev");
         assert_eq!(ev_keys, des_keys);
     }
 
     #[test]
-    fn test_serializacion_barra_telemetry() {
+    fn test_barra_telemetry_serialization() {
         let telemetry = BarraTelemetry {
             ebpf_lsm_active: true,
             ebpf_violations_count: 1,
@@ -2212,14 +2380,14 @@ mod tests {
         let des_req: Request = serde_json::from_str(&json_req).expect("deserialize barra req");
         assert_eq!(req, des_req);
 
-        let ev = Evento::EstadoBarraTelemetry(telemetry);
+        let ev = Event::BarraTelemetryStatus(telemetry);
         let json_ev = serde_json::to_string(&ev).expect("serialize barra ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize barra ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize barra ev");
         assert_eq!(ev, des_ev);
 
         let alert = BarraAlert {
             category: "ebpf".into(),
-            message: "Acceso denegado a /root/.ssh/id_rsa".into(),
+            message: "Access denied to /root/.ssh/id_rsa".into(),
             urgent: true,
         };
         let req_alert = Request::EmitBarraAlert(alert.clone());
@@ -2229,7 +2397,7 @@ mod tests {
     }
 
     #[test]
-    fn test_serializacion_boot_pipeline() {
+    fn test_boot_pipeline_serialization() {
         let status = BootPipelineStatus {
             kernel_elf_exists: true,
             kernel_elf_size_bytes: 3314112,
@@ -2252,25 +2420,25 @@ mod tests {
         let des_exec: Request = serde_json::from_str(&json_exec).expect("deserialize boot exec");
         assert_eq!(req_exec, des_exec);
 
-        let ev = Evento::EstadoBoot(status);
+        let ev = Event::BootStatus(status);
         let json_ev = serde_json::to_string(&ev).expect("serialize boot ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize boot ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize boot ev");
         assert_eq!(ev, des_ev);
     }
 
     #[test]
-    fn test_serializacion_wasm_plugins() {
+    fn test_wasm_plugins_serialization() {
         let summary = PluginSummary {
             name: "markdown-formatter".into(),
             version: "1.0.0".into(),
-            description: "Formatea tablas y encabezados Markdown".into(),
+            description: "Formats Markdown tables and headings".into(),
             capabilities: vec!["format".into(), "lint".into()],
             wasm_size_bytes: 40960,
         };
 
-        let ev_list = Evento::ListaPlugins(vec![summary]);
+        let ev_list = Event::PluginList(vec![summary]);
         let json_ev_list = serde_json::to_string(&ev_list).expect("serialize list ev");
-        let des_ev_list: Evento = serde_json::from_str(&json_ev_list).expect("deserialize list ev");
+        let des_ev_list: Event = serde_json::from_str(&json_ev_list).expect("deserialize list ev");
         assert_eq!(ev_list, des_ev_list);
 
         let req_list = Request::ListPlugins;
@@ -2293,22 +2461,21 @@ mod tests {
         let result = PluginResult {
             plugin: "markdown-formatter".into(),
             action: "format".into(),
-            output: "Formateo exitoso".into(),
+            output: "Formatting successful".into(),
             fuel_consumed: 1250,
             memory_allocated_bytes: 65536,
             success: true,
             error: None,
         };
-        let ev = Evento::ResultadoPlugin(result);
+        let ev = Event::PluginResult(result);
         let json_ev = serde_json::to_string(&ev).expect("serialize result ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize result ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize result ev");
         assert_eq!(ev, des_ev);
     }
 
     #[test]
-    fn test_serializacion_visual_qa() {
+    fn test_visual_qa_serialization() {
         assert_eq!(AgentRole::VisualQA.name(), "Visual QA");
-        assert_eq!(AgentRole::VisualQA.nombre(), "QA Visual");
 
         let req_cap = Request::CaptureScreen {
             target: Some("firefox".into()),
@@ -2326,22 +2493,22 @@ mod tests {
             findings: vec![VisualFinding {
                 category: "alignment".into(),
                 severity: "warning".into(),
-                description: "Margen derecho desfasado 4px en badge de eBPF".into(),
+                description: "Right margin misaligned by 4px on eBPF badge".into(),
                 coordinates: Some("x: 1840, y: 12, w: 60, h: 24".into()),
-                recommendation: "Alinear padding-right a 8px en estilo.css".into(),
+                recommendation: "Align padding-right to 8px in style.css".into(),
             }],
             pass: false,
-            summary: "1 advertencia visual detectada".into(),
+            summary: "1 visual warning detected".into(),
         };
 
-        let ev_rep = Evento::ReporteVisualQA(report);
+        let ev_rep = Event::VisualQAReport(report);
         let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
-        let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
+        let des_rep: Event = serde_json::from_str(&json_rep).expect("deserialize rep ev");
         assert_eq!(ev_rep, des_rep);
     }
 
     #[test]
-    fn test_serializacion_storage_installer() {
+    fn test_storage_installer_serialization() {
         let req_list = Request::ListDisks;
         let json_list = serde_json::to_string(&req_list).expect("serialize list req");
         let des_list: Request = serde_json::from_str(&json_list).expect("deserialize list req");
@@ -2369,9 +2536,9 @@ mod tests {
             is_read_only: false,
         };
 
-        let ev_dev = Evento::ListaDiscos(vec![dev.clone()]);
+        let ev_dev = Event::DiskList(vec![dev.clone()]);
         let json_ev = serde_json::to_string(&ev_dev).expect("serialize list ev");
-        let des_ev: Evento = serde_json::from_str(&json_ev).expect("deserialize list ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize list ev");
         assert_eq!(ev_dev, des_ev);
 
         let plan = PartitionPlan {
@@ -2381,12 +2548,12 @@ mod tests {
             root_partition_bytes: 900000000000,
             swap_partition_bytes: 17179869184,
             aligned_start_sector: 2048,
-            warnings: vec!["El disco se formateará por completo".into()],
+            warnings: vec!["Drive will be entirely formatted".into()],
         };
 
-        let ev_plan = Evento::PlanParticionamiento(plan);
+        let ev_plan = Event::PartitionPlan(plan);
         let json_plan = serde_json::to_string(&ev_plan).expect("serialize plan ev");
-        let des_plan: Evento = serde_json::from_str(&json_plan).expect("deserialize plan ev");
+        let des_plan: Event = serde_json::from_str(&json_plan).expect("deserialize plan ev");
         assert_eq!(ev_plan, des_plan);
 
         let cfg = InstallConfig {
@@ -2409,17 +2576,17 @@ mod tests {
             success: true,
             steps: vec![InstallStep {
                 name: "mount".into(),
-                description: "Montaje de particiones".into(),
+                description: "Partition mounting".into(),
                 completed: true,
             }],
             efi_partition: "/dev/sda1".into(),
             root_partition: "/dev/sda3".into(),
             fstab_entries: vec!["UUID=123 / ext4 defaults 0 1".into()],
-            summary: "Instalación completada".into(),
+            summary: "Installation completed".into(),
         };
-        let ev_rep = Evento::ReporteInstalacion(report);
+        let ev_rep = Event::InstallReport(report);
         let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
-        let des_rep: Evento = serde_json::from_str(&json_rep).expect("deserialize rep ev");
+        let des_rep: Event = serde_json::from_str(&json_rep).expect("deserialize rep ev");
         assert_eq!(ev_rep, des_rep);
 
         let os = OsEntry {
@@ -2429,9 +2596,9 @@ mod tests {
             disk_device: "/dev/nvme0n1".into(),
             partition_number: 1,
         };
-        let ev_os = Evento::SistemasOperativosDetectados(vec![os.clone()]);
+        let ev_os = Event::DetectedOperatingSystems(vec![os.clone()]);
         let json_os = serde_json::to_string(&ev_os).expect("serialize os ev");
-        let des_os: Evento = serde_json::from_str(&json_os).expect("deserialize os ev");
+        let des_os: Event = serde_json::from_str(&json_os).expect("deserialize os ev");
         assert_eq!(ev_os, des_os);
 
         let boot_cfg = BootloaderConfig {
@@ -2474,9 +2641,9 @@ mod tests {
             vsock_supported: true,
             kernel_version: "7.1.3".into(),
         };
-        let ev_status = Evento::EstadoMicrovm(status.clone());
+        let ev_status = Event::MicrovmStatus(status.clone());
         let json_st = serde_json::to_string(&ev_status).expect("serialize status");
-        let des_st: Evento = serde_json::from_str(&json_st).expect("deserialize status");
+        let des_st: Event = serde_json::from_str(&json_st).expect("deserialize status");
         assert_eq!(ev_status, des_st);
 
         let exec_res = MicrovmExecResult {
@@ -2488,9 +2655,9 @@ mod tests {
             duration_ms: 45,
             success: true,
         };
-        let ev_exec = Evento::ResultadoMicrovm(exec_res.clone());
+        let ev_exec = Event::MicrovmResult(exec_res.clone());
         let json_exec = serde_json::to_string(&ev_exec).expect("serialize exec");
-        let des_exec: Evento = serde_json::from_str(&json_exec).expect("deserialize exec");
+        let des_exec: Event = serde_json::from_str(&json_exec).expect("deserialize exec");
         assert_eq!(ev_exec, des_exec);
     }
 }
