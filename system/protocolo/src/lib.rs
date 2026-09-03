@@ -1033,233 +1033,293 @@ pub struct FlowTask {
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Peticion {
-    Intencion {
-        texto: String,
-        planificador: Option<String>,
-        seco: bool,
+pub enum Request {
+    /// Intent to plan and execute a natural language task.
+    #[serde(alias = "Intencion")]
+    Intent {
+        #[serde(alias = "texto")]
+        text: String,
+        #[serde(alias = "planificador")]
+        planner: Option<String>,
+        #[serde(alias = "seco")]
+        dry_run: bool,
     },
-    /// La respuesta a una propuesta. Es lo ÚNICO que un cliente decide.
-    Aprobacion(bool),
-    /// Consulta el estado del repositorio Git en la ruta del espacio de trabajo.
-    ConsultarEstadoGit {
+    /// Response to a proposal (approve or discard).
+    #[serde(alias = "Aprobacion")]
+    Approval(bool),
+    /// Query Git repository status for a workspace path.
+    #[serde(alias = "ConsultarEstadoGit")]
+    QueryGitStatus {
         workspace_path: String,
     },
-    /// Lista todos los tickets disponibles en el espacio de trabajo.
-    ListarTickets {
+    /// List all available tickets in the workspace.
+    #[serde(alias = "ListarTickets")]
+    ListTickets {
         workspace_path: String,
     },
-    /// Obtiene el detalle de un ticket específico en el espacio de trabajo.
-    ObtenerTicket {
+    /// Get details of a specific ticket in the workspace.
+    #[serde(alias = "ObtenerTicket")]
+    GetTicket {
         workspace_path: String,
         ticket_id: String,
     },
-    /// Diagnostica puertos TCP en escucha y los procesos asociados.
-    DiagnosticarPuertos {
+    /// Diagnose listening TCP ports and associated processes.
+    #[serde(alias = "DiagnosticarPuertos")]
+    DiagnosePorts {
         port: Option<u16>,
     },
-    /// Inicia el flujo multi-agente antFlow para un ticket.
-    IniciarFlow {
+    /// Start multi-agent antFlow execution for a ticket.
+    #[serde(alias = "IniciarFlow")]
+    StartFlow {
         workspace_path: String,
         ticket_id: String,
     },
-    /// Consulta el estado de la tarea antFlow para un ticket.
-    ConsultarFlow {
+    /// Query status of an antFlow task for a ticket.
+    #[serde(alias = "ConsultarFlow")]
+    QueryFlow {
         ticket_id: String,
     },
-    /// Lista todas las tareas de agentes activas.
-    ListarFlows {
+    /// List all active agent flow tasks.
+    #[serde(alias = "ListarFlows")]
+    ListFlows {
         workspace_path: String,
     },
-    /// Aprueba o rechaza los cambios finales de una tarea en antFlow.
-    AprobarFlow {
+    /// Approve or reject final changes of an antFlow task.
+    #[serde(alias = "AprobarFlow")]
+    ApproveFlow {
         ticket_id: String,
         decision: bool,
     },
-    /// Consulta el diff estructurado y sintáctico para un ticket, archivo o commit (T8.1)
-    ConsultarDiff {
+    /// Query structured syntax diff for ticket, file, or commit (T8.1).
+    #[serde(alias = "ConsultarDiff")]
+    QueryDiff {
         workspace_path: String,
         target: Option<String>,
     },
-    /// Lista notificaciones pendientes de agentes y del sistema (T8.2)
-    ListarNotificaciones {
+    /// List pending agent and system notifications (T8.2).
+    #[serde(alias = "ListarNotificaciones")]
+    ListNotifications {
         workspace_path: String,
     },
-    /// Ejecuta una acción sobre una notificación (aprobación, rechazo, descarte) (T8.2)
-    AccionNotificacion {
+    /// Execute action on a notification (approval, rejection, dismissal) (T8.2).
+    #[serde(alias = "AccionNotificacion")]
+    HandleNotificationAction {
         workspace_path: String,
         notification_id: String,
         action: NotificationAction,
     },
-    /// Consulta el estado de la red P2P antMesh y los peers conocidos (T9.1)
-    ConsultarMesh {
+    /// Query P2P antMesh network status and known peers (T9.1).
+    #[serde(alias = "ConsultarMesh")]
+    QueryMesh {
         workspace_path: String,
     },
-    /// Conecta a un nodo peer por dirección IP/puerto o multiaddr (T9.1)
-    ConectarPeer {
+    /// Connect to a peer node by IP/port or multiaddr (T9.1).
+    #[serde(alias = "ConectarPeer")]
+    ConnectPeer {
         workspace_path: String,
         address: String,
     },
-    /// Genera un token seguro de emparejamiento con expiración (T9.1)
-    GenerarTokenEmparejamiento {
+    /// Generate a secure pairing token with expiration (T9.1).
+    #[serde(alias = "GenerarTokenEmparejamiento")]
+    GeneratePairingToken {
         workspace_path: String,
     },
-    /// Consulta el estado de distribución de tareas del Swarm multi-agente (T9.2)
-    ConsultarSwarm {
+    /// Query distributed task distribution status of the multi-agent Swarm (T9.2).
+    #[serde(alias = "ConsultarSwarm")]
+    QuerySwarm {
         workspace_path: String,
     },
-    /// Despacha un rol específico de un ticket a un nodo remoto o auto-seleccionado (T9.2)
-    DespacharRolRemoto {
+    /// Dispatch a specific role for a ticket to a remote or auto-selected node (T9.2).
+    #[serde(alias = "DespacharRolRemoto")]
+    DispatchRemoteRole {
         workspace_path: String,
         ticket_id: String,
         role: AgentRole,
         node_id: Option<String>,
     },
-    /// Consulta una ruta virtual o lista un directorio en /antfs (T10.1)
-    ConsultarVfs {
+    /// Query a virtual path or list a directory in /antfs (T10.1).
+    #[serde(alias = "ConsultarVfs")]
+    QueryVfs {
         workspace_path: String,
         virtual_path: String,
     },
-    /// Monta la proyección virtual de /antfs en el punto de montaje indicado (T10.1)
-    MontarVfs {
+    /// Mount virtual projection of /antfs on mount point (T10.1).
+    #[serde(alias = "MontarVfs")]
+    MountVfs {
         workspace_path: String,
         mount_point: Option<String>,
     },
-    /// Desmonta la proyección virtual de /antfs (T10.1)
-    DesmontarVfs {
+    /// Unmount virtual projection of /antfs (T10.1).
+    #[serde(alias = "DesmontarVfs")]
+    UnmountVfs {
         workspace_path: String,
         mount_point: Option<String>,
     },
-    /// Intercepta y valida sintácticamente un buffer de código antes de persistir (T10.2)
-    ValidarEscrituraVfs {
+    /// Intercept and validate code buffer syntax before persisting (T10.2).
+    #[serde(alias = "ValidarEscrituraVfs")]
+    ValidateVfsWrite {
         file_path: String,
         content: String,
     },
-    /// Consulta el estado del interceptor de escrituras semánticas (T10.2)
-    ConsultarGuardVfs {
+    /// Query status of semantic write guard interceptor (T10.2).
+    #[serde(alias = "ConsultarGuardVfs")]
+    QueryVfsGuard {
         workspace_path: String,
     },
-    /// Consulta el estado y compatibilidad de las sondas kernel eBPF LSM (T11.1)
-    ConsultarEbpfStatus {
+    /// Query status and compatibility of kernel eBPF LSM probes (T11.1).
+    #[serde(alias = "ConsultarEbpfStatus")]
+    QueryEbpfStatus {
         workspace_path: String,
     },
-    /// Consulta el registro de auditoría de syscalls y eventos de seguridad eBPF (T11.1)
-    ConsultarEbpfAuditLog {
+    /// Query syscall and security audit log from eBPF (T11.1).
+    #[serde(alias = "ConsultarEbpfAuditLog")]
+    QueryEbpfAuditLog {
         workspace_path: String,
         limit: usize,
     },
-    /// Simula un intento de evasión de sandbox para verificar la detección (T11.1)
-    SimularViolacionEbpf {
+    /// Simulate sandbox escape attempt to verify detection (T11.1).
+    #[serde(alias = "SimularViolacionEbpf")]
+    SimulateEbpfViolation {
         workspace_path: String,
         hook: EbpfHookKind,
         target_resource: String,
     },
-    /// Ejecuta un comando bajo el profiler de rendimiento continuo (T11.2)
-    EjecutarProfiler {
+    /// Execute command under continuous performance profiler (T11.2).
+    #[serde(alias = "EjecutarProfiler")]
+    RunProfiler {
         workspace_path: String,
         command: String,
     },
-    /// Consulta el histórico de reportes del profiler (T11.2)
-    ConsultarProfilerReportes {
+    /// Query historical profiler reports (T11.2).
+    #[serde(alias = "ConsultarProfilerReportes")]
+    QueryProfilerReports {
         workspace_path: String,
         limit: usize,
     },
-    /// Analiza puntos calientes y genera recomendaciones para agentes (T11.2)
-    AnalizarProfilerHotspots {
+    /// Analyze hot spots and generate recommendations for agents (T11.2).
+    #[serde(alias = "AnalizarProfilerHotspots")]
+    AnalyzeProfilerHotspots {
         workspace_path: String,
     },
-    /// Consulta el estado y capacidades del servidor LSP embebido (T12.1)
-    ConsultarLspStatus {
+    /// Query status and capabilities of embedded LSP server (T12.1).
+    #[serde(alias = "ConsultarLspStatus")]
+    QueryLspStatus {
         workspace_path: String,
     },
-    /// Genera la configuración para conectar el editor al servidor LSP de antOS (T12.1)
-    ObtenerLspConfig {
+    /// Generate editor configuration to connect to antOS LSP (T12.1).
+    #[serde(alias = "ObtenerLspConfig")]
+    GetLspConfig {
         editor: LspEditorKind,
         workspace_path: String,
     },
-    /// Inicia una sesión interactiva de pair programming y co-edición con el agente Coder (T12.2)
-    IniciarCollabSession {
+    /// Start interactive pair programming session with Coder agent (T12.2).
+    #[serde(alias = "IniciarCollabSession")]
+    StartCollabSession {
         file_path: String,
         ticket_id: Option<String>,
         workspace_path: String,
     },
-    /// Consulta el estado y cursores de la sesión de co-edición activa (T12.2)
-    ConsultarCollabStatus {
+    /// Query status and cursors of active co-editing session (T12.2).
+    #[serde(alias = "ConsultarCollabStatus")]
+    QueryCollabStatus {
         session_id: String,
         workspace_path: String,
     },
-    /// Inicia una sesión de depuración aislada bajo el protocolo DAP en sandbox (T12.2)
-    IniciarDapSession {
+    /// Start isolated debug session under DAP protocol in sandbox (T12.2).
+    #[serde(alias = "IniciarDapSession")]
+    StartDapSession {
         command: String,
         workspace_path: String,
     },
-    /// Consulta el estado, variables y pila de llamadas de la sesión DAP (T12.2)
-    ConsultarDapStatus {
+    /// Query state, variables, and call stack of DAP session (T12.2).
+    #[serde(alias = "ConsultarDapStatus")]
+    QueryDapStatus {
         session_id: String,
         workspace_path: String,
     },
-    /// Consulta el estado del compositor y entorno de escritorio Wayland (T13.0)
-    ConsultarDesktopStatus,
-    /// Obtiene los atajos de teclado globales registrados en el escritorio (T13.0)
-    ListarDesktopHotkeys,
-    /// Inicia la sesión de escritorio Wayland de antOS (T13.0)
-    IniciarDesktopSession {
+    /// Query compositor and desktop environment status (T13.0).
+    #[serde(alias = "ConsultarDesktopStatus")]
+    QueryDesktopStatus,
+    /// List global hotkeys registered in desktop (T13.0).
+    #[serde(alias = "ListarDesktopHotkeys")]
+    ListDesktopHotkeys,
+    /// Start Wayland desktop session (T13.0).
+    #[serde(alias = "IniciarDesktopSession")]
+    StartDesktopSession {
         nested: bool,
     },
-    /// Consulta el estado consolidado de telemetría de fondo para la barra (T13.1)
-    ConsultarBarraTelemetry,
-    /// Emite una alerta o actualización visual hacia la barra (T13.1)
-    EmitirBarraAlert(BarraAlert),
-    /// Consulta el estado del pipeline de arranque bare metal y binarios (T13.2)
-    ConsultarBootStatus,
-    /// Ejecuta una acción del pipeline de arranque (build, qemu, test) (T13.2)
-    EjecutarBootPipeline {
+    /// Query consolidated background telemetry for status bar (T13.1).
+    #[serde(alias = "ConsultarBarraTelemetry")]
+    QueryBarraTelemetry,
+    /// Emit an alert or visual update to status bar (T13.1).
+    #[serde(alias = "EmitirBarraAlert")]
+    EmitBarraAlert(BarraAlert),
+    /// Query bare metal boot pipeline status (T13.2).
+    #[serde(alias = "ConsultarBootStatus")]
+    QueryBootStatus,
+    /// Execute boot pipeline action (build, qemu, test) (T13.2).
+    #[serde(alias = "EjecutarBootPipeline")]
+    RunBootPipeline {
         action: String,
         headless: bool,
     },
-    /// Lista los plugins WebAssembly instalados (T14.1)
-    ListarPlugins,
-    /// Ejecuta una acción dentro de un plugin WASM (T14.1)
-    EjecutarPlugin {
+    /// List installed WebAssembly plugins (T14.1).
+    #[serde(alias = "ListarPlugins")]
+    ListPlugins,
+    /// Execute action inside a WASM plugin (T14.1).
+    #[serde(alias = "EjecutarPlugin")]
+    RunPlugin {
         plugin_name: String,
         action: String,
         params: std::collections::BTreeMap<String, String>,
     },
-    /// Instala un plugin WASM desde un directorio o manifiesto (T14.1)
-    InstalarPlugin {
+    /// Install WASM plugin from directory or manifest (T14.1).
+    #[serde(alias = "InstalarPlugin")]
+    InstallPlugin {
         source_path: String,
     },
-    /// Captura una pantalla o ventana Wayland (T14.2)
-    CapturarPantalla {
+    /// Capture Wayland screen or window (T14.2).
+    #[serde(alias = "CapturarPantalla")]
+    CaptureScreen {
         target: Option<String>,
         save_path: Option<String>,
     },
-    /// Ejecuta inspección visual multimodal con VisualQA (T14.2)
-    InspeccionarVisualQA {
+    /// Execute multimodal visual QA inspection (T14.2).
+    #[serde(alias = "InspeccionarVisualQA")]
+    InspectVisualQa {
         target: String,
         criteria: Vec<String>,
     },
-    /// Lista los dispositivos de almacenamiento detectados en el sistema (T15.1)
-    ListarDiscos,
-    /// Inspecciona un dispositivo de almacenamiento específico (T15.1)
-    InspeccionarDisco {
+    /// List detected storage devices (T15.1).
+    #[serde(alias = "ListarDiscos")]
+    ListDisks,
+    /// Inspect specific storage device (T15.1).
+    #[serde(alias = "InspeccionarDisco")]
+    InspectDisk {
         device: String,
     },
-    /// Calcula o aplica un esquema de particiones GPT en un disco (T15.1)
-    ParticionarDisco {
+    /// Calculate or apply GPT partition scheme on disk (T15.1).
+    #[serde(alias = "ParticionarDisco")]
+    PartitionDisk {
         device: String,
         clean_install: bool,
         dry_run: bool,
     },
-    /// Instala el sistema antOS en un disco físico o virtual (T15.2)
-    InstalarSistema(InstallConfig),
-    /// Sondea sistemas operativos existentes en particiones EFI / disco (T15.3)
-    SondearSistemasOperativos {
+    /// Install antOS base system on disk (T15.2).
+    #[serde(alias = "InstalarSistema")]
+    InstallSystem(InstallConfig),
+    /// Probe operating systems on EFI / disk (T15.3).
+    #[serde(alias = "SondearSistemasOperativos")]
+    ProbeOperatingSystems {
         esp_mount: Option<String>,
     },
-    /// Instala y configura el cargador de arranque UEFI (T15.3)
-    InstalarBootloader(BootloaderConfig),
+    /// Install and configure UEFI bootloader (T15.3).
+    #[serde(alias = "InstalarBootloader")]
+    InstallBootloader(BootloaderConfig),
 }
+
+/// Alias para compatibilidad con código existente en español.
+pub type Peticion = Request;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Evento {
@@ -1465,12 +1525,12 @@ mod tests {
 
     #[test]
     fn test_serializacion_peticion_consultar_estado_git() {
-        let peticion = Mensaje::ConsultarEstadoGit {
+        let peticion = Request::QueryGitStatus {
             workspace_path: "/Users/dev/workspace".into(),
         };
 
         let json = serde_json::to_string(&peticion).expect("debe serializar petición");
-        let deserializado: Peticion =
+        let deserializado: Request =
             serde_json::from_str(&json).expect("debe deserializar petición");
 
         assert_eq!(peticion, deserializado);
@@ -1499,13 +1559,26 @@ mod tests {
 
     #[test]
     fn test_compatibilidad_mensajes_existentes() {
-        let peticion_intencion = Peticion::Intencion {
-            texto: "compilar kernel".into(),
-            planificador: Some("reglas".into()),
-            seco: false,
+        // Formato legado en español soportado por serde alias
+        let legacy_json = r#"{"Intencion":{"texto":"compilar kernel","planificador":"reglas","seco":false}}"#;
+        let des_legacy: Request = serde_json::from_str(legacy_json).expect("deserializar legado");
+        match des_legacy {
+            Request::Intent { text, planner, dry_run } => {
+                assert_eq!(text, "compilar kernel");
+                assert_eq!(planner, Some("reglas".into()));
+                assert!(!dry_run);
+            }
+            _ => panic!("debe ser Intent"),
+        }
+
+        // Formato moderno en inglés
+        let peticion_intencion = Request::Intent {
+            text: "compilar kernel".into(),
+            planner: Some("reglas".into()),
+            dry_run: false,
         };
         let json = serde_json::to_string(&peticion_intencion).expect("serializar intencion");
-        let deserializado: Peticion = serde_json::from_str(&json).expect("deserializar intencion");
+        let deserializado: Request = serde_json::from_str(&json).expect("deserializar intencion");
         assert_eq!(peticion_intencion, deserializado);
 
         let evento_nota = Evento::Nota("analizando dependencias".into());
@@ -1532,11 +1605,11 @@ mod tests {
         let deserializado: TicketDetail = serde_json::from_str(&json).expect("deserializar ticket");
         assert_eq!(ticket, deserializado);
 
-        let peticion_listar = Peticion::ListarTickets {
+        let peticion_listar = Request::ListTickets {
             workspace_path: "/workspace".into(),
         };
         let json_peticion = serde_json::to_string(&peticion_listar).expect("serializar peticion listar");
-        let des_peticion: Peticion = serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
+        let des_peticion: Request = serde_json::from_str(&json_peticion).expect("deserializar peticion listar");
         assert_eq!(peticion_listar, des_peticion);
 
         let respuesta_lista = Evento::ListaTickets(vec![TicketSummary {
@@ -1624,12 +1697,12 @@ mod tests {
             }],
         };
 
-        let req = Peticion::ConsultarDiff {
+        let req = Request::QueryDiff {
             workspace_path: "/ws".into(),
             target: Some("T8.1".into()),
         };
         let json_req = serde_json::to_string(&req).expect("serialize req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
         assert_eq!(req, des_req);
 
         let event = Evento::DiffEstructurado(vec![diff_file.clone()]);
@@ -1651,13 +1724,13 @@ mod tests {
             actions: vec![NotificationAction::Approve, NotificationAction::Reject, NotificationAction::ViewDiff],
         };
 
-        let req = Peticion::AccionNotificacion {
+        let req = Request::HandleNotificationAction {
             workspace_path: "/ws".into(),
             notification_id: "notif-1".into(),
             action: NotificationAction::Approve,
         };
         let json_req = serde_json::to_string(&req).expect("serialize req notif");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize req notif");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req notif");
         assert_eq!(req, des_req);
 
         let event = Evento::ListaNotificaciones(vec![notif.clone()]);
@@ -1688,12 +1761,12 @@ mod tests {
             peers: vec![peer.clone()],
         };
 
-        let req = Peticion::ConectarPeer {
+        let req = Request::ConnectPeer {
             workspace_path: "/ws".into(),
             address: "192.168.1.50:9042".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize mesh req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize mesh req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize mesh req");
         assert_eq!(req, des_req);
 
         let event = Evento::EstadoMesh(status.clone());
@@ -1730,14 +1803,14 @@ mod tests {
             total_tasks: 1,
         };
 
-        let req = Peticion::DespacharRolRemoto {
+        let req = Request::DispatchRemoteRole {
             workspace_path: "/ws".into(),
             ticket_id: "T9.2".into(),
             role: AgentRole::Coder,
             node_id: Some("node-gpu-1".into()),
         };
         let json_req = serde_json::to_string(&req).expect("serialize swarm req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize swarm req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize swarm req");
         assert_eq!(req, des_req);
 
         let event = Evento::EstadoSwarm(swarm_status.clone());
@@ -1756,12 +1829,12 @@ mod tests {
             node_type: "Symbol".into(),
         };
 
-        let req = Peticion::ConsultarVfs {
+        let req = Request::QueryVfs {
             workspace_path: "/ws".into(),
             virtual_path: "/antfs/symbols".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize vfs req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize vfs req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize vfs req");
         assert_eq!(req, des_req);
 
         let event = Evento::ListadoVfs {
@@ -1795,12 +1868,12 @@ mod tests {
             rejected_paths: vec!["src/main.rs".into()],
         };
 
-        let req = Peticion::ValidarEscrituraVfs {
+        let req = Request::ValidateVfsWrite {
             file_path: "src/lib.rs".into(),
             content: "fn main() {}".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize guard req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize guard req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize guard req");
         assert_eq!(req, des_req);
 
         let ev1 = Evento::ResultadoValidacionVfs(val_res);
@@ -1836,11 +1909,11 @@ mod tests {
             violation_reason: Some("Out-of-blast-radius network egress attempt blocked by eBPF LSM".into()),
         };
 
-        let req = Peticion::ConsultarEbpfStatus {
+        let req = Request::QueryEbpfStatus {
             workspace_path: "/workspace".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize ebpf req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize ebpf req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize ebpf req");
         assert_eq!(req, des_req);
 
         let ev1 = Evento::EstadoEbpf(status);
@@ -1882,12 +1955,12 @@ mod tests {
             suggestions: vec![suggestion],
         };
 
-        let req = Peticion::EjecutarProfiler {
+        let req = Request::RunProfiler {
             workspace_path: "/ws".into(),
             command: "cargo test".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize profiler req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize profiler req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize profiler req");
         assert_eq!(req, des_req);
 
         let ev1 = Evento::ReporteProfiler(report);
@@ -1913,11 +1986,11 @@ mod tests {
             ],
         };
 
-        let req = Peticion::ConsultarLspStatus {
+        let req = Request::QueryLspStatus {
             workspace_path: "/Users/juandevelop/Develop/antOS".into(),
         };
         let json_req = serde_json::to_string(&req).expect("serialize lsp status req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize lsp status req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize lsp status req");
         assert_eq!(req, des_req);
 
         let ev1 = Evento::EstadoLsp(status);
@@ -1952,13 +2025,13 @@ mod tests {
             active_ticket_id: Some("T12.2".into()),
         };
 
-        let req_collab = Peticion::IniciarCollabSession {
+        let req_collab = Request::StartCollabSession {
             file_path: "src/main.rs".into(),
             ticket_id: Some("T12.2".into()),
             workspace_path: "/workspace".into(),
         };
         let json_req = serde_json::to_string(&req_collab).expect("serialize collab req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize collab req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize collab req");
         assert_eq!(req_collab, des_req);
 
         let ev_collab = Evento::EstadoCollabSession(collab_status);
@@ -2014,9 +2087,9 @@ mod tests {
             registered_hotkeys: hotkeys.clone(),
         };
 
-        let req_status = Peticion::ConsultarDesktopStatus;
+        let req_status = Request::QueryDesktopStatus;
         let json_req = serde_json::to_string(&req_status).expect("serialize desktop req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize desktop req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize desktop req");
         assert_eq!(req_status, des_req);
 
         let ev_status = Evento::EstadoDesktop(status);
@@ -2043,9 +2116,9 @@ mod tests {
             active_notifications_count: 4,
         };
 
-        let req = Peticion::ConsultarBarraTelemetry;
+        let req = Request::QueryBarraTelemetry;
         let json_req = serde_json::to_string(&req).expect("serialize barra req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize barra req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize barra req");
         assert_eq!(req, des_req);
 
         let ev = Evento::EstadoBarraTelemetry(telemetry);
@@ -2058,9 +2131,9 @@ mod tests {
             message: "Acceso denegado a /root/.ssh/id_rsa".into(),
             urgent: true,
         };
-        let req_alert = Peticion::EmitirBarraAlert(alert.clone());
+        let req_alert = Request::EmitBarraAlert(alert.clone());
         let json_alert = serde_json::to_string(&req_alert).expect("serialize alert req");
-        let des_alert: Peticion = serde_json::from_str(&json_alert).expect("deserialize alert req");
+        let des_alert: Request = serde_json::from_str(&json_alert).expect("deserialize alert req");
         assert_eq!(req_alert, des_alert);
     }
 
@@ -2075,17 +2148,17 @@ mod tests {
             target_arch: "x86_64-unknown-none".into(),
         };
 
-        let req = Peticion::ConsultarBootStatus;
+        let req = Request::QueryBootStatus;
         let json_req = serde_json::to_string(&req).expect("serialize boot req");
-        let des_req: Peticion = serde_json::from_str(&json_req).expect("deserialize boot req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize boot req");
         assert_eq!(req, des_req);
 
-        let req_exec = Peticion::EjecutarBootPipeline {
+        let req_exec = Request::RunBootPipeline {
             action: "build".into(),
             headless: true,
         };
         let json_exec = serde_json::to_string(&req_exec).expect("serialize boot exec");
-        let des_exec: Peticion = serde_json::from_str(&json_exec).expect("deserialize boot exec");
+        let des_exec: Request = serde_json::from_str(&json_exec).expect("deserialize boot exec");
         assert_eq!(req_exec, des_exec);
 
         let ev = Evento::EstadoBoot(status);
@@ -2109,20 +2182,20 @@ mod tests {
         let des_ev_list: Evento = serde_json::from_str(&json_ev_list).expect("deserialize list ev");
         assert_eq!(ev_list, des_ev_list);
 
-        let req_list = Peticion::ListarPlugins;
+        let req_list = Request::ListPlugins;
         let json_req_list = serde_json::to_string(&req_list).expect("serialize list plugins");
-        let des_req_list: Peticion = serde_json::from_str(&json_req_list).expect("deserialize list plugins");
+        let des_req_list: Request = serde_json::from_str(&json_req_list).expect("deserialize list plugins");
         assert_eq!(req_list, des_req_list);
 
         let mut params = std::collections::BTreeMap::new();
         params.insert("target".into(), "README.md".into());
-        let req_run = Peticion::EjecutarPlugin {
+        let req_run = Request::RunPlugin {
             plugin_name: "markdown-formatter".into(),
             action: "format".into(),
             params,
         };
         let json_run = serde_json::to_string(&req_run).expect("serialize run plugin");
-        let des_run: Peticion = serde_json::from_str(&json_run).expect("deserialize run plugin");
+        let des_run: Request = serde_json::from_str(&json_run).expect("deserialize run plugin");
         assert_eq!(req_run, des_run);
 
         let result = PluginResult {
@@ -2145,12 +2218,12 @@ mod tests {
         assert_eq!(AgentRole::VisualQA.name(), "Visual QA");
         assert_eq!(AgentRole::VisualQA.nombre(), "QA Visual");
 
-        let req_cap = Peticion::CapturarPantalla {
+        let req_cap = Request::CaptureScreen {
             target: Some("firefox".into()),
             save_path: Some("/tmp/screenshot.png".into()),
         };
         let json_cap = serde_json::to_string(&req_cap).expect("serialize cap req");
-        let des_cap: Peticion = serde_json::from_str(&json_cap).expect("deserialize cap req");
+        let des_cap: Request = serde_json::from_str(&json_cap).expect("deserialize cap req");
         assert_eq!(req_cap, des_cap);
 
         let report = VisualQAReport {
@@ -2177,9 +2250,9 @@ mod tests {
 
     #[test]
     fn test_serializacion_storage_installer() {
-        let req_list = Peticion::ListarDiscos;
+        let req_list = Request::ListDisks;
         let json_list = serde_json::to_string(&req_list).expect("serialize list req");
-        let des_list: Peticion = serde_json::from_str(&json_list).expect("deserialize list req");
+        let des_list: Request = serde_json::from_str(&json_list).expect("deserialize list req");
         assert_eq!(req_list, des_list);
 
         let part = DiskPartition {
@@ -2233,9 +2306,9 @@ mod tests {
             timezone: "America/Bogota".into(),
             dry_run: true,
         };
-        let req_install = Peticion::InstalarSistema(cfg.clone());
+        let req_install = Request::InstallSystem(cfg.clone());
         let json_ins = serde_json::to_string(&req_install).expect("serialize install req");
-        let des_ins: Peticion = serde_json::from_str(&json_ins).expect("deserialize install req");
+        let des_ins: Request = serde_json::from_str(&json_ins).expect("deserialize install req");
         assert_eq!(req_install, des_ins);
 
         let report = InstallReport {
@@ -2278,9 +2351,9 @@ mod tests {
             detected_os: vec![os],
             dry_run: true,
         };
-        let req_boot = Peticion::InstalarBootloader(boot_cfg);
+        let req_boot = Request::InstallBootloader(boot_cfg);
         let json_boot = serde_json::to_string(&req_boot).expect("serialize boot req");
-        let des_boot: Peticion = serde_json::from_str(&json_boot).expect("deserialize boot req");
+        let des_boot: Request = serde_json::from_str(&json_boot).expect("deserialize boot req");
         assert_eq!(req_boot, des_boot);
     }
 }

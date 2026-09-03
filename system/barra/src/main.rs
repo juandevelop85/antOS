@@ -3,7 +3,7 @@
 //! Provides the primary desktop interface for developer intentions, semantic git context,
 //! rich diff inspections, multi-agent antFlow state visualizations, and the Kanban Ticket Board (`Super + A`).
 
-use antos_protocolo::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Peticion, Propuesta, TicketStatus, TicketSummary, Tier};
+use antos_protocolo::{AgentRole, Evento, FlowState, FlowTask, GitRepoStatus, Line, Request, Propuesta, TicketStatus, TicketSummary, Tier};
 use gtk4::gdk::Display;
 use gtk4::prelude::*;
 use gtk4::{
@@ -307,7 +307,7 @@ fn query_git_status_async(git_badge: Label) {
             .map(|p| p.display().to_string())
             .unwrap_or_else(|_| ".".into());
 
-        let req = Peticion::ConsultarEstadoGit {
+        let req = Request::QueryGitStatus {
             workspace_path: current_dir,
         };
 
@@ -362,7 +362,7 @@ fn query_telemetry_async(
             return;
         };
 
-        let req = Peticion::ConsultarBarraTelemetry;
+        let req = Request::QueryBarraTelemetry;
         if let Ok(json) = serde_json::to_string(&req) {
             let _ = writeln!(stream, "{json}");
             let _ = stream.flush();
@@ -454,7 +454,7 @@ fn load_kanban_board_async(
 
         if let Ok(mut stream) = UnixStream::connect(&path) {
             // 1. Fetch tickets
-            let req_tickets = Peticion::ListarTickets {
+            let req_tickets = Request::ListTickets {
                 workspace_path: current_dir.clone(),
             };
             if let Ok(json) = serde_json::to_string(&req_tickets) {
@@ -471,7 +471,7 @@ fn load_kanban_board_async(
             }
 
             // 2. Fetch flows
-            let req_flows = Peticion::ListarFlows {
+            let req_flows = Request::ListFlows {
                 workspace_path: current_dir,
             };
             if let Ok(json) = serde_json::to_string(&req_flows) {
@@ -622,7 +622,7 @@ where
                     let current_dir = std::env::current_dir()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|_| ".".into());
-                    let req = Peticion::IniciarFlow {
+                    let req = Request::StartFlow {
                         workspace_path: current_dir,
                         ticket_id: tid.clone(),
                     };
@@ -658,10 +658,10 @@ fn start_session(
     })?;
 
     let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
-    let request = Peticion::Intencion {
-        texto: text.to_string(),
-        planificador: planner,
-        seco: dry_run,
+    let request = Request::Intent {
+        text: text.to_string(),
+        planner,
+        dry_run,
     };
 
     writeln!(
@@ -847,7 +847,7 @@ fn render_proposal(
         let box_ref = button_box.clone();
         btn.connect_clicked(move |_| {
             if let Some(stream) = stream_ref.borrow_mut().as_mut() {
-                let response = Peticion::Aprobacion(decision);
+                let response = Request::Approval(decision);
                 if let Ok(json) = serde_json::to_string(&response) {
                     let _ = writeln!(stream, "{json}");
                     let _ = stream.flush();
@@ -926,7 +926,7 @@ fn render_flow_task(
             let tid = ticket_id_clone.clone();
             btn.connect_clicked(move |_| {
                 if let Some(stream) = stream_ref.borrow_mut().as_mut() {
-                    let req = Peticion::AprobarFlow {
+                    let req = Request::ApproveFlow {
                         ticket_id: tid.clone(),
                         decision,
                     };

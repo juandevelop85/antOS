@@ -39,7 +39,9 @@ pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
 
 // ------------------------------------------------------------- el protocolo
 
-pub use antos_protocolo::{Evento, Peticion};
+pub use antos_protocolo::{Evento, Request};
+#[allow(unused_imports)]
+pub use antos_protocolo::Peticion;
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los
@@ -83,13 +85,13 @@ impl Interlocutor for PorSocket<'_> {
     }
 
     fn propone(&mut self, propuesta: &Propuesta) -> Result<bool> {
-        // No se puede serializar una referencia prestada dentro del enum sin
-        // clonar, así que se reconstruye. Es una vez por plan.
-        let copia: Propuesta = serde_json::from_str(&serde_json::to_string(propuesta)?)?;
-        enviar(self.escritura, &Evento::Propuesta(Box::new(copia)))?;
+        enviar(
+            self.escritura,
+            &Evento::Propuesta(Box::new(propuesta.clone())),
+        )?;
 
-        match recibir::<Peticion>(self.lectura)? {
-            Some(Peticion::Aprobacion(decision)) => Ok(decision),
+        match recibir::<Request>(self.lectura)? {
+            Some(Request::Approval(decision)) => Ok(decision),
             // Un cliente que se va sin contestar no aprueba nada. El silencio
             // nunca es un sí.
             _ => Ok(false),
@@ -144,28 +146,28 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
     let mut lectura = BufReader::new(flujo.try_clone()?);
     let mut escritura = flujo;
 
-    let Some(peticion) = recibir::<Peticion>(&mut lectura)? else {
+    let Some(peticion) = recibir::<Request>(&mut lectura)? else {
         return Ok(());
     };
 
     match peticion {
-        Peticion::Intencion { texto, planificador, seco } => {
-            let planner = crate::pick_planner_por_nombre(planificador.as_deref())?;
+        Request::Intent { text, planner, dry_run } => {
+            let planner_instance = crate::pick_planner_por_nombre(planner.as_deref())?;
             let mut con = PorSocket {
                 escritura: &mut escritura,
                 lectura: &mut lectura,
             };
-            if let Err(e) = sesion::intencion(ctx, catalog, &texto, &*planner, seco, &mut con) {
+            if let Err(e) = sesion::intencion(ctx, catalog, &text, &*planner_instance, dry_run, &mut con) {
                 enviar(&mut escritura, &Evento::Error(format!("{e:#}")))?;
             }
         }
-        Peticion::Aprobacion(_) => {
+        Request::Approval(_) => {
             enviar(
                 &mut escritura,
                 &Evento::Error("una aprobación sin propuesta previa".into()),
             )?;
         }
-        Peticion::ConsultarEstadoGit { workspace_path } => {
+        Request::QueryGitStatus { workspace_path } => {
             match crate::git::GitAnalyzer::global().consultar_estado(Path::new(&workspace_path)) {
                 Ok(Some(status)) => {
                     enviar(&mut escritura, &Evento::EstadoGit(status))?;
@@ -178,7 +180,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ListarTickets { workspace_path } => {
+        Request::ListTickets { workspace_path } => {
             match crate::spec::SpecEngine::global().listar_tickets(Path::new(&workspace_path)) {
                 Ok(tickets) => {
                     enviar(&mut escritura, &Evento::ListaTickets(tickets))?;
@@ -188,7 +190,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ObtenerTicket { workspace_path, ticket_id } => {
+        Request::GetTicket { workspace_path, ticket_id } => {
             match crate::spec::SpecEngine::global().obtener_ticket(Path::new(&workspace_path), &ticket_id) {
                 Ok(detalle) => {
                     enviar(&mut escritura, &Evento::DetalleTicket(detalle))?;
@@ -198,7 +200,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::DiagnosticarPuertos { port } => {
+        Request::DiagnosePorts { port } => {
             match crate::net::diagnosticar_puertos(port) {
                 Ok(puertos) => {
                     enviar(&mut escritura, &Evento::EstadoPuertos(puertos))?;
@@ -208,7 +210,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::IniciarFlow { workspace_path, ticket_id } => {
+        Request::StartFlow { workspace_path, ticket_id } => {
             match crate::flow::FlowEngine::global().iniciar_tarea(
                 Path::new(&workspace_path),
                 &ctx.state,
@@ -222,15 +224,15 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConsultarFlow { ticket_id } => {
+        Request::QueryFlow { ticket_id } => {
             let task = crate::flow::FlowEngine::global().consultar_tarea(&ticket_id);
             enviar(&mut escritura, &Evento::EstadoFlow(task))?;
         }
-        Peticion::ListarFlows { .. } => {
+        Request::ListFlows { .. } => {
             let tasks = crate::flow::FlowEngine::global().listar_tareas();
             enviar(&mut escritura, &Evento::ListaFlows(tasks))?;
         }
-        Peticion::AprobarFlow { ticket_id, decision } => {
+        Request::ApproveFlow { ticket_id, decision } => {
             match crate::flow::FlowEngine::global().aprobar_tarea(&ticket_id, decision) {
                 Ok(task) => {
                     enviar(&mut escritura, &Evento::EstadoFlow(Some(task)))?;
@@ -240,7 +242,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConsultarDiff { workspace_path, target } => {
+        Request::QueryDiff { workspace_path, target } => {
             let ws = Path::new(&workspace_path);
             let git_out = std::process::Command::new("git")
                 .current_dir(ws)
@@ -258,12 +260,12 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ListarNotificaciones { workspace_path } => {
+        Request::ListNotifications { workspace_path } => {
             let ws = Path::new(&workspace_path);
             let notifs = crate::notification::NotificationEngine::global().list(ws).unwrap_or_default();
             enviar(&mut escritura, &Evento::ListaNotificaciones(notifs))?;
         }
-        Peticion::AccionNotificacion { workspace_path, notification_id, action } => {
+        Request::HandleNotificationAction { workspace_path, notification_id, action } => {
             let ws = Path::new(&workspace_path);
             match crate::notification::NotificationEngine::global().handle_action(ws, &notification_id, action) {
                 Ok((success, message)) => {
@@ -282,7 +284,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConsultarMesh { workspace_path } => {
+        Request::QueryMesh { workspace_path } => {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().status(ws) {
                 Ok(status) => {
@@ -293,7 +295,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConectarPeer { workspace_path, address } => {
+        Request::ConnectPeer { workspace_path, address } => {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().connect_peer(ws, &address) {
                 Ok(peer) => {
@@ -312,7 +314,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::GenerarTokenEmparejamiento { workspace_path } => {
+        Request::GeneratePairingToken { workspace_path } => {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().generate_pairing_token(ws) {
                 Ok(token) => {
@@ -323,7 +325,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConsultarSwarm { workspace_path } => {
+        Request::QuerySwarm { workspace_path } => {
             let ws = Path::new(&workspace_path);
             match crate::distributed::SwarmEngine::global().status(ws) {
                 Ok(status) => {
@@ -334,7 +336,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::DespacharRolRemoto { workspace_path, ticket_id, role, node_id } => {
+        Request::DispatchRemoteRole { workspace_path, ticket_id, role, node_id } => {
             let ws = Path::new(&workspace_path);
             match crate::distributed::SwarmEngine::global().dispatch_remote_role(ws, &ticket_id, role, node_id.as_deref()) {
                 Ok(task) => {
@@ -357,7 +359,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ConsultarVfs { workspace_path, virtual_path } => {
+        Request::QueryVfs { workspace_path, virtual_path } => {
             let ws = Path::new(&workspace_path);
             let engine = crate::vfs::VfsEngine::global();
             if virtual_path.ends_with('/') || virtual_path == "/antfs" || virtual_path == "/antfs/symbols" || virtual_path.starts_with("/antfs/symbols/") && !virtual_path.split('/').skip(3).any(|p| !p.is_empty()) {
@@ -380,7 +382,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::MontarVfs { workspace_path, mount_point } => {
+        Request::MountVfs { workspace_path, mount_point } => {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().mount(ws, mount_point.as_deref()) {
                 Ok(path) => {
@@ -399,7 +401,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::DesmontarVfs { workspace_path, mount_point } => {
+        Request::UnmountVfs { workspace_path, mount_point } => {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().unmount(ws, mount_point.as_deref()) {
                 Ok(_) => {
@@ -418,23 +420,23 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ValidarEscrituraVfs { file_path, content } => {
+        Request::ValidateVfsWrite { file_path, content } => {
             let res = crate::vfs_guard::VfsGuardEngine::global().intercept_write(&file_path, &content)?;
             enviar(&mut escritura, &Evento::ResultadoValidacionVfs(res))?;
         }
-        Peticion::ConsultarGuardVfs { .. } => {
+        Request::QueryVfsGuard { .. } => {
             let status = crate::vfs_guard::VfsGuardEngine::global().status()?;
             enviar(&mut escritura, &Evento::EstadoGuardVfs(status))?;
         }
-        Peticion::ConsultarEbpfStatus { .. } => {
+        Request::QueryEbpfStatus { .. } => {
             let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
             enviar(&mut escritura, &Evento::EstadoEbpf(status))?;
         }
-        Peticion::ConsultarEbpfAuditLog { limit, .. } => {
+        Request::QueryEbpfAuditLog { limit, .. } => {
             let events = crate::ebpf::EbpfSentinelEngine::global().get_audit_log(limit);
             enviar(&mut escritura, &Evento::AuditLogEbpf(events))?;
         }
-        Peticion::SimularViolacionEbpf { hook, target_resource, .. } => {
+        Request::SimulateEbpfViolation { hook, target_resource, .. } => {
             let event = crate::ebpf::EbpfSentinelEngine::global().simulate_violation(hook, &target_resource);
             enviar(&mut escritura, &Evento::ResultadoEbpf {
                 action: format!("{:?}", hook),
@@ -442,28 +444,28 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 message: format!("evento {} generado con éxito (acción: {:?})", event.id, event.action_taken),
             })?;
         }
-        Peticion::EjecutarProfiler { workspace_path, command } => {
+        Request::RunProfiler { workspace_path, command } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let report = crate::profiler::ProfilerEngine::global().run_and_profile(&ws, &command)?;
             enviar(&mut escritura, &Evento::ReporteProfiler(report))?;
         }
-        Peticion::ConsultarProfilerReportes { workspace_path, limit } => {
+        Request::QueryProfilerReports { workspace_path, limit } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let mut reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
             reports.truncate(limit);
             enviar(&mut escritura, &Evento::ListaReportesProfiler(reports))?;
         }
-        Peticion::AnalizarProfilerHotspots { workspace_path } => {
+        Request::AnalyzeProfilerHotspots { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
             enviar(&mut escritura, &Evento::AnalisisProfiler { hotspots, suggestions })?;
         }
-        Peticion::ConsultarLspStatus { workspace_path } => {
+        Request::QueryLspStatus { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let status = crate::lsp::LspServer::global().get_status(&ws);
             enviar(&mut escritura, &Evento::EstadoLsp(status))?;
         }
-        Peticion::ObtenerLspConfig { editor, workspace_path } => {
+        Request::GetLspConfig { editor, workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let (config_content, target_file) = crate::lsp::LspServer::global().generate_config(editor, &ws);
             enviar(&mut escritura, &Evento::ConfiguracionLsp {
@@ -472,46 +474,46 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 target_file,
             })?;
         }
-        Peticion::IniciarCollabSession { file_path, ticket_id, workspace_path } => {
+        Request::StartCollabSession { file_path, ticket_id, workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let status = crate::collab::CollabEngine::global().start_session(&ws, &file_path, ticket_id)?;
             enviar(&mut escritura, &Evento::EstadoCollabSession(status))?;
         }
-        Peticion::ConsultarCollabStatus { session_id, .. } => {
+        Request::QueryCollabStatus { session_id, .. } => {
             if let Some(status) = crate::collab::CollabEngine::global().get_session(&session_id) {
                 enviar(&mut escritura, &Evento::EstadoCollabSession(status))?;
             } else {
                 enviar(&mut escritura, &Evento::Error(format!("sesión «{session_id}» no encontrada")))?;
             }
         }
-        Peticion::IniciarDapSession { command, .. } => {
+        Request::StartDapSession { command, .. } => {
             let mut dap = crate::collab::DapServer::new("dap-sess-001".into(), command);
             dap.add_breakpoint("src/main.rs", 1);
             enviar(&mut escritura, &Evento::EstadoDapSession(dap.to_status()))?;
         }
-        Peticion::ConsultarDapStatus { session_id, .. } => {
+        Request::QueryDapStatus { session_id, .. } => {
             let dap = crate::collab::DapServer::new(session_id, "cargo test".into());
             enviar(&mut escritura, &Evento::EstadoDapSession(dap.to_status()))?;
         }
-        Peticion::ConsultarDesktopStatus => {
+        Request::QueryDesktopStatus => {
             let status = crate::desktop::DesktopManager::get_status();
             enviar(&mut escritura, &Evento::EstadoDesktop(status))?;
         }
-        Peticion::ListarDesktopHotkeys => {
+        Request::ListDesktopHotkeys => {
             let hotkeys = crate::desktop::DesktopManager::get_hotkeys();
             enviar(&mut escritura, &Evento::ListaDesktopHotkeys(hotkeys))?;
         }
-        Peticion::IniciarDesktopSession { .. } => {
+        Request::StartDesktopSession { .. } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let _ = crate::desktop::DesktopManager::sync_configuration(&cwd);
             let status = crate::desktop::DesktopManager::get_status();
             enviar(&mut escritura, &Evento::EstadoDesktop(status))?;
         }
-        Peticion::ConsultarBarraTelemetry => {
+        Request::QueryBarraTelemetry => {
             let telemetry = crate::barra::BarraManager::global().get_telemetry();
             enviar(&mut escritura, &Evento::EstadoBarraTelemetry(telemetry))?;
         }
-        Peticion::EmitirBarraAlert(alert) => {
+        Request::EmitBarraAlert(alert) => {
             let res = crate::barra::BarraManager::global().emit_alert(alert.clone());
             if res.is_ok() {
                 enviar(&mut escritura, &Evento::AlertaBarra(alert))?;
@@ -519,12 +521,12 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 enviar(&mut escritura, &Evento::Error("Error al registrar alerta en la barra".into()))?;
             }
         }
-        Peticion::ConsultarBootStatus => {
+        Request::QueryBootStatus => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let status = crate::boot::BootEngine::global().status(&cwd);
             enviar(&mut escritura, &Evento::EstadoBoot(status))?;
         }
-        Peticion::EjecutarBootPipeline { action, .. } => {
+        Request::RunBootPipeline { action, .. } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let engine = crate::boot::BootEngine::global();
             match action.as_str() {
@@ -542,19 +544,19 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 }
             }
         }
-        Peticion::ListarPlugins => {
+        Request::ListPlugins => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let summaries = crate::wasm::PluginManager::list_plugins(&plugins_dir);
             enviar(&mut escritura, &Evento::ListaPlugins(summaries))?;
         }
-        Peticion::EjecutarPlugin { plugin_name, action, params } => {
+        Request::RunPlugin { plugin_name, action, params } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let res = crate::wasm::PluginManager::run_plugin(&plugins_dir, &plugin_name, &action, &params);
             enviar(&mut escritura, &Evento::ResultadoPlugin(res))?;
         }
-        Peticion::InstalarPlugin { source_path } => {
+        Request::InstallPlugin { source_path } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let src = std::path::PathBuf::from(&source_path);
@@ -563,32 +565,32 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::CapturarPantalla { target, save_path } => {
+        Request::CaptureScreen { target, save_path } => {
             let p_opt = save_path.map(std::path::PathBuf::from);
             match crate::vision::VisionEngine::global().capture_screen(target.as_deref(), p_opt.as_deref()) {
                 Ok(res) => enviar(&mut escritura, &Evento::ResultadoCaptura(res))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::InspeccionarVisualQA { target, criteria } => {
+        Request::InspectVisualQa { target, criteria } => {
             match crate::vision::VisionEngine::global().inspect_visual(&target, &criteria, None) {
                 Ok(rep) => enviar(&mut escritura, &Evento::ReporteVisualQA(rep))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::ListarDiscos => {
+        Request::ListDisks => {
             match crate::installer::DiskManager::list_disks() {
                 Ok(disks) => enviar(&mut escritura, &Evento::ListaDiscos(disks))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::InspeccionarDisco { device } => {
+        Request::InspectDisk { device } => {
             match crate::installer::DiskManager::inspect_disk(&device) {
                 Ok(opt) => enviar(&mut escritura, &Evento::DetalleDisco(opt))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::ParticionarDisco { device, clean_install, dry_run } => {
+        Request::PartitionDisk { device, clean_install, dry_run } => {
             match crate::installer::DiskManager::plan_partitioning(&device, clean_install) {
                 Ok(plan) => {
                     if !dry_run {
@@ -599,21 +601,21 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::InstalarSistema(config) => {
+        Request::InstallSystem(config) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             match crate::installer::DeployEngine::deploy_system(&config, &cwd) {
                 Ok(report) => enviar(&mut escritura, &Evento::ReporteInstalacion(report))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::SondearSistemasOperativos { esp_mount } => {
+        Request::ProbeOperatingSystems { esp_mount } => {
             let esp = esp_mount.as_deref().map(std::path::Path::new).unwrap_or_else(|| std::path::Path::new("/boot/efi"));
             match crate::installer::BootloaderEngine::probe_operating_systems(esp) {
                 Ok(entries) => enviar(&mut escritura, &Evento::SistemasOperativosDetectados(entries))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
             }
         }
-        Peticion::InstalarBootloader(config) => {
+        Request::InstallBootloader(config) => {
             match crate::installer::BootloaderEngine::install_bootloader(&config) {
                 Ok(report) => enviar(&mut escritura, &Evento::ReporteBootloader(report))?,
                 Err(e) => enviar(&mut escritura, &Evento::Error(e.to_string()))?,
@@ -648,10 +650,10 @@ pub fn intencion_remota(
 
     enviar(
         &mut escritura,
-        &Peticion::Intencion {
-            texto: texto.to_string(),
-            planificador: planificador.map(str::to_string),
-            seco,
+        &Request::Intent {
+            text: texto.to_string(),
+            planner: planificador.map(str::to_string),
+            dry_run: seco,
         },
     )?;
 
@@ -665,7 +667,7 @@ pub fn intencion_remota(
             Evento::Nota(t) => pantalla.nota(&t)?,
             Evento::Propuesta(p) => {
                 let decision = pantalla.propone(&p)?;
-                enviar(&mut escritura, &Peticion::Aprobacion(decision))?;
+                enviar(&mut escritura, &Request::Approval(decision))?;
             }
             Evento::Salida(t) => pantalla.salida(&t)?,
             Evento::Resultado(r) => pantalla.resultado(&r)?,
