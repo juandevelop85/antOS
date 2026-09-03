@@ -307,6 +307,14 @@ cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel
 
 # Ejecutar el kernel AArch64 directamente en QEMU virt (consola PL011, MMU, VBAR_EL1, GIC y SVC)
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic -kernel kernel/target/aarch64-unknown-none/debug/kernel -serial stdio -monitor none
+
+# En UTM (macOS Apple Silicon):
+# Crear VM ARM64 ('virt'), desactivar 'UEFI Boot', añadir dispositivo 'Puerto Serie (Terminal)'
+# y seleccionar 'kernel/target/aarch64-unknown-none/debug/kernel' en arranque directo de Kernel.
+
+# En VirtualBox (x86_64):
+# Convertir imagen BIOS a VDI y desactivar 'Habilitar EFI' en Sistema -> Placa Base:
+VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos.vdi --format VDI
 ```
 
 ---

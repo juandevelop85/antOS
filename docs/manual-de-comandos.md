@@ -12,6 +12,10 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [Método 4: Confinamiento Kernel en Linux con Landlock y Cgroups v2](#método-4-confinamiento-kernel-en-linux-con-landlock-y-cgroups-v2)
    - [Método 5: Máquina Virtual antOS NixOS Completa en QEMU](#método-5-máquina-virtual-antos-nixos-completa-en-qemu)
    - [Método 6: Núcleo Bare-Metal `no_std` Multi-Arquitectura (x86_64 y AArch64) en QEMU y UEFI](#método-6-núcleo-bare-metal-no_std-multi-arquitectura-x86_64-y-aarch64-en-qemu-y-uefi)
+     - [A. Arquitectura x86_64 (BIOS Legacy y UEFI GPT)](#a-arquitectura-x86_64-bios-legacy-y-uefi-gpt)
+     - [B. Arquitectura AArch64 / ARM 64-bit (Bare Metal y UEFI)](#b-arquitectura-aarch64--arm-64-bit-bare-metal-y-uefi)
+     - [C. Opciones del CLI `builder`](#c-opciones-del-cli-builder)
+     - [D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)](#d-guía-paso-a-paso-para-hipervisores-utm-y-virtualbox)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
 4. [Catálogo Exhaustivo de Comandos y Subcomandos](#4-catálogo-exhaustivo-de-comandos-y-subcomandos)
@@ -216,6 +220,75 @@ cargo run -p builder -- <ruta-al-kernel.elf> [--arch x86_64|aarch64] [--format a
 
 * `--arch <x86_64|aarch64>`: Sobrescribe la arquitectura del disco (autodetectada por defecto desde la cabecera ELF).
 * `--format <all|uefi|bios|iso>`: Tipo de artefacto a emitir.
+
+#### D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)
+
+##### 1. Ejecución en UTM (macOS Apple Silicon e Intel)
+
+UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitectura ARM64 como x86_64.
+
+> ⚠️ **Punto clave:** El kernel de antOS emite su telemetría y diagnósticos por el **puerto serie (UART PL011 en ARM64 / COM1 en x86_64)**. Para ver los mensajes del sistema en UTM es necesario tener habilitada la consola serie.
+
+###### Modo Directo (Kernel Boot - Recomendado para desarrollo):
+1. Abrir UTM y pulsar **Crear una nueva máquina virtual (+)**.
+2. Seleccionar **Virtualizar** (o *Emular* si estás en Intel y deseas ARM64) -> **Otro (Other)**.
+3. En la configuración de la máquina virtual (**Editar**):
+   * **Sistema:**
+     * **Arquitectura:** `ARM64 (aarch64)`.
+     * **Sistema:** `QEMU 7.x / 8.x / 9.x ARM Virtual Machine (virt)`.
+     * **Memoria RAM:** `512 MB` o `1024 MB`.
+   * **QEMU:**
+     * **Desmarcar** *"UEFI Boot"*.
+   * **Dispositivos:**
+     * Pulsar **Nuevo...** -> **Puerto serie** -> Modo: *Terminal / Emulado*.
+   * **Arranque / Kernel:**
+     * Seleccionar la ruta al binario compilado:
+       ```text
+       kernel/target/aarch64-unknown-none/debug/kernel
+       ```
+4. Iniciar la máquina virtual (Play). La pestaña de terminal mostrará el arranque de antOS en tiempo real.
+
+###### Modo Imagen de Disco UEFI en UTM:
+1. Generar la imagen UEFI:
+   ```bash
+   cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
+   ```
+2. En UTM -> **Editar VM** -> **Unidades**:
+   * Pulsar **Nuevo...** -> **Imagen de disco**.
+   * **Interfaz:** `VirtIO` o `NVMe` (no CD/DVD).
+   * Importar el archivo:
+     ```text
+     kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img
+     ```
+3. En **Dispositivos**, añadir un **Puerto serie**.
+4. Iniciar la VM. Si ingresas a la UEFI Shell, escribe `map -r` y ejecuta `FS0:\EFI\BOOT\BOOTAA64.EFI`.
+
+---
+
+##### 2. Ejecución en VirtualBox (x86_64)
+
+VirtualBox cuenta con emulación completa de hardware x86_64. Para arrancar antOS en VirtualBox, el método más robusto es usar la imagen de arranque **BIOS (MBR)**:
+
+1. **Generar la imagen BIOS y convertirla a disco virtual VDI:**
+   ```bash
+   # 1. Compilar y generar la imagen BIOS
+   cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format bios
+
+   # 2. Convertir la imagen RAW a formato VDI nativo de VirtualBox
+   VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos.vdi --format VDI
+   ```
+   *(Si no dispones de `VBoxManage` en el PATH, puedes renombrar `antos-bios.img` a `antos-bios.raw` e importarlo directamente como disco duro existente en VirtualBox).*
+
+2. **Configuración de la Máquina Virtual en VirtualBox:**
+   * **Tipo de SO:** *Other* / *Other/Unknown (64-bit)*.
+   * **Memoria RAM:** `512 MB` o `1024 MB`.
+   * **Sistema -> Placa Base:**
+     * **Desmarcar** la casilla *"Habilitar EFI (solo SO especiales)"* (antOS usa el gestor de arranque en sector MBR).
+   * **Almacenamiento:**
+     * Controlador SATA o IDE -> Añadir disco duro -> Seleccionar el archivo `antos.vdi`.
+   * **Puertos Serie:**
+     * Activar el **Puerto 1** (COM1, IRQ 4, I/O 0x3F8) en modo *"Desconectado"* o *"Archivo/Tubería"* si deseas capturar el log serial.
+3. Iniciar la máquina virtual. El kernel cargará inmediatamente mostrando el banner del sistema en pantalla.
 
 ---
 
