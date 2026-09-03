@@ -1,0 +1,12 @@
+name = "ci.run"
+summary = "Ejecuta la matriz de integración continua local paralela en sandboxes"
+
+[params]
+stage = { type = "text", optional = true }
+fast = { type = "boolean", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

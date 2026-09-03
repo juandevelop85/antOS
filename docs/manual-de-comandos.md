@@ -56,6 +56,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.35 Gestión de Proyectos, Selección Activa y Git en Workspace (`antos use` / `antos project` / `antos git`)](#435-gestión-de-proyectos-selección-activa-y-git-en-workspace-antos-use--antos-project--antos-git)
    - [4.36 Espacio de Trabajo Integrado Dev TUI (`antos dev`)](#436-espacio-de-trabajo-integrado-dev-tui-antos-dev)
    - [4.37 Reproducción Autónoma de Bugs TDD y Generación de Tests (`antos reproduce` / `antos testgen`)](#437-reproducción-autónoma-de-bugs-tdd-y-generación-de-tests-antos-reproduce--antos-testgen)
+   - [4.38 Matriz de CI/CD Local Paralela y Git Hooks Inteligentes (`antos ci` / `antos hook`)](#438-matriz-de-cicd-local-paralela-y-git-hooks-inteligentes-antos-ci--antos-hook)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1235,6 +1236,47 @@ antos testgen --target src/api.ts --cases 5 --suite regression
 # 6. Uso declarativo mediante lenguaje natural
 antos "reproduce el error: thread 'worker' panicked at 'division by zero', src/calc.rs:25:9"
 antos "genera tests para src/service.rs"
+```
+
+---
+
+### 4.38 Matriz de CI/CD Local Paralela y Git Hooks Inteligentes (`antos ci` / `antos hook`)
+
+Motor de integración continua local ultra-rápido y paralelo (T20.3) con soporte para configuración declarativa (`.antos/ci.toml`), detección automática de tecnologías (Rust, Node.js, Python), auditoría de secretos de alta entropía y gestión de *Git Hooks* (pre-commit y pre-push) supervisados por el Auditor:
+
+```bash
+# 1. Ejecutar pipeline completo de CI local en sandboxes
+antos ci run
+antos ci
+
+# 2. Ejecutar únicamente etapas rápidas (linters, formato, escaneo de secretos)
+antos ci run --fast
+antos ci -f
+
+# 3. Ejecutar una etapa específica
+antos ci run --stage security
+antos ci run --stage lint
+antos ci run --stage test
+
+# 4. Consultar el estado y métricas del último pipeline ejecutado
+antos ci status
+
+# 5. Instalar hooks de Git pre-commit y pre-push protegidos por antOS
+antos hook install
+
+# 6. Auditar manualmente el área de stage / workspace contra fuga de secretos
+antos hook check
+
+# 7. Consultar estado de los hooks instalados
+antos hook status
+
+# 8. Desinstalar hooks de antOS
+antos hook uninstall
+
+# 9. Ejecución declarativa vía lenguaje natural
+antos "ejecuta ci rápido"
+antos "instala pre-commit hook"
+antos "audita pre-commit"
 ```
 
 ---

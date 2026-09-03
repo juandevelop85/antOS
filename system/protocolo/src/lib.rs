@@ -1544,6 +1544,67 @@ pub struct TddRegressionReport {
     pub audited: bool,
 }
 
+// ----------------------------------------------------------- local ci & git hooks (T20.3)
+
+/// Execution status of a single CI pipeline stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CiStageStatus {
+    #[serde(alias = "Pending")]
+    Pending,
+    #[serde(alias = "Running")]
+    Running,
+    #[serde(alias = "Passed")]
+    Passed,
+    #[serde(alias = "Failed")]
+    Failed,
+    #[serde(alias = "Skipped")]
+    Skipped,
+}
+
+impl CiStageStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            CiStageStatus::Pending => "⏳ Pendiente",
+            CiStageStatus::Running => "⚙️ En ejecución",
+            CiStageStatus::Passed => "✅ Pasó",
+            CiStageStatus::Failed => "❌ Falló",
+            CiStageStatus::Skipped => "⏭️ Omitido",
+        }
+    }
+}
+
+/// Result of an individual stage in the CI matrix.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CiStageResult {
+    pub name: String,
+    pub command: String,
+    pub status: CiStageStatus,
+    pub duration_ms: u64,
+    pub output_snippet: String,
+    pub exit_code: Option<i32>,
+}
+
+/// Consolidated report of a full local CI pipeline run (T20.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CiReport {
+    pub id: String,
+    pub success: bool,
+    pub stages: Vec<CiStageResult>,
+    pub total_duration_ms: u64,
+    pub security_clean: bool,
+    pub secrets_found: Vec<String>,
+    pub timestamp_secs: u64,
+}
+
+/// Status of antOS Git pre-commit and pre-push hooks (T20.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitHookStatus {
+    pub pre_commit_installed: bool,
+    pub pre_push_installed: bool,
+    pub hook_dir: String,
+    pub active_guards: Vec<String>,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1882,6 +1943,20 @@ pub enum Request {
     GenerateTest {
         target: String,
     },
+    /// Execute local parallel CI/CD pipeline (T20.3).
+    #[serde(alias = "EjecutarCi")]
+    RunCi {
+        stage: Option<String>,
+        fast: bool,
+    },
+    /// Query status and metrics of the last local CI run (T20.3).
+    #[serde(alias = "ConsultarEstadoCi")]
+    GetCiStatus,
+    /// Manage Git hooks (install, uninstall, check) (T20.3).
+    #[serde(alias = "GestionarGitHooks")]
+    ManageGitHooks {
+        action: String,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2165,6 +2240,12 @@ pub enum Event {
     /// Outcome of autonomous bug reproduction and TDD verification (T20.2).
     #[serde(alias = "ReporteTdd")]
     TddReport(TddRegressionReport),
+    /// Consolidated local CI report outcome (T20.3).
+    #[serde(alias = "ReporteCi")]
+    CiReport(CiReport),
+    /// Git hooks installation and guard status (T20.3).
+    #[serde(alias = "EstadoGitHooks")]
+    GitHooksStatus(GitHookStatus),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3408,6 +3489,51 @@ mod tests {
         let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
         assert_eq!(ev, des_ev);
         assert_eq!(report.phase.label(), "🔴 Red (Falla reproducible)");
+    }
+
+    #[test]
+    fn test_ci_and_git_hooks_serialization() {
+        let stage = CiStageResult {
+            name: "lint".into(),
+            command: "cargo clippy".into(),
+            status: CiStageStatus::Passed,
+            duration_ms: 120,
+            output_snippet: "clean 0 warnings".into(),
+            exit_code: Some(0),
+        };
+        let report = CiReport {
+            id: "ci-001".into(),
+            success: true,
+            stages: vec![stage],
+            total_duration_ms: 250,
+            security_clean: true,
+            secrets_found: Vec::new(),
+            timestamp_secs: 1725380000,
+        };
+
+        let req = Request::RunCi {
+            stage: Some("test".into()),
+            fast: true,
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::CiReport(report.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+
+        let hook_status = GitHookStatus {
+            pre_commit_installed: true,
+            pre_push_installed: true,
+            hook_dir: ".git/hooks".into(),
+            active_guards: vec!["secret_scanner".into(), "ci_fast".into()],
+        };
+        let ev_hook = Event::GitHooksStatus(hook_status.clone());
+        let json_hook = serde_json::to_string(&ev_hook).expect("serialize ev_hook");
+        let des_hook: Event = serde_json::from_str(&json_hook).expect("deserialize ev_hook");
+        assert_eq!(ev_hook, des_hook);
     }
 }
 

@@ -140,7 +140,7 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones Git semánticas (T2.1)
-        if lower.contains("commit") {
+        if lower.contains("commit") && !lower.contains("hook") && !lower.contains("pre-commit") {
             let tipo = if lower.contains("fix") || lower.contains("arregl") || lower.contains("corrige") {
                 "fix"
             } else if lower.contains("doc") {
@@ -535,6 +535,50 @@ impl Planner for LocalPlanner {
                 .cloned()
                 .unwrap_or_else(|| "src/lib.rs".into());
             return Ok(Propuesta::solo(vec![step("test.gen", &[("target", &target), ("suite_type", "unit")])]));
+        }
+
+        // Intenciones de CI / CD Local Paralelo (T20.3)
+        let is_ci_intent = words.iter().any(|w| w == "ci")
+            || lower.contains("integracion continua")
+            || lower.contains("integración continua")
+            || lower.contains("pipeline local");
+
+        if is_ci_intent {
+            if lower.contains("estado") || lower.contains("status") || lower.contains("reporte") {
+                return Ok(Propuesta::solo(vec![step("ci.status", &[])]));
+            }
+            let stage = if lower.contains("lint") {
+                Some("lint")
+            } else if lower.contains("test") {
+                Some("test")
+            } else if lower.contains("security") || lower.contains("seguridad") || lower.contains("secretos") {
+                Some("security")
+            } else if lower.contains("format") {
+                Some("format")
+            } else {
+                None
+            };
+            let fast = if lower.contains("fast") || lower.contains("rapido") || lower.contains("rápido") { "true" } else { "false" };
+            let mut args = Vec::new();
+            if let Some(st) = stage {
+                args.push(("stage", st));
+            }
+            args.push(("fast", fast));
+            return Ok(Propuesta::solo(vec![step("ci.run", &args)]));
+        }
+
+        // Intenciones de Git Hooks Inteligentes (T20.3)
+        if lower.contains("hook") || lower.contains("pre-commit") || lower.contains("pre-push") {
+            let action = if lower.contains("instal") || lower.contains("activa") {
+                "install"
+            } else if lower.contains("desinstal") || lower.contains("remue") || lower.contains("elimina") || lower.contains("desactiva") {
+                "uninstall"
+            } else if lower.contains("check") || lower.contains("audita") || lower.contains("valida") || lower.contains("revisa") {
+                "check"
+            } else {
+                "status"
+            };
+            return Ok(Propuesta::solo(vec![step("git.hook", &[("action", action)])]));
         }
 
         // Intenciones de Espacio de Trabajo Integrado Dev TUI (T20.1)
@@ -1694,5 +1738,26 @@ mod tests {
         assert_eq!(p_gen.steps.len(), 1);
         assert_eq!(p_gen.steps[0].capability, "test.gen");
         assert_eq!(p_gen.steps[0].args.get("target").map(|s| s.as_str()), Some("src/service.rs"));
+    }
+
+    #[test]
+    fn test_plan_ci_and_git_hooks() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_ci = planner
+            .plan("ejecuta ci rápido", &catalog)
+            .expect("plan ci");
+        assert_eq!(p_ci.steps.len(), 1);
+        assert_eq!(p_ci.steps[0].capability, "ci.run");
+        assert_eq!(p_ci.steps[0].args.get("fast").map(|s| s.as_str()), Some("true"));
+
+        let p_hook = planner
+            .plan("instala pre-commit hook", &catalog)
+            .expect("plan hook");
+        assert_eq!(p_hook.steps.len(), 1);
+        assert_eq!(p_hook.steps[0].capability, "git.hook");
+        assert_eq!(p_hook.steps[0].args.get("action").map(|s| s.as_str()), Some("install"));
     }
 }

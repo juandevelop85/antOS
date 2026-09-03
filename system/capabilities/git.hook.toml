@@ -1,0 +1,11 @@
+name = "git.hook"
+summary = "Gestiona e instala hooks de Git pre-commit y pre-push auditados por antOS"
+
+[params]
+action = { type = "text" }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

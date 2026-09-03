@@ -803,6 +803,30 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::RunCi { stage, fast } => {
+            match crate::ci::CiEngine::run_pipeline(&ctx.workspace, &ctx.state, stage.as_deref(), fast) {
+                Ok(report) => enviar(&mut escritura, &Event::CiReport(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetCiStatus => {
+            match crate::ci::CiEngine::get_last_report(&ctx.state) {
+                Ok(Some(report)) => enviar(&mut escritura, &Event::CiReport(report))?,
+                Ok(None) => enviar(&mut escritura, &Event::Note("No hay reportes de CI previos registrados".into()))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ManageGitHooks { action } => {
+            let res = match action.as_str() {
+                "install" => crate::ci::CiEngine::install_git_hooks(&ctx.workspace),
+                "uninstall" => crate::ci::CiEngine::uninstall_git_hooks(&ctx.workspace),
+                _ => crate::ci::CiEngine::query_git_hooks_status(&ctx.workspace),
+            };
+            match res {
+                Ok(status) => enviar(&mut escritura, &Event::GitHooksStatus(status))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1249,6 +1273,21 @@ pub fn intencion_remota(
                     pantalla.nota(&format!("  • Corrección:        {}", fix))?;
                 }
                 pantalla.nota(&format!("  • Auditado:          {}", if report.audited { "Sí (Protegido contra regresiones)" } else { "No" }))?;
+            }
+            Event::CiReport(report) => {
+                pantalla.nota(&format!("⚙️ antOS CI · Reporte de Ejecución [{}]", report.id))?;
+                pantalla.nota(&format!("  • Estado General:    {}", if report.success { "PASÓ" } else { "FALLÓ" }))?;
+                pantalla.nota(&format!("  • Duración Total:    {} ms", report.total_duration_ms))?;
+                pantalla.nota(&format!("  • Seguridad:         {}", if report.security_clean { "Limpio (sin secretos)" } else { "Secretos detectados" }))?;
+                for s in &report.stages {
+                    pantalla.nota(&format!("    - {:<12} {:<15} ({} ms) {}", s.name, s.status.label(), s.duration_ms, s.command))?;
+                }
+            }
+            Event::GitHooksStatus(status) => {
+                pantalla.nota("🪝 antOS Git Hooks · Estado de Protección:")?;
+                pantalla.nota(&format!("  • Pre-commit: {}", if status.pre_commit_installed { "Instalado" } else { "No instalado" }))?;
+                pantalla.nota(&format!("  • Pre-push:   {}", if status.pre_push_installed { "Instalado" } else { "No instalado" }))?;
+                pantalla.nota(&format!("  • Directorio: {}", status.hook_dir))?;
             }
             Event::Error(m) => bail!("{m}"),
         }

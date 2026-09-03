@@ -395,6 +395,22 @@ pub enum Change {
         suite_type: String,
         cases: usize,
     },
+    /// T20.3 — Local parallel CI pipeline execution.
+    CiRun {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        stage: Option<String>,
+        fast: bool,
+    },
+    /// T20.3 — Query last CI pipeline run status.
+    CiStatus {
+        state_dir: PathBuf,
+    },
+    /// T20.3 — Manage Git pre-commit and pre-push hooks.
+    GitHookManage {
+        workspace: PathBuf,
+        action: String,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -520,7 +536,10 @@ impl Pendiente {
             | Change::WebToken { .. }
             | Change::ProjectGitInit { .. }
             | Change::TestReproduce { .. }
-            | Change::TestGen { .. } => {}
+            | Change::TestGen { .. }
+            | Change::CiRun { .. }
+            | Change::CiStatus { .. }
+            | Change::GitHookManage { .. } => {}
         }
     }
 }
@@ -1469,6 +1488,31 @@ pub fn changes_for(
                 target,
                 suite_type,
                 cases,
+            }])
+        }
+
+        "ci.run" => {
+            let stage = a.get("stage").cloned();
+            let fast = a.get("fast").map(|v| v == "true").unwrap_or(false);
+            Ok(vec![Change::CiRun {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                stage,
+                fast,
+            }])
+        }
+
+        "ci.status" => {
+            Ok(vec![Change::CiStatus {
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "git.hook" => {
+            let action = a.get("action").cloned().unwrap_or_else(|| "status".into());
+            Ok(vec![Change::GitHookManage {
+                workspace: ctx.workspace.clone(),
+                action,
             }])
         }
 
@@ -2605,6 +2649,51 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     cases,
                     report.test_file,
                     report.diagnostic.language,
+                ));
+            }
+            Change::CiRun { workspace, state_dir, stage, fast } => {
+                let report = crate::ci::CiEngine::run_pipeline(
+                    workspace,
+                    state_dir,
+                    stage.as_deref(),
+                    *fast,
+                )?;
+                output.push(format!(
+                    "⚙️ Matriz de CI Local antOS · Ejecución [{}]\n  • Resultado: {}\n  • Duración: {} ms\n  • Seguridad: {}\n  • Etapas ({}/{} exitosas)",
+                    report.id,
+                    if report.success { "✅ PASARON TODAS LAS ETAPAS" } else { "❌ FALLÓ EL PIPELINE" },
+                    report.total_duration_ms,
+                    if report.security_clean { "Limpio (sin secretos)" } else { "ALERTA: Fugas detectadas" },
+                    report.stages.iter().filter(|s| s.status == antos_protocol::CiStageStatus::Passed).count(),
+                    report.stages.len(),
+                ));
+            }
+            Change::CiStatus { state_dir } => {
+                let report = crate::ci::CiEngine::get_last_report(state_dir)?;
+                if let Some(r) = report {
+                    output.push(format!(
+                        "antOS CI · Último Reporte Registrado:\n  • ID:       {}\n  • Estado:   {}\n  • Duración: {} ms\n  • Etapas:   {}",
+                        r.id,
+                        if r.success { "EXITOSO" } else { "FALLIDO" },
+                        r.total_duration_ms,
+                        r.stages.iter().map(|s| format!("{}: {:?}", s.name, s.status)).collect::<Vec<_>>().join(", ")
+                    ));
+                } else {
+                    output.push("antOS CI · No hay reportes previos registrados.".into());
+                }
+            }
+            Change::GitHookManage { workspace, action } => {
+                let status = match action.as_str() {
+                    "install" | "instalar" => crate::ci::CiEngine::install_git_hooks(workspace)?,
+                    "uninstall" | "desinstalar" => crate::ci::CiEngine::uninstall_git_hooks(workspace)?,
+                    _ => crate::ci::CiEngine::query_git_hooks_status(workspace)?,
+                };
+                output.push(format!(
+                    "🪝 antOS Git Hooks · Estado de Protección:\n  • Pre-commit: {}\n  • Pre-push:   {}\n  • Directorio: {}\n  • Guardias:   {}",
+                    if status.pre_commit_installed { "INSTALADO" } else { "NO INSTALADO" },
+                    if status.pre_push_installed { "INSTALADO" } else { "NO INSTALADO" },
+                    status.hook_dir,
+                    if status.active_guards.is_empty() { "ninguna".into() } else { status.active_guards.join(", ") },
                 ));
             }
         }

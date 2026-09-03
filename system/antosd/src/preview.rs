@@ -391,6 +391,17 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::TestGen { target, suite_type, cases, .. } => {
                 out.push(Line::Info(format!("genera suite {suite_type} con {cases} casos de prueba para «{target}»")));
             }
+            Change::CiRun { stage, fast, .. } => {
+                let st_str = stage.as_deref().unwrap_or("todas");
+                let fast_str = if *fast { " (modo rápido --fast)" } else { "" };
+                out.push(Line::Info(format!("ejecuta matriz de CI local para etapas: «{st_str}»{fast_str}")));
+            }
+            Change::CiStatus { .. } => {
+                out.push(Line::Info("consulta el estado y métricas del último pipeline de CI local".into()));
+            }
+            Change::GitHookManage { action, .. } => {
+                out.push(Line::Info(format!("gestiona hooks de Git pre-commit y pre-push (acción: «{action}»)")));
+            }
         }
         pendiente.aplicar(change);
     }
