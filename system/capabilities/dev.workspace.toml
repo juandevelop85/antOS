@@ -1,0 +1,12 @@
+name = "dev.workspace"
+summary = "Inicia, diagnostica o gestiona el espacio de trabajo TUI multipanel con Neovim y antOS"
+
+[params]
+project = { type = "text", optional = true }
+action = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

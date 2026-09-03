@@ -814,6 +814,12 @@ Servidor LSP embebido para dotar a editores externos (VS Code, Neovim, Helix, Em
 antos edit src/main.rs
 antos edit
 
+# Iniciar el espacio de trabajo integrado Dev TUI (Neovim + antFlow + Visor de Diffs / Super + W)
+antos dev
+antos dev --project api-service
+antos dev --preview
+antos dev --status
+
 # Iniciar el servidor LSP sobre stdio (utilizado directamente por editores externos)
 antos lsp
 antos lsp stdio
@@ -870,6 +876,7 @@ antos desktop keys
 * `Super + Return`: Lanza la terminal virtual interactiva integrada (`vte`).
 * `Super + D`: Abre el visor interactivo de diffs y reversión (`diff_view`).
 * `Super + E`: Abre el editor de texto predeterminado de antOS (`Neovim` / `antos edit`).
+* `Super + W`: Abre el espacio de trabajo integrado Dev TUI (`Neovim` + `antFlow` + `diff_view` / `antos dev`).
 * `Super + Q`: Cierra la ventana enfocada actualmente.
 * `Alt + Tab`: Conmuta a la siguiente ventana.
 * `Super + F`: Alterna modo pantalla completa.

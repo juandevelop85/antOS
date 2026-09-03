@@ -514,6 +514,16 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("dap.attach", &[("command", &cmd)])]));
         }
 
+        // Intenciones de Espacio de Trabajo Integrado Dev TUI (T20.1)
+        if lower.contains("espacio de trabajo") || lower.contains("dev tui") || lower.contains("modo dev") || (lower.contains("workspace") && (lower.contains("inicia") || lower.contains("abre") || lower.contains("tui"))) {
+            let project = after(&words, &["proyecto", "en", "para"]);
+            let mut args = Vec::new();
+            if let Some(ref p) = project {
+                args.push(("project", p.as_str()));
+            }
+            return Ok(Propuesta::solo(vec![step("dev.workspace", &args)]));
+        }
+
         // Intenciones de Editor de Texto (Neovim por defecto)
         if (lower.contains("editor") || lower.contains("neovim") || lower.contains("nvim") || lower.contains("editar"))
             && !lower.contains("co-edici") && !lower.contains("pair") {
@@ -1620,5 +1630,25 @@ mod tests {
         assert_eq!(p_nvim.steps.len(), 1);
         assert_eq!(p_nvim.steps[0].capability, "ui.terminal");
         assert!(p_nvim.steps[0].args.get("command").unwrap().contains("nvim"));
+    }
+
+    #[test]
+    fn test_plan_dev_workspace() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_dev = planner
+            .plan("inicia el espacio de trabajo para api-service", &catalog)
+            .expect("plan dev workspace");
+        assert_eq!(p_dev.steps.len(), 1);
+        assert_eq!(p_dev.steps[0].capability, "dev.workspace");
+        assert_eq!(p_dev.steps[0].args.get("project").map(|s| s.as_str()), Some("api-service"));
+
+        let p_tui = planner
+            .plan("abrir dev tui", &catalog)
+            .expect("plan dev tui");
+        assert_eq!(p_tui.steps.len(), 1);
+        assert_eq!(p_tui.steps[0].capability, "dev.workspace");
     }
 }

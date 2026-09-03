@@ -185,6 +185,10 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let cmd_str = command.as_deref().unwrap_or("shell");
                 out.push(Line::Info(format!("abre la consola terminal interactiva VTE: {cmd_str}")));
             }
+            Change::DevWorkspace { project, .. } => {
+                let p_str = project.as_deref().unwrap_or("workspace");
+                out.push(Line::Info(format!("inicia el espacio de trabajo integrado Dev TUI para «{p_str}» (Neovim + antOS)")));
+            }
             Change::NotifyList { .. } => {
                 out.push(Line::Info("consulta la bandeja de notificaciones y aprobaciones de agentes".into()));
             }

@@ -147,6 +147,11 @@ pub enum Change {
     UiTerminal {
         command: Option<String>,
     },
+    DevWorkspace {
+        workspace: PathBuf,
+        project: Option<String>,
+        action: Option<String>,
+    },
     NotifyList {
         workspace: PathBuf,
     },
@@ -444,6 +449,7 @@ impl Pendiente {
             | Change::QuotaSet { .. }
             | Change::UiDiffViewer { .. }
             | Change::UiTerminal { .. }
+            | Change::DevWorkspace { .. }
             | Change::NotifyList { .. }
             | Change::NotifyAction { .. }
             | Change::MeshStatus { .. }
@@ -897,6 +903,16 @@ pub fn changes_for(
             let command = a.get("command").cloned();
             Ok(vec![Change::UiTerminal {
                 command,
+            }])
+        }
+
+        "dev.workspace" => {
+            let project = a.get("project").cloned();
+            let action = a.get("action").cloned();
+            Ok(vec![Change::DevWorkspace {
+                workspace: ctx.workspace.clone(),
+                project,
+                action,
             }])
         }
 
@@ -1922,6 +1938,15 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     output.push(format!("terminal: ejecutado «{cmd}» con código {:?}", session.exit_code));
                 } else {
                     output.push(format!("terminal interactivo listo con shell {}", session.active_shell));
+                }
+            }
+            Change::DevWorkspace { workspace, project, action } => {
+                if let Some("status") = action.as_deref() {
+                    let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &workspace);
+                    output.push(format!("dev workspace: editor={} term={}x{}", status.editor_command, status.term_columns, status.term_rows));
+                } else {
+                    crate::dev_tui::DevWorkspaceManager::launch(project.as_deref(), &workspace, false)?;
+                    output.push("dev workspace: blueprint renderizado exitosamente".into());
                 }
             }
             Change::NotifyList { workspace } => {

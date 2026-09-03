@@ -49,6 +49,11 @@
       <action name="Execute" command="antos edit"/>
     </keybind>
 
+    <!-- Super + W: Integrated Dev TUI Workspace (Neovim + antFlow + DiffViewer) -->
+    <keybind key="W-w">
+      <action name="Execute" command="antos dev"/>
+    </keybind>
+
     <!-- Window Management Shortcuts -->
     <!-- Super + Q: Close Active Window -->
     <keybind key="W-q">

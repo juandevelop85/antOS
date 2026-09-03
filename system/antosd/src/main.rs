@@ -14,6 +14,7 @@ mod capability;
 pub mod collab;
 mod ctx;
 pub mod desktop;
+pub mod dev_tui;
 pub mod diff_view;
 pub mod distributed;
 pub mod ebpf;
@@ -144,6 +145,7 @@ fn run() -> Result<()> {
         "lsp" => cmd_lsp(&ctx, &rest[1..]),
         "pair" | "collab" => cmd_pair(&ctx, &rest[1..]),
         "debug" | "dap" => cmd_debug(&ctx, &rest[1..]),
+        "dev" | "workspace" => cmd_dev(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
@@ -3526,6 +3528,80 @@ fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+// ------------------------------------------------------------------ dev / workspace (T20.1)
+
+fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let mut project = None;
+    let mut is_preview = false;
+    let mut is_status = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--project" | "-p" => {
+                if let Some(p) = args.get(i + 1) {
+                    project = Some(p.as_str());
+                    i += 1;
+                }
+            }
+            "--preview" => is_preview = true,
+            "--status" => is_status = true,
+            val if !val.starts_with('-') && project.is_none() => {
+                project = Some(val);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if is_status {
+        let status = dev_tui::DevWorkspaceManager::get_status(project, &ctx.workspace);
+        println!(
+            "\n{}",
+            paint("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1)", BOLD)
+        );
+        println!(
+            "  Proyecto activo:     {}",
+            paint(status.active_project.as_deref().unwrap_or("workspace"), CYAN)
+        );
+        println!(
+            "  Editor configurado:  {}",
+            paint(&status.editor_command, GREEN)
+        );
+        println!("  Dimensiones:         {}x{}", status.term_columns, status.term_rows);
+        println!(
+            "  Panel lateral:       {}",
+            if status.side_panel_visible {
+                paint("visible", GREEN)
+            } else {
+                paint("oculto", YELLOW)
+            }
+        );
+        println!(
+            "  Terminal inferior:   {}",
+            if status.terminal_drawer_open {
+                paint("abierta", GREEN)
+            } else {
+                paint("cerrada", DIM)
+            }
+        );
+        println!("\n  Atajos registrados:");
+        for hk in &status.registered_hotkeys {
+            println!("    • {hk}");
+        }
+        println!();
+        return Ok(());
+    }
+
+    use std::io::IsTerminal;
+    let is_interactive = !is_preview
+        && std::io::stdout().is_terminal()
+        && std::env::var("CI").is_err()
+        && std::env::var("ANTOS_TEST").is_err();
+
+    dev_tui::DevWorkspaceManager::launch(project, &ctx.workspace, is_interactive)
+}
+
 // ------------------------------------------------------------------ desktop
 
 fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -5993,6 +6069,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos doctor               comprueba que el recinto es real, atacándolo
   antos diff [proyecto] [ref] visor interactivo de diffs y parches por proyecto
   antos edit [fichero]       abre el fichero en el editor predeterminado (Neovim / Super + E)
+  antos dev [--project <p>]  espacio de trabajo TUI multipanel (Neovim + antFlow + Diffs / Super + W)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

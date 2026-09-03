@@ -1409,6 +1409,60 @@ pub struct FlowTask {
     pub history: Vec<FlowTransition>,
 }
 
+/// Panel kind inside the integrated Dev TUI workspace (T20.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DevPanelKind {
+    /// Main editor frame (Neovim).
+    #[serde(alias = "Editor")]
+    Editor,
+    /// Agent monitor panel showing antFlow transitions and models.
+    #[serde(alias = "AgentMonitor")]
+    AgentMonitor,
+    /// Syntax-highlighted diff and git status viewer.
+    #[serde(alias = "DiffViewer")]
+    DiffViewer,
+    /// Interactive VTE terminal tray.
+    #[serde(alias = "Terminal")]
+    Terminal,
+}
+
+impl DevPanelKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            DevPanelKind::Editor => "Editor (Neovim)",
+            DevPanelKind::AgentMonitor => "antFlow Monitor",
+            DevPanelKind::DiffViewer => "Visor de Diffs",
+            DevPanelKind::Terminal => "Terminal VTE",
+        }
+    }
+}
+
+/// Geometric dimensions and configuration of Dev TUI panels (T20.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DevPanelRect {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+/// Status and configuration of the Dev TUI workspace session (T20.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DevWorkspaceStatus {
+    pub active_project: Option<String>,
+    pub active_panel: DevPanelKind,
+    pub editor_command: String,
+    pub side_panel_visible: bool,
+    pub terminal_drawer_open: bool,
+    pub term_columns: u16,
+    pub term_rows: u16,
+    pub editor_rect: DevPanelRect,
+    pub agent_monitor_rect: DevPanelRect,
+    pub diff_viewer_rect: DevPanelRect,
+    pub terminal_rect: Option<DevPanelRect>,
+    pub registered_hotkeys: Vec<String>,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1731,6 +1785,11 @@ pub enum Request {
         client_label: Option<String>,
         ttl_secs: Option<u64>,
     },
+    /// Query status and layout configuration of the Dev TUI workspace (T20.1).
+    #[serde(alias = "ConsultarDevWorkspace")]
+    GetDevWorkspaceStatus {
+        project: Option<String>,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2008,6 +2067,9 @@ pub enum Event {
     /// Emitted when a web access token is generated (T16.4).
     #[serde(alias = "TokenWebGenerado")]
     WebTokenGenerated(WebAuthSession),
+    /// Status of the integrated Dev TUI workspace (T20.1).
+    #[serde(alias = "EstadoDevWorkspace")]
+    DevWorkspaceStatus(DevWorkspaceStatus),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3181,4 +3243,34 @@ mod tests {
         let des_ws: WebSocketMessage = serde_json::from_str(&json_ws).expect("deserialize ws msg");
         assert_eq!(ws_msg, des_ws);
     }
+
+    #[test]
+    fn test_dev_workspace_status_serialization() {
+        let status = DevWorkspaceStatus {
+            active_project: Some("core-engine".into()),
+            active_panel: DevPanelKind::Editor,
+            editor_command: "nvim".into(),
+            side_panel_visible: true,
+            terminal_drawer_open: false,
+            term_columns: 140,
+            term_rows: 40,
+            editor_rect: DevPanelRect { x: 0, y: 0, width: 98, height: 40 },
+            agent_monitor_rect: DevPanelRect { x: 98, y: 0, width: 42, height: 20 },
+            diff_viewer_rect: DevPanelRect { x: 98, y: 20, width: 42, height: 20 },
+            terminal_rect: None,
+            registered_hotkeys: vec!["Ctrl+W".into(), "Super+W".into()],
+        };
+
+        let req = Request::GetDevWorkspaceStatus { project: Some("core-engine".into()) };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::DevWorkspaceStatus(status.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+        assert_eq!(status.active_panel.name(), "Editor (Neovim)");
+    }
 }
+

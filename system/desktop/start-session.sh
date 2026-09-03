@@ -29,8 +29,8 @@ echo "════════ antOS Desktop (Wayland) ════════"
 echo "  Compositor:      Labwc (wlroots)"
 echo "  Workspace:       ${ANTOS_WORKSPACE}"
 echo "  Config:          ${LABWC_CONFIG_DIR}"
-echo "  Atajos clave:    Super+Space (Barra) · Super+A (Agentes) · Super+Return (Terminal) · Super+E (Editor Neovim)"
-echo "───────────────────────────────────────────────"
+echo "  Atajos clave:    Super+Space (Barra) · Super+A (Agentes) · Super+Return (Terminal) · Super+E (Editor) · Super+W (Dev TUI)"
+echo "───────────────────────────────────────────────────────────────────"
 
 # Check if labwc is available
 if ! command -v labwc >/dev/null 2>&1; then

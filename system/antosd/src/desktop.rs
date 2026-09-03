@@ -44,6 +44,11 @@ impl DesktopManager {
                 description: "Abrir el editor de texto predeterminado (Neovim)".into(),
             },
             DesktopHotkey {
+                key: "Super+W".into(),
+                action: "open_dev_workspace".into(),
+                description: "Abrir el espacio de trabajo integrado Dev TUI (Neovim + antOS)".into(),
+            },
+            DesktopHotkey {
                 key: "Super+Q".into(),
                 action: "close_window".into(),
                 description: "Cerrar la ventana enfocada actualmente".into(),
@@ -198,6 +203,7 @@ mod tests {
         assert!(hotkeys.iter().any(|h| h.key == "Super+Return"));
         assert!(hotkeys.iter().any(|h| h.key == "Super+D"));
         assert!(hotkeys.iter().any(|h| h.key == "Super+E"));
+        assert!(hotkeys.iter().any(|h| h.key == "Super+W"));
     }
 
     #[test]

@@ -787,6 +787,10 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::GetDevWorkspaceStatus { project } => {
+            let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
+            enviar(&mut escritura, &Event::DevWorkspaceStatus(status))?;
+        }
     }
     Ok(())
 }
@@ -1209,6 +1213,12 @@ pub fn intencion_remota(
                 if let Some(lbl) = session.client_label {
                     pantalla.nota(&format!("  • Cliente:   {lbl}"))?;
                 }
+            }
+            Event::DevWorkspaceStatus(status) => {
+                pantalla.nota("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1):")?;
+                pantalla.nota(&format!("  • Proyecto Activo:   {}", status.active_project.as_deref().unwrap_or("ninguno")))?;
+                pantalla.nota(&format!("  • Editor:            {}", status.editor_command))?;
+                pantalla.nota(&format!("  • Dimensiones:       {}x{}", status.term_columns, status.term_rows))?;
             }
             Event::Error(m) => bail!("{m}"),
         }
