@@ -94,7 +94,7 @@ impl FlowEngine {
         Ok(task)
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn iniciar_tarea(
         &self,
         workspace: &Path,
@@ -254,7 +254,7 @@ impl FlowEngine {
         self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn avanzar_fase(
         &self,
         ticket_id: &str,
@@ -312,7 +312,7 @@ impl FlowEngine {
         Ok(task.clone())
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn aprobar_tarea(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
         self.approve_task(ticket_id, decision)
     }
@@ -340,7 +340,7 @@ impl FlowEngine {
         None
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn consultar_tarea(&self, ticket_id: &str) -> Option<FlowTask> {
         self.get_task(ticket_id)
     }
@@ -374,7 +374,7 @@ impl FlowEngine {
         tasks
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn listar_tareas(&self) -> Vec<FlowTask> {
         self.list_tasks()
     }
@@ -501,7 +501,7 @@ impl FlowEngine {
         Ok(task)
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn ejecutar_pipeline_worktree(
         &self,
         workspace: &Path,
@@ -557,7 +557,7 @@ pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
     }
 }
 
-/// Alias compatible.
+#[deprecated]
 pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
     run_worktree_tests(worktree)
 }
@@ -595,7 +595,7 @@ pub fn calculate_worktree_diff(worktree: &Path) -> Result<String> {
     Ok("sin cambios pendientes".into())
 }
 
-/// Alias compatible.
+#[deprecated]
 pub fn calcular_diff_worktree(worktree: &Path) -> Result<String> {
     calculate_worktree_diff(worktree)
 }
@@ -628,7 +628,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_roles_y_prompts_sistema() {
+    fn test_roles_and_system_prompts() {
         let roles = [
             AgentRole::Arquitecto,
             AgentRole::Coder,
@@ -687,13 +687,13 @@ mod tests {
         assert_eq!(task.current_role, None);
 
         // 6. Aprobación final -> Fusionado
-        let task = engine.aprobar_tarea("T3.1", true).expect("aprobar tarea");
+        let task = engine.approve_task("T3.1", true).expect("aprobar tarea");
         assert_eq!(task.state, FlowState::Merged);
         assert_eq!(task.history.len(), 6);
     }
 
     #[test]
-    fn test_reintento_por_fallo_de_tests_qa() {
+    fn test_retry_on_qa_test_failure() {
         let engine = FlowEngine::global();
         let cwd = std::env::current_dir().expect("cwd");
         let state_dir = cwd.join(".antos");
@@ -714,7 +714,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pipeline_automatizado_en_worktree() {
+    fn test_automated_pipeline_in_worktree() {
         let engine = FlowEngine::global();
         let temp_dir = std::env::temp_dir().join("antos_test_pipeline");
         let ws_dir = temp_dir.join("workspace");

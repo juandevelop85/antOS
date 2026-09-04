@@ -439,7 +439,8 @@ pub enum Request {
     },
 }
 
-/// Type aliases for backwards compatibility.
+/// Backwards compatibility type alias.
+#[deprecated(note = "use Request")]
 pub type Peticion = Request;
 
 /// The IPC event stream emitted by the antOS daemon to connected clients.
@@ -777,8 +778,11 @@ pub enum Event {
 }
 
 /// Backwards compatibility type aliases.
+#[deprecated(note = "use Event")]
 pub type Evento = Event;
+#[deprecated(note = "use Request")]
 pub type Mensaje = Request;
+#[deprecated(note = "use Event")]
 pub type Respuesta = Event;
 pub type Message = Request;
 pub type Response = Event;

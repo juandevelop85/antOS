@@ -273,7 +273,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn los_accesos_pedidos_se_recortan_a_la_abi_del_kernel() {
+    fn test_requested_accesses_are_trimmed_to_kernel_abi() {
         // REFER llegó en la ABI 2 y TRUNCATE en la 3: pedirlos a un kernel
         // más viejo hace fallar la creación del conjunto entero.
         assert_eq!(handled_fs(1) & FS_REFER, 0);
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn la_estructura_de_regla_va_empaquetada() {
+    fn test_rule_struct_is_packed() {
         // Si el compilador la alinea a 16 bytes, el kernel lee basura.
         assert_eq!(std::mem::size_of::<PathBeneathAttr>(), 12);
     }

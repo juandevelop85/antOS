@@ -24,8 +24,8 @@
 
 use crate::capability::Catalog;
 use crate::ctx::Ctx;
-use crate::protocolo::{Interlocutor, Propuesta, Resultado};
-use crate::{sesion, terminal};
+use crate::protocol::{SessionHandler, Proposal, ExecutionResult};
+use crate::{session, terminal};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
@@ -33,100 +33,106 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
-pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
+pub fn socket_path(ctx: &Ctx) -> PathBuf {
     ctx.state.join("antos.sock")
+}
+
+/// Backwards compatibility alias.
+#[deprecated(note = "use socket_path")]
+pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
+    socket_path(ctx)
 }
 
 // ------------------------------------------------------------- el protocolo
 
-#[allow(unused_imports)]
+#[allow(unused_imports, deprecated)]
 pub use antos_protocol::{Event, Evento, Request};
-#[allow(unused_imports)]
+#[allow(unused_imports, deprecated)]
 pub use antos_protocol::Peticion;
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los
 /// bytes que ahorraría.
-fn enviar<T: Serialize>(destino: &mut impl Write, mensaje: &T) -> Result<()> {
-    writeln!(destino, "{}", serde_json::to_string(mensaje)?)?;
-    destino.flush()?;
+fn send<T: Serialize>(dest: &mut impl Write, msg: &T) -> Result<()> {
+    writeln!(dest, "{}", serde_json::to_string(msg)?)?;
+    dest.flush()?;
     Ok(())
 }
 
-fn recibir<T: for<'a> Deserialize<'a>>(origen: &mut impl BufRead) -> Result<Option<T>> {
-    let mut linea = String::new();
-    if origen.read_line(&mut linea)? == 0 {
+fn receive<T: for<'a> Deserialize<'a>>(source: &mut impl BufRead) -> Result<Option<T>> {
+    let mut line = String::new();
+    if source.read_line(&mut line)? == 0 {
         return Ok(None);
     }
-    Ok(Some(serde_json::from_str(linea.trim())?))
+    Ok(Some(serde_json::from_str(line.trim())?))
 }
 
 // ------------------------------------------------------------- lado servidor
 
-/// El interlocutor del demonio: en vez de pintar, escribe por el socket; y
-/// para preguntar, espera una respuesta por él.
-struct PorSocket<'a> {
-    escritura: &'a mut UnixStream,
-    lectura: &'a mut BufReader<UnixStream>,
+/// The daemon's session handler: writes to the socket instead of painting;
+/// waits for a response instead of asking.
+struct SocketHandler<'a> {
+    writer: &'a mut UnixStream,
+    reader: &'a mut BufReader<UnixStream>,
 }
 
-impl Interlocutor for PorSocket<'_> {
-    fn inicio(&mut self, intencion: &str, planificador: &str) -> Result<()> {
-        enviar(
-            self.escritura,
+impl SessionHandler for SocketHandler<'_> {
+    fn on_start(&mut self, intent: &str, planner: &str) -> Result<()> {
+        send(
+            self.writer,
             &Event::Start {
-                intent: intencion.to_string(),
-                planner: planificador.to_string(),
+                intent: intent.to_string(),
+                planner: planner.to_string(),
             },
         )
     }
 
-    fn nota(&mut self, texto: &str) -> Result<()> {
-        enviar(self.escritura, &Event::Note(texto.to_string()))
+    fn on_note(&mut self, text: &str) -> Result<()> {
+        send(self.writer, &Event::Note(text.to_string()))
     }
 
-    fn propone(&mut self, propuesta: &Propuesta) -> Result<bool> {
-        enviar(
-            self.escritura,
-            &Event::Proposal(Box::new(propuesta.clone())),
+    fn on_proposal(&mut self, proposal: &Proposal) -> Result<bool> {
+        send(
+            self.writer,
+            &Event::Proposal(Box::new(proposal.clone())),
         )?;
 
-        match recibir::<Request>(self.lectura)? {
+        match receive::<Request>(self.reader)? {
             Some(Request::Approval(decision)) => Ok(decision),
-            // Un cliente que se va sin contestar no aprueba nada. El silencio
-            // nunca es un sí.
+            // A client that leaves without answering does not approve anything.
+            // Silence is never a yes.
             _ => Ok(false),
         }
     }
 
-    fn salida(&mut self, texto: &str) -> Result<()> {
-        enviar(self.escritura, &Event::Output(texto.to_string()))
+    fn on_output(&mut self, text: &str) -> Result<()> {
+        send(self.writer, &Event::Output(text.to_string()))
     }
 
-    fn resultado(&mut self, resultado: &Resultado) -> Result<()> {
-        let copia: Resultado = serde_json::from_str(&serde_json::to_string(resultado)?)?;
-        enviar(self.escritura, &Event::Result(copia))
+    fn on_result(&mut self, result: &ExecutionResult) -> Result<()> {
+        let copy: ExecutionResult = serde_json::from_str(&serde_json::to_string(result)?)?;
+        send(self.writer, &Event::Result(copy))
     }
 }
 
 pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
-    let ruta = ruta_socket(ctx);
+    let path = socket_path(ctx);
     // Un socket huérfano de una ejecución anterior impediría escuchar.
-    let _ = std::fs::remove_file(&ruta);
+    let _ = std::fs::remove_file(&path);
 
-    let escucha = UnixListener::bind(&ruta)
-        .with_context(|| format!("no pude escuchar en {}", ruta.display()))?;
-    std::fs::set_permissions(&ruta, std::fs::Permissions::from_mode(0o600))?;
+    let listener = UnixListener::bind(&path)
+        .with_context(|| format!("no pude escuchar en {}", path.display()))?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
 
     println!(
         "{} {}",
         terminal::paint("syso · demonio escuchando en", terminal::BOLD),
-        terminal::paint(&ruta.display().to_string(), terminal::DIM)
+        terminal::paint(&path.display().to_string(), terminal::DIM)
     );
 
-    for conexion in escucha.incoming() {
-        let flujo = match conexion {
-            Ok(f) => f,
+    for connection in listener.incoming() {
+        let stream = match connection {
+            Ok(s) => s,
             Err(e) => {
                 eprintln!("conexión rechazada: {e}");
                 continue;
@@ -136,110 +142,110 @@ pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
         // mutando el mismo espacio de trabajo a la vez producirían diffs que
         // ya no describen el resultado — el mismo fallo que se arregló
         // calculando los pasos en orden, pero entre procesos.
-        if let Err(e) = atender(ctx, catalog, flujo) {
+        if let Err(e) = handle_connection(ctx, catalog, stream) {
             eprintln!("sesión terminada con error: {e:#}");
         }
     }
     Ok(())
 }
 
-fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
-    let mut lectura = BufReader::new(flujo.try_clone()?);
-    let mut escritura = flujo;
+fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result<()> {
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = stream;
 
-    let Some(peticion) = recibir::<Request>(&mut lectura)? else {
+    let Some(request) = receive::<Request>(&mut reader)? else {
         return Ok(());
     };
 
-    match peticion {
+    match request {
         Request::Intent { text, planner, dry_run } => {
             let planner_instance = crate::pick_planner(Some(ctx), planner.as_deref())?;
-            let mut con = PorSocket {
-                escritura: &mut escritura,
-                lectura: &mut lectura,
+            let mut handler = SocketHandler {
+                writer: &mut writer,
+                reader: &mut reader,
             };
-            if let Err(e) = sesion::intencion(ctx, catalog, &text, &*planner_instance, dry_run, &mut con) {
-                enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+            if let Err(e) = session::intent_session(ctx, catalog, &text, &*planner_instance, dry_run, &mut handler) {
+                send(&mut writer, &Event::Error(format!("{e:#}")))?;
             }
         }
         Request::Approval(_) => {
-            enviar(
-                &mut escritura,
-                &Event::Error("una aprobación sin propuesta previa".into()),
+            send(
+                &mut writer,
+                &Event::Error("approval without prior proposal".into()),
             )?;
         }
         Request::QueryGitStatus { workspace_path } => {
             match crate::git::GitAnalyzer::global().consultar_estado(Path::new(&workspace_path)) {
                 Ok(Some(status)) => {
-                    enviar(&mut escritura, &Event::GitStatus(status))?;
+                    send(&mut writer, &Event::GitStatus(status))?;
                 }
                 Ok(None) => {
-                    enviar(&mut escritura, &Event::NotGitRepo)?;
+                    send(&mut writer, &Event::NotGitRepo)?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
         Request::ListTickets { workspace_path } => {
-            match crate::spec::SpecEngine::global().listar_tickets(Path::new(&workspace_path)) {
+            match crate::spec::SpecEngine::global().list_tickets(Path::new(&workspace_path)) {
                 Ok(tickets) => {
-                    enviar(&mut escritura, &Event::TicketList(tickets))?;
+                    send(&mut writer, &Event::TicketList(tickets))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
         Request::GetTicket { workspace_path, ticket_id } => {
-            match crate::spec::SpecEngine::global().obtener_ticket(Path::new(&workspace_path), &ticket_id) {
+            match crate::spec::SpecEngine::global().get_ticket(Path::new(&workspace_path), &ticket_id) {
                 Ok(detalle) => {
-                    enviar(&mut escritura, &Event::TicketDetail(detalle))?;
+                    send(&mut writer, &Event::TicketDetail(detalle))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
         Request::DiagnosePorts { port } => {
-            match crate::net::diagnosticar_puertos(port) {
+            match crate::net::diagnose_ports(port) {
                 Ok(puertos) => {
-                    enviar(&mut escritura, &Event::PortsStatus(puertos))?;
+                    send(&mut writer, &Event::PortsStatus(puertos))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
         Request::StartFlow { workspace_path, ticket_id } => {
-            match crate::flow::FlowEngine::global().iniciar_tarea(
+            match crate::flow::FlowEngine::global().start_task(
                 Path::new(&workspace_path),
                 &ctx.state,
                 &ticket_id,
             ) {
                 Ok(task) => {
-                    enviar(&mut escritura, &Event::FlowStatus(Some(task)))?;
+                    send(&mut writer, &Event::FlowStatus(Some(task)))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
         Request::QueryFlow { ticket_id } => {
-            let task = crate::flow::FlowEngine::global().consultar_tarea(&ticket_id);
-            enviar(&mut escritura, &Event::FlowStatus(task))?;
+            let task = crate::flow::FlowEngine::global().get_task(&ticket_id);
+            send(&mut writer, &Event::FlowStatus(task))?;
         }
         Request::ListFlows { .. } => {
-            let tasks = crate::flow::FlowEngine::global().listar_tareas();
-            enviar(&mut escritura, &Event::FlowList(tasks))?;
+            let tasks = crate::flow::FlowEngine::global().list_tasks();
+            send(&mut writer, &Event::FlowList(tasks))?;
         }
         Request::ApproveFlow { ticket_id, decision } => {
-            match crate::flow::FlowEngine::global().aprobar_tarea(&ticket_id, decision) {
+            match crate::flow::FlowEngine::global().approve_task(&ticket_id, decision) {
                 Ok(task) => {
-                    enviar(&mut escritura, &Event::FlowStatus(Some(task)))?;
+                    send(&mut writer, &Event::FlowStatus(Some(task)))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
@@ -270,7 +276,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
 
             if !has_git {
                 // No git repo in the project: return empty diff and an informational event.
-                enviar(&mut escritura, &Event::StructuredDiff(Vec::new()))?;
+                send(&mut writer, &Event::StructuredDiff(Vec::new()))?;
             } else {
                 let ceiling_val = antos_root
                     .as_deref()
@@ -290,10 +296,10 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                     Ok(out) if out.status.success() => {
                         let diff_str = String::from_utf8_lossy(&out.stdout);
                         let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_str);
-                        enviar(&mut escritura, &Event::StructuredDiff(files))?;
+                        send(&mut writer, &Event::StructuredDiff(files))?;
                     }
                     _ => {
-                        enviar(&mut escritura, &Event::StructuredDiff(Vec::new()))?;
+                        send(&mut writer, &Event::StructuredDiff(Vec::new()))?;
                     }
                 }
             }
@@ -301,20 +307,20 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
         Request::ListNotifications { workspace_path } => {
             let ws = Path::new(&workspace_path);
             let notifs = crate::notification::NotificationEngine::global().list(ws).unwrap_or_default();
-            enviar(&mut escritura, &Event::NotificationList(notifs))?;
+            send(&mut writer, &Event::NotificationList(notifs))?;
         }
         Request::HandleNotificationAction { workspace_path, notification_id, action } => {
             let ws = Path::new(&workspace_path);
             match crate::notification::NotificationEngine::global().handle_action(ws, &notification_id, action) {
                 Ok((success, message)) => {
-                    enviar(&mut escritura, &Event::NotificationResult {
+                    send(&mut writer, &Event::NotificationResult {
                         id: notification_id,
                         success,
                         message,
                     })?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::NotificationResult {
+                    send(&mut writer, &Event::NotificationResult {
                         id: notification_id,
                         success: false,
                         message: format!("{e:#}"),
@@ -326,10 +332,10 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().status(ws) {
                 Ok(status) => {
-                    enviar(&mut escritura, &Event::MeshStatus(status))?;
+                    send(&mut writer, &Event::MeshStatus(status))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
@@ -337,14 +343,14 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().connect_peer(ws, &address) {
                 Ok(peer) => {
-                    enviar(&mut escritura, &Event::PeerConnectionResult {
+                    send(&mut writer, &Event::PeerConnectionResult {
                         address: peer.address,
                         success: true,
                         message: format!("conectado con éxito al peer {} ({}ms)", peer.id, peer.latency_ms),
                     })?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::PeerConnectionResult {
+                    send(&mut writer, &Event::PeerConnectionResult {
                         address,
                         success: false,
                         message: format!("{e:#}"),
@@ -356,10 +362,10 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().generate_pairing_token(ws) {
                 Ok(token) => {
-                    enviar(&mut escritura, &Event::PairingTokenGenerated(token))?;
+                    send(&mut writer, &Event::PairingTokenGenerated(token))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
@@ -367,10 +373,10 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::distributed::SwarmEngine::global().status(ws) {
                 Ok(status) => {
-                    enviar(&mut escritura, &Event::SwarmStatus(status))?;
+                    send(&mut writer, &Event::SwarmStatus(status))?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
                 }
             }
         }
@@ -378,7 +384,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::distributed::SwarmEngine::global().dispatch_remote_role(ws, &ticket_id, role, node_id.as_deref()) {
                 Ok(task) => {
-                    enviar(&mut escritura, &Event::SwarmDispatchResult {
+                    send(&mut writer, &Event::SwarmDispatchResult {
                         ticket_id,
                         role,
                         assigned_node_id: task.assigned_node_id,
@@ -387,7 +393,7 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                     })?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::SwarmDispatchResult {
+                    send(&mut writer, &Event::SwarmDispatchResult {
                         ticket_id,
                         role,
                         assigned_node_id: node_id.unwrap_or_else(|| "unknown".into()),
@@ -403,19 +409,19 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             if virtual_path.ends_with('/') || virtual_path == "/antfs" || virtual_path == "/antfs/symbols" || virtual_path.starts_with("/antfs/symbols/") && !virtual_path.split('/').skip(3).any(|p| !p.is_empty()) {
                 match engine.list_dir(ws, &virtual_path) {
                     Ok(entries) => {
-                        enviar(&mut escritura, &Event::VfsList { virtual_path, entries })?;
+                        send(&mut writer, &Event::VfsList { virtual_path, entries })?;
                     }
                     Err(e) => {
-                        enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                        send(&mut writer, &Event::Error(format!("{e:#}")))?;
                     }
                 }
             } else {
                 match engine.read_path(ws, &virtual_path) {
                     Ok(content) => {
-                        enviar(&mut escritura, &Event::VfsContent { virtual_path, content })?;
+                        send(&mut writer, &Event::VfsContent { virtual_path, content })?;
                     }
                     Err(e) => {
-                        enviar(&mut escritura, &Event::Error(format!("{e:#}")))?;
+                        send(&mut writer, &Event::Error(format!("{e:#}")))?;
                     }
                 }
             }
@@ -424,14 +430,14 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().mount(ws, mount_point.as_deref()) {
                 Ok(path) => {
-                    enviar(&mut escritura, &Event::VfsResult {
+                    send(&mut writer, &Event::VfsResult {
                         action: "mount".into(),
                         success: true,
                         message: format!("montado en {}", path.display()),
                     })?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::VfsResult {
+                    send(&mut writer, &Event::VfsResult {
                         action: "mount".into(),
                         success: false,
                         message: format!("{e:#}"),
@@ -443,14 +449,14 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().unmount(ws, mount_point.as_deref()) {
                 Ok(_) => {
-                    enviar(&mut escritura, &Event::VfsResult {
+                    send(&mut writer, &Event::VfsResult {
                         action: "unmount".into(),
                         success: true,
                         message: "desmontado correctamente".into(),
                     })?;
                 }
                 Err(e) => {
-                    enviar(&mut escritura, &Event::VfsResult {
+                    send(&mut writer, &Event::VfsResult {
                         action: "unmount".into(),
                         success: false,
                         message: format!("{e:#}"),
@@ -460,23 +466,23 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
         }
         Request::ValidateVfsWrite { file_path, content } => {
             let res = crate::vfs_guard::VfsGuardEngine::global().intercept_write(&file_path, &content)?;
-            enviar(&mut escritura, &Event::VfsValidationResult(res))?;
+            send(&mut writer, &Event::VfsValidationResult(res))?;
         }
         Request::QueryVfsGuard { .. } => {
             let status = crate::vfs_guard::VfsGuardEngine::global().status()?;
-            enviar(&mut escritura, &Event::VfsGuardStatus(status))?;
+            send(&mut writer, &Event::VfsGuardStatus(status))?;
         }
         Request::QueryEbpfStatus { .. } => {
             let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
-            enviar(&mut escritura, &Event::EbpfStatus(status))?;
+            send(&mut writer, &Event::EbpfStatus(status))?;
         }
         Request::QueryEbpfAuditLog { limit, .. } => {
             let events = crate::ebpf::EbpfSentinelEngine::global().get_audit_log(limit);
-            enviar(&mut escritura, &Event::EbpfAuditLog(events))?;
+            send(&mut writer, &Event::EbpfAuditLog(events))?;
         }
         Request::SimulateEbpfViolation { hook, target_resource, .. } => {
             let event = crate::ebpf::EbpfSentinelEngine::global().simulate_violation(hook, &target_resource);
-            enviar(&mut escritura, &Event::EbpfResult {
+            send(&mut writer, &Event::EbpfResult {
                 action: format!("{:?}", hook),
                 success: true,
                 message: format!("evento {} generado con éxito (acción: {:?})", event.id, event.action_taken),
@@ -485,28 +491,28 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
         Request::RunProfiler { workspace_path, command } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let report = crate::profiler::ProfilerEngine::global().run_and_profile(&ws, &command)?;
-            enviar(&mut escritura, &Event::ProfilerReport(report))?;
+            send(&mut writer, &Event::ProfilerReport(report))?;
         }
         Request::QueryProfilerReports { workspace_path, limit } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let mut reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
             reports.truncate(limit);
-            enviar(&mut escritura, &Event::ProfilerReportList(reports))?;
+            send(&mut writer, &Event::ProfilerReportList(reports))?;
         }
         Request::AnalyzeProfilerHotspots { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
-            enviar(&mut escritura, &Event::ProfilerAnalysis { hotspots, suggestions })?;
+            send(&mut writer, &Event::ProfilerAnalysis { hotspots, suggestions })?;
         }
         Request::QueryLspStatus { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let status = crate::lsp::LspServer::global().get_status(&ws);
-            enviar(&mut escritura, &Event::LspStatus(status))?;
+            send(&mut writer, &Event::LspStatus(status))?;
         }
         Request::GetLspConfig { editor, workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let (config_content, target_file) = crate::lsp::LspServer::global().generate_config(editor, &ws);
-            enviar(&mut escritura, &Event::LspConfiguration {
+            send(&mut writer, &Event::LspConfiguration {
                 editor,
                 config_content,
                 target_file,
@@ -515,70 +521,70 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
         Request::StartCollabSession { file_path, ticket_id, workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let status = crate::collab::CollabEngine::global().start_session(&ws, &file_path, ticket_id)?;
-            enviar(&mut escritura, &Event::CollabSessionStatus(status))?;
+            send(&mut writer, &Event::CollabSessionStatus(status))?;
         }
         Request::QueryCollabStatus { session_id, .. } => {
             if let Some(status) = crate::collab::CollabEngine::global().get_session(&session_id) {
-                enviar(&mut escritura, &Event::CollabSessionStatus(status))?;
+                send(&mut writer, &Event::CollabSessionStatus(status))?;
             } else {
-                enviar(&mut escritura, &Event::Error(format!("sesión «{session_id}» no encontrada")))?;
+                send(&mut writer, &Event::Error(format!("sesión «{session_id}» no encontrada")))?;
             }
         }
         Request::StartDapSession { command, .. } => {
             let mut dap = crate::collab::DapServer::new("dap-sess-001".into(), command);
             dap.add_breakpoint("src/main.rs", 1);
-            enviar(&mut escritura, &Event::DapSessionStatus(dap.to_status()))?;
+            send(&mut writer, &Event::DapSessionStatus(dap.to_status()))?;
         }
         Request::QueryDapStatus { session_id, .. } => {
             let dap = crate::collab::DapServer::new(session_id, "cargo test".into());
-            enviar(&mut escritura, &Event::DapSessionStatus(dap.to_status()))?;
+            send(&mut writer, &Event::DapSessionStatus(dap.to_status()))?;
         }
         Request::QueryDesktopStatus => {
             let status = crate::desktop::DesktopManager::get_status();
-            enviar(&mut escritura, &Event::DesktopStatus(status))?;
+            send(&mut writer, &Event::DesktopStatus(status))?;
         }
         Request::ListDesktopHotkeys => {
             let hotkeys = crate::desktop::DesktopManager::get_hotkeys();
-            enviar(&mut escritura, &Event::DesktopHotkeysList(hotkeys))?;
+            send(&mut writer, &Event::DesktopHotkeysList(hotkeys))?;
         }
         Request::StartDesktopSession { .. } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let _ = crate::desktop::DesktopManager::sync_configuration(&cwd);
             let status = crate::desktop::DesktopManager::get_status();
-            enviar(&mut escritura, &Event::DesktopStatus(status))?;
+            send(&mut writer, &Event::DesktopStatus(status))?;
         }
         Request::QueryBarraTelemetry => {
             let telemetry = crate::barra::BarraManager::global().get_telemetry();
-            enviar(&mut escritura, &Event::BarraTelemetryStatus(telemetry))?;
+            send(&mut writer, &Event::BarraTelemetryStatus(telemetry))?;
         }
         Request::EmitBarraAlert(alert) => {
             let res = crate::barra::BarraManager::global().emit_alert(alert.clone());
             if res.is_ok() {
-                enviar(&mut escritura, &Event::BarraAlert(alert))?;
+                send(&mut writer, &Event::BarraAlert(alert))?;
             } else {
-                enviar(&mut escritura, &Event::Error("Error al registrar alerta en la barra".into()))?;
+                send(&mut writer, &Event::Error("Error al registrar alerta en la barra".into()))?;
             }
         }
         Request::QueryBootStatus => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let status = crate::boot::BootEngine::global().status(&cwd);
-            enviar(&mut escritura, &Event::BootStatus(status))?;
+            send(&mut writer, &Event::BootStatus(status))?;
         }
         Request::RunBootPipeline { action, .. } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let engine = crate::boot::BootEngine::global();
             match action.as_str() {
                 "test" => match engine.test_boot(&cwd) {
-                    Ok(out) => enviar(&mut escritura, &Event::BootResult { action, output: out, success: true })?,
-                    Err(e) => enviar(&mut escritura, &Event::BootResult { action, output: e.to_string(), success: false })?,
+                    Ok(out) => send(&mut writer, &Event::BootResult { action, output: out, success: true })?,
+                    Err(e) => send(&mut writer, &Event::BootResult { action, output: e.to_string(), success: false })?,
                 },
                 "build" => match engine.build(&cwd) {
-                    Ok(p) => enviar(&mut escritura, &Event::BootResult { action, output: format!("Imagen de disco generada: {}", p.display()), success: true })?,
-                    Err(e) => enviar(&mut escritura, &Event::BootResult { action, output: e.to_string(), success: false })?,
+                    Ok(p) => send(&mut writer, &Event::BootResult { action, output: format!("Imagen de disco generada: {}", p.display()), success: true })?,
+                    Err(e) => send(&mut writer, &Event::BootResult { action, output: e.to_string(), success: false })?,
                 },
                 _ => {
                     let st = engine.status(&cwd);
-                    enviar(&mut escritura, &Event::BootStatus(st))?;
+                    send(&mut writer, &Event::BootStatus(st))?;
                 }
             }
         }
@@ -586,46 +592,46 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let summaries = crate::wasm::PluginManager::list_plugins(&plugins_dir);
-            enviar(&mut escritura, &Event::PluginList(summaries))?;
+            send(&mut writer, &Event::PluginList(summaries))?;
         }
         Request::RunPlugin { plugin_name, action, params } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let res = crate::wasm::PluginManager::run_plugin(&plugins_dir, &plugin_name, &action, &params);
-            enviar(&mut escritura, &Event::PluginResult(res))?;
+            send(&mut writer, &Event::PluginResult(res))?;
         }
         Request::InstallPlugin { source_path } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
             let src = std::path::PathBuf::from(&source_path);
             match crate::wasm::PluginManager::install_plugin(&plugins_dir, &src) {
-                Ok(summary) => enviar(&mut escritura, &Event::PluginList(vec![summary]))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(summary) => send(&mut writer, &Event::PluginList(vec![summary]))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CaptureScreen { target, save_path } => {
             let p_opt = save_path.map(std::path::PathBuf::from);
             match crate::vision::VisionEngine::global().capture_screen(target.as_deref(), p_opt.as_deref()) {
-                Ok(res) => enviar(&mut escritura, &Event::ScreenshotResult(res))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(res) => send(&mut writer, &Event::ScreenshotResult(res))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::InspectVisualQa { target, criteria } => {
             match crate::vision::VisionEngine::global().inspect_visual(&target, &criteria, None) {
-                Ok(rep) => enviar(&mut escritura, &Event::VisualQAReport(rep))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(rep) => send(&mut writer, &Event::VisualQAReport(rep))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ListDisks => {
             match crate::installer::DiskManager::list_disks() {
-                Ok(disks) => enviar(&mut escritura, &Event::DiskList(disks))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(disks) => send(&mut writer, &Event::DiskList(disks))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::InspectDisk { device } => {
             match crate::installer::DiskManager::inspect_disk(&device) {
-                Ok(opt) => enviar(&mut escritura, &Event::DiskDetail(opt))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(opt) => send(&mut writer, &Event::DiskDetail(opt))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::PartitionDisk { device, clean_install, dry_run } => {
@@ -634,186 +640,186 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                     if !dry_run {
                         let _ = crate::installer::DiskManager::apply_partitioning(&device, &plan, false);
                     }
-                    enviar(&mut escritura, &Event::PartitionPlan(plan))?;
+                    send(&mut writer, &Event::PartitionPlan(plan))?;
                 }
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::InstallSystem(config) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             match crate::installer::DeployEngine::deploy_system(&config, &cwd) {
-                Ok(report) => enviar(&mut escritura, &Event::InstallReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::InstallReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ProbeOperatingSystems { esp_mount } => {
             let esp = esp_mount.as_deref().map(std::path::Path::new).unwrap_or_else(|| std::path::Path::new("/boot/efi"));
             match crate::installer::BootloaderEngine::probe_operating_systems(esp) {
-                Ok(entries) => enviar(&mut escritura, &Event::DetectedOperatingSystems(entries))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(entries) => send(&mut writer, &Event::DetectedOperatingSystems(entries))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::InstallBootloader(config) => {
             match crate::installer::BootloaderEngine::install_bootloader(&config) {
-                Ok(report) => enviar(&mut escritura, &Event::BootloaderReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::BootloaderReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::SpawnMicrovm(config) => {
             match crate::vm::MicrovmManager::spawn_vm(&ctx.state, &config) {
-                Ok(instance) => enviar(&mut escritura, &Event::MicrovmList(vec![instance]))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(instance) => send(&mut writer, &Event::MicrovmList(vec![instance]))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ExecMicrovm { vm_id, command } => {
             match crate::vm::MicrovmManager::exec_vm(&ctx.state, &vm_id, &command) {
-                Ok(result) => enviar(&mut escritura, &Event::MicrovmResult(result))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(result) => send(&mut writer, &Event::MicrovmResult(result))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::DestroyMicrovm { vm_id } => {
             match crate::vm::MicrovmManager::kill_vm(&ctx.state, &vm_id) {
-                Ok(_) => enviar(&mut escritura, &Event::Note(format!("MicroVM «{vm_id}» destruida")) )?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(_) => send(&mut writer, &Event::Note(format!("MicroVM «{vm_id}» destruida")) )?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ListMicrovms => {
             match crate::vm::MicrovmManager::list_vms(&ctx.state) {
-                Ok(list) => enviar(&mut escritura, &Event::MicrovmList(list))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(list) => send(&mut writer, &Event::MicrovmList(list))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::QueryMicrovmStatus => {
             match crate::vm::MicrovmManager::get_status(&ctx.state) {
-                Ok(status) => enviar(&mut escritura, &Event::MicrovmStatus(status))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(status) => send(&mut writer, &Event::MicrovmStatus(status))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::InstallPackage { recipe_path_or_name, dry_run } => {
             match crate::pkg::PackageEngine::install(&ctx.state, &recipe_path_or_name, dry_run) {
-                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RemovePackage { package_name } => {
             match crate::pkg::PackageEngine::remove(&ctx.state, &package_name) {
-                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ListPackages => {
             match crate::pkg::PackageEngine::list(&ctx.state) {
-                Ok(list) => enviar(&mut escritura, &Event::PackageList(list))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(list) => send(&mut writer, &Event::PackageList(list))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RollbackPackage { target_generation } => {
             match crate::pkg::PackageEngine::rollback(&ctx.state, target_generation) {
-                Ok(rep) => enviar(&mut escritura, &Event::PackageInstallReport(rep))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::VerifyPackages => {
             match crate::pkg::PackageEngine::verify(&ctx.state) {
                 Ok((all_valid, verified_packages, details)) => {
-                    enviar(&mut escritura, &Event::PackageVerificationResult { all_valid, verified_packages, details })?
+                    send(&mut writer, &Event::PackageVerificationResult { all_valid, verified_packages, details })?
                 }
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::QueryPackageStoreStatus => {
             match crate::pkg::PackageEngine::status(&ctx.state) {
-                Ok(st) => enviar(&mut escritura, &Event::PackageStoreStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::PackageStoreStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::StartAutopilot(config) => {
             match crate::autopilot::AutopilotEngine::start(&ctx.state, &ctx.workspace, config) {
-                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::AutopilotStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::StopAutopilot => {
             match crate::autopilot::AutopilotEngine::stop(&ctx.state, &ctx.workspace) {
-                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::AutopilotStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetAutopilotStatus => {
             match crate::autopilot::AutopilotEngine::status(&ctx.state, &ctx.workspace) {
-                Ok(st) => enviar(&mut escritura, &Event::AutopilotStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::AutopilotStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ListAutopilotIncidents => {
             match crate::autopilot::AutopilotEngine::list_incidents(&ctx.state) {
-                Ok(list) => enviar(&mut escritura, &Event::AutopilotIncidentsList(list))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(list) => send(&mut writer, &Event::AutopilotIncidentsList(list))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ScanAutopilot => {
             match crate::autopilot::AutopilotEngine::scan_workspace(&ctx.state, &ctx.workspace) {
-                Ok(list) => enviar(&mut escritura, &Event::AutopilotIncidentsList(list))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(list) => send(&mut writer, &Event::AutopilotIncidentsList(list))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ResolveAutopilotIncident { incident_id, approve_and_merge } => {
             match crate::autopilot::AutopilotEngine::resolve_incident(&ctx.state, &ctx.workspace, &incident_id, approve_and_merge) {
-                Ok(inc) => enviar(&mut escritura, &Event::AutopilotAlert(inc))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(inc) => send(&mut writer, &Event::AutopilotAlert(inc))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::StartWebConsole(config) => {
             match crate::web::WebEngine::start(&ctx.state, &ctx.workspace, config) {
-                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::StopWebConsole => {
             match crate::web::WebEngine::stop(&ctx.state) {
-                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetWebConsoleStatus => {
             match crate::web::WebEngine::status(&ctx.state) {
-                Ok(st) => enviar(&mut escritura, &Event::WebConsoleStatus(st))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GenerateWebToken { client_label, ttl_secs } => {
             match crate::web::WebEngine::generate_token(&ctx.state, client_label, ttl_secs) {
-                Ok(session) => enviar(&mut escritura, &Event::WebTokenGenerated(session))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(session) => send(&mut writer, &Event::WebTokenGenerated(session))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetDevWorkspaceStatus { project } => {
             let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
-            enviar(&mut escritura, &Event::DevWorkspaceStatus(status))?;
+            send(&mut writer, &Event::DevWorkspaceStatus(status))?;
         }
         Request::ReproduceBug { error_text, target_file } => {
             match crate::reproduce::TddEngine::run_reproduce_pipeline(&error_text, target_file.as_deref(), &ctx.workspace, &ctx.state) {
-                Ok(report) => enviar(&mut escritura, &Event::TddReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::TddReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GenerateTest { target } => {
             match crate::reproduce::TddEngine::generate_tests_for_target(&target, "unit", 3, &ctx.workspace) {
-                Ok(report) => enviar(&mut escritura, &Event::TddReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::TddReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RunCi { stage, fast } => {
             match crate::ci::CiEngine::run_pipeline(&ctx.workspace, &ctx.state, stage.as_deref(), fast) {
-                Ok(report) => enviar(&mut escritura, &Event::CiReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::CiReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetCiStatus => {
             match crate::ci::CiEngine::get_last_report(&ctx.state) {
-                Ok(Some(report)) => enviar(&mut escritura, &Event::CiReport(report))?,
-                Ok(None) => enviar(&mut escritura, &Event::Note("No hay reportes de CI previos registrados".into()))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(Some(report)) => send(&mut writer, &Event::CiReport(report))?,
+                Ok(None) => send(&mut writer, &Event::Note("No hay reportes de CI previos registrados".into()))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ManageGitHooks { action } => {
@@ -823,77 +829,77 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 _ => crate::ci::CiEngine::query_git_hooks_status(&ctx.workspace),
             };
             match res {
-                Ok(status) => enviar(&mut escritura, &Event::GitHooksStatus(status))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(status) => send(&mut writer, &Event::GitHooksStatus(status))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CreateSnapshot { label, author } => {
             match crate::time_machine::TimeMachineEngine::create_snapshot(&ctx.workspace, &ctx.state, label.as_deref(), author.as_deref()) {
-                Ok(meta) => enviar(&mut escritura, &Event::SnapshotCreated(meta))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(meta) => send(&mut writer, &Event::SnapshotCreated(meta))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ListSnapshots => {
             match crate::time_machine::TimeMachineEngine::list_snapshots(&ctx.state) {
-                Ok(list) => enviar(&mut escritura, &Event::SnapshotsList(list))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(list) => send(&mut writer, &Event::SnapshotsList(list))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RestoreSnapshot { id_or_label, create_rescue } => {
             match crate::time_machine::TimeMachineEngine::restore_snapshot(&ctx.workspace, &ctx.state, &id_or_label, create_rescue) {
-                Ok(res) => enviar(&mut escritura, &Event::SnapshotRestored(res))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(res) => send(&mut writer, &Event::SnapshotRestored(res))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::DeleteSnapshot { id } => {
             match crate::time_machine::TimeMachineEngine::delete_snapshot(&ctx.state, &id) {
-                Ok(deleted_id) => enviar(&mut escritura, &Event::SnapshotDeleted { id: deleted_id })?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(deleted_id) => send(&mut writer, &Event::SnapshotDeleted { id: deleted_id })?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RunBenchmark { target } => {
             match crate::bench::BenchEngine::run_benchmark(&ctx.workspace, &ctx.state, target.as_deref()) {
-                Ok(report) => enviar(&mut escritura, &Event::BenchmarkReport(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::BenchmarkReport(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CompareBenchmark { against_branch, threshold_pct } => {
             let threshold = threshold_pct.map(|t| t as f64);
             match crate::bench::BenchEngine::compare_benchmark(&ctx.workspace, &ctx.state, against_branch.as_deref(), threshold) {
-                Ok(diff) => enviar(&mut escritura, &Event::BenchmarkDiff(diff))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(diff) => send(&mut writer, &Event::BenchmarkDiff(diff))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetBenchmarkHistory => {
             let list = crate::bench::BenchEngine::load_history(&ctx.state);
-            enviar(&mut escritura, &Event::BenchmarkHistory(list))?;
+            send(&mut writer, &Event::BenchmarkHistory(list))?;
         }
         Request::ListRemoteIssues => {
             match crate::forge::ForgeEngine::list_issues(&ctx.workspace, &ctx.state) {
-                Ok(issues) => enviar(&mut escritura, &Event::RemoteIssuesList(issues))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(issues) => send(&mut writer, &Event::RemoteIssuesList(issues))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::ImportRemoteIssue { id_or_url } => {
             match crate::forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, &id_or_url) {
-                Ok((ticket_id, path, title)) => enviar(&mut escritura, &Event::RemoteIssueImported {
+                Ok((ticket_id, path, title)) => send(&mut writer, &Event::RemoteIssueImported {
                     ticket_id,
                     path: path.display().to_string(),
                     title,
                 })?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CreatePullRequest { title, base_branch, draft } => {
             match crate::forge::ForgeEngine::create_pull_request(&ctx.workspace, &ctx.state, title.as_deref(), base_branch.as_deref(), draft) {
-                Ok(pr) => enviar(&mut escritura, &Event::PullRequestCreated(pr))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(pr) => send(&mut writer, &Event::PullRequestCreated(pr))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GetPullRequestStatus { number } => {
             match crate::forge::ForgeEngine::get_pull_request_status(&ctx.state, number) {
-                Ok(status) => enviar(&mut escritura, &Event::PullRequestStatus(status))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(status) => send(&mut writer, &Event::PullRequestStatus(status))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GenerateArchDiagram { kind } => {
@@ -904,18 +910,18 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 _ => antos_protocol::ArchDiagramKind::Full,
             };
             let report = crate::doc_arch::DocArchEngine::generate_diagram(&ctx.workspace, k);
-            enviar(&mut escritura, &Event::ArchDiagram(report))?;
+            send(&mut writer, &Event::ArchDiagram(report))?;
         }
         Request::SyncArchDocs { target_file } => {
             match crate::doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file.as_deref()) {
-                Ok(report) => enviar(&mut escritura, &Event::DocSync(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::DocSync(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CheckArchDocs { target_file } => {
             match crate::doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file.as_deref()) {
-                Ok(report) => enviar(&mut escritura, &Event::DocSync(report))?,
-                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+                Ok(report) => send(&mut writer, &Event::DocSync(report))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
     }
@@ -925,225 +931,225 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
 // -------------------------------------------------------------- lado cliente
 
 pub fn hay_demonio(ctx: &Ctx) -> bool {
-    let ruta = ruta_socket(ctx);
-    ruta.exists() && UnixStream::connect(&ruta).is_ok()
+    let path = socket_path(ctx);
+    path.exists() && UnixStream::connect(&path).is_ok()
 }
 
-/// Manda una intención al demonio y dibuja lo que conteste.
+/// Sends an intent to the daemon and renders the response.
 ///
-/// Fíjate en que el dibujado es EL MISMO `Terminal` que usa el modo local:
-/// no hay dos maneras de enseñar un plan, y por eso no pueden divergir.
+/// Note that rendering uses the SAME `Terminal` as local mode:
+/// there is no second way to show a plan, so they cannot diverge.
 pub fn intencion_remota(
-    ruta: &Path,
-    texto: &str,
-    planificador: Option<&str>,
-    seco: bool,
-    asumir_si: bool,
+    socket: &Path,
+    text: &str,
+    planner: Option<&str>,
+    dry_run: bool,
+    assume_yes: bool,
 ) -> Result<()> {
-    let flujo = UnixStream::connect(ruta)
-        .with_context(|| format!("no pude conectar con el demonio en {}", ruta.display()))?;
-    let mut lectura = BufReader::new(flujo.try_clone()?);
-    let mut escritura = flujo;
+    let stream = UnixStream::connect(socket)
+        .with_context(|| format!("could not connect to daemon at {}", socket.display()))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = stream;
 
-    enviar(
-        &mut escritura,
+    send(
+        &mut writer,
         &Request::Intent {
-            text: texto.to_string(),
-            planner: planificador.map(str::to_string),
-            dry_run: seco,
+            text: text.to_string(),
+            planner: planner.map(str::to_string),
+            dry_run,
         },
     )?;
 
-    let mut pantalla = terminal::Terminal::new(asumir_si);
+    let mut term = terminal::Terminal::new(assume_yes);
 
-    while let Some(evento) = recibir::<Event>(&mut lectura)? {
-        match evento {
+    while let Some(event) = receive::<Event>(&mut reader)? {
+        match event {
             Event::Start { intent, planner } => {
-                pantalla.inicio(&intent, &planner)?
+                term.on_start(&intent, &planner)?
             }
-            Event::Note(t) => pantalla.nota(&t)?,
+            Event::Note(t) => term.on_note(&t)?,
             Event::Proposal(p) => {
-                let decision = pantalla.propone(&p)?;
-                enviar(&mut escritura, &Request::Approval(decision))?;
+                let decision = term.on_proposal(&p)?;
+                send(&mut writer, &Request::Approval(decision))?;
             }
-            Event::Output(t) => pantalla.salida(&t)?,
-            Event::Result(r) => pantalla.resultado(&r)?,
+            Event::Output(t) => term.on_output(&t)?,
+            Event::Result(r) => term.on_result(&r)?,
             Event::GitStatus(status) => {
-                pantalla.nota(&format!("git branch: {:?}", status.branch))?;
+                term.on_note(&format!("git branch: {:?}", status.branch))?;
             }
             Event::NotGitRepo => {
-                pantalla.nota("no es un repositorio Git")?;
+                term.on_note("no es un repositorio Git")?;
             }
             Event::TicketList(tickets) => {
-                pantalla.nota(&format!("tickets disponibles: {}", tickets.len()))?;
+                term.on_note(&format!("tickets disponibles: {}", tickets.len()))?;
             }
             Event::TicketDetail(detalle) => {
                 if let Some(t) = detalle {
-                    pantalla.nota(&format!("ticket {}: {}", t.id, t.title))?;
+                    term.on_note(&format!("ticket {}: {}", t.id, t.title))?;
                 }
             }
             Event::PortsStatus(puertos) => {
-                pantalla.nota(&format!("puertos en escucha: {}", puertos.len()))?;
+                term.on_note(&format!("puertos en escucha: {}", puertos.len()))?;
             }
             Event::FlowStatus(task) => {
                 if let Some(t) = task {
-                    pantalla.nota(&format!("antFlow {}: {}", t.ticket_id, t.state.label()))?;
+                    term.on_note(&format!("antFlow {}: {}", t.ticket_id, t.state.label()))?;
                 }
             }
             Event::FlowList(tasks) => {
-                pantalla.nota(&format!("tareas antFlow activas: {}", tasks.len()))?;
+                term.on_note(&format!("tareas antFlow activas: {}", tasks.len()))?;
             }
             Event::FlowTransition { ticket_id, new_state, detail, .. } => {
-                pantalla.nota(&format!("[antFlow {ticket_id}] ➔ {}: {detail}", new_state.label()))?;
+                term.on_note(&format!("[antFlow {ticket_id}] ➔ {}: {detail}", new_state.label()))?;
             }
             Event::StructuredDiff(files) => {
-                pantalla.nota(&format!("archivos con diff: {}", files.len()))?;
+                term.on_note(&format!("archivos con diff: {}", files.len()))?;
             }
             Event::NotificationList(notifs) => {
-                pantalla.nota(&format!("notificaciones recibidas: {}", notifs.len()))?;
+                term.on_note(&format!("notificaciones recibidas: {}", notifs.len()))?;
             }
             Event::NotificationResult { message, success, .. } => {
                 if success {
-                    pantalla.nota(&format!("✓ {message}"))?;
+                    term.on_note(&format!("✓ {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ {message}"))?;
+                    term.on_note(&format!("✗ {message}"))?;
                 }
             }
             Event::MeshStatus(status) => {
-                pantalla.nota(&format!("antMesh local: {} (peers: {})", status.local_node.id, status.peers.len()))?;
+                term.on_note(&format!("antMesh local: {} (peers: {})", status.local_node.id, status.peers.len()))?;
             }
             Event::PairingTokenGenerated(tok) => {
-                pantalla.nota(&format!("token de emparejamiento generado: {}", tok.token))?;
+                term.on_note(&format!("token de emparejamiento generado: {}", tok.token))?;
             }
             Event::PeerConnectionResult { address, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ peer {address}: {message}"))?;
+                    term.on_note(&format!("✓ peer {address}: {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ peer {address}: {message}"))?;
+                    term.on_note(&format!("✗ peer {address}: {message}"))?;
                 }
             }
             Event::SwarmStatus(status) => {
-                pantalla.nota(&format!("antOS Swarm: {} nodos ({} tareas activas)", status.nodes.len(), status.total_tasks))?;
+                term.on_note(&format!("antOS Swarm: {} nodos ({} tareas activas)", status.nodes.len(), status.total_tasks))?;
             }
             Event::SwarmDispatchResult { ticket_id, role, assigned_node_id, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                    term.on_note(&format!("✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
                 } else {
-                    pantalla.nota(&format!("✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                    term.on_note(&format!("✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
                 }
             }
             Event::VfsList { virtual_path, entries } => {
-                pantalla.nota(&format!("VFS {virtual_path}: {} entradas encontradas", entries.len()))?;
+                term.on_note(&format!("VFS {virtual_path}: {} entradas encontradas", entries.len()))?;
             }
             Event::VfsContent { virtual_path, content } => {
-                pantalla.salida(&format!("{virtual_path}:\n{content}"))?;
+                term.on_output(&format!("{virtual_path}:\n{content}"))?;
             }
             Event::VfsResult { action, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ VFS {action}: {message}"))?;
+                    term.on_note(&format!("✓ VFS {action}: {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ VFS {action}: {message}"))?;
+                    term.on_note(&format!("✗ VFS {action}: {message}"))?;
                 }
             }
             Event::VfsValidationResult(res) => {
                 if res.is_valid {
-                    pantalla.nota(&format!("✓ VFS Guard: «{}» es sintácticamente válido ({} líneas)", res.file_path, res.line_count))?;
+                    term.on_note(&format!("✓ VFS Guard: «{}» es sintácticamente válido ({} líneas)", res.file_path, res.line_count))?;
                 } else {
-                    pantalla.nota(&format!("✗ VFS Guard: «{}» tiene {} errores sintácticos", res.file_path, res.errors.len()))?;
+                    term.on_note(&format!("✗ VFS Guard: «{}» tiene {} errores sintácticos", res.file_path, res.errors.len()))?;
                 }
             }
             Event::VfsGuardStatus(status) => {
-                pantalla.nota(&format!("VFS Guard: {} escrituras interceptadas ({} rechazadas)", status.total_intercepted, status.total_rejected))?;
+                term.on_note(&format!("VFS Guard: {} escrituras interceptadas ({} rechazadas)", status.total_intercepted, status.total_rejected))?;
             }
             Event::EbpfStatus(status) => {
                 let lsm_badge = if status.lsm_enabled { "Kernel LSM Activo" } else { "Emulación Espacio Usuario" };
-                pantalla.nota(&format!("eBPF Sentinel [{lsm_badge}]: {} sondas, {} eventos, {} bloqueos",
+                term.on_note(&format!("eBPF Sentinel [{lsm_badge}]: {} sondas, {} eventos, {} bloqueos",
                     status.active_probes.len(), status.total_events_captured, status.total_violations_blocked
                 ))?;
             }
             Event::EbpfAuditLog(events) => {
-                pantalla.nota(&format!("eBPF Audit: {} eventos capturados en el ring buffer", events.len()))?;
+                term.on_note(&format!("eBPF Audit: {} eventos capturados en el ring buffer", events.len()))?;
             }
             Event::EbpfResult { action, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ eBPF {action}: {message}"))?;
+                    term.on_note(&format!("✓ eBPF {action}: {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ eBPF {action}: {message}"))?;
+                    term.on_note(&format!("✗ eBPF {action}: {message}"))?;
                 }
             }
             Event::ProfilerReport(report) => {
                 let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
-                pantalla.nota(&format!("✓ Profiler: «{}» en {} ms (Memoria pico: {:.2} MB RSS)", report.command, report.duration_ms, peak_mb))?;
+                term.on_note(&format!("✓ Profiler: «{}» en {} ms (Memoria pico: {:.2} MB RSS)", report.command, report.duration_ms, peak_mb))?;
             }
             Event::ProfilerReportList(reports) => {
-                pantalla.nota(&format!("Profiler: {} reportes históricos disponibles", reports.len()))?;
+                term.on_note(&format!("Profiler: {} reportes históricos disponibles", reports.len()))?;
             }
             Event::ProfilerAnalysis { hotspots, suggestions } => {
-                pantalla.nota(&format!("Profiler: {} hotspots y {} recomendaciones formuladas", hotspots.len(), suggestions.len()))?;
+                term.on_note(&format!("Profiler: {} hotspots y {} recomendaciones formuladas", hotspots.len(), suggestions.len()))?;
             }
             Event::LspStatus(status) => {
                 let state_str = if status.running { "Activo" } else { "En espera" };
-                pantalla.nota(&format!("LSP: {state_str} ({}) con {} símbolos indexados", status.transport, status.indexed_symbols_count))?;
+                term.on_note(&format!("LSP: {state_str} ({}) con {} símbolos indexados", status.transport, status.indexed_symbols_count))?;
             }
             Event::LspConfiguration { editor, target_file, .. } => {
-                pantalla.nota(&format!("LSP: configuración generada para {:?} ({target_file})", editor))?;
+                term.on_note(&format!("LSP: configuración generada para {:?} ({target_file})", editor))?;
             }
             Event::CollabSessionStatus(status) => {
-                pantalla.nota(&format!("Pair: sesión {} en {} (colaboradores: {})", status.session_id, status.file_path, status.collaborators.len()))?;
+                term.on_note(&format!("Pair: sesión {} en {} (colaboradores: {})", status.session_id, status.file_path, status.collaborators.len()))?;
             }
             Event::DapSessionStatus(status) => {
-                pantalla.nota(&format!("DAP: sesión {} en estado {} para «{}»", status.session_id, status.state, status.target_command))?;
+                term.on_note(&format!("DAP: sesión {} en estado {} para «{}»", status.session_id, status.state, status.target_command))?;
             }
             Event::CollabResult { action, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ Pair {action}: {message}"))?;
+                    term.on_note(&format!("✓ Pair {action}: {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ Pair {action}: {message}"))?;
+                    term.on_note(&format!("✗ Pair {action}: {message}"))?;
                 }
             }
             Event::DapResult { action, success, message } => {
                 if success {
-                    pantalla.nota(&format!("✓ DAP {action}: {message}"))?;
+                    term.on_note(&format!("✓ DAP {action}: {message}"))?;
                 } else {
-                    pantalla.nota(&format!("✗ DAP {action}: {message}"))?;
+                    term.on_note(&format!("✗ DAP {action}: {message}"))?;
                 }
             }
             Event::DesktopStatus(status) => {
                 let state_str = if status.running { "Activa" } else { "Detenida / Headless" };
-                pantalla.nota(&format!("Escritorio antOS [{state_str}]: Compositor {} (Display: {:?})", status.compositor_name, status.wayland_display))?;
+                term.on_note(&format!("Escritorio antOS [{state_str}]: Compositor {} (Display: {:?})", status.compositor_name, status.wayland_display))?;
             }
             Event::DesktopHotkeysList(keys) => {
-                pantalla.nota(&format!("Escritorio antOS: {} atajos globales registrados", keys.len()))?;
+                term.on_note(&format!("Escritorio antOS: {} atajos globales registrados", keys.len()))?;
             }
             Event::BarraTelemetryStatus(t) => {
                 let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
-                pantalla.nota(&format!("Barra antOS: eBPF: {}, Profiler: {:.1} MB ({:.1}%), Mesh: {} nodos, Notificaciones: {}",
+                term.on_note(&format!("Barra antOS: eBPF: {}, Profiler: {:.1} MB ({:.1}%), Mesh: {} nodos, Notificaciones: {}",
                     if t.ebpf_lsm_active { "LSM Activo" } else { "Auditoría" },
                     mb, t.profiler_cpu_percent, t.mesh_peers_count, t.active_notifications_count
                 ))?;
             }
             Event::BarraAlert(alert) => {
                 let urg = if alert.urgent { "URGENTE" } else { "INFO" };
-                pantalla.nota(&format!("Alerta en Barra [{urg} - {}]: {}", alert.category, alert.message))?;
+                term.on_note(&format!("Alerta en Barra [{urg} - {}]: {}", alert.category, alert.message))?;
             }
             Event::BootStatus(st) => {
                 let kb = st.kernel_elf_size_bytes / 1024;
                 let mb = st.bios_image_size_bytes / (1024 * 1024);
-                pantalla.nota(&format!("antOS Boot: Kernel ELF: {} KiB, BIOS IMG: {} MB, QEMU: {}",
+                term.on_note(&format!("antOS Boot: Kernel ELF: {} KiB, BIOS IMG: {} MB, QEMU: {}",
                     kb, mb, if st.qemu_installed { "instalado" } else { "no disponible" }
                 ))?;
             }
             Event::BootResult { action, output, success } => {
                 let status = if success { "OK" } else { "ERROR" };
-                pantalla.nota(&format!("antOS Boot [{action} - {status}]: {output}"))?;
+                term.on_note(&format!("antOS Boot [{action} - {status}]: {output}"))?;
             }
             Event::PluginList(list) => {
                 if list.is_empty() {
-                    pantalla.nota("No hay plugins WASM instalados en antOS.")?;
+                    term.on_note("No hay plugins WASM instalados en antOS.")?;
                 } else {
-                    pantalla.nota(&format!("antOS Plugins ({} activos):", list.len()))?;
+                    term.on_note(&format!("antOS Plugins ({} activos):", list.len()))?;
                     for p in list {
-                        pantalla.nota(&format!("  • {} v{} - {} (acciones: {})",
+                        term.on_note(&format!("  • {} v{} - {} (acciones: {})",
                             p.name, p.version, p.description, p.capabilities.join(", ")
                         ))?;
                     }
@@ -1151,7 +1157,7 @@ pub fn intencion_remota(
             }
             Event::PluginResult(res) => {
                 if res.success {
-                    pantalla.nota(&format!("✓ Plugin [{}:{}] ejecutado con éxito ({} ciclos, {} KiB memoria):\n{}",
+                    term.on_note(&format!("✓ Plugin [{}:{}] ejecutado con éxito ({} ciclos, {} KiB memoria):\n{}",
                         res.plugin, res.action, res.fuel_consumed, res.memory_allocated_bytes / 1024, res.output
                     ))?;
                 } else {
@@ -1160,109 +1166,109 @@ pub fn intencion_remota(
                 }
             }
             Event::ScreenshotResult(cap) => {
-                let ruta = cap.saved_path.unwrap_or_else(|| "en memoria".into());
-                pantalla.nota(&format!("✓ Captura de pantalla «{}» ({}) [{}x{}, {} KiB]",
-                    cap.target, ruta, cap.width, cap.height, cap.size_bytes / 1024
+                let path = cap.saved_path.unwrap_or_else(|| "en memoria".into());
+                term.on_note(&format!("✓ Captura de pantalla «{}» ({}) [{}x{}, {} KiB]",
+                    cap.target, path, cap.width, cap.height, cap.size_bytes / 1024
                 ))?;
             }
             Event::VisualQAReport(rep) => {
                 let status = if rep.pass { "APROBADO" } else { "RECHAZADO" };
-                pantalla.nota(&format!("antOS Visual QA [{}] · {}:", rep.target, status))?;
-                pantalla.nota(&format!("  {}", rep.summary))?;
+                term.on_note(&format!("antOS Visual QA [{}] · {}:", rep.target, status))?;
+                term.on_note(&format!("  {}", rep.summary))?;
                 for f in rep.findings {
                     let sev = match f.severity.as_str() {
                         "critical" => "CRÍTICO",
                         "warning" => "ADVERTENCIA",
                         _ => "INFO",
                     };
-                    pantalla.nota(&format!("  • [{sev}] {}: {}", f.category, f.description))?;
+                    term.on_note(&format!("  • [{sev}] {}: {}", f.category, f.description))?;
                     if let Some(coords) = f.coordinates {
-                        pantalla.nota(&format!("    Coordenadas: {coords}"))?;
+                        term.on_note(&format!("    Coordenadas: {coords}"))?;
                     }
-                    pantalla.nota(&format!("    Recomendación: {}", f.recommendation))?;
+                    term.on_note(&format!("    Recomendación: {}", f.recommendation))?;
                 }
             }
             Event::DiskList(disks) => {
-                pantalla.nota(&format!("Dispositivos de almacenamiento detectados ({}):", disks.len()))?;
+                term.on_note(&format!("Dispositivos de almacenamiento detectados ({}):", disks.len()))?;
                 for d in disks {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                    pantalla.nota(&format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()))?;
+                    term.on_note(&format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()))?;
                 }
             }
             Event::DiskDetail(opt) => {
                 if let Some(d) = opt {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                    pantalla.nota(&format!("Dispositivo {}: {:.1} GB, Bus: {}, Tabla: {}", d.path, gb, d.bus_type, d.partition_table))?;
+                    term.on_note(&format!("Dispositivo {}: {:.1} GB, Bus: {}, Tabla: {}", d.path, gb, d.bus_type, d.partition_table))?;
                 } else {
-                    pantalla.nota("Dispositivo no encontrado")?;
+                    term.on_note("Dispositivo no encontrado")?;
                 }
             }
             Event::PartitionPlan(plan) => {
-                pantalla.nota(&format!("Plan de particionado GPT para {}: ESP: {} MB, Raíz: {} MB",
+                term.on_note(&format!("Plan de particionado GPT para {}: ESP: {} MB, Raíz: {} MB",
                     plan.target_device,
                     plan.efi_partition_bytes / (1024 * 1024),
                     plan.root_partition_bytes / (1024 * 1024)
                 ))?;
             }
             Event::InstallReport(rep) => {
-                pantalla.nota(&format!("antOS Instalador · {}", rep.summary))?;
-                pantalla.nota(&format!("  • Modo:          {}", rep.mode))?;
-                pantalla.nota(&format!("  • Partición ESP: {}", rep.efi_partition))?;
-                pantalla.nota(&format!("  • Partición /:   {}", rep.root_partition))?;
+                term.on_note(&format!("antOS Instalador · {}", rep.summary))?;
+                term.on_note(&format!("  • Modo:          {}", rep.mode))?;
+                term.on_note(&format!("  • Partición ESP: {}", rep.efi_partition))?;
+                term.on_note(&format!("  • Partición /:   {}", rep.root_partition))?;
                 for s in rep.steps {
-                    pantalla.nota(&format!("  ✓ {}: {}", s.name, s.description))?;
+                    term.on_note(&format!("  ✓ {}: {}", s.name, s.description))?;
                 }
             }
             Event::DetectedOperatingSystems(entries) => {
-                pantalla.nota(&format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()))?;
+                term.on_note(&format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()))?;
                 for (i, os) in entries.iter().enumerate() {
-                    pantalla.nota(&format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path))?;
+                    term.on_note(&format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path))?;
                 }
             }
             Event::BootloaderReport(rep) => {
-                pantalla.nota(&format!("antOS Bootloader · {}", rep.summary))?;
-                pantalla.nota(&format!("  • Punto ESP:       {}", rep.esp_path))?;
-                pantalla.nota(&format!("  • Comando NVRAM:   {}", rep.efibootmgr_command))?;
+                term.on_note(&format!("antOS Bootloader · {}", rep.summary))?;
+                term.on_note(&format!("  • Punto ESP:       {}", rep.esp_path))?;
+                term.on_note(&format!("  • Comando NVRAM:   {}", rep.efibootmgr_command))?;
                 for e in &rep.entries_configured {
-                    pantalla.nota(&format!("  ✓ {}", e))?;
+                    term.on_note(&format!("  ✓ {}", e))?;
                 }
             }
             Event::MicrovmStatus(st) => {
-                pantalla.nota(&format!("antOS MicroVM · Hipervisor: {} [KVM: {}]", st.hypervisor_engine, if st.kvm_available { "Sí" } else { "No" }))?;
-                pantalla.nota(&format!("  • VMs activas:       {}", st.active_vms_count))?;
-                pantalla.nota(&format!("  • Memoria asignada:  {} MB", st.total_memory_allocated_mb))?;
-                pantalla.nota(&format!("  • Kernel:            {}", st.kernel_version))?;
+                term.on_note(&format!("antOS MicroVM · Hipervisor: {} [KVM: {}]", st.hypervisor_engine, if st.kvm_available { "Sí" } else { "No" }))?;
+                term.on_note(&format!("  • VMs activas:       {}", st.active_vms_count))?;
+                term.on_note(&format!("  • Memoria asignada:  {} MB", st.total_memory_allocated_mb))?;
+                term.on_note(&format!("  • Kernel:            {}", st.kernel_version))?;
             }
             Event::MicrovmList(vms) => {
-                pantalla.nota(&format!("antOS MicroVM · Instancias activas ({}):", vms.len()))?;
+                term.on_note(&format!("antOS MicroVM · Instancias activas ({}):", vms.len()))?;
                 for v in vms {
-                    pantalla.nota(&format!("  • [{}] PID {}, {} vCPUs, {} MB, vsock {}", v.id, v.pid, v.vcpus, v.memory_mb, v.vsock_port))?;
+                    term.on_note(&format!("  • [{}] PID {}, {} vCPUs, {} MB, vsock {}", v.id, v.pid, v.vcpus, v.memory_mb, v.vsock_port))?;
                 }
             }
             Event::MicrovmResult(res) => {
-                pantalla.nota(&format!("antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:", res.vm_id, res.exit_code))?;
+                term.on_note(&format!("antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:", res.vm_id, res.exit_code))?;
                 if !res.stdout.is_empty() {
-                    pantalla.nota(&format!("  {}", res.stdout.trim()))?;
+                    term.on_note(&format!("  {}", res.stdout.trim()))?;
                 }
             }
             Event::PackageInstallReport(rep) => {
                 let status_label = if rep.success { "OK" } else { "ERROR" };
-                pantalla.nota(&format!("antpkg [{status_label}]: {}", rep.message))?;
+                term.on_note(&format!("antpkg [{status_label}]: {}", rep.message))?;
                 if !rep.binaries_linked.is_empty() {
-                    pantalla.nota(&format!("  • Binarios enlazados: {}", rep.binaries_linked.join(", ")))?;
+                    term.on_note(&format!("  • Binarios enlazados: {}", rep.binaries_linked.join(", ")))?;
                 }
                 if !rep.store_path.is_empty() {
-                    pantalla.nota(&format!("  • Prefijo en almacén: {}", rep.store_path))?;
+                    term.on_note(&format!("  • Prefijo en almacén: {}", rep.store_path))?;
                 }
             }
             Event::PackageList(pkgs) => {
                 if pkgs.is_empty() {
-                    pantalla.nota("antpkg: No hay paquetes instalados en el perfil activo.")?;
+                    term.on_note("antpkg: No hay paquetes instalados en el perfil activo.")?;
                 } else {
-                    pantalla.nota(&format!("antpkg · Paquetes en perfil activo ({}):", pkgs.len()))?;
+                    term.on_note(&format!("antpkg · Paquetes en perfil activo ({}):", pkgs.len()))?;
                     for p in pkgs {
                         let kb = p.installed_size_bytes / 1024;
-                        pantalla.nota(&format!("  • {} v{} ({} KiB, gen {}) [bin: {}]",
+                        term.on_note(&format!("  • {} v{} ({} KiB, gen {}) [bin: {}]",
                             p.name, p.version, kb, p.generation, p.binaries.join(", ")
                         ))?;
                     }
@@ -1270,173 +1276,173 @@ pub fn intencion_remota(
             }
             Event::PackageStoreStatus(st) => {
                 let mb = st.total_store_bytes as f64 / (1024.0 * 1024.0);
-                pantalla.nota(&format!("antpkg Store: {:.2} MB en almacén, {} paquetes, gen activa: {} ({} generaciones)",
+                term.on_note(&format!("antpkg Store: {:.2} MB en almacén, {} paquetes, gen activa: {} ({} generaciones)",
                     mb, st.total_packages, st.current_generation, st.generations_count
                 ))?;
-                pantalla.nota(&format!("  • Ruta de almacén: {}", st.store_path))?;
-                pantalla.nota(&format!("  • Perfil actual:   {}", st.current_profile_path))?;
+                term.on_note(&format!("  • Ruta de almacén: {}", st.store_path))?;
+                term.on_note(&format!("  • Perfil actual:   {}", st.current_profile_path))?;
             }
             Event::PackageGenerationsList(gens) => {
-                pantalla.nota(&format!("antpkg · Generaciones de perfil ({}):", gens.len()))?;
+                term.on_note(&format!("antpkg · Generaciones de perfil ({}):", gens.len()))?;
                 for g in gens {
                     let active_mark = if g.active { " (activa)" } else { "" };
-                    pantalla.nota(&format!("  • Gen {}{}: {} paquetes [{}]",
+                    term.on_note(&format!("  • Gen {}{}: {} paquetes [{}]",
                         g.generation, active_mark, g.packages.len(), g.packages.join(", ")
                     ))?;
                 }
             }
             Event::PackageVerificationResult { all_valid, verified_packages, details } => {
                 let status_lbl = if all_valid { "INTEGRIDAD VERIFICADA" } else { "ADVERTENCIAS DE INTEGRIDAD" };
-                pantalla.nota(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
+                term.on_note(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
                 for d in details {
-                    pantalla.nota(&format!("  {d}"))?;
+                    term.on_note(&format!("  {d}"))?;
                 }
             }
             Event::AutopilotStatus(st) => {
                 let active_badge = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };
-                pantalla.nota(&format!("antOS Autopilot · Estado: {active_badge}"))?;
-                pantalla.nota(&format!("  • Espacio de trabajo: {}", st.workspace_path))?;
-                pantalla.nota(&format!("  • Intervalo sondeo:   {}s", st.poll_interval_secs))?;
-                pantalla.nota(&format!("  • Incidentes activos: {}", st.active_incidents_count))?;
-                pantalla.nota(&format!("  • Total resueltos:    {}", st.resolved_incidents_count))?;
+                term.on_note(&format!("antOS Autopilot · Estado: {active_badge}"))?;
+                term.on_note(&format!("  • Espacio de trabajo: {}", st.workspace_path))?;
+                term.on_note(&format!("  • Intervalo sondeo:   {}s", st.poll_interval_secs))?;
+                term.on_note(&format!("  • Incidentes activos: {}", st.active_incidents_count))?;
+                term.on_note(&format!("  • Total resueltos:    {}", st.resolved_incidents_count))?;
                 if let Some(ts) = st.last_scan_timestamp {
-                    pantalla.nota(&format!("  • Último escaneo:     {ts}"))?;
+                    term.on_note(&format!("  • Último escaneo:     {ts}"))?;
                 }
             }
             Event::AutopilotIncidentsList(list) => {
                 if list.is_empty() {
-                    pantalla.nota("antOS Autopilot: No hay incidencias activas en el repositorio.")?;
+                    term.on_note("antOS Autopilot: No hay incidencias activas en el repositorio.")?;
                 } else {
-                    pantalla.nota(&format!("antOS Autopilot · Incidencias Registradas ({}):", list.len()))?;
+                    term.on_note(&format!("antOS Autopilot · Incidencias Registradas ({}):", list.len()))?;
                     for inc in list {
-                        pantalla.nota(&format!("  • [{}] {} en «{}» [{}] — {}",
+                        term.on_note(&format!("  • [{}] {} en «{}» [{}] — {}",
                             inc.id, inc.incident_type, inc.file_path, inc.status, inc.error_message
                         ))?;
                     }
                 }
             }
             Event::AutopilotAlert(inc) => {
-                pantalla.nota(&format!("antOS Autopilot · Alerta de Incidencia [{}] en «{}»:", inc.id, inc.file_path))?;
-                pantalla.nota(&format!("  • Error:  {}", inc.error_message))?;
-                pantalla.nota(&format!("  • Estado: {}", inc.status))?;
+                term.on_note(&format!("antOS Autopilot · Alerta de Incidencia [{}] en «{}»:", inc.id, inc.file_path))?;
+                term.on_note(&format!("  • Error:  {}", inc.error_message))?;
+                term.on_note(&format!("  • Estado: {}", inc.status))?;
                 if let Some(ref prop) = inc.fix_proposal {
-                    pantalla.nota(&format!("  • Solución: {} (Rama: {})", prop.title, prop.branch))?;
+                    term.on_note(&format!("  • Solución: {} (Rama: {})", prop.title, prop.branch))?;
                     if !prop.diff.is_empty() {
-                        pantalla.nota(&format!("  • Diff:\n{}", prop.diff))?;
+                        term.on_note(&format!("  • Diff:\n{}", prop.diff))?;
                     }
                 }
             }
             Event::WebConsoleStatus(st) => {
                 let status_badge = if st.running { "ACTIVO (En línea)" } else { "DETENIDO" };
-                pantalla.nota(&format!("antOS Web Console · Estado: {status_badge}"))?;
-                pantalla.nota(&format!("  • URL de Acceso:         {}", st.url))?;
-                pantalla.nota(&format!("  • Clientes Conectados:   {}", st.connected_clients))?;
-                pantalla.nota(&format!("  • Sesiones Activas:      {}", st.active_sessions_count))?;
+                term.on_note(&format!("antOS Web Console · Estado: {status_badge}"))?;
+                term.on_note(&format!("  • URL de Acceso:         {}", st.url))?;
+                term.on_note(&format!("  • Clientes Conectados:   {}", st.connected_clients))?;
+                term.on_note(&format!("  • Sesiones Activas:      {}", st.active_sessions_count))?;
             }
             Event::WebTokenGenerated(session) => {
-                pantalla.nota("antOS Web Console · Token de Autenticación Criptográfico:")?;
-                pantalla.nota(&format!("  • Token:     {}", session.token))?;
-                pantalla.nota(&format!("  • Expira en: {}s", session.expires_at.saturating_sub(session.created_at)))?;
+                term.on_note("antOS Web Console · Token de Autenticación Criptográfico:")?;
+                term.on_note(&format!("  • Token:     {}", session.token))?;
+                term.on_note(&format!("  • Expira en: {}s", session.expires_at.saturating_sub(session.created_at)))?;
                 if let Some(lbl) = session.client_label {
-                    pantalla.nota(&format!("  • Cliente:   {lbl}"))?;
+                    term.on_note(&format!("  • Cliente:   {lbl}"))?;
                 }
             }
             Event::DevWorkspaceStatus(status) => {
-                pantalla.nota("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1):")?;
-                pantalla.nota(&format!("  • Proyecto Activo:   {}", status.active_project.as_deref().unwrap_or("ninguno")))?;
-                pantalla.nota(&format!("  • Editor:            {}", status.editor_command))?;
-                pantalla.nota(&format!("  • Dimensiones:       {}x{}", status.term_columns, status.term_rows))?;
+                term.on_note("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1):")?;
+                term.on_note(&format!("  • Proyecto Activo:   {}", status.active_project.as_deref().unwrap_or("ninguno")))?;
+                term.on_note(&format!("  • Editor:            {}", status.editor_command))?;
+                term.on_note(&format!("  • Dimensiones:       {}x{}", status.term_columns, status.term_rows))?;
             }
             Event::TddReport(report) => {
-                pantalla.nota(&format!("🧪 antOS TDD Engine · Reporte de Reproducción [{}]", report.id))?;
-                pantalla.nota(&format!("  • Estado:            {}", report.phase.label()))?;
-                pantalla.nota(&format!("  • Lenguaje:          {:?}", report.diagnostic.language))?;
-                pantalla.nota(&format!("  • Tipo de Error:     {}", report.diagnostic.error_type))?;
-                pantalla.nota(&format!("  • Mensaje:           {}", report.diagnostic.message))?;
+                term.on_note(&format!("🧪 antOS TDD Engine · Reporte de Reproducción [{}]", report.id))?;
+                term.on_note(&format!("  • Estado:            {}", report.phase.label()))?;
+                term.on_note(&format!("  • Lenguaje:          {:?}", report.diagnostic.language))?;
+                term.on_note(&format!("  • Tipo de Error:     {}", report.diagnostic.error_type))?;
+                term.on_note(&format!("  • Mensaje:           {}", report.diagnostic.message))?;
                 if let Some(ref f) = report.diagnostic.target_file {
-                    pantalla.nota(&format!("  • Archivo Objetivo:  {}:{}", f, report.diagnostic.target_line.unwrap_or(0)))?;
+                    term.on_note(&format!("  • Archivo Objetivo:  {}:{}", f, report.diagnostic.target_line.unwrap_or(0)))?;
                 }
                 if let Some(ref fn_name) = report.diagnostic.target_function {
-                    pantalla.nota(&format!("  • Función:           {}", fn_name))?;
+                    term.on_note(&format!("  • Función:           {}", fn_name))?;
                 }
-                pantalla.nota(&format!("  • Test Generado:     {}", report.test_file))?;
+                term.on_note(&format!("  • Test Generado:     {}", report.test_file))?;
                 if let Some(ref fix) = report.fix_summary {
-                    pantalla.nota(&format!("  • Corrección:        {}", fix))?;
+                    term.on_note(&format!("  • Corrección:        {}", fix))?;
                 }
-                pantalla.nota(&format!("  • Auditado:          {}", if report.audited { "Sí (Protegido contra regresiones)" } else { "No" }))?;
+                term.on_note(&format!("  • Auditado:          {}", if report.audited { "Sí (Protegido contra regresiones)" } else { "No" }))?;
             }
             Event::CiReport(report) => {
-                pantalla.nota(&format!("⚙️ antOS CI · Reporte de Ejecución [{}]", report.id))?;
-                pantalla.nota(&format!("  • Estado General:    {}", if report.success { "PASÓ" } else { "FALLÓ" }))?;
-                pantalla.nota(&format!("  • Duración Total:    {} ms", report.total_duration_ms))?;
-                pantalla.nota(&format!("  • Seguridad:         {}", if report.security_clean { "Limpio (sin secretos)" } else { "Secretos detectados" }))?;
+                term.on_note(&format!("⚙️ antOS CI · Reporte de Ejecución [{}]", report.id))?;
+                term.on_note(&format!("  • Estado General:    {}", if report.success { "PASÓ" } else { "FALLÓ" }))?;
+                term.on_note(&format!("  • Duración Total:    {} ms", report.total_duration_ms))?;
+                term.on_note(&format!("  • Seguridad:         {}", if report.security_clean { "Limpio (sin secretos)" } else { "Secretos detectados" }))?;
                 for s in &report.stages {
-                    pantalla.nota(&format!("    - {:<12} {:<15} ({} ms) {}", s.name, s.status.label(), s.duration_ms, s.command))?;
+                    term.on_note(&format!("    - {:<12} {:<15} ({} ms) {}", s.name, s.status.label(), s.duration_ms, s.command))?;
                 }
             }
             Event::GitHooksStatus(status) => {
-                pantalla.nota("🪝 antOS Git Hooks · Estado de Protección:")?;
-                pantalla.nota(&format!("  • Pre-commit: {}", if status.pre_commit_installed { "Instalado" } else { "No instalado" }))?;
-                pantalla.nota(&format!("  • Pre-push:   {}", if status.pre_push_installed { "Instalado" } else { "No instalado" }))?;
-                pantalla.nota(&format!("  • Directorio: {}", status.hook_dir))?;
+                term.on_note("🪝 antOS Git Hooks · Estado de Protección:")?;
+                term.on_note(&format!("  • Pre-commit: {}", if status.pre_commit_installed { "Instalado" } else { "No instalado" }))?;
+                term.on_note(&format!("  • Pre-push:   {}", if status.pre_push_installed { "Instalado" } else { "No instalado" }))?;
+                term.on_note(&format!("  • Directorio: {}", status.hook_dir))?;
             }
             Event::SnapshotCreated(meta) => {
-                pantalla.nota(&format!("📸 antOS Time Machine · Instantánea [{}] creada ({} archivos, {} KiB)", meta.id, meta.files_count, meta.total_bytes / 1024))?;
+                term.on_note(&format!("📸 antOS Time Machine · Instantánea [{}] creada ({} archivos, {} KiB)", meta.id, meta.files_count, meta.total_bytes / 1024))?;
             }
             Event::SnapshotsList(list) => {
-                pantalla.nota(&format!("⏱️ antOS Time Machine · {} instantánea(s) registradas:", list.len()))?;
+                term.on_note(&format!("⏱️ antOS Time Machine · {} instantánea(s) registradas:", list.len()))?;
                 for s in list {
-                    pantalla.nota(&format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024))?;
+                    term.on_note(&format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024))?;
                 }
             }
             Event::SnapshotRestored(res) => {
-                pantalla.nota(&format!("⏪ antOS Time Machine · Instantánea [{}] restaurada en {} ms ({} archivos actualizados)", res.snapshot_id, res.duration_ms, res.files_restored))?;
+                term.on_note(&format!("⏪ antOS Time Machine · Instantánea [{}] restaurada en {} ms ({} archivos actualizados)", res.snapshot_id, res.duration_ms, res.files_restored))?;
             }
             Event::SnapshotDeleted { id } => {
-                pantalla.nota(&format!("🗑️ antOS Time Machine · Instantánea [{id}] eliminada."))?;
+                term.on_note(&format!("🗑️ antOS Time Machine · Instantánea [{id}] eliminada."))?;
             }
             Event::BenchmarkReport(report) => {
-                pantalla.nota(&format!("⚡ antOS Bench · Suite [{}] ejecutada en {} ms ({} métricas)", report.id, report.total_duration_ms, report.metrics.len()))?;
+                term.on_note(&format!("⚡ antOS Bench · Suite [{}] ejecutada en {} ms ({} métricas)", report.id, report.total_duration_ms, report.metrics.len()))?;
                 for m in &report.metrics {
-                    pantalla.nota(&format!("  • {:<24} media: {} ns, p95: {} ns, {:.0} ops/s", m.name, m.mean_ns, m.p95_ns, m.ops_per_sec))?;
+                    term.on_note(&format!("  • {:<24} media: {} ns, p95: {} ns, {:.0} ops/s", m.name, m.mean_ns, m.p95_ns, m.ops_per_sec))?;
                 }
             }
             Event::BenchmarkDiff(diff) => {
-                pantalla.nota(&format!("⚡ antOS Bench Diff · Base: {} vs Objetivo: {}", diff.base_branch, diff.target_branch))?;
+                term.on_note(&format!("⚡ antOS Bench Diff · Base: {} vs Objetivo: {}", diff.base_branch, diff.target_branch))?;
                 for c in &diff.comparisons {
-                    pantalla.nota(&format!("  • {:<24} delta: {:+.2}% [{}]", c.name, c.delta_pct, if c.is_regression { "REGRESIÓN" } else { "ÓPTIMO" }))?;
+                    term.on_note(&format!("  • {:<24} delta: {:+.2}% [{}]", c.name, c.delta_pct, if c.is_regression { "REGRESIÓN" } else { "ÓPTIMO" }))?;
                 }
-                pantalla.nota(&format!("  Veredicto Auditor: {}", diff.auditor_verdict))?;
+                term.on_note(&format!("  Veredicto Auditor: {}", diff.auditor_verdict))?;
             }
             Event::BenchmarkHistory(list) => {
-                pantalla.nota(&format!("📈 antOS Bench · {} corrida(s) en historial:", list.len()))?;
+                term.on_note(&format!("📈 antOS Bench · {} corrida(s) en historial:", list.len()))?;
                 for h in list {
-                    pantalla.nota(&format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms))?;
+                    term.on_note(&format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms))?;
                 }
             }
             Event::RemoteIssuesList(issues) => {
-                pantalla.nota(&format!("🐙 antOS Forge · {} issues abiertos en origen:", issues.len()))?;
+                term.on_note(&format!("🐙 antOS Forge · {} issues abiertos en origen:", issues.len()))?;
                 for i in issues {
-                    pantalla.nota(&format!("  • #{:<4} {} (@{})", i.number, i.title, i.author))?;
+                    term.on_note(&format!("  • #{:<4} {} (@{})", i.number, i.title, i.author))?;
                 }
             }
             Event::RemoteIssueImported { ticket_id, path, title } => {
-                pantalla.nota(&format!("📥 antOS Forge · Issue importado como [{ticket_id}]: {title} ({path})"))?;
+                term.on_note(&format!("📥 antOS Forge · Issue importado como [{ticket_id}]: {title} ({path})"))?;
             }
             Event::PullRequestCreated(pr) => {
-                pantalla.nota(&format!("🚀 antOS Forge · Pull Request #{}: {} ({})", pr.number, pr.title, pr.url))?;
+                term.on_note(&format!("🚀 antOS Forge · Pull Request #{}: {} ({})", pr.number, pr.title, pr.url))?;
             }
             Event::PullRequestStatus(status) => {
-                pantalla.nota(&format!("🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]", status.number, status.title, status.state))?;
+                term.on_note(&format!("🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]", status.number, status.title, status.state))?;
             }
             Event::ArchDiagram(report) => {
-                pantalla.nota(&format!("📐 antOS Doc Arch · {} ({} crates, {} módulos, {} caps)", report.kind.name(), report.crates_count, report.modules_count, report.caps_count))?;
-                pantalla.nota(&format!("```mermaid\n{}\n```", report.mermaid_content))?;
+                term.on_note(&format!("📐 antOS Doc Arch · {} ({} crates, {} módulos, {} caps)", report.kind.name(), report.crates_count, report.modules_count, report.caps_count))?;
+                term.on_note(&format!("```mermaid\n{}\n```", report.mermaid_content))?;
             }
             Event::DocSync(report) => {
-                pantalla.nota(&format!("🔄 antOS Doc Sync · {}", report.message))?;
+                term.on_note(&format!("🔄 antOS Doc Sync · {}", report.message))?;
                 for p in &report.updated_paths {
-                    pantalla.nota(&format!("  • Archivo: {p}"))?;
+                    term.on_note(&format!("  • Archivo: {p}"))?;
                 }
             }
             Event::Error(m) => bail!("{m}"),

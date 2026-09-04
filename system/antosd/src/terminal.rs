@@ -1,12 +1,12 @@
-//! El interlocutor de terminal: imprime y pregunta por stdin.
+//! The terminal session handler: prints and asks via stdin.
 //!
-//! Es una de las implementaciones posibles de `Interlocutor`, no la única ni
-//! la privilegiada. Todo lo que sabe hacer es dibujar lo que el recorrido le
-//! entrega y devolver una decisión.
+//! This is one of the possible implementations of `SessionHandler`, not the
+//! only nor the privileged one. All it knows how to do is draw what the
+//! session hands it and return a decision.
 
 use crate::capability::Tier;
 use crate::preview::Line;
-use crate::protocolo::{Interlocutor, Propuesta, Resultado};
+use crate::protocol::{SessionHandler, Proposal, ExecutionResult};
 use anyhow::Result;
 use std::io::Write;
 
@@ -43,36 +43,36 @@ pub fn ellipsis(s: &str, max: usize) -> String {
 }
 
 pub struct Terminal {
-    /// Responder que sí sin preguntar. Sigue pasando por `propone`, así que
-    /// la propuesta se enseña igual: lo que cambia es quién contesta, no si
-    /// hubo puerta.
-    pub asumir_si: bool,
+    /// Answer yes without asking. Still passes through `on_proposal`, so the
+    /// proposal is shown: what changes is who answers, not whether there was
+    /// a gate.
+    pub assume_yes: bool,
 }
 
 impl Terminal {
-    pub fn new(asumir_si: bool) -> Self {
-        Terminal { asumir_si }
+    pub fn new(assume_yes: bool) -> Self {
+        Terminal { assume_yes }
     }
 }
 
-impl Interlocutor for Terminal {
-    fn inicio(&mut self, intencion: &str, planificador: &str) -> Result<()> {
+impl SessionHandler for Terminal {
+    fn on_start(&mut self, intent: &str, planner: &str) -> Result<()> {
         println!();
         println!("{}", paint("antOS", BOLD));
-        println!("  {}", paint(&format!("«{intencion}»"), DIM));
-        println!("  {}", paint(&format!("planificador: {planificador}"), DIM));
+        println!("  {}", paint(&format!("«{intent}»"), DIM));
+        println!("  {}", paint(&format!("planner: {planner}"), DIM));
         Ok(())
     }
 
-    fn nota(&mut self, texto: &str) -> Result<()> {
-        println!("  {}", paint(&format!("dice: {texto}"), DIM));
+    fn on_note(&mut self, text: &str) -> Result<()> {
+        println!("  {}", paint(&format!("note: {text}"), DIM));
         Ok(())
     }
 
-    fn propone(&mut self, propuesta: &Propuesta) -> Result<bool> {
+    fn on_proposal(&mut self, proposal: &Proposal) -> Result<bool> {
         println!();
         println!("{}", paint("plan", BOLD));
-        for (i, step) in propuesta.plan.steps.iter().enumerate() {
+        for (i, step) in proposal.plan.steps.iter().enumerate() {
             let args = step
                 .args
                 .iter()
@@ -83,8 +83,8 @@ impl Interlocutor for Terminal {
         }
 
         println!();
-        println!("{}", paint("cambios", BOLD));
-        for line in &propuesta.changes {
+        println!("{}", paint("changes", BOLD));
+        for line in &proposal.changes {
             match line {
                 Line::Info(t) => println!("  {t}"),
                 Line::Add(t) => println!("  {}", paint(&format!("+{t}"), GREEN)),
@@ -93,57 +93,57 @@ impl Interlocutor for Terminal {
         }
 
         println!();
-        println!("{}", paint("radio de impacto", BOLD));
-        let radio = &propuesta.blast_radius;
-        for (etiqueta, rutas) in [
-            ("escribe ", &radio.writes),
-            ("borra   ", &radio.deletes),
-            ("lee     ", &radio.reads),
+        println!("{}", paint("blast radius", BOLD));
+        let radius = &proposal.blast_radius;
+        for (label, paths) in [
+            ("writes  ", &radius.writes),
+            ("deletes ", &radius.deletes),
+            ("reads   ", &radius.reads),
         ] {
-            if !rutas.is_empty() {
-                println!("  {etiqueta}  {}", ellipsis(&rutas.join(", "), 68));
+            if !paths.is_empty() {
+                println!("  {label}  {}", ellipsis(&paths.join(", "), 68));
             }
         }
-        if !radio.system.is_empty() {
+        if !radius.system.is_empty() {
             println!(
                 "  {}  {}",
-                paint("SISTEMA ", RED),
-                ellipsis(&radio.system.join(", "), 68)
+                paint("SYSTEM  ", RED),
+                ellipsis(&radius.system.join(", "), 68)
             );
         }
-        if !radio.network.is_empty() {
-            println!("  red       {}", radio.network.join(", "));
+        if !radius.network.is_empty() {
+            println!("  network   {}", radius.network.join(", "));
         }
         println!(
-            "  nivel     {} {}",
-            paint(propuesta.tier.label(), tier_color(propuesta.tier)),
-            paint(&format!("— {}", propuesta.reasons.join("; ")), DIM)
+            "  level     {} {}",
+            paint(proposal.tier.label(), tier_color(proposal.tier)),
+            paint(&format!("— {}", proposal.reasons.join("; ")), DIM)
         );
-        let color_recinto = if propuesta.enclosure.engine == "ninguno" { RED } else { GREEN };
+        let enclosure_color = if proposal.enclosure.engine == "none" { RED } else { GREEN };
         println!(
-            "  recinto   {} {}",
-            paint(&propuesta.enclosure.engine, color_recinto),
-            paint(&format!("— {}", propuesta.enclosure.guarantees), DIM)
+            "  enclosure {} {}",
+            paint(&proposal.enclosure.engine, enclosure_color),
+            paint(&format!("— {}", proposal.enclosure.guarantees), DIM)
         );
 
-        if propuesta.dry_run {
+        if proposal.dry_run {
             println!();
-            println!("{}", paint("· marcha en seco, no se ejecuta nada", DIM));
+            println!("{}", paint("· dry run, nothing will be executed", DIM));
             return Ok(false);
         }
 
-        // Nivel automático: no hay nada que preguntar.
-        if propuesta.tier == Tier::Auto {
+        // Auto tier: nothing to ask.
+        if proposal.tier == Tier::Auto {
             return Ok(true);
         }
 
-        if self.asumir_si {
+        if self.assume_yes {
             println!();
-            println!("{}", paint("· aprobado sin preguntar (--si)", DIM));
+            println!("{}", paint("· approved without asking (--yes)", DIM));
             return Ok(true);
         }
 
-        print!("\n{} ", paint("¿ejecutar? [s/N]", BOLD));
+        print!("\n{} ", paint("execute? [y/N]", BOLD));
         std::io::stdout().flush()?;
         let mut line = String::new();
         if std::io::stdin().read_line(&mut line)? == 0 {
@@ -155,25 +155,25 @@ impl Interlocutor for Terminal {
         ))
     }
 
-    fn salida(&mut self, texto: &str) -> Result<()> {
+    fn on_output(&mut self, text: &str) -> Result<()> {
         println!();
-        println!("{}", texto.trim_end());
+        println!("{}", text.trim_end());
         Ok(())
     }
 
-    fn resultado(&mut self, resultado: &Resultado) -> Result<()> {
+    fn on_result(&mut self, result: &ExecutionResult) -> Result<()> {
         println!();
-        if !resultado.ok {
-            println!("{} {}", paint("✗", RED), resultado.message);
+        if !result.ok {
+            println!("{} {}", paint("✗", RED), result.message);
             return Ok(());
         }
-        match &resultado.snapshot {
+        match &result.snapshot {
             Some(id) => println!(
                 "{} {}",
-                paint(&resultado.message, GREEN),
-                paint(&format!("· instantánea {id} · «antos undo» lo revierte"), DIM)
+                paint(&result.message, GREEN),
+                paint(&format!("· snapshot {id} · «antos undo» to revert"), DIM)
             ),
-            None => println!("{}", paint(&resultado.message, GREEN)),
+            None => println!("{}", paint(&result.message, GREEN)),
         }
         Ok(())
     }

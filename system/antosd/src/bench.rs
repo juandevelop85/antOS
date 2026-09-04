@@ -223,9 +223,9 @@ impl BenchEngine {
             let wt_path = state_dir.join("worktrees").join(format!("bench-baseline-{}", base_branch));
             let _ = fs::create_dir_all(&state_dir.join("worktrees"));
 
-            if crate::git::crear_worktree(workspace, &wt_path, &format!("bench-ref-{}", base_branch), base_branch).is_ok() {
+            if crate::git::create_worktree(workspace, &wt_path, &format!("bench-ref-{}", base_branch), base_branch).is_ok() {
                 let res = Self::execute_suite_metrics(&wt_path, None);
-                let _ = crate::git::eliminar_worktree(workspace, &wt_path, true);
+                let _ = crate::git::remove_worktree(workspace, &wt_path, true);
 
                 if let Ok(metrics) = res {
                     return Ok(BenchmarkRunReport {

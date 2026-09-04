@@ -68,7 +68,7 @@ pub fn diagnose_ports(port_filter: Option<u16>) -> Result<Vec<PortDiagnosticInfo
     Ok(results)
 }
 
-/// Alias compatible.
+#[deprecated(note = "use diagnose_ports")]
 pub fn diagnosticar_puertos(filtro_puerto: Option<u16>) -> Result<Vec<PortDiagnosticInfo>> {
     diagnose_ports(filtro_puerto)
 }
@@ -97,7 +97,7 @@ pub fn kill_port(port: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
     Ok(processes)
 }
 
-/// Alias compatible.
+#[deprecated(note = "use kill_port")]
 pub fn liberar_puerto(puerto: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
     kill_port(puerto, force)
 }
@@ -111,7 +111,7 @@ pub fn extract_port(name: &str) -> Option<u16> {
     }
 }
 
-/// Alias compatible.
+#[deprecated(note = "use extract_port")]
 pub fn extraer_puerto(name: &str) -> Option<u16> {
     extract_port(name)
 }
@@ -160,26 +160,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extraer_puerto() {
-        assert_eq!(extraer_puerto("*:3000"), Some(3000));
-        assert_eq!(extraer_puerto("127.0.0.1:8080"), Some(8080));
-        assert_eq!(extraer_puerto("[::1]:5173"), Some(5173));
-        assert_eq!(extraer_puerto("0.0.0.0:5432"), Some(5432));
-        assert_eq!(extraer_puerto("invalido"), None);
+    fn test_extract_port() {
+        assert_eq!(extract_port("*:3000"), Some(3000));
+        assert_eq!(extract_port("127.0.0.1:8080"), Some(8080));
+        assert_eq!(extract_port("[::1]:5173"), Some(5173));
+        assert_eq!(extract_port("0.0.0.0:5432"), Some(5432));
+        assert_eq!(extract_port("invalid"), None);
     }
 
     #[test]
-    fn test_diagnosticar_puertos_no_falla() {
-        // La llamada a diagnosticar_puertos no debe hacer panic
-        let resultado = diagnosticar_puertos(None);
-        assert!(resultado.is_ok(), "diagnosticar puertos debe retornar Ok");
+    fn test_diagnose_ports_does_not_fail() {
+        // The call to diagnose_ports must not panic
+        let result = diagnose_ports(None);
+        assert!(result.is_ok(), "diagnose_ports must return Ok");
     }
 
     #[test]
-    fn test_diagnosticar_puerto_especifico_inexistente() {
-        let resultado = diagnosticar_puertos(Some(59999)).expect("diagnostico");
-        // Puerto 59999 improbable que esté en uso en tests
-        // El test verifica que retorne Ok sin pánico
-        assert!(resultado.iter().all(|p| p.port == 59999));
+    fn test_diagnose_specific_port_not_found() {
+        let result = diagnose_ports(Some(59999)).expect("diagnose");
+        // Port 59999 is unlikely to be in use during tests
+        assert!(result.iter().all(|p| p.port == 59999));
     }
 }

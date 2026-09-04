@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
@@ -218,12 +218,12 @@ pub fn cmd_log(ctx: &Ctx) -> Result<()> {
         .rev()
     {
         let mark = match r.outcome {
-            Outcome::Ejecutado if r.reverted => paint("↩", DIM),
-            Outcome::Ejecutado => paint("✓", GREEN),
-            Outcome::Revertido => paint("↩", DIM),
-            Outcome::Denegado => paint("✗", RED),
-            Outcome::Fallido => paint("!", RED),
-            Outcome::Cancelado => paint("·", DIM),
+            Outcome::Executed if r.reverted => paint("↩", DIM),
+            Outcome::Executed => paint("✓", GREEN),
+            Outcome::Reverted => paint("↩", DIM),
+            Outcome::Denied => paint("✗", RED),
+            Outcome::Failed => paint("!", RED),
+            Outcome::Cancelled => paint("·", DIM),
         };
         let ticket_badge = if let Some(tid) = &r.ticket_id {
             format!("{} ", paint(&format!("[{tid}]"), BOLD))
@@ -764,7 +764,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            let config = antos_protocolo::InstallConfig {
+            let config = antos_protocol::InstallConfig {
                 target_device: target_device.clone(),
                 clean_install,
                 target_mount: "/mnt/antos".into(),
@@ -874,7 +874,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
             println!("\n  Ejecutando simulación de instalación guiada...");
 
-            let cfg = antos_protocolo::InstallConfig {
+            let cfg = antos_protocol::InstallConfig {
                 target_device: chosen_disk.path.clone(),
                 clean_install: !has_efi,
                 target_mount: "/mnt/antos".into(),
@@ -1021,7 +1021,7 @@ pub fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
                 esp_path.clone()
             });
 
-            let config = antos_protocolo::BootloaderConfig {
+            let config = antos_protocol::BootloaderConfig {
                 esp_mount: esp.display().to_string(),
                 target_device: target_device.clone(),
                 efi_partition,
@@ -1456,7 +1456,7 @@ pub fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
             } else {
                 clean_parts.join(" ")
             };
-            let alert = antos_protocolo::BarraAlert {
+            let alert = antos_protocol::BarraAlert {
                 category: "cli".into(),
                 message: msg.clone(),
                 urgent: args.iter().any(|a| a == "--urgent" || a == "-u"),

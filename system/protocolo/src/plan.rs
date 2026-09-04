@@ -35,6 +35,7 @@ impl Tier {
         }
     }
 
+    #[deprecated(note = "use label")]
     pub fn label_es(self) -> &'static str {
         match self {
             Tier::Auto => "automático",
@@ -207,9 +208,12 @@ pub struct ExecutionResult {
     pub snapshot: Option<String>,
 }
 
-/// Type aliases for backwards compatibility.
+#[deprecated(note = "use Proposal")]
 pub type Propuesta = Proposal;
+#[deprecated(note = "use BlastRadius")]
 pub type Radio = BlastRadius;
+#[deprecated(note = "use Enclosure")]
 pub type Recinto = Enclosure;
+#[deprecated(note = "use ExecutionResult")]
 pub type Resultado = ExecutionResult;
 

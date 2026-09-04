@@ -81,7 +81,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn el_perfil_solo_reabre_las_rutas_declaradas() {
+    fn test_profile_only_reopens_declared_paths() {
         let policy = Policy {
             writes: vec![PathBuf::from("/ws/demo")],
             reads: vec![],
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[test]
-    fn el_perfil_reabre_secretos_cuando_estan_concedidos() {
+    fn test_profile_reopens_secrets_when_granted() {
         let policy = Policy {
             writes: vec![],
             reads: vec![],
@@ -114,13 +114,13 @@ mod tests {
     }
 
     #[test]
-    fn la_red_se_permite_solo_si_esta_declarada() {
+    fn test_network_allowed_only_if_declared() {
         let policy = Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![], quota: None };
         assert!(!sbpl(&policy).contains("(deny network*)"));
     }
 
     #[test]
-    fn las_comillas_en_una_ruta_no_pueden_romper_el_perfil() {
+    fn test_quotes_in_path_cannot_break_profile() {
         // Una ruta con comillas cerraría el literal SBPL y el resto del
         // perfil se interpretaría como política. Hay que escaparlo.
         let policy = Policy {

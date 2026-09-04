@@ -26,7 +26,7 @@ fn render_project_tickets(proj_path: &std::path::Path, proj_name: &str, engine: 
         return Ok(());
     }
 
-    let tickets = engine.listar_tickets(proj_path)?;
+    let tickets = engine.list_tickets(proj_path)?;
     if tickets.is_empty() {
         println!(
             "\n{} {}\n",
@@ -63,7 +63,7 @@ fn render_project_tickets(proj_path: &std::path::Path, proj_name: &str, engine: 
             paint(&t.phase, DIM),
             paint(&t.id, BOLD),
             ellipsis(&t.title, 53),
-            t.status.etiqueta()
+            t.status.tag()
         );
     }
     println!("  {}", "─".repeat(88));
@@ -196,7 +196,7 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint("✓", GREEN),
                 paint(id, BOLD),
                 paint(&scope_name, CYAN),
-                st.etiqueta()
+                st.tag()
             );
             return Ok(());
         }
@@ -205,14 +205,14 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 && arg.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false);
 
             if is_ticket_id {
-                let detalle = engine.obtener_ticket(&default_target_ws, arg)?;
+                let detalle = engine.get_ticket(&default_target_ws, arg)?;
                 match detalle {
                     Some(t) => {
                         println!(
                             "\n{} {}  {}",
                             paint(&t.id, BOLD),
                             paint(&t.phase, DIM),
-                            t.status.etiqueta()
+                            t.status.tag()
                         );
                         println!("{}", paint(&t.title, BOLD));
                         println!();
@@ -287,7 +287,7 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
         for p in &projects {
             let p_name = p.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
-            let p_tickets = engine.listar_tickets(p).unwrap_or_default();
+            let p_tickets = engine.list_tickets(p).unwrap_or_default();
             if p_tickets.is_empty() {
                 println!("  • {:<20} (sin catálogo de tickets)", paint(p_name, CYAN));
             } else {
@@ -315,7 +315,7 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
         ctx.workspace.clone()
     };
 
-    let tickets = engine.listar_tickets(&target)?;
+    let tickets = engine.list_tickets(&target)?;
     if tickets.is_empty() {
         println!("\nno se encontraron tickets en el sistema operativo.");
         println!("Crea uno con: antos ticket new <ID> <Título>\n");
@@ -346,7 +346,7 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
             paint(&t.phase, DIM),
             paint(&t.id, BOLD),
             ellipsis(&t.title, 53),
-            t.status.etiqueta()
+            t.status.tag()
         );
     }
     println!("  {}", "─".repeat(88));

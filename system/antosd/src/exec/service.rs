@@ -67,7 +67,7 @@ pub fn changes_for(
 pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::PortStatus { port } => {
-            let puertos = crate::net::diagnosticar_puertos(*port)?;
+            let puertos = crate::net::diagnose_ports(*port)?;
             if puertos.is_empty() {
                 if let Some(p) = port {
                     Ok(Some(format!("puerto {p} está libre")))
@@ -91,7 +91,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             }
         }
         Change::PortKill { port, force } => {
-            let eliminados = crate::net::liberar_puerto(*port, *force)?;
+            let eliminados = crate::net::kill_port(*port, *force)?;
             if eliminados.is_empty() {
                 Ok(Some(format!("puerto {port} ya estaba libre")))
             } else {

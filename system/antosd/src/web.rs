@@ -451,7 +451,7 @@ impl WebEngine {
 
         if path == "/api/tickets" {
             let spec = crate::spec::SpecEngine::global();
-            let tickets = spec.listar_tickets(workspace_dir).unwrap_or_default();
+            let tickets = spec.list_tickets(workspace_dir).unwrap_or_default();
             let json = serde_json::to_string_pretty(&tickets)?;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",

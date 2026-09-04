@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};

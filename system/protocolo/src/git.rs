@@ -79,7 +79,7 @@ impl GitRepoStatus {
         self.modified.is_empty() && self.staged.is_empty() && self.untracked.is_empty()
     }
 
-    /// Helper for backwards compatibility.
+    #[deprecated(note = "use is_clean")]
     pub fn es_limpio(&self) -> bool {
         self.is_clean()
     }

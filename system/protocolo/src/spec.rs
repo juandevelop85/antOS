@@ -47,6 +47,7 @@ impl TicketStatus {
         }
     }
 
+    #[deprecated(note = "use tag")]
     pub fn etiqueta(&self) -> &'static str {
         match self {
             TicketStatus::Pending => "⏳ Pendiente",

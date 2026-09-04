@@ -1198,7 +1198,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_worktree_crear_y_limpiar() {
+    fn test_plan_worktree_create_and_cleanup() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1219,7 +1219,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_puerto_diagnostico_y_liberacion() {
+    fn test_plan_port_diagnose_and_release() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1268,7 +1268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_secretos_y_concesiones() {
+    fn test_plan_secrets_and_grants() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1314,7 +1314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_memoria_y_grafo() {
+    fn test_plan_memory_and_graph() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1339,7 +1339,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_env_profile_y_sync() {
+    fn test_plan_env_profile_and_sync() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1359,7 +1359,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_quota_status_y_set() {
+    fn test_plan_quota_status_and_set() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1380,7 +1380,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_diff_viewer_y_terminal() {
+    fn test_plan_diff_viewer_and_terminal() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;
@@ -1399,7 +1399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_plan_notificaciones_y_aprobaciones() {
+    fn test_plan_notifications_and_approvals() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
         let planner = LocalPlanner;

@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
@@ -17,7 +17,7 @@ use crate::cli::args::Opts;
 
 pub fn cmd_ports(args: &[String]) -> Result<()> {
     let filtro = args.first().and_then(|a| a.parse::<u16>().ok());
-    let puertos = crate::net::diagnosticar_puertos(filtro)?;
+    let puertos = crate::net::diagnose_ports(filtro)?;
 
     println!(
         "\n{}",
@@ -406,7 +406,7 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
 
 #[allow(dead_code)]
 
-pub fn pick_planner_por_nombre(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
+pub fn pick_planner_by_name(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
     pick_planner(None, nombre)
 }
 
@@ -1744,7 +1744,7 @@ pub fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
             let (ok, msg) = engine.handle_action(
                 &ctx.workspace,
                 id,
-                antos_protocolo::NotificationAction::Approve,
+                antos_protocol::NotificationAction::Approve,
             )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
@@ -1759,7 +1759,7 @@ pub fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
             let (ok, msg) = engine.handle_action(
                 &ctx.workspace,
                 id,
-                antos_protocolo::NotificationAction::Reject,
+                antos_protocol::NotificationAction::Reject,
             )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
@@ -1774,7 +1774,7 @@ pub fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
             let (ok, msg) = engine.handle_action(
                 &ctx.workspace,
                 id,
-                antos_protocolo::NotificationAction::Dismiss,
+                antos_protocol::NotificationAction::Dismiss,
             )?;
             if ok {
                 println!("\n{} {msg}\n", paint("✓", GREEN));
@@ -1821,17 +1821,17 @@ pub fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
                         paint("● NUEVA", YELLOW)
                     };
                     let kind_badge = match n.kind {
-                        antos_protocolo::NotificationKind::ApprovalRequired => {
+                        antos_protocol::NotificationKind::ApprovalRequired => {
                             paint("⚠️ APROBACIÓN REQUERIDA", YELLOW)
                         }
-                        antos_protocolo::NotificationKind::TaskFinished => {
+                        antos_protocol::NotificationKind::TaskFinished => {
                             paint("✓ TAREA COMPLETADA", GREEN)
                         }
-                        antos_protocolo::NotificationKind::QAFailed => paint("✗ QA FALLIDO", RED),
-                        antos_protocolo::NotificationKind::SecurityAlert => {
+                        antos_protocol::NotificationKind::QAFailed => paint("✗ QA FALLIDO", RED),
+                        antos_protocol::NotificationKind::SecurityAlert => {
                             paint("🛡️ ALERTA SEGURIDAD", RED)
                         }
-                        antos_protocolo::NotificationKind::System => paint("ℹ️ SISTEMA", CYAN),
+                        antos_protocol::NotificationKind::System => paint("ℹ️ SISTEMA", CYAN),
                     };
 
                     println!(
@@ -1921,9 +1921,9 @@ pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             } else {
                 for ev in events {
                     let mark = match ev.action_taken {
-                        antos_protocolo::EbpfSecurityAction::Allowed => paint("✓ ALLOW", GREEN),
-                        antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔ BLOCK", RED),
-                        antos_protocolo::EbpfSecurityAction::Audited => paint("👁 AUDIT", YELLOW),
+                        antos_protocol::EbpfSecurityAction::Allowed => paint("✓ ALLOW", GREEN),
+                        antos_protocol::EbpfSecurityAction::Blocked => paint("⛔ BLOCK", RED),
+                        antos_protocol::EbpfSecurityAction::Audited => paint("👁 AUDIT", YELLOW),
                     };
                     println!(
                         "  {} [{}] PID {}:{} ➔ {} ({:?})",
@@ -1957,9 +1957,9 @@ pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
             } else {
                 for ev in events {
                     let mark = match ev.action_taken {
-                        antos_protocolo::EbpfSecurityAction::Allowed => paint("✓", GREEN),
-                        antos_protocolo::EbpfSecurityAction::Blocked => paint("⛔", RED),
-                        antos_protocolo::EbpfSecurityAction::Audited => paint("👁", YELLOW),
+                        antos_protocol::EbpfSecurityAction::Allowed => paint("✓", GREEN),
+                        antos_protocol::EbpfSecurityAction::Blocked => paint("⛔", RED),
+                        antos_protocol::EbpfSecurityAction::Audited => paint("👁", YELLOW),
                     };
                     println!(
                         "  {} [{}] {:<18} PID {}:{} ➔ {}",
@@ -1977,19 +1977,19 @@ pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
         Some("simulate" | "simula" | "test") => {
             let kind_str = args.get(1).map(String::as_str).unwrap_or("file");
             let hook = match kind_str {
-                "socket" | "net" | "red" => antos_protocolo::EbpfHookKind::SocketConnect,
-                "bprm" | "exec" => antos_protocolo::EbpfHookKind::BprmCheckSecurity,
-                "syscall" => antos_protocolo::EbpfHookKind::SyscallTrace,
-                _ => antos_protocolo::EbpfHookKind::FileOpen,
+                "socket" | "net" | "red" => antos_protocol::EbpfHookKind::SocketConnect,
+                "bprm" | "exec" => antos_protocol::EbpfHookKind::BprmCheckSecurity,
+                "syscall" => antos_protocol::EbpfHookKind::SyscallTrace,
+                _ => antos_protocol::EbpfHookKind::FileOpen,
             };
             let target = args
                 .get(2)
                 .map(String::as_str)
                 .unwrap_or_else(|| match hook {
-                    antos_protocolo::EbpfHookKind::SocketConnect => "192.168.1.50:4444",
-                    antos_protocolo::EbpfHookKind::FileOpen => "/etc/shadow",
-                    antos_protocolo::EbpfHookKind::BprmCheckSecurity => "/bin/nc",
-                    antos_protocolo::EbpfHookKind::SyscallTrace => "ptrace",
+                    antos_protocol::EbpfHookKind::SocketConnect => "192.168.1.50:4444",
+                    antos_protocol::EbpfHookKind::FileOpen => "/etc/shadow",
+                    antos_protocol::EbpfHookKind::BprmCheckSecurity => "/bin/nc",
+                    antos_protocol::EbpfHookKind::SyscallTrace => "ptrace",
                 });
 
             let ev = engine.simulate_violation(hook, target);

@@ -57,7 +57,7 @@ impl SpecEngine {
         }
 
         // Reindexar tickets
-        let (tickets, estados_map) = indexar_directorio_tickets(&dir)?;
+        let (tickets, estados_map) = index_tickets_directory(&dir)?;
 
         // Actualizar caché
         if let Ok(mut guard) = self.cache.lock() {
@@ -78,7 +78,7 @@ impl SpecEngine {
         Ok(tickets)
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn listar_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
         self.list_tickets(workspace_path)
     }
@@ -154,7 +154,7 @@ impl SpecEngine {
         Ok(Some(detalle))
     }
 
-    /// Alias compatible.
+    #[deprecated]
     pub fn obtener_ticket(
         &self,
         workspace_path: &Path,
@@ -416,13 +416,13 @@ pub fn find_tickets_dir_unbounded(inicio: &Path) -> Option<PathBuf> {
     find_tickets_dir_with_ceiling(inicio, None)
 }
 
-/// Alias compatible.
+#[deprecated]
 pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
     find_tickets_dir(inicio)
 }
 
 /// Indexa el directorio de tickets leyendo `README.md` (si existe) y los ficheros individuales.
-fn indexar_directorio_tickets(
+fn index_tickets_directory(
     dir: &Path,
 ) -> Result<(Vec<TicketSummary>, HashMap<String, TicketStatus>)> {
     let mut estados_map = HashMap::new();
@@ -520,7 +520,7 @@ fn parsear_summary_ticket(
     estados_map: &HashMap<String, TicketStatus>,
 ) -> Option<TicketSummary> {
     let file_name = ruta.file_name()?.to_str()?;
-    let id_extraido = extraer_id_de_nombre_o_contenido(file_name, contenido)?;
+    let id_extraido = extract_id_from_name_or_content(file_name, contenido)?;
 
     let mut titulo = file_name.trim_end_matches(".md").to_string();
     let fase = deducir_fase(&id_extraido);
@@ -567,7 +567,7 @@ pub fn parsear_archivo_ticket(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("ticket.md");
-    let id = extraer_id_de_nombre_o_contenido(file_name, &contenido)
+    let id = extract_id_from_name_or_content(file_name, &contenido)
         .unwrap_or_else(|| "T0.0".to_string());
 
     let fase = deducir_fase(&id);
@@ -670,7 +670,7 @@ fn limpiar_item_markdown(linea: &str) -> String {
     sin_prefijo.replace("**", "").trim().to_string()
 }
 
-fn extraer_id_de_nombre_o_contenido(file_name: &str, _contenido: &str) -> Option<String> {
+fn extract_id_from_name_or_content(file_name: &str, _contenido: &str) -> Option<String> {
     // Buscar patrón tipo T0.1, T1.3, T2.2 al inicio del nombre del archivo
     if file_name.starts_with('T') {
         let partes: Vec<&str> = file_name.split('-').collect();
@@ -698,9 +698,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_encontrar_directorio_tickets_ant_os() {
+    fn test_find_tickets_dir_ant_os() {
         let cwd = std::env::current_dir().expect("cwd");
-        let dir = encontrar_directorio_tickets(&cwd);
+        let dir = find_tickets_dir(&cwd);
         assert!(
             dir.is_some(),
             "debe encontrar docs/tickets en el repo actual"
@@ -710,10 +710,10 @@ mod tests {
     }
 
     #[test]
-    fn test_indexar_y_listar_tickets_ant_os() {
+    fn test_index_and_list_tickets_ant_os() {
         let cwd = std::env::current_dir().expect("cwd");
         let engine = SpecEngine::global();
-        let tickets = engine.listar_tickets(&cwd).expect("listar tickets");
+        let tickets = engine.list_tickets(&cwd).expect("listar tickets");
 
         assert!(
             !tickets.is_empty(),
@@ -751,11 +751,11 @@ mod tests {
     }
 
     #[test]
-    fn test_obtener_detalle_ticket_t13() {
+    fn test_get_ticket_detail_t13() {
         let cwd = std::env::current_dir().expect("cwd");
         let engine = SpecEngine::global();
         let detalle = engine
-            .obtener_ticket(&cwd, "T1.3")
+            .get_ticket(&cwd, "T1.3")
             .expect("obtener ticket")
             .expect("detalle T1.3");
 
@@ -767,7 +767,7 @@ mod tests {
     }
 
     #[test]
-    fn test_crear_y_actualizar_ticket_dinamico() {
+    fn test_create_and_update_dynamic_ticket() {
         let ws = std::env::temp_dir().join(format!("antos-test-spec-{}", std::process::id()));
         let _ = fs::remove_dir_all(&ws);
         fs::create_dir_all(&ws).expect("create test ws");

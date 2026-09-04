@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn la_configuracion_del_sistema_no_es_una_fuga_pero_exige_concesion() {
+    fn test_system_config_is_not_escape_but_requires_grant() {
         let ws = PathBuf::from("/tmp/espacio");
         let sistema = PathBuf::from("/tmp/configuracion");
 
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn la_barra_final_declara_un_directorio() {
+    fn test_trailing_slash_declares_directory() {
         let ws = PathBuf::from("/tmp/espacio");
         let mut catalog = catalogo_sin_restricciones();
         let cap = catalog.caps.get_mut("t.leer").unwrap();
@@ -354,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn los_efectos_declarados_elevan_el_nivel_por_encima_del_manifiesto() {
+    fn test_declared_effects_raise_level_above_manifest() {
         // La capacidad se declara "auto", pero escribe: el nivel sube solo.
         let mut catalog = catalogo_sin_restricciones();
         let cap = catalog.caps.get_mut("t.leer").unwrap();

@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
@@ -22,10 +22,10 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             paint("antOS · Roles de Agentes Especializados (antFlow)", BOLD)
         );
         let roles = [
-            antos_protocolo::AgentRole::Arquitecto,
-            antos_protocolo::AgentRole::Coder,
-            antos_protocolo::AgentRole::QA,
-            antos_protocolo::AgentRole::Auditor,
+            antos_protocol::AgentRole::Arquitecto,
+            antos_protocol::AgentRole::Coder,
+            antos_protocol::AgentRole::QA,
+            antos_protocol::AgentRole::Auditor,
         ];
         for r in roles {
             println!("\n  {} {}", paint("●", GREEN), paint(r.name(), BOLD));
@@ -135,7 +135,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                 let _ = crate::distributed::SwarmEngine::global().dispatch_remote_role(
                     &ctx.workspace,
                     ticket_id,
-                    antos_protocolo::AgentRole::Coder,
+                    antos_protocol::AgentRole::Coder,
                     Some(target),
                 )?;
             }
@@ -147,9 +147,9 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     "  {} Ejecutando pipeline automatizado de agentes con modelos asignados...",
                     paint("▶", GREEN)
                 );
-                engine.ejecutar_pipeline_worktree(&ctx.workspace, &ctx.state, ticket_id, &[])?
+                engine.run_worktree_pipeline(&ctx.workspace, &ctx.state, ticket_id, &[])?
             } else {
-                engine.iniciar_tarea(&ctx.workspace, &ctx.state, ticket_id)?
+                engine.start_task(&ctx.workspace, &ctx.state, ticket_id)?
             };
 
             println!("  Tarea ID:       {}", paint(&task.id, YELLOW));
@@ -204,7 +204,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             let ticket_id = args.get(1);
             let engine = crate::flow::FlowEngine::global();
             if let Some(tid) = ticket_id {
-                if let Some(task) = engine.consultar_tarea(tid) {
+                if let Some(task) = engine.get_task(tid) {
                     println!(
                         "\n{}",
                         paint(
@@ -240,7 +240,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!("\n  No hay tarea activa para el ticket «{tid}».\n");
                 }
             } else {
-                let tasks = engine.listar_tareas();
+                let tasks = engine.list_tasks();
                 println!("\n{}", paint("antOS · Tareas antFlow", BOLD));
                 if tasks.is_empty() {
                     println!("  No hay tareas en curso.\n");
@@ -307,10 +307,10 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
         paint("● MONITOR DE AGENTES ACTIVOS (antFlow)", BOLD)
     );
     let roles = [
-        ("📐 Arquitecto", antos_protocolo::AgentRole::Architect),
-        ("💻 Coder", antos_protocolo::AgentRole::Coder),
-        ("🧪 QA / Tester", antos_protocolo::AgentRole::QA),
-        ("🛡️ Auditor", antos_protocolo::AgentRole::Auditor),
+        ("📐 Arquitecto", antos_protocol::AgentRole::Architect),
+        ("💻 Coder", antos_protocol::AgentRole::Coder),
+        ("🧪 QA / Tester", antos_protocol::AgentRole::QA),
+        ("🛡️ Auditor", antos_protocol::AgentRole::Auditor),
     ];
 
     for (etiqueta_rol, rol) in roles {
@@ -340,19 +340,19 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     // Columnas Kanban
     let pendientes: Vec<_> = tickets
         .iter()
-        .filter(|t| t.status == antos_protocolo::TicketStatus::Pending)
+        .filter(|t| t.status == antos_protocol::TicketStatus::Pending)
         .collect();
     let en_progreso: Vec<_> = tickets
         .iter()
-        .filter(|t| t.status == antos_protocolo::TicketStatus::InProgress)
+        .filter(|t| t.status == antos_protocol::TicketStatus::InProgress)
         .collect();
     let en_revision: Vec<_> = tickets
         .iter()
-        .filter(|t| t.status == antos_protocolo::TicketStatus::InReview)
+        .filter(|t| t.status == antos_protocol::TicketStatus::InReview)
         .collect();
     let completados: Vec<_> = tickets
         .iter()
-        .filter(|t| t.status == antos_protocolo::TicketStatus::Completed)
+        .filter(|t| t.status == antos_protocol::TicketStatus::Completed)
         .collect();
 
     println!("  {}", paint("● TABLERO DE TICKETS (docs/tickets/)", BOLD));
@@ -429,9 +429,9 @@ pub fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 anyhow::anyhow!("uso: antos swarm dispatch <TID> [--role <coder|qa>] [--node <ID>]")
             })?;
             let role = if args.iter().any(|a| a == "--qa") {
-                antos_protocolo::AgentRole::QA
+                antos_protocol::AgentRole::QA
             } else {
-                antos_protocolo::AgentRole::Coder
+                antos_protocol::AgentRole::Coder
             };
             let node_target = args
                 .iter()

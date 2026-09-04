@@ -95,7 +95,7 @@ impl NotificationEngine {
 
         let message = match action {
             NotificationAction::Approve => {
-                match crate::flow::FlowEngine::global().aprobar_tarea(&notif.ticket_id, true) {
+                match crate::flow::FlowEngine::global().approve_task(&notif.ticket_id, true) {
                     Ok(_) => format!(
                         "Aprobación concedida: cambios del ticket {} fusionados con éxito.",
                         notif.ticket_id
@@ -104,7 +104,7 @@ impl NotificationEngine {
                 }
             }
             NotificationAction::Reject => {
-                match crate::flow::FlowEngine::global().aprobar_tarea(&notif.ticket_id, false) {
+                match crate::flow::FlowEngine::global().approve_task(&notif.ticket_id, false) {
                     Ok(_) => format!(
                         "Rollback completado: cambios del ticket {} revertidos y worktree limpiado.",
                         notif.ticket_id

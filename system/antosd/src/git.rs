@@ -201,7 +201,7 @@ pub fn find_git_root_with_ceiling(
     None
 }
 
-/// Backward-compatible alias.
+#[deprecated(note = "use find_git_root")]
 pub fn encontrar_raiz_git(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
     find_git_root(inicio)
 }
@@ -219,7 +219,7 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
     let (delante, detras) = calcular_delante_detras(repo_root);
 
     // 3. Obtener estado de archivos y conteo de líneas
-    let (modificados, staged, sin_seguimiento) = obtener_archivos_y_diffs(repo_root)?;
+    let (modificados, staged, sin_seguimiento) = get_files_and_diffs(repo_root)?;
 
     let clean = modificados.is_empty() && staged.is_empty() && sin_seguimiento.is_empty();
 
@@ -287,7 +287,7 @@ fn calcular_delante_detras(repo_root: &Path) -> (usize, usize) {
 
 /// Returns lists of modified, staged and untracked files with line-diff statistics.
 /// All Git subprocesses carry `GIT_CEILING_DIRECTORIES` to enforce workspace isolation.
-fn obtener_archivos_y_diffs(
+fn get_files_and_diffs(
     repo_root: &Path,
 ) -> Result<(Vec<GitFileDiffSummary>, Vec<GitFileDiffSummary>, Vec<String>)> {
     let mut modificados = Vec::new();
@@ -433,7 +433,7 @@ pub fn create_worktree(repo_root: &Path, destination: &Path, branch: &str, base:
     Ok(())
 }
 
-/// Alias compatible.
+#[deprecated(note = "use create_worktree")]
 pub fn crear_worktree(repo_root: &Path, destino: &Path, branch: &str, base: &str) -> Result<()> {
     create_worktree(repo_root, destino, branch, base)
 }
@@ -465,7 +465,7 @@ pub fn remove_worktree(repo_root: &Path, destination: &Path, force: bool) -> Res
     Ok(())
 }
 
-/// Alias compatible.
+#[deprecated(note = "use remove_worktree")]
 pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Result<()> {
     remove_worktree(repo_root, destino, force)
 }
@@ -516,7 +516,7 @@ mod tests {
     #[test]
     fn test_find_git_root_finds_antos_repo() {
         let cwd = std::env::current_dir().expect("cwd");
-        let found = encontrar_raiz_git(&cwd);
+        let found = find_git_root(&cwd);
         assert!(found.is_some(), "should find the antOS .git");
         let (repo_root, git_dir) = found.unwrap();
         assert!(git_dir.exists());
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rendimiento_cache_menor_30ms() {
+    fn test_cache_performance_under_30ms() {
         let dir_repo = tempfile_simple("cache_bench_repo");
         let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
         let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.name", "Test"]).output();
@@ -637,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn test_worktree_crear_eliminar_y_rendimiento() {
+    fn test_worktree_create_remove_and_performance() {
         let dir_repo = tempfile_simple("worktree_repo");
         let dir_wt = tempfile_simple("worktree_target");
 
@@ -651,7 +651,7 @@ mod tests {
 
         // 1. Medir tiempo de creación de worktree (< 500ms según criterio de aceptación T2.2)
         let t0 = std::time::Instant::now();
-        crear_worktree(&dir_repo, &dir_wt, "agent/T2.2", "HEAD").expect("crear worktree");
+        create_worktree(&dir_repo, &dir_wt, "agent/T2.2", "HEAD").expect("crear worktree");
         let duracion = t0.elapsed();
 
         assert!(
@@ -671,7 +671,7 @@ mod tests {
         assert_eq!(contenido_base, "# Test Repo\n", "el repo base debe permanecer inalterado");
 
         // 4. Eliminar worktree
-        eliminar_worktree(&dir_repo, &dir_wt, true).expect("eliminar worktree");
+        remove_worktree(&dir_repo, &dir_wt, true).expect("eliminar worktree");
         assert!(!dir_wt.exists(), "directorio de worktree debe haber sido eliminado");
 
         let _ = fs::remove_dir_all(&dir_repo);

@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
@@ -166,11 +166,11 @@ pub fn cmd_lsp(ctx: &Ctx, args: &[String]) -> Result<()> {
         Some("config" | "conf") => {
             let editor_str = args.get(1).map(String::as_str).unwrap_or("neovim");
             let editor_kind = match editor_str.to_lowercase().as_str() {
-                "neovim" | "nvim" | "vim" => antos_protocolo::LspEditorKind::Neovim,
-                "vscode" | "code" => antos_protocolo::LspEditorKind::VsCode,
-                "helix" | "hx" => antos_protocolo::LspEditorKind::Helix,
-                "emacs" => antos_protocolo::LspEditorKind::Emacs,
-                _ => antos_protocolo::LspEditorKind::Generic,
+                "neovim" | "nvim" | "vim" => antos_protocol::LspEditorKind::Neovim,
+                "vscode" | "code" => antos_protocol::LspEditorKind::VsCode,
+                "helix" | "hx" => antos_protocol::LspEditorKind::Helix,
+                "emacs" => antos_protocol::LspEditorKind::Emacs,
+                _ => antos_protocol::LspEditorKind::Generic,
             };
 
             let (snippet, target_file) = server.generate_config(editor_kind, &ctx.workspace);

@@ -1,9 +1,9 @@
-//! antOS — El sistema operativo personal para desarrolladores impulsado por IA.
+//! antOS — The personal operating system for developers powered by AI.
 //!
-//! Entrada principal del ejecutable y demonio `antos` / `antosd`.
-//! Confinamiento, inicialización de subsistemas y despacho directo a `cli::dispatch`.
+//! Main entry point for the `antos` / `antosd` executable and daemon.
+//! Confinement, subsystem initialization and direct dispatch to `cli::dispatch`.
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 pub mod autopilot;
 pub mod barra;
@@ -41,11 +41,11 @@ pub mod plan;
 pub mod planner;
 pub mod preview;
 pub mod profiler;
-pub mod protocolo;
+pub mod protocol;
 pub mod reproduce;
 pub mod sandbox;
 pub mod service;
-pub mod sesion;
+pub mod session;
 pub mod snapshot;
 pub mod spec;
 pub mod terminal;
@@ -55,17 +55,29 @@ pub mod vfs;
 pub mod vfs_guard;
 pub mod vision;
 pub mod vm;
-pub mod voz;
+pub mod voice;
 pub mod vte;
 pub mod wasm;
 pub mod web;
+
+/// Backwards compatibility module aliases.
+#[deprecated(note = "use protocol")]
+pub use protocol as protocolo;
+#[deprecated(note = "use session")]
+pub use session as sesion;
+#[deprecated(note = "use voice")]
+pub use voice as voz;
 
 use anyhow::Result;
 use capability::Catalog;
 use ctx::Ctx;
 use terminal::{paint, RED};
 
-pub use cli::commands::tools::{pick_planner, pick_planner_por_nombre};
+pub use cli::commands::tools::{pick_planner, pick_planner_by_name};
+
+/// Backwards compatibility alias.
+#[deprecated(note = "use pick_planner_by_name")]
+pub use cli::commands::tools::pick_planner_by_name as pick_planner_por_nombre;
 
 fn main() {
     if let Err(e) = run() {
@@ -75,9 +87,9 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    // El ejecutor confinado se atiende antes que nada. Corre DENTRO del
-    // recinto, así que no puede crear directorios de estado ni leer el
-    // catálogo: solo aplica la lista de cambios que le llega por stdin.
+    // The confined executor is handled before anything else. It runs INSIDE
+    // the enclosure, so it cannot create state directories or read the
+    // catalog: it only applies the list of changes that arrives via stdin.
     match std::env::args().nth(1).unwrap_or_default().as_str() {
         sandbox::EXEC_SUBCOMMAND => return sandbox::execute_from_stdin(),
         sandbox::NET_SUBCOMMAND => return sandbox::probe_network_from_inside(),

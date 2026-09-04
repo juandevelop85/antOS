@@ -1,6 +1,6 @@
 #![allow(unused_imports, dead_code)]
 
-extern crate antos_protocol as antos_protocolo;
+extern crate antos_protocol;
 
 use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
@@ -43,9 +43,9 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
         let mut idxs_a_revertir = Vec::new();
 
         for (idx, r) in records.iter().enumerate() {
-            if r.outcome == Outcome::Ejecutado && !r.reverted && r.snapshot.is_some() {
+            if r.outcome == Outcome::Executed && !r.reverted && r.snapshot.is_some() {
                 let coincide_ticket = r.ticket_id.as_deref() == Some(&tid)
-                    || crate::journal::extraer_ticket_id(&r.intent).as_deref() == Some(&tid);
+                    || crate::journal::extract_ticket_id(&r.intent).as_deref() == Some(&tid);
                 if coincide_ticket {
                     idxs_a_revertir.push(idx);
                 }
@@ -96,7 +96,7 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
                 plan: records[idx].plan.clone(),
                 tier: records[idx].tier,
                 reasons: vec![format!("revierte instantánea {snap_id} del ticket {tid}")],
-                outcome: Outcome::Revertido,
+                outcome: Outcome::Reverted,
                 detail: None,
                 sandbox: "broker".into(),
                 snapshot: Some(snap_id),
@@ -128,7 +128,7 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     let idx = records
         .iter()
-        .rposition(|r| r.outcome == Outcome::Ejecutado && !r.reverted && r.snapshot.is_some());
+        .rposition(|r| r.outcome == Outcome::Executed && !r.reverted && r.snapshot.is_some());
 
     let Some(idx) = idx else {
         println!("no hay nada que deshacer");
@@ -158,7 +158,7 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
         plan: records[idx].plan.clone(),
         tier: records[idx].tier,
         reasons: vec![format!("revierte la instantánea {snap_id}")],
-        outcome: Outcome::Revertido,
+        outcome: Outcome::Reverted,
         detail: None,
         sandbox: "broker".into(),
         snapshot: Some(snap_id),

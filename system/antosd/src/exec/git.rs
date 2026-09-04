@@ -161,7 +161,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             Ok(Some(format!("rama activa: {branch_name}")))
         }
         Change::GitWorktreeCreate { repo_root, target_path, branch_name, base } => {
-            crate::git::crear_worktree(repo_root, target_path, branch_name, base)?;
+            crate::git::create_worktree(repo_root, target_path, branch_name, base)?;
             Ok(Some(format!(
                 "worktree creado en: {} (rama: {})",
                 target_path.display(),
@@ -169,7 +169,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             )))
         }
         Change::GitWorktreeCleanup { repo_root, target_path, force } => {
-            crate::git::eliminar_worktree(repo_root, target_path, *force)?;
+            crate::git::remove_worktree(repo_root, target_path, *force)?;
             Ok(Some(format!("worktree eliminado: {}", target_path.display())))
         }
         Change::GitWorktreeMerge { repo_root, branch_name, target_branch, message } => {

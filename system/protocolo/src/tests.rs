@@ -29,7 +29,7 @@ use crate::*;
 
         assert_eq!(status, deserialized);
         assert!(!deserialized.is_clean());
-        assert!(!deserialized.es_limpio());
+        assert!(!deserialized.is_clean());
     }
 
     #[test]
