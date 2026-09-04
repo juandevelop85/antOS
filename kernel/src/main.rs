@@ -21,6 +21,7 @@ mod elf;
 mod memory;
 #[allow(dead_code)]
 mod sync;
+pub mod syscall;
 #[allow(dead_code)]
 mod task;
 

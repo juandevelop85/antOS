@@ -1,102 +1,103 @@
-//! Anillo 3 y llamadas al sistema.
+//! Ring 3 and system calls (T22.5 — formal ABI).
 //!
-//! Hasta aquí todo el código corría en anillo 0, con permiso para hacer
-//! cualquier cosa. Un programa de usuario corre en **anillo 3**: no puede
-//! leer la memoria del kernel, ni hablar con puertos de E/S, ni ejecutar
-//! instrucciones privilegiadas. Para pedir algo tiene que cruzar la frontera
-//! por el único sitio que le dejamos abierto: la instrucción `syscall`.
+//! Until now all code ran in ring 0, with permission to do anything.  A
+//! userspace program runs in **ring 3**: it cannot read kernel memory, talk to
+//! I/O ports, or execute privileged instructions.  To request anything it must
+//! cross the boundary through the only gate we leave open: the `syscall`
+//! instruction.
 //!
-//! ## Por qué `syscall` y no una interrupción
+//! ## Why `syscall` instead of an interrupt
 //!
-//! Se puede entrar al kernel con `int 0x80`, y así se hacía. Pero una
-//! interrupción consulta la IDT, cambia de pila usando el TSS y apila cinco
-//! valores: cientos de ciclos. `syscall` no hace nada de eso — guarda el RIP
-//! de retorno en RCX y las banderas en R11, carga CS y SS desde un registro
-//! de configuración, y salta. **No cambia de pila**: eso lo tiene que hacer
-//! el kernel a mano, y es lo primero que hace nuestro punto de entrada.
+//! You could enter the kernel with `int 0x80`, and that is how it used to be
+//! done.  But an interrupt consults the IDT, switches stacks via the TSS and
+//! pushes five values: hundreds of cycles.  `syscall` does none of that — it
+//! saves the return RIP in RCX and RFLAGS in R11, loads CS and SS from a
+//! configuration register, and jumps.  **It does not switch stacks**: the
+//! kernel has to do that by hand, and it is the first thing our entry point
+//! does.
 
 use crate::gdt;
 use crate::memory::{FrameAllocator, Mapper, PAGE_SIZE, PRESENT, USER, WRITABLE};
+use crate::syscall;
 use crate::{print, println};
 use core::sync::atomic::{AtomicU64, Ordering};
 
-// Registros de configuración del modelo (MSR). No son registros normales: se
-// leen y escriben con `rdmsr`/`wrmsr` indicando su número.
+// Model-specific registers for syscall/sysret configuration.
 const IA32_EFER: u32 = 0xC000_0080;
 const IA32_STAR: u32 = 0xC000_0081;
 const IA32_LSTAR: u32 = 0xC000_0082;
 const IA32_FMASK: u32 = 0xC000_0084;
 
-const SYS_WRITE: u64 = 0;
-const SYS_EXIT: u64 = 1;
-
-/// Dónde empieza la pila del programa de usuario, y cuántas páginas ocupa.
+/// Where the user stack starts, and how many pages it occupies.
 const USER_STACK_TOP: u64 = 0x7000_0000;
 const USER_STACK_PAGES: u64 = 4;
 
-/// Pila del kernel a la que salta el punto de entrada de `syscall`.
+/// Base virtual address for anonymous mmap allocations.
+const MMAP_BASE: u64 = 0x1000_0000;
+
+/// Kernel stack for the syscall entry point.
 static SYSCALL_STACK_TOP: AtomicU64 = AtomicU64::new(0);
-/// Dónde se guarda la pila del usuario mientras corre la llamada.
+/// Saved user RSP while the syscall handler runs.
 static USER_RSP: AtomicU64 = AtomicU64::new(0);
 
-// Estado del kernel para poder volver cuando el programa muera. Es lo mismo
-// que hace un planificador de verdad al devolver el control: guardar dónde
-// estabas antes de ceder la CPU.
+// Kernel state for returning when the program exits.
 static KERNEL_RSP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_RIP: AtomicU64 = AtomicU64::new(0);
 static EXIT_CODE: AtomicU64 = AtomicU64::new(0);
 
+/// Next virtual address available for anonymous mmap.
+static MMAP_NEXT: AtomicU64 = AtomicU64::new(MMAP_BASE);
+
+/// Current process ID (always 1 for init).
+static CURRENT_PID: AtomicU64 = AtomicU64::new(1);
+
 pub fn init() {
     SYSCALL_STACK_TOP.store(gdt::syscall_stack_top(), Ordering::Relaxed);
 
-    // SAFETY: los MSR son los documentados por Intel y los valores derivan de
-    // nuestra propia GDT.
+    // SAFETY: MSRs are the documented Intel registers and values derive from
+    // our own GDT.
     unsafe {
-        // Bit 0 de EFER (SCE): sin él, `syscall` es una instrucción inválida.
+        // Bit 0 of EFER (SCE): without it, `syscall` is an invalid opcode.
         write_msr(IA32_EFER, read_msr(IA32_EFER) | 1);
 
-        // STAR guarda los selectores: los bits 47:32 los usa `syscall` para
-        // entrar al kernel, y los 63:48 los usa `sysret` para volver.
+        // STAR stores selectors: bits 47:32 are used by `syscall` to enter
+        // the kernel, bits 63:48 by `sysret` to return.
         let star = ((gdt::SYSRET_BASE as u64) << 48) | ((gdt::CODE_SELECTOR as u64) << 32);
         write_msr(IA32_STAR, star);
 
-        // A dónde salta `syscall`.
+        // Where `syscall` jumps to.
         write_msr(IA32_LSTAR, syscall_entry as *const () as u64);
 
-        // Qué banderas se apagan al entrar. IF es la importante: sin apagarla
-        // podría saltar una interrupción con RSP apuntando todavía a la pila
-        // del usuario, y el kernel correría sobre memoria que el usuario
-        // controla. DF se apaga porque el ABI lo da por hecho.
+        // Which flags are cleared on entry. IF is critical: without clearing
+        // it an interrupt could fire while RSP still points to the user stack.
         write_msr(IA32_FMASK, (1 << 9) | (1 << 10));
     }
 }
 
-/// Reserva y mapea la pila del programa de usuario.
+/// Allocates and maps the user program stack.
 ///
 /// # Safety
-/// Solo una vez, y el rango no debe pisar nada del kernel.
+/// Call only once; the range must not overlap kernel memory.
 pub unsafe fn map_user_stack(
     mapper: &mut Mapper,
     allocator: &mut FrameAllocator,
 ) -> Result<u64, &'static str> {
     for page in 0..USER_STACK_PAGES {
         let address = USER_STACK_TOP - (page + 1) * PAGE_SIZE;
-        let frame = allocator.allocate().ok_or("sin marcos para la pila")?;
+        let frame = allocator.allocate().ok_or("no frames for user stack")?;
         unsafe { mapper.map(address, frame, PRESENT | WRITABLE | USER, allocator)? };
     }
     Ok(USER_STACK_TOP)
 }
 
-/// Salta al anillo 3 y no vuelve hasta que el programa muera.
+/// Drops to ring 3 and does not return until the program exits.
 ///
 /// # Safety
-/// `entry` y `stack_top` deben apuntar a páginas mapeadas con el bit de
-/// usuario. El programa recibe control total de la CPU en anillo 3.
+/// `entry` and `stack_top` must point to pages mapped with the user bit.
 pub unsafe fn enter(entry: u64, stack_top: u64, mode: u64) -> u64 {
     unsafe {
         core::arch::asm!(
-            // Los registros que el ABI obliga a preservar se guardan a mano:
-            // el programa de usuario puede dejarlos como quiera.
+            // Save callee-saved registers: the user program may trash them.
             "push rbp",
             "push rbx",
             "push r12",
@@ -104,17 +105,17 @@ pub unsafe fn enter(entry: u64, stack_top: u64, mode: u64) -> u64 {
             "push r14",
             "push r15",
 
-            // Apuntar dónde volver. El programa no regresa con un `ret`:
-            // muere, y el kernel se restaura desde aquí.
+            // Record where to return. The program does not return with `ret`:
+            // it dies, and the kernel restores itself from here.
             "lea rax, [rip + 2f]",
             "mov [rip + {kernel_rip}], rax",
             "mov [rip + {kernel_rsp}], rsp",
 
             "mov rsp, {user_stack}",
-            // `sysret` salta a RCX con las banderas de R11, en anillo 3.
+            // `sysretq` jumps to RCX with RFLAGS from R11, in ring 3.
             "sysretq",
 
-            // Aquí aterriza `return_to_kernel`.
+            // Landing pad for `return_to_kernel`.
             "2:",
             "pop r15",
             "pop r14",
@@ -127,12 +128,11 @@ pub unsafe fn enter(entry: u64, stack_top: u64, mode: u64) -> u64 {
             kernel_rsp = sym KERNEL_RSP,
             user_stack = in(reg) stack_top,
 
-            // RCX y R11 no son argumentos: `sysret` los interpreta como la
-            // dirección de destino y las banderas. 0x202 deja IF activo, para
-            // que el temporizador siga corriendo durante el programa.
+            // RCX and R11 are not arguments: `sysret` interprets them as the
+            // destination address and flags. 0x202 leaves IF active.
             inlateout("rcx") entry => _,
             inlateout("r11") 0x202u64 => _,
-            // Primer argumento de la función `_start` del programa.
+            // First argument to the user `_start`.
             inlateout("rdi") mode => _,
 
             lateout("rax") _,
@@ -146,13 +146,10 @@ pub unsafe fn enter(entry: u64, stack_top: u64, mode: u64) -> u64 {
     EXIT_CODE.load(Ordering::Relaxed)
 }
 
-/// Abandona el programa de usuario y devuelve el control al kernel.
-///
-/// Es lo que un SO llama «matar un proceso»: se descarta su estado sin más
-/// ceremonia y se restaura el del kernel.
+/// Kills the user process and returns control to the kernel.
 pub fn return_to_kernel(code: u64) -> ! {
     EXIT_CODE.store(code, Ordering::Relaxed);
-    // SAFETY: KERNEL_RSP y KERNEL_RIP los dejó `enter` antes de saltar.
+    // SAFETY: KERNEL_RSP and KERNEL_RIP were set by `enter` before jumping.
     unsafe {
         core::arch::asm!(
             "mov rsp, [rip + {kernel_rsp}]",
@@ -164,33 +161,28 @@ pub fn return_to_kernel(code: u64) -> ! {
     }
 }
 
-/// El punto de entrada de `syscall`, en ensamblador puro.
+/// The `syscall` entry point, in pure assembly.
 ///
-/// Tiene que ser `naked` porque lo primero que hace —cambiar de pila— es
-/// incompatible con cualquier prólogo que el compilador pudiera generar: al
-/// entrar aquí, RSP todavía apunta a la pila del usuario.
+/// Must be `naked` because the very first thing — switching stacks — is
+/// incompatible with any compiler-generated prologue.
 #[unsafe(naked)]
 unsafe extern "C" fn syscall_entry() {
     core::arch::naked_asm!(
-        // Guardar la pila del usuario y cambiar a la del kernel. Hasta que
-        // esto termina, el kernel está corriendo sobre memoria que el usuario
-        // controla — es la ventana más delicada de todo el sistema.
+        // Save user stack and switch to the kernel's.
         "mov [rip + {user_rsp}], rsp",
         "mov rsp, [rip + {syscall_stack}]",
 
-        // RCX y R11 traen el retorno; `sysretq` los necesita intactos.
+        // RCX and R11 carry the return address; `sysretq` needs them intact.
         "push rcx",
         "push r11",
 
-        // Traducir nuestra convención (RAX = número, RDI/RSI/RDX = argumentos)
-        // a la de C, que espera el primer argumento en RDI. Se mueve de
-        // derecha a izquierda para no pisar lo que aún no se ha leído.
+        // Translate our ABI (RAX = number, RDI/RSI/RDX = args) to the C ABI.
         "mov rcx, rdx",
         "mov rdx, rsi",
         "mov rsi, rdi",
         "mov rdi, rax",
         "call {handler}",
-        // El resultado vuelve en RAX, que es donde el usuario lo espera.
+        // Result comes back in RAX, which is where the user expects it.
 
         "pop r11",
         "pop rcx",
@@ -205,51 +197,79 @@ unsafe extern "C" fn syscall_entry() {
 
 extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, _arg3: u64) -> u64 {
     match number {
-        SYS_WRITE => sys_write(arg1, arg2),
-        SYS_EXIT => return_to_kernel(arg1),
+        syscall::SYS_EXIT => return_to_kernel(arg1),
+        syscall::SYS_WRITE => sys_write(arg1, arg2),
+        syscall::SYS_READ => sys_read(arg1, arg2),
+        syscall::SYS_YIELD => sys_yield(),
+        syscall::SYS_GETPID => sys_getpid(),
+        syscall::SYS_MMAP => sys_mmap(arg1),
         _ => {
-            println!("  llamada al sistema desconocida: {number}");
+            println!("  unknown syscall: {number}");
             u64::MAX
         }
     }
 }
 
-/// El límite del espacio de usuario en x86-64: las direcciones canónicas
-/// altas son del kernel.
-const USER_LIMIT: u64 = 0x0000_8000_0000_0000;
-const MAX_WRITE: u64 = 4096;
-
 fn sys_write(pointer: u64, length: u64) -> u64 {
-    // Todo puntero que venga del usuario es hostil hasta que se demuestre lo
-    // contrario. Sin esta comprobación, el programa podría pedirle al kernel
-    // que imprimiera memoria del kernel — el propio kernel sería su lector.
-    if pointer == 0 || length > MAX_WRITE {
-        return u64::MAX;
-    }
-    let Some(end) = pointer.checked_add(length) else {
-        return u64::MAX;
-    };
-    if end > USER_LIMIT {
+    // Every pointer from userspace is hostile until validated.
+    if !syscall::validate_user_buffer(pointer, length) {
         return u64::MAX;
     }
 
-    // LIMITACIÓN: se comprueba el RANGO, no que las páginas estén mapeadas.
-    // Un puntero a una página ausente provocaría un fallo dentro del kernel.
-    // Lo correcto es una copia que sepa fallar; queda para la fase de
-    // llamadas al sistema de verdad.
+    // LIMITATION: we check the RANGE, not that the pages are mapped.
     let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length as usize) };
 
     match core::str::from_utf8(bytes) {
         Ok(text) => {
-            print!("     [usuario] {text}");
+            print!("     [user] {text}");
             length
         }
         Err(_) => u64::MAX,
     }
 }
 
+fn sys_read(pointer: u64, max_length: u64) -> u64 {
+    if !syscall::validate_user_buffer(pointer, max_length) {
+        return u64::MAX;
+    }
+
+    // Non-blocking: return 0 if no input is available.
+    // TODO: wire to the keyboard ring buffer when the keyboard task is active.
+    0
+}
+
+fn sys_yield() -> u64 {
+    // Voluntarily yield to the scheduler by halting until the next interrupt.
+    unsafe {
+        core::arch::asm!("sti; hlt", options(nomem, nostack));
+    }
+    0
+}
+
+fn sys_getpid() -> u64 {
+    CURRENT_PID.load(Ordering::Relaxed)
+}
+
+fn sys_mmap(requested_size: u64) -> u64 {
+    if requested_size == 0 || requested_size > 16 * PAGE_SIZE {
+        return u64::MAX;
+    }
+
+    // Round up to page boundary.
+    let pages = (requested_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let size = pages * PAGE_SIZE;
+
+    let addr = MMAP_NEXT.fetch_add(size, Ordering::Relaxed);
+
+    // We cannot actually map pages here without the mapper/allocator, which
+    // are not accessible from the syscall handler. For now, report the
+    // address that WOULD be mapped. The kernel main will pre-map a pool.
+    // TODO: pass mapper/allocator through a global or per-CPU structure.
+    addr
+}
+
 /// # Safety
-/// Leer un MSR inexistente provoca un fallo de protección general.
+/// Reading a non-existent MSR causes a general protection fault.
 unsafe fn read_msr(msr: u32) -> u64 {
     let (high, low): (u32, u32);
     unsafe {
@@ -265,8 +285,7 @@ unsafe fn read_msr(msr: u32) -> u64 {
 }
 
 /// # Safety
-/// Escribir un MSR cambia el comportamiento de la CPU. Un valor inválido
-/// puede tumbar la máquina.
+/// Writing an MSR changes CPU behaviour. An invalid value can crash the machine.
 unsafe fn write_msr(msr: u32, value: u64) {
     unsafe {
         core::arch::asm!(

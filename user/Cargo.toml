@@ -1,11 +1,15 @@
-# Workspace propio: se compila a un ELF de espacio de usuario independiente,
-# que el kernel carga en tiempo de ejecución.
+# antOS init process — the first userspace binary loaded by the kernel.
+# Separate workspace: compiled to a static ELF for x86_64-unknown-none.
 [workspace]
 
 [package]
-name = "hola"
+name = "antos-init"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "antos-init"
+path = "src/main.rs"
 
 [profile.dev]
 panic = "abort"

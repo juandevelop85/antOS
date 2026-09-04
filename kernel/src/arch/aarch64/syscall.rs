@@ -1,4 +1,4 @@
-//! System call handling and userspace transition (EL0) for AArch64.
+//! System call handling and userspace transition (EL0) for AArch64 (T22.5).
 //!
 //! Implements syscall dispatch for `svc #0` (EC 0x15), userspace transition
 //! via `eret` to EL0, and return to kernel on `SYS_EXIT`.
@@ -6,14 +6,14 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 use crate::arch::aarch64::exceptions::ExceptionContext;
 use crate::arch::traits::ArchSyscall;
+use crate::syscall;
 use crate::println;
-
-pub const SYS_WRITE: u64 = 0;
-pub const SYS_EXIT: u64 = 1;
-pub const SYS_YIELD: u64 = 2;
 
 static KERNEL_SP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_LR: AtomicU64 = AtomicU64::new(0);
+
+/// Current process ID (always 1 for init).
+static CURRENT_PID: AtomicU64 = AtomicU64::new(1);
 
 pub struct ArmSyscall;
 
@@ -41,11 +41,18 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
     let syscall_no = ctx.x[8];
 
     match syscall_no {
-        SYS_WRITE => {
+        syscall::SYS_EXIT => {
+            let exit_code = ctx.x[0];
+            unsafe {
+                return_to_kernel(exit_code);
+            }
+        }
+
+        syscall::SYS_WRITE => {
             let ptr = ctx.x[0] as *const u8;
             let len = ctx.x[1] as usize;
 
-            if !ptr.is_null() && len > 0 {
+            if !ptr.is_null() && len > 0 && syscall::validate_user_buffer(ctx.x[0], len as u64) {
                 // Safety: buffer is located in mapped user space
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
                 if let Ok(s) = core::str::from_utf8(slice) {
@@ -54,24 +61,30 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                     }
                 }
             }
-            // On SVC exceptions, ELR_EL1 already holds the address of the next instruction
             ctx.x[0] = len as u64;
         }
 
-        SYS_EXIT => {
-            let exit_code = ctx.x[0];
-            unsafe {
-                return_to_kernel(exit_code);
-            }
+        syscall::SYS_READ => {
+            // Non-blocking: return 0 if no input available.
+            ctx.x[0] = 0;
         }
 
-        SYS_YIELD => {
+        syscall::SYS_YIELD => {
             crate::arch::aarch64::exceptions::wait_for_interrupt();
             ctx.x[0] = 0;
         }
 
+        syscall::SYS_GETPID => {
+            ctx.x[0] = CURRENT_PID.load(Ordering::Relaxed);
+        }
+
+        syscall::SYS_MMAP => {
+            // TODO: implement real page allocation for AArch64.
+            ctx.x[0] = u64::MAX;
+        }
+
         _ => {
-            println!("  syscall desconocida: {}", syscall_no);
+            println!("  unknown syscall: {}", syscall_no);
             ctx.x[0] = !0u64; // -1
         }
     }
@@ -160,7 +173,7 @@ pub unsafe fn setup_test_userspace() -> (u64, u64, u64, u64) {
     let msg_addr = entry_addr + 0x1000;
     let stack_top = entry_addr + 0x0010_0000;
 
-    let msg = b"  userspace    \xC2\xA1saludo desde espacio de usuario (EL0) via svc #0!\n";
+    let msg = b"  userspace    antOS init running in EL0 via svc #0!\n";
     core::ptr::copy_nonoverlapping(msg.as_ptr(), msg_addr as *mut u8, msg.len());
 
     let src = user_test_entry as *const u8;
@@ -182,11 +195,13 @@ pub unsafe fn setup_test_userspace() -> (u64, u64, u64, u64) {
 }
 
 /// Standalone assembly routine executed by EL0.
+///
+/// Uses the formal ABI: SYS_WRITE=2, SYS_EXIT=1.
 #[no_mangle]
 #[link_section = ".text.user"]
 pub unsafe extern "C" fn user_test_entry() {
     core::arch::asm!(
-        "mov x8, #0", // SYS_WRITE: x0 = ptr, x1 = len
+        "mov x8, #2", // SYS_WRITE: x0 = ptr, x1 = len
         "svc #0",
 
         "mov x8, #1", // SYS_EXIT
