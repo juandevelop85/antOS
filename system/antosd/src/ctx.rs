@@ -15,6 +15,7 @@
 use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone)]
 pub struct Ctx {
     /// The sole location where capabilities are allowed to touch files.
     pub workspace: PathBuf,
