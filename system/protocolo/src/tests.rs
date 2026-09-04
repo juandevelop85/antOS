@@ -1744,4 +1744,37 @@ use crate::*;
         assert_eq!(console, des_cons);
     }
 
+    #[test]
+    fn test_storage_and_kernel_vfs_models() {
+        let blk = BlockDeviceStats {
+            device_type: StorageDeviceType::VirtioBlk,
+            capacity_sectors: 3098,
+            sector_size: 512,
+            capacity_bytes: 3098 * 512,
+            pci_address: Some("0:4.0".into()),
+        };
+        let json_blk = serde_json::to_string(&blk).expect("serialize blk stats");
+        let des_blk: BlockDeviceStats = serde_json::from_str(&json_blk).expect("deserialize blk stats");
+        assert_eq!(blk, des_blk);
+
+        let mount = KernelVfsMount {
+            mount_point: "/".into(),
+            fs_type: "tarfs".into(),
+            total_files: 4,
+            read_only: true,
+        };
+        let json_mount = serde_json::to_string(&mount).expect("serialize mount");
+        let des_mount: KernelVfsMount = serde_json::from_str(&json_mount).expect("deserialize mount");
+        assert_eq!(mount, des_mount);
+
+        let node = KernelVfsNode {
+            path: "/bin/init".into(),
+            size: 790672,
+            is_dir: false,
+        };
+        let json_node = serde_json::to_string(&node).expect("serialize node");
+        let des_node: KernelVfsNode = serde_json::from_str(&json_node).expect("deserialize node");
+        assert_eq!(node, des_node);
+    }
+
 

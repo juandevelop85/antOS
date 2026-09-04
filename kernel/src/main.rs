@@ -17,6 +17,9 @@ mod allocator;
 pub mod arch;
 #[cfg(target_arch = "x86_64")]
 pub mod console;
+#[cfg(target_arch = "x86_64")]
+pub mod drivers;
+pub mod fs;
 #[allow(dead_code)]
 mod elf;
 #[allow(dead_code)]
@@ -28,10 +31,13 @@ pub mod syscall;
 mod task;
 
 #[cfg(target_arch = "x86_64")]
+pub static EMBEDDED_INITRD: &[u8] = include_bytes!(env!("INITRD_TAR"));
+
+#[cfg(target_arch = "x86_64")]
 pub use arch::current::{gdt, interrupts, port, serial, userspace};
 
 #[cfg(target_arch = "aarch64")]
-pub use arch::current::{entry, exceptions, mmu, pl011, serial, syscall};
+pub use arch::current::{entry, exceptions, mmu, pl011, serial};
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -227,20 +233,95 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     interrupts::enable();
     println!("  interrupts   enabled");
 
+    // ── Secondary Storage (VirtIO-blk) and VFS (T23.4) ────────────────────
     println!();
-    println!("\x1b[1;35mespacio de usuario\x1b[0m");
+    println!("\x1b[1;36malmacenamiento secundario (VirtIO-blk) y VFS (T23.4)\x1b[0m");
+
+    let pci_devices = drivers::pci::scan_pci_bus();
+    let mut virtio_blk_found = false;
+
+    for dev in &pci_devices {
+        if dev.vendor_id == drivers::virtio_blk::VIRTIO_VENDOR_ID
+            && (dev.device_id == drivers::virtio_blk::VIRTIO_DEV_BLOCK_LEGACY
+                || dev.device_id == drivers::virtio_blk::VIRTIO_DEV_BLOCK_MODERN
+                || dev.subsystem_device_id == 2)
+        {
+            if let Some(phys0) = frames.allocate_contiguous(4) {
+                let virt_ptr = (phys0 + physical_offset) as *mut u8;
+                match unsafe { drivers::virtio_blk::VirtioBlock::init(dev, virt_ptr, phys0) } {
+                    Ok(blk) => {
+                        let cap_mb = blk.capacity_bytes() / (1024 * 1024);
+                        let sectors = blk.capacity_sectors();
+                        println!(
+                            "  virtio-blk   PCI {}:{}.{} · {} sectores ({} MiB)",
+                            dev.bus, dev.slot, dev.func, sectors, cap_mb
+                        );
+                        *drivers::virtio_blk::BLOCK_DEVICE.lock() = Some(blk);
+                        virtio_blk_found = true;
+                    }
+                    Err(e) => {
+                        println!("  advertencia  fallo al inicializar virtio-blk: {:?}", e);
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    if !virtio_blk_found {
+        println!("  virtio-blk   no detectado en bus PCI · usando ramdisk en memoria");
+    }
+
+    // Mount root filesystem: prefer block device if available, else embedded initrd
+    let root_fs = if virtio_blk_found {
+        match fs::tarfs::TarFs::from_block_device() {
+            Ok(tfs) => {
+                println!("  tarfs        montado desde dispositivo de bloque VirtIO (/dev/vda)");
+                Some(tfs)
+            }
+            Err(_) => {
+                println!("  tarfs        fallback a ramdisk en memoria");
+                fs::tarfs::TarFs::from_memory(EMBEDDED_INITRD).ok()
+            }
+        }
+    } else {
+        fs::tarfs::TarFs::from_memory(EMBEDDED_INITRD).ok()
+    };
+
+    if let Some(tfs) = root_fs {
+        println!("  vfs          raíz montada · {} ficheros indexados:", tfs.entry_count());
+        for entry in tfs.all_entries() {
+            let kind = if entry.is_dir { "DIR " } else { "FILE" };
+            println!("    [{kind}] {:<18} ({:>6} B)", entry.path, entry.size);
+        }
+        fs::vfs::mount_root(tfs);
+    } else {
+        panic!("no se pudo montar el sistema de ficheros raíz (VFS)");
+    }
+
+    if let Ok(conf_str) = fs::vfs::read_to_string("/etc/antos.conf") {
+        println!("  config       /etc/antos.conf cargado ({} B)", conf_str.len());
+    }
+
+    println!();
+    println!("\x1b[1;35mespacio de usuario (cargador dinámico VFS)\x1b[0m");
 
     userspace::init();
     println!("  syscall      habilitado · el anillo 3 ya tiene por dónde entrar");
 
-    // El programa va incrustado en el binario del kernel. En un sistema con
-    // disco lo leería un cargador; mientras no lo haya, viaja dentro.
-    let image = include_bytes!(env!("USER_BINARY"));
-    println!("  programa     ELF de {} KiB incrustado", image.len() / 1024);
+    // Desacoplamiento de include_bytes!: cargar dinámicamente desde /bin/init en VFS
+    let init_bytes = fs::vfs::read_all("/bin/init")
+        .expect("no pude leer /bin/init desde el VFS");
+    println!("  cargador     ELF dinámico de {} KiB cargado desde VFS (/bin/init)", init_bytes.len() / 1024);
 
-    // SAFETY: el ELF lo hemos compilado nosotros en el mismo repositorio.
-    let entry = unsafe { elf::load(image, &mut mapper, &mut frames) }
-        .expect("no pude cargar el programa de usuario");
+    // Verificar carga de segundo ejecutable ELF (/bin/worker) desde VFS
+    let worker_bytes = fs::vfs::read_all("/bin/worker")
+        .expect("no pude leer /bin/worker desde el VFS");
+    println!("  segundo ELF  {} KiB verificado desde VFS (/bin/worker)", worker_bytes.len() / 1024);
+
+    // SAFETY: el ELF lo hemos compilado nosotros y cargado desde el VFS
+    let entry = unsafe { elf::load(&init_bytes, &mut mapper, &mut frames) }
+        .expect("no pude cargar el programa de usuario desde VFS");
     // SAFETY: el rango de pila no lo usa nadie más.
     let user_stack = unsafe { userspace::map_user_stack(&mut mapper, &mut frames) }
         .expect("no pude mapear la pila de usuario");

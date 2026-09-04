@@ -216,6 +216,23 @@ impl FrameAllocator {
         frame
     }
 
+    /// Allocates `count` contiguous physical frames (4 KiB each).
+    pub fn allocate_contiguous(&mut self, count: usize) -> Option<u64> {
+        if count == 0 {
+            return None;
+        }
+        let first = self.usable_frames().nth(self.next)?;
+        for i in 1..count {
+            let next_frame = self.usable_frames().nth(self.next + i)?;
+            if next_frame != first + (i as u64) * PAGE_SIZE {
+                self.next += 1;
+                return self.allocate_contiguous(count);
+            }
+        }
+        self.next += count;
+        Some(first)
+    }
+
     pub fn frames_handed_out(&self) -> usize {
         self.next
     }
@@ -227,7 +244,7 @@ impl FrameAllocator {
 /// No hace falta que se corresponda con memoria física contigua: para eso
 /// existe la paginación.
 pub const HEAP_START: u64 = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 512 * 1024;
+pub const HEAP_SIZE: usize = 4 * 1024 * 1024;
 
 /// Reserva marcos y los mapea al rango virtual del heap.
 ///

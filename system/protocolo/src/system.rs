@@ -706,4 +706,44 @@ pub struct ConsoleInfoModel {
     pub ansi_enabled: bool,
 }
 
+// ----------------------------------------------------------- secondary storage & kernel vfs (T23.4)
+
+/// Storage device transport or virtual interface type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageDeviceType {
+    VirtioBlk,
+    Ramdisk,
+    Nvme,
+    Ahci,
+    Unknown,
+}
+
+/// Statistics and configuration of a storage block device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockDeviceStats {
+    pub device_type: StorageDeviceType,
+    pub capacity_sectors: u64,
+    pub sector_size: usize,
+    pub capacity_bytes: u64,
+    pub pci_address: Option<String>,
+}
+
+/// Information about a filesystem mounted in the kernel VFS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KernelVfsMount {
+    pub mount_point: String,
+    pub fs_type: String,
+    pub total_files: usize,
+    pub read_only: bool,
+}
+
+/// Details of a specific node or entry inside the kernel VFS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KernelVfsNode {
+    pub path: String,
+    pub size: usize,
+    pub is_dir: bool,
+}
+
 

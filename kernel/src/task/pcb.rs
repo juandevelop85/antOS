@@ -103,6 +103,11 @@ impl CpuContext {
             ..Default::default()
         }
     }
+
+    #[inline]
+    pub fn stack_pointer(&self) -> u64 {
+        self.rsp
+    }
 }
 
 /// Hardware register state for context saving on AArch64.
@@ -118,6 +123,11 @@ pub struct CpuContext {
 
 #[cfg(target_arch = "aarch64")]
 impl CpuContext {
+    #[inline]
+    pub fn stack_pointer(&self) -> u64 {
+        self.elr_el1
+    }
+
     /// Creates a fresh user mode context for EL0.
     pub fn new_user(entry: u64, user_sp: u64, arg: u64) -> Self {
         let mut ctx = Self::default();

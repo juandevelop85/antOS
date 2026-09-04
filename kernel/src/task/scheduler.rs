@@ -156,7 +156,7 @@ impl Scheduler {
                 0,
                 0,
                 0,
-                ctx.rsp,
+                ctx.stack_pointer(),
                 10,
                 *ctx,
                 self.default_quantum,
