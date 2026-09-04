@@ -442,6 +442,18 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 let n_str = number.map(|n| format!("#{n}")).unwrap_or_else(|| "más reciente".into());
                 out.push(Line::Info(format!("consulta el estado de integración continua del Pull Request {n_str}")));
             }
+            Change::DocArch { kind, .. } => {
+                let k_str = kind.as_deref().unwrap_or("completo");
+                out.push(Line::Info(format!("genera diagrama vivo de arquitectura en formato Mermaid («{k_str}»)")));
+            }
+            Change::DocSync { target_file, .. } => {
+                let f_str = target_file.as_deref().unwrap_or("docs/arquitectura.md");
+                out.push(Line::Info(format!("sincroniza e incrusta diagramas de arquitectura en «{f_str}»")));
+            }
+            Change::DocCheck { target_file, .. } => {
+                let f_str = target_file.as_deref().unwrap_or("docs/arquitectura.md");
+                out.push(Line::Info(format!("comprueba en modo CI si «{f_str}» está sincronizado con el código")));
+            }
         }
         pendiente.aplicar(change);
     }

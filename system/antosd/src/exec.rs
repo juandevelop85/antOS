@@ -475,6 +475,21 @@ pub enum Change {
         state_dir: PathBuf,
         number: Option<u64>,
     },
+    /// T21.3 — Generate live architecture diagrams in Mermaid.
+    DocArch {
+        workspace: PathBuf,
+        kind: Option<String>,
+    },
+    /// T21.3 — Synchronize architecture diagrams into markdown files.
+    DocSync {
+        workspace: PathBuf,
+        target_file: Option<String>,
+    },
+    /// T21.3 — Check if architecture documentation is in sync with workspace.
+    DocCheck {
+        workspace: PathBuf,
+        target_file: Option<String>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -614,7 +629,10 @@ impl Pendiente {
             | Change::IssueList { .. }
             | Change::IssueImport { .. }
             | Change::PrCreate { .. }
-            | Change::PrStatus { .. } => {}
+            | Change::PrStatus { .. }
+            | Change::DocArch { .. }
+            | Change::DocSync { .. }
+            | Change::DocCheck { .. } => {}
         }
     }
 }
@@ -1687,6 +1705,30 @@ pub fn changes_for(
             Ok(vec![Change::PrStatus {
                 state_dir: ctx.state.clone(),
                 number,
+            }])
+        }
+
+        "doc.arch" => {
+            let kind = a.get("kind").cloned();
+            Ok(vec![Change::DocArch {
+                workspace: ctx.workspace.clone(),
+                kind,
+            }])
+        }
+
+        "doc.sync" => {
+            let target_file = a.get("target").cloned();
+            Ok(vec![Change::DocSync {
+                workspace: ctx.workspace.clone(),
+                target_file,
+            }])
+        }
+
+        "doc.check" => {
+            let target_file = a.get("target").cloned();
+            Ok(vec![Change::DocCheck {
+                workspace: ctx.workspace.clone(),
+                target_file,
             }])
         }
 
@@ -3010,6 +3052,40 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     if status.mergeable { "Limpia" } else { "Conflictos" },
                     status.ci_status.as_deref().unwrap_or("—"),
                     status.url,
+                ));
+            }
+            Change::DocArch { workspace, kind } => {
+                let k = match kind.as_deref() {
+                    Some("components") | Some("c4") | Some("comp") => antos_protocol::ArchDiagramKind::Components,
+                    Some("flow") | Some("ipc") => antos_protocol::ArchDiagramKind::IpcFlow,
+                    Some("antflow") | Some("state") => antos_protocol::ArchDiagramKind::AntFlow,
+                    _ => antos_protocol::ArchDiagramKind::Full,
+                };
+                let report = crate::doc_arch::DocArchEngine::generate_diagram(workspace, k);
+                output.push(format!(
+                    "📐 antOS Doc Arch · Diagrama [{}]\n  • Crates:       {}\n  • Módulos:      {}\n  • Capacidades:  {}\n\n```mermaid\n{}\n```",
+                    report.kind.name(),
+                    report.crates_count,
+                    report.modules_count,
+                    report.caps_count,
+                    report.mermaid_content,
+                ));
+            }
+            Change::DocSync { workspace, target_file } => {
+                let report = crate::doc_arch::DocArchEngine::sync_docs(workspace, target_file.as_deref())?;
+                output.push(format!(
+                    "🔄 antOS Doc Sync · {}\n  • Escaneados:   {}\n  • Actualizados: {}",
+                    report.message,
+                    report.files_scanned,
+                    report.files_updated,
+                ));
+            }
+            Change::DocCheck { workspace, target_file } => {
+                let report = crate::doc_arch::DocArchEngine::check_docs(workspace, target_file.as_deref())?;
+                output.push(format!(
+                    "🔍 antOS Doc Check · {}\n  • En sincronía: {}",
+                    report.message,
+                    report.in_sync,
                 ));
             }
         }

@@ -1,0 +1,11 @@
+name = "doc.arch"
+summary = "Genera diagramas de arquitectura vivos en formato Mermaid a partir del código del workspace"
+
+[params]
+kind = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

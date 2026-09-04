@@ -19,6 +19,7 @@ pub mod desktop;
 pub mod dev_tui;
 pub mod diff_view;
 pub mod distributed;
+pub mod doc_arch;
 pub mod ebpf;
 pub mod env;
 mod exec;
@@ -159,6 +160,7 @@ fn run() -> Result<()> {
         "bench" | "benchmark" => cmd_bench(&ctx, &rest[1..]),
         "issue" | "issues" => cmd_issue(&ctx, &rest[1..]),
         "pr" | "pull-request" => cmd_pr(&ctx, &rest[1..]),
+        "doc" | "docs" => cmd_doc(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
@@ -4318,6 +4320,102 @@ fn cmd_pr(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 }
 
+// ------------------------------------------------ live architecture & mermaid (T21.3)
+
+fn cmd_doc(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("arch");
+    match sub {
+        "arch" | "diagram" => {
+            let mut kind_str = "full";
+            let mut output_file = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--type" | "-t" => {
+                        if let Some(k) = args.get(i + 1) {
+                            kind_str = k.as_str();
+                            i += 1;
+                        }
+                    }
+                    "--output" | "-o" => {
+                        if let Some(o) = args.get(i + 1) {
+                            output_file = Some(o.as_str());
+                            i += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            let kind = match kind_str {
+                "components" | "c4" | "comp" => antos_protocol::ArchDiagramKind::Components,
+                "flow" | "ipc" => antos_protocol::ArchDiagramKind::IpcFlow,
+                "antflow" | "state" => antos_protocol::ArchDiagramKind::AntFlow,
+                _ => antos_protocol::ArchDiagramKind::Full,
+            };
+
+            let report = doc_arch::DocArchEngine::generate_diagram(&ctx.workspace, kind);
+
+            if let Some(out_path) = output_file {
+                let p = std::path::Path::new(out_path);
+                std::fs::write(p, &report.mermaid_content)?;
+                println!(
+                    "\n{} Diagrama Mermaid guardado en: {}\n",
+                    paint("📐 antOS Doc Arch ·", BOLD),
+                    paint(out_path, CYAN)
+                );
+            } else {
+                println!("\n{}", paint("📐 antOS Living Architecture · Diagramas Vivos de Arquitectura (T21.3)", BOLD));
+                println!("  Tipo:         {}", paint(report.kind.name(), CYAN));
+                println!("  Topología:    {} crates | {} módulos demonio | {} capacidades",
+                    paint(&report.crates_count.to_string(), CYAN),
+                    paint(&report.modules_count.to_string(), CYAN),
+                    paint(&report.caps_count.to_string(), CYAN)
+                );
+                println!("\n```mermaid\n{}\n```\n", report.mermaid_content);
+            }
+            Ok(())
+        }
+        "sync" => {
+            let target_file = args.get(1).map(String::as_str);
+            println!("\n{}", paint("🔄 antOS Doc Sync · Sincronizando Documentación Viva de Arquitectura (T21.3)", BOLD));
+
+            let report = doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file)?;
+
+            println!("  Archivos escaneados:    {}", paint(&report.files_scanned.to_string(), CYAN));
+            println!("  Archivos actualizados:  {}", paint(&report.files_updated.to_string(), GREEN));
+            for p in &report.updated_paths {
+                println!("    • {}", paint(p, CYAN));
+            }
+            println!("  Resultado:              {}\n", report.message);
+            Ok(())
+        }
+        "check" => {
+            let target_file = args.get(1).map(String::as_str);
+            println!("\n{}", paint("🔍 antOS Doc Check · Verificación de Sincronización Arquitectónica (T21.3)", BOLD));
+
+            match doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file) {
+                Ok(report) => {
+                    println!("  {}\n", paint(&report.message, GREEN));
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("  {}\n", paint(&format!("❌ {}", e), RED));
+                    bail!("{e}");
+                }
+            }
+        }
+        _ => {
+            println!("\nUso:");
+            println!("  antos doc arch [--type components|flow|antflow|all] [--output <file>]");
+            println!("  antos doc sync [--file <path>]    Sincroniza e incrusta diagramas en markdown");
+            println!("  antos doc check [--file <path>]   Verifica modo CI si la doc está sincronizada\n");
+            Ok(())
+        }
+    }
+}
+
 // ------------------------------------------------------------------ desktop
 
 fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -6794,6 +6892,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos bench [run|diff|history] benchmarking continuo y detección de regresiones en worktrees (T21.1)
   antos issue [list|import]  sincronización e importación de issues remotos de GitHub/GitLab (T21.2)
   antos pr [create|status]   publicación y consulta de Pull Requests / Merge Requests certificados (T21.2)
+  antos doc [arch|sync|check] diagramas vivos de arquitectura y sincronización Mermaid en markdown (T21.3)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

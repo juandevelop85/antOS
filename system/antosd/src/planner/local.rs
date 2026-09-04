@@ -134,6 +134,10 @@ impl Planner for LocalPlanner {
             && !lower.contains("issue")
             && !lower.contains("pull")
             && !lower.contains("pr")
+            && !lower.contains("doc")
+            && !lower.contains("diagrama")
+            && !lower.contains("arquitectura")
+            && !lower.contains("mermaid")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -188,7 +192,7 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("git.commit_semantic", &params)]));
         }
 
-        if lower.contains("rama") || lower.contains("branch") {
+        if (lower.contains("rama") && !lower.contains("diagrama")) || lower.contains("branch") {
             let name = after(&words, &["rama", "branch", "llamada", "nombre"])
                 .unwrap_or_else(|| words.last().cloned().unwrap_or_else(|| "feature".into()));
             return Ok(Propuesta::solo(vec![step("git.smart_branch", &[("name", &name)])]));
@@ -657,6 +661,36 @@ impl Planner for LocalPlanner {
                     args.push(("title", t.as_str()));
                 }
                 return Ok(Propuesta::solo(vec![step("pr.create", &args)]));
+            }
+        }
+
+        // Intenciones de Documentación Viva y Diagramas Mermaid (T21.3)
+        if lower.contains("doc") || lower.contains("documentacion") || lower.contains("documentación") || lower.contains("diagrama") || lower.contains("arquitectura") || lower.contains("mermaid") {
+            if lower.contains("check") || lower.contains("verifica") || lower.contains("comprueba") || lower.contains("valida") {
+                let target = after(&words, &["fichero", "archivo", "doc", "en", "para"]);
+                let mut args = Vec::new();
+                if let Some(ref t) = target {
+                    args.push(("target", t.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("doc.check", &args)]));
+            } else if lower.contains("sync") || lower.contains("sincroniza") || lower.contains("actualiza") || lower.contains("incrusta") {
+                let target = after(&words, &["fichero", "archivo", "doc", "en", "para"]);
+                let mut args = Vec::new();
+                if let Some(ref t) = target {
+                    args.push(("target", t.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("doc.sync", &args)]));
+            } else if lower.contains("arch") || lower.contains("diagrama") || lower.contains("arquitectura") || lower.contains("mermaid") || lower.contains("c4") || lower.contains("topologia") || lower.contains("topología") {
+                let kind = if lower.contains("componentes") || lower.contains("c4") || lower.contains("topologia") || lower.contains("topología") {
+                    "components"
+                } else if lower.contains("flow") || lower.contains("flujo") || lower.contains("ipc") {
+                    "flow"
+                } else if lower.contains("antflow") || lower.contains("estado") || lower.contains("ciclo") {
+                    "antflow"
+                } else {
+                    "full"
+                };
+                return Ok(Propuesta::solo(vec![step("doc.arch", &[("kind", kind)])]));
             }
         }
 
@@ -1923,5 +1957,30 @@ mod tests {
             .expect("plan pr status");
         assert_eq!(p_status.steps.len(), 1);
         assert_eq!(p_status.steps[0].capability, "pr.status");
+    }
+
+    #[test]
+    fn test_plan_doc_arch_and_sync() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_arch = planner
+            .plan("genera diagrama de arquitectura", &catalog)
+            .expect("plan doc arch");
+        assert_eq!(p_arch.steps.len(), 1);
+        assert_eq!(p_arch.steps[0].capability, "doc.arch");
+
+        let p_sync = planner
+            .plan("sincroniza documentacion de arquitectura", &catalog)
+            .expect("plan doc sync");
+        assert_eq!(p_sync.steps.len(), 1);
+        assert_eq!(p_sync.steps[0].capability, "doc.sync");
+
+        let p_check = planner
+            .plan("verifica documentacion de arquitectura", &catalog)
+            .expect("plan doc check");
+        assert_eq!(p_check.steps.len(), 1);
+        assert_eq!(p_check.steps[0].capability, "doc.check");
     }
 }

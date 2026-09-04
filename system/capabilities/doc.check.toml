@@ -1,0 +1,11 @@
+name = "doc.check"
+summary = "Verifica en modo CI si la documentación de arquitectura está sincronizada con el código fuente"
+
+[params]
+target = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -1,0 +1,11 @@
+name = "doc.sync"
+summary = "Sincroniza e incrusta diagramas de arquitectura vivos en la documentación Markdown"
+
+[params]
+target = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "snapshot"

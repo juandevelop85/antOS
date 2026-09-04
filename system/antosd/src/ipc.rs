@@ -896,6 +896,28 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::GenerateArchDiagram { kind } => {
+            let k = match kind.as_deref() {
+                Some("components") | Some("c4") | Some("comp") => antos_protocol::ArchDiagramKind::Components,
+                Some("flow") | Some("ipc") => antos_protocol::ArchDiagramKind::IpcFlow,
+                Some("antflow") | Some("state") => antos_protocol::ArchDiagramKind::AntFlow,
+                _ => antos_protocol::ArchDiagramKind::Full,
+            };
+            let report = crate::doc_arch::DocArchEngine::generate_diagram(&ctx.workspace, k);
+            enviar(&mut escritura, &Event::ArchDiagram(report))?;
+        }
+        Request::SyncArchDocs { target_file } => {
+            match crate::doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file.as_deref()) {
+                Ok(report) => enviar(&mut escritura, &Event::DocSync(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::CheckArchDocs { target_file } => {
+            match crate::doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file.as_deref()) {
+                Ok(report) => enviar(&mut escritura, &Event::DocSync(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1406,6 +1428,16 @@ pub fn intencion_remota(
             }
             Event::PullRequestStatus(status) => {
                 pantalla.nota(&format!("🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]", status.number, status.title, status.state))?;
+            }
+            Event::ArchDiagram(report) => {
+                pantalla.nota(&format!("📐 antOS Doc Arch · {} ({} crates, {} módulos, {} caps)", report.kind.name(), report.crates_count, report.modules_count, report.caps_count))?;
+                pantalla.nota(&format!("```mermaid\n{}\n```", report.mermaid_content))?;
+            }
+            Event::DocSync(report) => {
+                pantalla.nota(&format!("🔄 antOS Doc Sync · {}", report.message))?;
+                for p in &report.updated_paths {
+                    pantalla.nota(&format!("  • Archivo: {p}"))?;
+                }
             }
             Event::Error(m) => bail!("{m}"),
         }

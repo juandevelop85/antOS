@@ -1759,6 +1759,50 @@ pub struct PullRequestStatusReport {
     pub url: String,
 }
 
+// ------------------------------------ live architecture & mermaid docs (T21.3)
+
+/// Diagram type for living architecture documentation (T21.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchDiagramKind {
+    Components,
+    IpcFlow,
+    AntFlow,
+    Full,
+}
+
+impl ArchDiagramKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ArchDiagramKind::Components => "C4 Componentes / Topología del Workspace",
+            ArchDiagramKind::IpcFlow => "Flujo de Datos y Contratos IPC",
+            ArchDiagramKind::AntFlow => "Ciclo de Vida Multi-Agente antFlow",
+            ArchDiagramKind::Full => "Arquitectura Completa y Diagramas Vivos",
+        }
+    }
+}
+
+/// Generated living architecture report (T21.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArchDiagramReport {
+    pub kind: ArchDiagramKind,
+    pub mermaid_content: String,
+    pub crates_count: usize,
+    pub modules_count: usize,
+    pub caps_count: usize,
+    pub generated_at_secs: u64,
+}
+
+/// Synchronization result of living architecture documentation in markdown files (T21.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocSyncReport {
+    pub files_scanned: usize,
+    pub files_updated: usize,
+    pub in_sync: bool,
+    pub updated_paths: Vec<String>,
+    pub message: String,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2165,6 +2209,21 @@ pub enum Request {
     GetPullRequestStatus {
         number: Option<u64>,
     },
+    /// Generate live architecture diagrams in Mermaid format (T21.3).
+    #[serde(alias = "GenerarDiagramaArquitectura")]
+    GenerateArchDiagram {
+        kind: Option<String>,
+    },
+    /// Synchronize architecture Mermaid diagrams in markdown documentation (T21.3).
+    #[serde(alias = "SincronizarDocumentacionArquitectura")]
+    SyncArchDocs {
+        target_file: Option<String>,
+    },
+    /// Check whether architecture documentation is in sync with workspace code (T21.3).
+    #[serde(alias = "VerificarDocumentacionArquitectura")]
+    CheckArchDocs {
+        target_file: Option<String>,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2493,6 +2552,12 @@ pub enum Event {
     /// Inspection report for Pull Request status (T21.2).
     #[serde(alias = "EstadoPullRequest")]
     PullRequestStatus(PullRequestStatusReport),
+    /// Generated architecture diagrams in Mermaid (T21.3).
+    #[serde(alias = "DiagramaArquitectura")]
+    ArchDiagram(ArchDiagramReport),
+    /// Result of architecture documentation sync or check (T21.3).
+    #[serde(alias = "SincronizacionDocumentacion")]
+    DocSync(DocSyncReport),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3933,6 +3998,42 @@ mod tests {
         let json_pr = serde_json::to_string(&ev_pr).expect("serialize pr");
         let des_pr: Event = serde_json::from_str(&json_pr).expect("deserialize pr");
         assert_eq!(ev_pr, des_pr);
+    }
+
+    #[test]
+    fn test_arch_doc_serialization() {
+        let report = ArchDiagramReport {
+            kind: ArchDiagramKind::Components,
+            mermaid_content: "graph TD\n  A[kernel] --> B[antosd]".into(),
+            crates_count: 5,
+            modules_count: 24,
+            caps_count: 36,
+            generated_at_secs: 1725440000,
+        };
+
+        let req = Request::GenerateArchDiagram {
+            kind: Some("components".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::ArchDiagram(report.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+
+        let sync_report = DocSyncReport {
+            files_scanned: 3,
+            files_updated: 1,
+            in_sync: true,
+            updated_paths: vec!["docs/arquitectura.md".into()],
+            message: "Documentación arquitectónica sincronizada con éxito.".into(),
+        };
+        let ev_sync = Event::DocSync(sync_report.clone());
+        let json_sync = serde_json::to_string(&ev_sync).expect("serialize ev_sync");
+        let des_sync: Event = serde_json::from_str(&json_sync).expect("deserialize ev_sync");
+        assert_eq!(ev_sync, des_sync);
     }
 }
 

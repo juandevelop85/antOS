@@ -60,6 +60,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.39 Instantáneas Atómicas de Entorno y Time Machine de Estado (`antos snapshot`)](#439-instantáneas-atómicas-de-entorno-y-time-machine-de-estado-antos-snapshot)
    - [4.40 Benchmarking Continuo y Detección de Regresiones de Rendimiento (`antos bench`)](#440-benchmarking-continuo-y-detección-de-regresiones-de-rendimiento-antos-bench)
    - [4.41 Sincronización con Forjas Git: Issues y Pull Requests (`antos issue` / `antos pr`)](#441-sincronización-con-forjas-git-issues-y-pull-requests-antos-issue--antos-pr)
+   - [4.42 Generador y Sincronizador de Documentación Viva y Diagramas Mermaid (`antos doc`)](#442-generador-y-sincronizador-de-documentación-viva-y-diagramas-mermaid-antos-doc)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1366,6 +1367,36 @@ antos "lista issues remotos"
 antos "importa issue 42"
 antos "crea pull request"
 antos "revisa estado del pull request"
+```
+
+---
+
+### 4.42 Generador y Sincronizador de Documentación Viva y Diagramas Mermaid (`antos doc`)
+
+Genera diagramas arquitectónicos vivos en formato Mermaid a partir del análisis en tiempo real del AST del workspace, los contratos IPC (`system/protocolo`) y el catálogo de capacidades (`system/capabilities`), manteniéndolos permanentemente sincronizados con el código fuente mediante bloques delimitados `<!-- ANTOS_ARCH_START -->`:
+
+```bash
+# 1. Generar e imprimir diagramas arquitectónicos en terminal
+antos doc arch                           # Arquitectura completa (C4 + Flujo IPC + antFlow)
+antos doc arch --type components         # Diagrama C4 de componentes y límites de seguridad
+antos doc arch --type flow               # Diagrama de secuencia de intenciones y eventos IPC
+antos doc arch --type antflow            # Diagrama de máquina de estados del equipo multi-agente
+
+# 2. Exportar diagrama Mermaid a un archivo
+antos doc arch --type components --output arquitectura.mmd
+
+# 3. Sincronizar e incrustar diagramas vivos en la documentación Markdown
+antos doc sync                           # Sincroniza docs/arquitectura.md y README.md
+antos doc sync docs/arquitectura.md      # Sincroniza un archivo específico
+
+# 4. Modo CI: Verificar que la documentación no haya divergido del código fuente
+antos doc check                          # Falla con código != 0 si la doc está desactualizada
+antos doc check docs/arquitectura.md
+
+# 5. Planificación declarativa en lenguaje natural
+antos "genera diagrama de arquitectura"
+antos "sincroniza documentacion de arquitectura"
+antos "verifica documentacion de arquitectura"
 ```
 
 ---
