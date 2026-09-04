@@ -71,6 +71,29 @@ impl<T> SpinLock<T> {
         }
         SpinGuard { lock: self, restore_interrupts }
     }
+
+    /// Attempts to acquire the lock without spinning.
+    /// Returns `Some(guard)` if acquired, `None` if the lock is held elsewhere.
+    pub fn try_lock(&self) -> Option<SpinGuard<'_, T>> {
+        let restore_interrupts = interrupts_enabled();
+        disable_interrupts();
+
+        if self
+            .locked
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            Some(SpinGuard {
+                lock: self,
+                restore_interrupts,
+            })
+        } else {
+            if restore_interrupts {
+                enable_interrupts();
+            }
+            None
+        }
+    }
 }
 
 /// Mientras vive, el cerrojo está tomado. Al caer, lo suelta.

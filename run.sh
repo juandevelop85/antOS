@@ -43,7 +43,7 @@ fi
 if [ "$MODO" = "test" ]; then
   echo ">> antOS: ejecutando prueba automatizada de arranque en QEMU (headless)..."
   python3 -c "
-import subprocess, sys
+import subprocess, sys, re
 
 cmd = [
     'qemu-system-x86_64',
@@ -55,15 +55,18 @@ cmd = [
 
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 try:
-    stdout, stderr = proc.communicate(timeout=4)
+    stdout, stderr = proc.communicate(timeout=7)
 except subprocess.TimeoutExpired:
     proc.kill()
     stdout, stderr = proc.communicate()
 
-if 'antOS · kernel x86_64' in stdout:
+clean_stdout = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', stdout)
+
+if 'antOS · kernel x86_64' in clean_stdout:
     print('✓ Verificación de arranque exitosa:')
     for line in stdout.splitlines():
-        if any(marker in line for marker in ['antOS · kernel', 'utilizable', 'interrupciones', 'gdt', 'idt', 'memoria virtual', 'asignador', 'anillo 3', 'el ejecutor toma el control']):
+        clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
+        if any(marker in clean_line for marker in ['antOS · kernel', 'utilizable', 'interrupciones', 'gdt', 'idt', 'memoria virtual', 'asignador', 'anillo 3', 'consola', 'el ejecutor toma el control']):
             print('  ' + line)
     sys.exit(0)
 else:

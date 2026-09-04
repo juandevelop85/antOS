@@ -672,3 +672,38 @@ pub struct SchedulerStats {
     pub preemption_enabled: bool,
 }
 
+// ----------------------------------------------------------- graphics console & framebuffer (T23.3)
+
+/// Pixel color format supported by the linear framebuffer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FramebufferFormat {
+    Rgb,
+    Bgr,
+    Grayscale,
+    Unknown,
+}
+
+/// Metadata and dimensions of the kernel graphics framebuffer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FramebufferInfoModel {
+    pub width: usize,
+    pub height: usize,
+    pub stride: usize,
+    pub bytes_per_pixel: usize,
+    pub format: FramebufferFormat,
+}
+
+/// State and geometry of the kernel text console.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsoleInfoModel {
+    pub cols: usize,
+    pub rows: usize,
+    pub cursor_col: usize,
+    pub cursor_row: usize,
+    pub font_width: usize,
+    pub font_height: usize,
+    pub ansi_enabled: bool,
+}
+
+

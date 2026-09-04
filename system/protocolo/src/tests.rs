@@ -1717,3 +1717,31 @@ use crate::*;
         assert_eq!(stats, des_stats);
     }
 
+    #[test]
+    fn test_framebuffer_and_console_models() {
+        let fb = FramebufferInfoModel {
+            width: 1280,
+            height: 720,
+            stride: 1280,
+            bytes_per_pixel: 3,
+            format: FramebufferFormat::Bgr,
+        };
+        let json_fb = serde_json::to_string(&fb).expect("serialize fb info");
+        let des_fb: FramebufferInfoModel = serde_json::from_str(&json_fb).expect("deserialize fb info");
+        assert_eq!(fb, des_fb);
+
+        let console = ConsoleInfoModel {
+            cols: 160,
+            rows: 45,
+            cursor_col: 10,
+            cursor_row: 5,
+            font_width: 8,
+            font_height: 16,
+            ansi_enabled: true,
+        };
+        let json_cons = serde_json::to_string(&console).expect("serialize console info");
+        let des_cons: ConsoleInfoModel = serde_json::from_str(&json_cons).expect("deserialize console info");
+        assert_eq!(console, des_cons);
+    }
+
+

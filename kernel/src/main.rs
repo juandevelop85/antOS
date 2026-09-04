@@ -15,6 +15,8 @@ extern crate alloc;
 #[allow(dead_code)]
 mod allocator;
 pub mod arch;
+#[cfg(target_arch = "x86_64")]
+pub mod console;
 #[allow(dead_code)]
 mod elf;
 #[allow(dead_code)]
@@ -37,7 +39,7 @@ use alloc::vec::Vec;
 #[cfg(target_arch = "x86_64")]
 use bootloader_api::config::{BootloaderConfig, Mapping};
 #[cfg(target_arch = "x86_64")]
-use bootloader_api::info::{FrameBufferInfo, MemoryRegionKind, MemoryRegions, PixelFormat};
+use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
 #[cfg(target_arch = "x86_64")]
 use bootloader_api::{entry_point, BootInfo};
 #[cfg(target_arch = "x86_64")]
@@ -137,8 +139,17 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::SERIAL.lock().init();
 
+    if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
+        let info = framebuffer.info();
+        let buffer_len = framebuffer.buffer_mut().len();
+        let buffer_ptr = framebuffer.buffer_mut().as_mut_ptr();
+        unsafe {
+            console::init(buffer_ptr, buffer_len, info);
+        }
+    }
+
     println!();
-    println!("antOS · kernel x86_64");
+    println!("\x1b[1;36mantOS\x1b[0m · \x1b[1;32mkernel x86_64\x1b[0m");
     println!("═══════════════════════");
 
     // El bootloader nos entrega esto y desaparece. Es todo lo que sabemos
@@ -146,13 +157,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     report_memory(boot_info);
     report_framebuffer(boot_info);
 
-    if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
-        let info = framebuffer.info();
-        paint_gradient(framebuffer.buffer_mut(), info);
-    }
-
     println!();
-    println!("interrupts");
+    println!("\x1b[1;33minterrupts\x1b[0m");
 
     // Order matters: IDT needs our GDT's code selector, and the double fault
     // handler needs the TSS already loaded.
@@ -206,7 +212,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // ── APIC initialization (requires mapper + allocator) ────────────────
     println!();
-    println!("apic");
+    println!("\x1b[1;32mapic\x1b[0m");
 
     // SAFETY: called once, mapper and allocator are valid, LAPIC address
     // comes from the CPU's own MSR.
@@ -222,7 +228,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("  interrupts   enabled");
 
     println!();
-    println!("espacio de usuario");
+    println!("\x1b[1;35mespacio de usuario\x1b[0m");
 
     userspace::init();
     println!("  syscall      habilitado · el anillo 3 ya tiene por dónde entrar");
@@ -252,7 +258,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("  el kernel recuperó el control · código {code:#x}");
 
     println!();
-    println!("multitarea preemptiva (T23.2)");
+    println!("\x1b[1;36mmultitarea preemptiva (T23.2)\x1b[0m");
 
     task::scheduler::init();
     println!(
@@ -300,7 +306,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
 
     println!();
-    println!("multitarea cooperativa");
+    println!("\x1b[1;33mmultitarea cooperativa\x1b[0m");
 
     let mut executor = task::executor::Executor::new();
     executor.spawn(Task::new(example_task()));
@@ -371,40 +377,15 @@ fn report_framebuffer(boot_info: &BootInfo) {
         info.stride,
         info.stride - info.width
     );
-}
-
-/// Pinta un degradado sobre el framebuffer.
-#[cfg(target_arch = "x86_64")]
-fn paint_gradient(buffer: &mut [u8], info: FrameBufferInfo) {
-    for y in 0..info.height {
-        for x in 0..info.width {
-            // `stride` son los píxeles por fila EN MEMORIA, que puede ser
-            // mayor que `width` por alineación. Usar width aquí sería un bug
-            // clásico: la imagen saldría inclinada.
-            let pixel_offset = (y * info.stride + x) * info.bytes_per_pixel;
-
-            let r = (x * 255 / info.width) as u8;
-            let g = (y * 255 / info.height) as u8;
-            let b = 0x80;
-
-            // El orden de los canales depende del firmware, no es fijo.
-            let (c0, c1, c2) = match info.pixel_format {
-                PixelFormat::Rgb => (r, g, b),
-                PixelFormat::Bgr => (b, g, r),
-                // Escala de grises: luminancia aproximada.
-                PixelFormat::U8 => {
-                    let gray = ((r as u16 + g as u16 + b as u16) / 3) as u8;
-                    (gray, gray, gray)
-                }
-                // Formato desconocido: mejor no escribir basura en la pantalla.
-                _ => return,
-            };
-
-            buffer[pixel_offset] = c0;
-            buffer[pixel_offset + 1] = c1;
-            buffer[pixel_offset + 2] = c2;
-        }
-    }
+    let (cols, rows) = if let Some(guard) = console::CONSOLE.lock().as_ref() {
+        guard.dimensions()
+    } else {
+        (0, 0)
+    };
+    println!(
+        "  consola      {}x{} caracteres (fuente 8x16 bitmap, ANSI activo)",
+        cols, rows
+    );
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -504,6 +485,25 @@ fn panic(info: &PanicInfo) -> ! {
     }
     let _ = writeln!(serial, "║ {}", info.message());
     let _ = writeln!(serial, "╚══════════════════════════════");
+
+    #[cfg(target_arch = "x86_64")]
+    if let Some(mut guard) = console::CONSOLE.try_lock() {
+        if let Some(console) = guard.as_mut() {
+            let _ = writeln!(console, "\n\x1b[1;31m╔══════════════════════════════\x1b[0m");
+            let _ = writeln!(console, "\x1b[1;31m║ PANIC DEL KERNEL\x1b[0m");
+            if let Some(location) = info.location() {
+                let _ = writeln!(
+                    console,
+                    "\x1b[1;31m║ en {}:{}:{}\x1b[0m",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                );
+            }
+            let _ = writeln!(console, "\x1b[1;31m║ {}\x1b[0m", info.message());
+            let _ = writeln!(console, "\x1b[1;31m╚══════════════════════════════\x1b[0m");
+        }
+    }
 
     halt_loop()
 }
