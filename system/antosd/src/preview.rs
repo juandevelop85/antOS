@@ -416,6 +416,17 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::SnapshotDelete { id, .. } => {
                 out.push(Line::Info(format!("elimina la instantánea «{id}» del Time Machine")));
             }
+            Change::BenchRun { target, .. } => {
+                let t_str = target.as_deref().unwrap_or("suite del proyecto");
+                out.push(Line::Info(format!("ejecuta suite de microbenchmarks continuos («{t_str}») en sandbox")));
+            }
+            Change::BenchDiff { against_branch, .. } => {
+                let b_str = against_branch.as_deref().unwrap_or("master");
+                out.push(Line::Info(format!("compara rendimiento y detecta regresiones contra la rama «{b_str}»")));
+            }
+            Change::BenchHistory { .. } => {
+                out.push(Line::Info("consulta el historial cronológico de rendimiento y benchmarks".into()));
+            }
         }
         pendiente.aplicar(change);
     }

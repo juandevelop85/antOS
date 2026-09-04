@@ -1,0 +1,12 @@
+name = "bench.diff"
+summary = "Compara diferencial de rendimiento (latencia, percentiles y memoria RSS) entre ramas o worktrees"
+
+[params]
+against = { type = "text", optional = true }
+threshold = { type = "integer", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

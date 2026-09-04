@@ -58,6 +58,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.37 Reproducción Autónoma de Bugs TDD y Generación de Tests (`antos reproduce` / `antos testgen`)](#437-reproducción-autónoma-de-bugs-tdd-y-generación-de-tests-antos-reproduce--antos-testgen)
    - [4.38 Matriz de CI/CD Local Paralela y Git Hooks Inteligentes (`antos ci` / `antos hook`)](#438-matriz-de-cicd-local-paralela-y-git-hooks-inteligentes-antos-ci--antos-hook)
    - [4.39 Instantáneas Atómicas de Entorno y Time Machine de Estado (`antos snapshot`)](#439-instantáneas-atómicas-de-entorno-y-time-machine-de-estado-antos-snapshot)
+   - [4.40 Benchmarking Continuo y Detección de Regresiones de Rendimiento (`antos bench`)](#440-benchmarking-continuo-y-detección-de-regresiones-de-rendimiento-antos-bench)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1309,6 +1310,31 @@ antos snapshot delete pre-refactor-auth
 antos "crea snapshot llamado pre-deploy"
 antos "restaura snapshot pre-deploy"
 antos "lista snapshots del time machine"
+```
+
+---
+
+### 4.40 Benchmarking Continuo y Detección de Regresiones de Rendimiento (`antos bench`)
+
+Motor de benchmarking continuo y comparación de rendimiento estadístico (T21.1) para medir el impacto de las modificaciones de código antes de fusionarlas a la rama base, calculando latencia media, p95, p99, operaciones por segundo y consumo de memoria RSS pico:
+
+```bash
+# 1. Ejecutar la suite de benchmarks del proyecto o microbenchmarks integrados
+antos bench
+antos bench [nombre_suite]
+
+# 2. Comparar rendimiento entre ramas o worktrees detectando regresiones
+antos bench diff
+antos bench diff --against master
+antos bench diff --against main --threshold 10
+
+# 3. Consultar el historial cronológico de ejecuciones
+antos bench history
+
+# 4. Uso declarativo mediante lenguaje natural
+antos "ejecuta benchmarks del proyecto"
+antos "compara rendimiento contra master"
+antos "muestra historial de rendimiento"
 ```
 
 ---

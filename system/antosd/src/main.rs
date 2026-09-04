@@ -8,6 +8,7 @@ extern crate antos_protocol as antos_protocolo;
 
 pub mod barra;
 pub mod autopilot;
+pub mod bench;
 mod blast;
 pub mod boot;
 pub mod ci;
@@ -154,6 +155,7 @@ fn run() -> Result<()> {
         "ci" => cmd_ci(&ctx, &rest[1..]),
         "hook" | "hooks" => cmd_hook(&ctx, &rest[1..]),
         "snapshot" | "snapshots" | "tm" => cmd_snapshot(&ctx, &rest[1..]),
+        "bench" | "benchmark" => cmd_bench(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
@@ -4050,6 +4052,147 @@ fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 }
 
+// ------------------------------------------------------------------ bench & perf diff (T21.1)
+
+fn cmd_bench(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("run");
+    match sub {
+        "diff" | "compare" => {
+            let mut against = None;
+            let mut threshold = None;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--against" | "-a" => {
+                        if let Some(a) = args.get(i + 1) {
+                            against = Some(a.as_str());
+                            i += 1;
+                        }
+                    }
+                    "--threshold" | "-t" => {
+                        if let Some(t) = args.get(i + 1) {
+                            threshold = t.parse::<f64>().ok();
+                            i += 1;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            println!("\n{}", paint("⚡ antOS Bench Diff · Comparador de Rendimiento en Worktrees (T21.1)", BOLD));
+            println!("  Comparando contra rama base: «{}» (umbral regresión: {:.1}%)",
+                paint(against.unwrap_or("master"), CYAN),
+                threshold.unwrap_or(15.0));
+
+            let report = bench::BenchEngine::compare_benchmark(
+                &ctx.workspace,
+                &ctx.state,
+                against,
+                threshold,
+            )?;
+
+            println!("\n  {} [{}]", paint("ID Comparación:", BOLD), report.id);
+            println!("  {} vs {}", paint(&report.base_branch, DIM), paint(&report.target_branch, CYAN));
+            println!("  {}", "─".repeat(84));
+            println!("  {:<26} {:<14} {:<14} {:<12} {}",
+                paint("BENCHMARK", BOLD),
+                paint("BASE (MEDIA)", BOLD),
+                paint("OBJETIVO", BOLD),
+                paint("VARIACIÓN Δ", BOLD),
+                paint("ESTADO", BOLD));
+            println!("  {}", "─".repeat(84));
+
+            for c in &report.comparisons {
+                let delta_str = format!("{:+.2}%", c.delta_pct);
+                let color_delta = if c.is_regression {
+                    paint(&delta_str, RED)
+                } else if c.delta_pct < -5.0 {
+                    paint(&delta_str, GREEN)
+                } else {
+                    paint(&delta_str, DIM)
+                };
+
+                let status_badge = if c.is_regression {
+                    paint("REGRESIÓN", RED)
+                } else {
+                    paint("ÓPTIMO", GREEN)
+                };
+
+                println!("  {:<26} {:<14} {:<14} {:<12} {}",
+                    paint(&c.name, CYAN),
+                    format!("{} ns", c.base_mean_ns),
+                    format!("{} ns", c.target_mean_ns),
+                    color_delta,
+                    status_badge);
+            }
+            println!("  {}", "─".repeat(84));
+            println!("\n  {} {}", paint("Veredicto Auditor antFlow:", BOLD), report.auditor_verdict);
+            println!();
+            Ok(())
+        }
+        "history" | "historial" | "hist" => {
+            let history = bench::BenchEngine::load_history(&ctx.state);
+            println!("\n{}", paint("📈 antOS Bench · Historial de Rendimiento Continuo (T21.1)", BOLD));
+            if history.is_empty() {
+                println!("  No hay registros de benchmarks previos en .antos/bench_history.json\n");
+                println!("  Ejecuta uno con: antos bench\n");
+                return Ok(());
+            }
+
+            println!("  {:<22} {:<16} {:<10} {:<14} {}",
+                paint("ID", BOLD), paint("RAMA", BOLD), paint("SUITE", BOLD), paint("MÉTRICAS", BOLD), paint("DURACIÓN", BOLD));
+            println!("  {}", "─".repeat(75));
+            for h in &history {
+                println!("  {:<22} {:<16} {:<10} {:<14} {} ms",
+                    paint(&h.id, CYAN),
+                    h.branch,
+                    h.suite_name,
+                    format!("{} pruebas", h.metrics.len()),
+                    h.total_duration_ms);
+            }
+            println!("\n  Total: {} corridas registradas.\n", history.len());
+            Ok(())
+        }
+        _ => {
+            let target = if sub != "run" { Some(sub) } else { args.get(1).map(String::as_str) };
+            println!("\n{}", paint("⚡ antOS Continuous Benchmarking · Ejecución de Suite (T21.1)", BOLD));
+            if let Some(t) = target {
+                println!("  Objetivo específico: «{}»", paint(t, CYAN));
+            }
+
+            let report = bench::BenchEngine::run_benchmark(
+                &ctx.workspace,
+                &ctx.state,
+                target,
+            )?;
+
+            println!("  {} [{}]", paint("ID Ejecución:", BOLD), report.id);
+            println!("  {} {} ({})", paint("Contexto Git:", BOLD), report.branch, report.commit.as_deref().unwrap_or("—"));
+            println!("  {} {} ms\n", paint("Tiempo Total:", BOLD), report.total_duration_ms);
+
+            println!("  {:<26} {:<12} {:<12} {:<12} {:<14}",
+                paint("MÉTRICA", BOLD),
+                paint("MEDIA", BOLD),
+                paint("P95", BOLD),
+                paint("P99", BOLD),
+                paint("RENDIMIENTO", BOLD));
+            println!("  {}", "─".repeat(78));
+
+            for m in &report.metrics {
+                println!("  {:<26} {:<12} {:<12} {:<12} {:<14}",
+                    paint(&m.name, CYAN),
+                    format!("{} ns", m.mean_ns),
+                    format!("{} ns", m.p95_ns),
+                    format!("{} ns", m.p99_ns),
+                    format!("{:.0} ops/s", m.ops_per_sec));
+            }
+            println!("  {}\n", "─".repeat(78));
+            Ok(())
+        }
+    }
+}
+
 // ------------------------------------------------------------------ desktop
 
 fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -6523,6 +6666,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos ci [run|status]      ejecuta matriz de integración continua local paralela en sandboxes (T20.3)
   antos hook [install|check] gestión de hooks de Git pre-commit con auditoría de secretos (T20.3)
   antos snapshot [create|restore|list] Time Machine atómico de código, servicios y estado (T20.4)
+  antos bench [run|diff|history] benchmarking continuo y detección de regresiones en worktrees (T21.1)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

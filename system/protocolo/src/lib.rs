@@ -1635,6 +1635,60 @@ pub struct SnapshotRestoreResult {
     pub duration_ms: u64,
 }
 
+// --------------------------------------------------- continuous benchmarking & perf diff (T21.1)
+
+/// A single benchmark measurement for a function, endpoint or test case (T21.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BenchmarkMetric {
+    pub name: String,
+    pub mean_ns: u64,
+    pub min_ns: u64,
+    pub max_ns: u64,
+    pub p95_ns: u64,
+    pub p99_ns: u64,
+    pub peak_rss_bytes: u64,
+    pub ops_per_sec: f64,
+}
+
+/// Report of a full benchmark suite execution (T21.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BenchmarkRunReport {
+    pub id: String,
+    pub timestamp_secs: u64,
+    pub branch: String,
+    pub commit: Option<String>,
+    pub suite_name: String,
+    pub metrics: Vec<BenchmarkMetric>,
+    pub total_duration_ms: u64,
+}
+
+/// Comparative metric between a baseline and target benchmark run (T21.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BenchmarkComparisonMetric {
+    pub name: String,
+    pub base_mean_ns: u64,
+    pub target_mean_ns: u64,
+    pub delta_pct: f64,
+    pub base_rss_bytes: u64,
+    pub target_rss_bytes: u64,
+    pub rss_delta_pct: f64,
+    pub is_regression: bool,
+    pub severity: String,
+}
+
+/// Comprehensive diff report comparing performance between branches/worktrees (T21.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BenchmarkDiffReport {
+    pub id: String,
+    pub timestamp_secs: u64,
+    pub base_branch: String,
+    pub target_branch: String,
+    pub comparisons: Vec<BenchmarkComparisonMetric>,
+    pub has_regression: bool,
+    pub max_regression_pct: f64,
+    pub auditor_verdict: String,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2007,6 +2061,20 @@ pub enum Request {
     DeleteSnapshot {
         id: String,
     },
+    /// Run continuous benchmarks on project (T21.1).
+    #[serde(alias = "EjecutarBenchmark")]
+    RunBenchmark {
+        target: Option<String>,
+    },
+    /// Compare performance against a baseline branch or previous run (T21.1).
+    #[serde(alias = "CompararBenchmark")]
+    CompareBenchmark {
+        against_branch: Option<String>,
+        threshold_pct: Option<u32>,
+    },
+    /// Retrieve historical benchmark runs (T21.1).
+    #[serde(alias = "ConsultarHistorialBenchmark")]
+    GetBenchmarkHistory,
 }
 
 /// Type aliases for backwards compatibility.
@@ -2310,6 +2378,15 @@ pub enum Event {
     SnapshotDeleted {
         id: String,
     },
+    /// Outcome of a benchmark suite run (T21.1).
+    #[serde(alias = "ReporteBenchmark")]
+    BenchmarkReport(BenchmarkRunReport),
+    /// Outcome of a performance differential comparison (T21.1).
+    #[serde(alias = "DiferencialBenchmark")]
+    BenchmarkDiff(BenchmarkDiffReport),
+    /// Historical list of benchmark suite reports (T21.1).
+    #[serde(alias = "HistorialBenchmark")]
+    BenchmarkHistory(Vec<BenchmarkRunReport>),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3642,6 +3719,70 @@ mod tests {
         let json_res = serde_json::to_string(&ev_res).expect("serialize ev_res");
         let des_res: Event = serde_json::from_str(&json_res).expect("deserialize ev_res");
         assert_eq!(ev_res, des_res);
+    }
+
+    #[test]
+    fn test_benchmark_serialization() {
+        let metric = BenchmarkMetric {
+            name: "ipc_roundtrip".into(),
+            mean_ns: 12500,
+            min_ns: 11000,
+            max_ns: 15000,
+            p95_ns: 14200,
+            p99_ns: 14800,
+            peak_rss_bytes: 4096 * 1024,
+            ops_per_sec: 80000.0,
+        };
+
+        let report = BenchmarkRunReport {
+            id: "bench-test-1".into(),
+            timestamp_secs: 1725389000,
+            branch: "master".into(),
+            commit: Some("a73fce6".into()),
+            suite_name: "microbenchmarks".into(),
+            metrics: vec![metric],
+            total_duration_ms: 350,
+        };
+
+        let req = Request::RunBenchmark {
+            target: Some("microbenchmarks".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::BenchmarkReport(report.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+
+        let diff_metric = BenchmarkComparisonMetric {
+            name: "ipc_roundtrip".into(),
+            base_mean_ns: 12500,
+            target_mean_ns: 11000,
+            delta_pct: -12.0,
+            base_rss_bytes: 4096 * 1024,
+            target_rss_bytes: 3900 * 1024,
+            rss_delta_pct: -4.78,
+            is_regression: false,
+            severity: "None".into(),
+        };
+
+        let diff_report = BenchmarkDiffReport {
+            id: "diff-test-1".into(),
+            timestamp_secs: 1725389000,
+            base_branch: "master".into(),
+            target_branch: "ticket/T21.1".into(),
+            comparisons: vec![diff_metric],
+            has_regression: false,
+            max_regression_pct: 0.0,
+            auditor_verdict: "Aprobado: rendimiento optimizado o estable".into(),
+        };
+
+        let ev_diff = Event::BenchmarkDiff(diff_report.clone());
+        let json_diff = serde_json::to_string(&ev_diff).expect("serialize ev_diff");
+        let des_diff: Event = serde_json::from_str(&json_diff).expect("deserialize ev_diff");
+        assert_eq!(ev_diff, des_diff);
     }
 }
 

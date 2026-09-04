@@ -1,0 +1,11 @@
+name = "bench.run"
+summary = "Ejecuta suites de microbenchmarks continuos en sandbox supervisado por el profiler"
+
+[params]
+target = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

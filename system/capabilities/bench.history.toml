@@ -1,0 +1,10 @@
+name = "bench.history"
+summary = "Muestra la evolución cronológica del rendimiento y benchmarks del proyecto"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

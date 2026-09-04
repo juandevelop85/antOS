@@ -851,6 +851,23 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::RunBenchmark { target } => {
+            match crate::bench::BenchEngine::run_benchmark(&ctx.workspace, &ctx.state, target.as_deref()) {
+                Ok(report) => enviar(&mut escritura, &Event::BenchmarkReport(report))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::CompareBenchmark { against_branch, threshold_pct } => {
+            let threshold = threshold_pct.map(|t| t as f64);
+            match crate::bench::BenchEngine::compare_benchmark(&ctx.workspace, &ctx.state, against_branch.as_deref(), threshold) {
+                Ok(diff) => enviar(&mut escritura, &Event::BenchmarkDiff(diff))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetBenchmarkHistory => {
+            let list = crate::bench::BenchEngine::load_history(&ctx.state);
+            enviar(&mut escritura, &Event::BenchmarkHistory(list))?;
+        }
     }
     Ok(())
 }
@@ -1327,6 +1344,25 @@ pub fn intencion_remota(
             }
             Event::SnapshotDeleted { id } => {
                 pantalla.nota(&format!("🗑️ antOS Time Machine · Instantánea [{id}] eliminada."))?;
+            }
+            Event::BenchmarkReport(report) => {
+                pantalla.nota(&format!("⚡ antOS Bench · Suite [{}] ejecutada en {} ms ({} métricas)", report.id, report.total_duration_ms, report.metrics.len()))?;
+                for m in &report.metrics {
+                    pantalla.nota(&format!("  • {:<24} media: {} ns, p95: {} ns, {:.0} ops/s", m.name, m.mean_ns, m.p95_ns, m.ops_per_sec))?;
+                }
+            }
+            Event::BenchmarkDiff(diff) => {
+                pantalla.nota(&format!("⚡ antOS Bench Diff · Base: {} vs Objetivo: {}", diff.base_branch, diff.target_branch))?;
+                for c in &diff.comparisons {
+                    pantalla.nota(&format!("  • {:<24} delta: {:+.2}% [{}]", c.name, c.delta_pct, if c.is_regression { "REGRESIÓN" } else { "ÓPTIMO" }))?;
+                }
+                pantalla.nota(&format!("  Veredicto Auditor: {}", diff.auditor_verdict))?;
+            }
+            Event::BenchmarkHistory(list) => {
+                pantalla.nota(&format!("📈 antOS Bench · {} corrida(s) en historial:", list.len()))?;
+                for h in list {
+                    pantalla.nota(&format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms))?;
+                }
             }
             Event::Error(m) => bail!("{m}"),
         }

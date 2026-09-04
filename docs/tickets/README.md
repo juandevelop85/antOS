@@ -65,7 +65,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 20** | [T20.2](T20.2-reproductor-autonomo-de-bugs-y-generador-de-tests-de-regresion-tdd.md) | Reproductor Autónomo de Bugs y Generador de Tests de Regresión TDD | ✅ Completado |
 | **Fase 20** | [T20.3](T20.3-matriz-de-ci-cd-local-paralela-en-sandboxes-y-pre-commit-hooks-del-auditor.md) | Matriz de CI/CD Local Paralela en Sandboxes y Pre-Commit Hooks del Auditor | ✅ Completado |
 | **Fase 20** | [T20.4](T20.4-snapshots-atomicos-de-entorno-de-desarrollo-y-time-machine-de-estado.md) | Snapshots Atómicos de Entorno de Desarrollo y Time Machine de Estado | ✅ Completado |
-| **Fase 21** | [T21.1](T21.1-benchmarking-continuo-y-deteccion-de-regresiones-de-rendimiento-en-worktrees.md) | Benchmarking Continuo y Detección de Regresiones de Rendimiento en Worktrees | ⏳ Pendiente |
+| **Fase 21** | [T21.1](T21.1-benchmarking-continuo-y-deteccion-de-regresiones-de-rendimiento-en-worktrees.md) | Benchmarking Continuo y Detección de Regresiones de Rendimiento en Worktrees | ✅ Completado |
 | **Fase 21** | [T21.2](T21.2-sincronizacion-bidireccional-con-forjas-git-issues-a-tickets-y-pull-requests.md) | Sincronización Bidireccional con Forjas Git: Issues a Tickets y Pull Requests | ⏳ Pendiente |
 | **Fase 21** | [T21.3](T21.3-generador-y-sincronizador-de-documentacion-viva-de-arquitectura-y-diagramas-mermaid.md) | Generador y Sincronizador de Documentación Viva de Arquitectura y Diagramas Mermaid | ⏳ Pendiente |
 | **Fase 22** | [T22.1](T22.1-modularizacion-y-desacoplamiento-de-antosd-en-cli-y-subcomandos.md) | Modularización y Desacoplamiento de `antosd` en CLI y Subcomandos | ⏳ Pendiente |

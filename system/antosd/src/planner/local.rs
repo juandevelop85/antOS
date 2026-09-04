@@ -126,6 +126,11 @@ impl Planner for LocalPlanner {
             && !lower.contains("centinela")
             && !lower.contains("web")
             && !lower.contains("websocket")
+            && !lower.contains("bench")
+            && !lower.contains("rendimiento")
+            && !lower.contains("snapshot")
+            && !lower.contains("instantanea")
+            && !lower.contains("instantánea")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -480,7 +485,8 @@ impl Planner for LocalPlanner {
         }
 
         // Intenciones de Profiler Continuo y Rendimiento (T11.2)
-        if lower.contains("profil") || lower.contains("perfila") || lower.contains("hotspot") || lower.contains("cuello") || (lower.contains("rendimiento") && !lower.contains("git")) {
+        if lower.contains("profil") || lower.contains("perfila") || lower.contains("hotspot") || lower.contains("cuello")
+            || (lower.contains("rendimiento") && !lower.contains("git") && !lower.contains("bench") && !lower.contains("compara") && !lower.contains("contra") && !lower.contains("diff") && !lower.contains("historial")) {
             if lower.contains("analiz") || lower.contains("sugerencia") || lower.contains("top") || lower.contains("hotspot") || lower.contains("cuello") {
                 return Ok(Propuesta::solo(vec![step("profile.analyze", &[])]));
             }
@@ -600,6 +606,24 @@ impl Planner for LocalPlanner {
                 return Ok(Propuesta::solo(vec![step("snapshot.delete", &[("id", &id)])]));
             } else {
                 return Ok(Propuesta::solo(vec![step("snapshot.list", &[])]));
+            }
+        }
+
+        // Intenciones de Benchmarking Continuo y Perf Diff (T21.1)
+        if lower.contains("bench") || lower.contains("rendimiento") {
+            if lower.contains("diff") || lower.contains("compara") || lower.contains("regresion") || lower.contains("regresión") || lower.contains("contra") {
+                let against = after(&words, &["contra", "con", "rama", "base"])
+                    .unwrap_or_else(|| "master".into());
+                return Ok(Propuesta::solo(vec![step("bench.diff", &[("against", &against)])]));
+            } else if lower.contains("historial") || lower.contains("evolucion") || lower.contains("evolución") || lower.contains("history") {
+                return Ok(Propuesta::solo(vec![step("bench.history", &[])]));
+            } else {
+                let target = after(&words, &["suite", "benchmark", "de", "en"]);
+                let mut args = Vec::new();
+                if let Some(ref t) = target {
+                    args.push(("target", t.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("bench.run", &args)]));
             }
         }
 
@@ -1808,5 +1832,31 @@ mod tests {
         assert_eq!(p_restore.steps.len(), 1);
         assert_eq!(p_restore.steps[0].capability, "snapshot.restore");
         assert_eq!(p_restore.steps[0].args.get("id").map(|s| s.as_str()), Some("pre-refactor"));
+    }
+
+    #[test]
+    fn test_plan_benchmarking() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_run = planner
+            .plan("ejecuta benchmarks del proyecto", &catalog)
+            .expect("plan bench run");
+        assert_eq!(p_run.steps.len(), 1);
+        assert_eq!(p_run.steps[0].capability, "bench.run");
+
+        let p_diff = planner
+            .plan("compara rendimiento contra master", &catalog)
+            .expect("plan bench diff");
+        assert_eq!(p_diff.steps.len(), 1);
+        assert_eq!(p_diff.steps[0].capability, "bench.diff");
+        assert_eq!(p_diff.steps[0].args.get("against").map(|s| s.as_str()), Some("master"));
+
+        let p_hist = planner
+            .plan("muestra historial de rendimiento", &catalog)
+            .expect("plan bench history");
+        assert_eq!(p_hist.steps.len(), 1);
+        assert_eq!(p_hist.steps[0].capability, "bench.history");
     }
 }

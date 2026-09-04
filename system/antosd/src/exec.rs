@@ -434,6 +434,23 @@ pub enum Change {
         state_dir: PathBuf,
         id: String,
     },
+    /// T21.1 — Run continuous microbenchmarks.
+    BenchRun {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        target: Option<String>,
+    },
+    /// T21.1 — Compare performance against baseline branch/worktree.
+    BenchDiff {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        against_branch: Option<String>,
+        threshold_pct: Option<f64>,
+    },
+    /// T21.1 — Retrieve historical benchmark records.
+    BenchHistory {
+        state_dir: PathBuf,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -566,7 +583,10 @@ impl Pendiente {
             | Change::SnapshotCreate { .. }
             | Change::SnapshotList { .. }
             | Change::SnapshotRestore { .. }
-            | Change::SnapshotDelete { .. } => {}
+            | Change::SnapshotDelete { .. }
+            | Change::BenchRun { .. }
+            | Change::BenchDiff { .. }
+            | Change::BenchHistory { .. } => {}
         }
     }
 }
@@ -1576,6 +1596,32 @@ pub fn changes_for(
             Ok(vec![Change::SnapshotDelete {
                 state_dir: ctx.state.clone(),
                 id,
+            }])
+        }
+
+        "bench.run" => {
+            let target = a.get("target").cloned();
+            Ok(vec![Change::BenchRun {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                target,
+            }])
+        }
+
+        "bench.diff" => {
+            let against_branch = a.get("against").cloned();
+            let threshold_pct = a.get("threshold").and_then(|t| t.parse::<f64>().ok());
+            Ok(vec![Change::BenchDiff {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                against_branch,
+                threshold_pct,
+            }])
+        }
+
+        "bench.history" => {
+            Ok(vec![Change::BenchHistory {
+                state_dir: ctx.state.clone(),
             }])
         }
 
@@ -2807,6 +2853,48 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::SnapshotDelete { state_dir, id } => {
                 let deleted = crate::time_machine::TimeMachineEngine::delete_snapshot(state_dir, id)?;
                 output.push(format!("🗑️ antOS Time Machine · Instantánea [{deleted}] eliminada con éxito."));
+            }
+            Change::BenchRun { workspace, state_dir, target } => {
+                let report = crate::bench::BenchEngine::run_benchmark(
+                    workspace,
+                    state_dir,
+                    target.as_deref(),
+                )?;
+                output.push(format!(
+                    "⚡ antOS Bench · Suite [{}] Ejecutada\n  • Rama:      {}\n  • Métricas:  {} pruebas procesadas\n  • Duración:  {} ms",
+                    report.id,
+                    report.branch,
+                    report.metrics.len(),
+                    report.total_duration_ms,
+                ));
+            }
+            Change::BenchDiff { workspace, state_dir, against_branch, threshold_pct } => {
+                let diff = crate::bench::BenchEngine::compare_benchmark(
+                    workspace,
+                    state_dir,
+                    against_branch.as_deref(),
+                    *threshold_pct,
+                )?;
+                output.push(format!(
+                    "⚡ antOS Bench Diff · Comparación [{}]\n  • Base:      {} vs {}\n  • Regresión: {}\n  • Veredicto: {}",
+                    diff.id,
+                    diff.base_branch,
+                    diff.target_branch,
+                    if diff.has_regression { format!("SÍ (+{:.1}%)", diff.max_regression_pct) } else { "NO (rendimiento estable)".into() },
+                    diff.auditor_verdict,
+                ));
+            }
+            Change::BenchHistory { state_dir } => {
+                let history = crate::bench::BenchEngine::load_history(state_dir);
+                if history.is_empty() {
+                    output.push("antOS Bench · No hay historial previo registrado.".into());
+                } else {
+                    let mut lines = vec![format!("📈 antOS Bench · Total: {} corridas registradas:", history.len())];
+                    for h in &history {
+                        lines.push(format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms));
+                    }
+                    output.push(lines.join("\n"));
+                }
             }
         }
     }
