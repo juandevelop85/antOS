@@ -8,3 +8,7 @@ target/
 
 # espacio de trabajo de pruebas
 /workspace
+
+# archivos de sistema macOS
+.DS_Store
+**/.DS_Store
