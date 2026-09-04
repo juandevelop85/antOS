@@ -6,8 +6,8 @@ use core::pin::Pin;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Context, Poll, Waker};
 
-/// El PIT arranca a ~18.2 Hz, así que 18 ticks es aproximadamente un segundo.
-pub const TICKS_PER_SECOND: u64 = 18;
+/// The LAPIC timer runs at 100 Hz, so 100 ticks = 1 second.
+pub const TICKS_PER_SECOND: u64 = 100;
 
 static TICKS: AtomicU64 = AtomicU64::new(0);
 static WAKER: SpinLock<Option<Waker>> = SpinLock::new(None);

@@ -1,31 +1,28 @@
-//! IDT, excepciones y las dos primeras interrupciones de hardware.
+//! IDT, exceptions, and hardware interrupts (T23.1 — APIC migration).
 //!
-//! Hasta ahora el kernel ejecutaba una línea recta. Aquí empieza a
-//! **reaccionar**: la CPU puede interrumpir lo que estuviera haciendo, saltar
-//! a una función nuestra, y volver como si nada.
+//! The kernel reacts to hardware events through the Interrupt Descriptor Table
+//! (IDT).  Vectors 0-31 are reserved by the CPU for exceptions; vectors 32+
+//! are for hardware.
 //!
-//! ## La IDT
+//! ## PIC → APIC migration
 //!
-//! Una tabla de 256 entradas indexada por número de vector. Los vectores 0-31
-//! los reserva la CPU para sus propias excepciones (división por cero, fallo
-//! de página, doble fallo...); del 32 en adelante son para el hardware.
+//! Until T23.1 the PIC 8259 drove interrupts.  Now the Local APIC provides
+//! the timer, and the PIC is fully masked.  Keyboard interrupts still arrive
+//! through the PIC's IRQ1 path during boot but will migrate to the I/O APIC
+//! in a future ticket.
 //!
-//! ## Por qué `extern "x86-interrupt"`
+//! ## `extern "x86-interrupt"`
 //!
-//! Una interrupción no es una llamada: puede saltar entre dos instrucciones
-//! cualesquiera, así que el manejador tiene que devolver **todos** los
-//! registros exactamente como estaban, y salir con `iretq` en vez de `ret`.
-//! Escribir eso a mano exige ensamblador. Esta convención de llamada le pide
-//! al compilador que lo genere, y es la razón concreta por la que este
-//! proyecto usa nightly desde la Fase 0.
+//! An interrupt can fire between any two instructions, so the handler must
+//! save and restore **all** registers and exit with `iretq`.  This calling
+//! convention asks the compiler to emit that prologue/epilogue.
 
 use crate::gdt::{self, DescriptorTablePointer};
-use crate::port::{inb, io_wait, outb};
+use crate::port::{inb, outb};
 use crate::println;
 use crate::sync::InitOnly;
 
-/// El marco que la CPU apila antes de saltar al manejador. El orden es del
-/// hardware, no nuestro.
+/// The frame pushed by the CPU before jumping to a handler.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct InterruptStackFrame {
@@ -36,16 +33,16 @@ pub struct InterruptStackFrame {
     pub stack_segment: u64,
 }
 
-/// Una entrada de la IDT: 16 bytes con la dirección del manejador troceada en
-/// tres campos no contiguos, otro fósil de la evolución de x86.
+/// A single IDT entry: 16 bytes with the handler address split into three
+/// non-contiguous fields.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Entry {
     offset_low: u16,
     selector: u16,
-    /// Bits 0-2: índice en la IST (0 = usar la pila actual).
+    /// Bits 0-2: IST index (0 = use current stack).
     ist: u8,
-    /// 0x8E = presente, DPL 0, puerta de interrupción.
+    /// 0x8E = present, DPL 0, interrupt gate.
     flags: u8,
     offset_mid: u16,
     offset_high: u32,
@@ -68,8 +65,7 @@ impl Entry {
 
 static IDT: InitOnly<[Entry; 256]> = InitOnly::new([Entry::missing(); 256]);
 
-/// `ist` es 1-based: 0 significa «no cambies de pila», así que la primera
-/// entrada de la IST se pide con un 1.
+/// `ist` is 1-based: 0 means "don't switch stacks".
 fn set(idt: &mut [Entry; 256], vector: usize, handler: usize, ist: u8) {
     let addr = handler as u64;
     idt[vector] = Entry {
@@ -83,22 +79,32 @@ fn set(idt: &mut [Entry; 256], vector: usize, handler: usize, ist: u8) {
     };
 }
 
+// ─────────────────────────────────────────────── Vectors
+
+/// APIC timer and legacy PIC timer share this vector.
+pub const TIMER_VECTOR: u8 = 32;
+/// Keyboard interrupt (IRQ1 via legacy PIC or I/O APIC in the future).
+pub const KEYBOARD_VECTOR: u8 = 33;
+/// LAPIC spurious interrupt — required by the APIC specification.
+pub const SPURIOUS_VECTOR: u8 = 0xFF;
+
 pub fn init() {
-    // SAFETY: se llama una vez durante el arranque, con las interrupciones
-    // todavía apagadas.
+    // SAFETY: called once during boot with interrupts still disabled.
     unsafe {
         let idt = IDT.get_mut();
 
+        // CPU exceptions (vectors 0-31).
         set(idt, 0, divide_error as *const () as usize, 0);
         set(idt, 3, breakpoint as *const () as usize, 0);
         set(idt, 6, invalid_opcode as *const () as usize, 0);
-        // El único que corre en su propia pila: si llegamos aquí, la pila
-        // normal puede estar destrozada.
         set(idt, 8, double_fault as *const () as usize, gdt::DOUBLE_FAULT_IST_INDEX as u8 + 1);
         set(idt, 13, general_protection as *const () as usize, 0);
         set(idt, 14, page_fault as *const () as usize, 0);
+
+        // Hardware interrupts.
         set(idt, TIMER_VECTOR as usize, timer as *const () as usize, 0);
         set(idt, KEYBOARD_VECTOR as usize, keyboard as *const () as usize, 0);
+        set(idt, SPURIOUS_VECTOR as usize, spurious as *const () as usize, 0);
 
         let pointer = DescriptorTablePointer {
             limit: (core::mem::size_of_val(idt) - 1) as u16,
@@ -108,95 +114,22 @@ pub fn init() {
     }
 }
 
-/// A partir de aquí la CPU puede interrumpirnos en cualquier instrucción.
+/// Enables maskable interrupts (STI).
 pub fn enable() {
-    // SAFETY: la IDT ya está cargada; sin ella, la primera interrupción
-    // provocaría un triple fallo.
     unsafe { core::arch::asm!("sti", options(nomem, nostack)) };
 }
 
-/// Deshabilita la entrega de interrupciones enmascarables en la CPU.
+/// Disables maskable interrupts (CLI).
 pub fn disable() {
     unsafe { core::arch::asm!("cli", options(nomem, nostack)) };
 }
 
-/// Provoca un punto de interrupción por software para depuración (`int3` en x86).
+/// Triggers a software breakpoint for debugging (`int3`).
 pub fn trigger_breakpoint() {
     unsafe { core::arch::asm!("int3", options(nomem, nostack)) };
 }
 
-// ------------------------------------------------------------- excepciones
-
-/// Los dos bits bajos del selector de código apilado son el nivel de
-/// privilegio desde el que saltó la excepción. Un 3 significa espacio de
-/// usuario, y eso lo cambia todo: no es un error del sistema, es un programa
-/// que se ha portado mal. Se le mata y la vida sigue.
-fn from_user(frame: &InterruptStackFrame) -> bool {
-    frame.code_segment & 3 == 3
-}
-
-/// Termina el programa de usuario culpable, o entra en panic si el culpable
-/// era el propio kernel.
-fn fault(frame: &InterruptStackFrame, description: core::fmt::Arguments) -> ! {
-    if from_user(frame) {
-        println!();
-        println!("  ✋ el programa de usuario ha fallado: {description}");
-        println!("     lo mata el kernel · el sistema sigue en pie");
-        crate::userspace::return_to_kernel(0xdead);
-    }
-    panic!("{description}");
-}
-
-extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
-    // Este manejador RETORNA, y ahí está la gracia: la ejecución sigue en la
-    // instrucción siguiente como si nada hubiera pasado. Es la base de
-    // cualquier depurador.
-    println!("  excepción · breakpoint en {:#x}", frame.instruction_pointer);
-}
-
-extern "x86-interrupt" fn divide_error(frame: InterruptStackFrame) {
-    fault(&frame, format_args!("división por cero en {:#x}", frame.instruction_pointer));
-}
-
-extern "x86-interrupt" fn invalid_opcode(frame: InterruptStackFrame) {
-    fault(&frame, format_args!("instrucción inválida en {:#x}", frame.instruction_pointer));
-}
-
-extern "x86-interrupt" fn general_protection(frame: InterruptStackFrame, error_code: u64) {
-    fault(
-        &frame,
-        format_args!(
-            "fallo de protección general en {:#x} (código {error_code:#x})",
-            frame.instruction_pointer
-        ),
-    );
-}
-
-extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: u64) {
-    // CR2 guarda la dirección que se intentó acceder. Es el dato más útil de
-    // toda la excepción, y solo está ahí.
-    let address: u64;
-    // SAFETY: leer CR2 no tiene efectos secundarios.
-    unsafe { core::arch::asm!("mov {}, cr2", out(reg) address, options(nomem, nostack)) };
-
-    fault(
-        &frame,
-        format_args!(
-            "intentó tocar {address:#x} desde {:#x} · lo paró la MMU, no una \
-             comprobación del kernel (código {error_code:#b})",
-            frame.instruction_pointer
-        ),
-    );
-}
-
-/// Un doble fallo es «falló el manejo de un fallo». Si este manejador también
-/// fallara vendría el triple fallo, que no es una excepción sino un reinicio
-/// de la máquina — sin mensaje y sin rastro. Por eso corre en su propia pila.
-extern "x86-interrupt" fn double_fault(frame: InterruptStackFrame, _error_code: u64) -> ! {
-    panic!("DOBLE FALLO en {:#x}", frame.instruction_pointer);
-}
-
-// ---------------------------------------------------------- PIC 8259 y IRQs
+// ─────────────────────────────────────────────── Legacy PIC 8259
 
 const PIC1_COMMAND: u16 = 0x20;
 const PIC1_DATA: u16 = 0x21;
@@ -204,57 +137,49 @@ const PIC2_COMMAND: u16 = 0xA0;
 const PIC2_DATA: u16 = 0xA1;
 const END_OF_INTERRUPT: u8 = 0x20;
 
-/// Las IRQ del PIC llegan por defecto a los vectores 8-15, que la CPU ya usa
-/// para sus excepciones — un doble fallo y una IRQ del disco serían el mismo
-/// número. Hay que remapearlas por encima de 31.
-pub const TIMER_VECTOR: u8 = 32;
-pub const KEYBOARD_VECTOR: u8 = 33;
-
+/// Initializes and remaps the PIC 8259.
+///
+/// **Legacy path** — kept for keyboard IRQ during early boot before I/O APIC
+/// migration.  The APIC timer replaces the PIC timer.
 pub fn init_pic() {
-    // SAFETY: la secuencia de inicialización del 8259 está fijada por su hoja
-    // de datos; los puertos son los de un PC compatible.
     unsafe {
-        // Empieza la inicialización (ICW1), avisando de que habrá ICW4.
+        // ICW1: start initialization, expect ICW4.
         outb(PIC1_COMMAND, 0x11);
         io_wait();
         outb(PIC2_COMMAND, 0x11);
         io_wait();
 
-        // ICW2: a partir de qué vector emite cada uno.
+        // ICW2: base vector offset.
         outb(PIC1_DATA, TIMER_VECTOR);
         io_wait();
         outb(PIC2_DATA, TIMER_VECTOR + 8);
         io_wait();
 
-        // ICW3: cómo están encadenados. El esclavo cuelga de la línea 2 del
-        // maestro — un apaño de 1981 para pasar de 8 interrupciones a 15.
+        // ICW3: cascading (slave on line 2).
         outb(PIC1_DATA, 1 << 2);
         io_wait();
         outb(PIC2_DATA, 2);
         io_wait();
 
-        // ICW4: modo 8086.
+        // ICW4: 8086 mode.
         outb(PIC1_DATA, 0x01);
         io_wait();
         outb(PIC2_DATA, 0x01);
         io_wait();
 
-        // Máscaras: un bit a 1 silencia esa línea. Solo dejamos pasar el
-        // temporizador (IRQ0) y el teclado (IRQ1); lo demás aún no sabemos
-        // atenderlo, y una IRQ sin manejador es un fallo de protección.
-        outb(PIC1_DATA, 0b1111_1100);
+        // Mask: only allow keyboard (IRQ1) through PIC for now.
+        // Timer (IRQ0) is now handled by the LAPIC.
+        outb(PIC1_DATA, 0b1111_1101); // only IRQ1 (keyboard) unmasked
         outb(PIC2_DATA, 0b1111_1111);
     }
 }
 
-/// El PIC no vuelve a emitir esa línea hasta que se le confirma. Olvidarlo
-/// es el bug clásico: todo funciona una vez y luego el silencio.
+/// Sends End-of-Interrupt to the PIC.
 ///
 /// # Safety
-/// Solo debe llamarse desde el manejador de la interrupción correspondiente.
-unsafe fn end_of_interrupt(vector: u8) {
+/// Must only be called from the corresponding interrupt handler.
+unsafe fn pic_end_of_interrupt(vector: u8) {
     unsafe {
-        // Las líneas del esclavo hay que confirmárselas a los dos.
         if vector >= TIMER_VECTOR + 8 {
             outb(PIC2_COMMAND, END_OF_INTERRUPT);
         }
@@ -262,23 +187,84 @@ unsafe fn end_of_interrupt(vector: u8) {
     }
 }
 
-// Desde la Fase 4 los manejadores no trabajan: solo apuntan el dato y
-// despiertan a la tarea que lo esperaba. Mientras un manejador corre, el
-// resto del sistema está parado, así que cuanto menos haga, mejor.
+fn io_wait() {
+    unsafe { outb(0x80, 0) };
+}
+
+// ─────────────────────────────────────────────── Exceptions
+
+fn from_user(frame: &InterruptStackFrame) -> bool {
+    frame.code_segment & 3 == 3
+}
+
+fn fault(frame: &InterruptStackFrame, description: core::fmt::Arguments) -> ! {
+    if from_user(frame) {
+        println!();
+        println!("  ✋ userspace fault: {description}");
+        println!("     killed by kernel · system continues");
+        crate::userspace::return_to_kernel(0xdead);
+    }
+    panic!("{description}");
+}
+
+extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
+    println!("  exception · breakpoint at {:#x}", frame.instruction_pointer);
+}
+
+extern "x86-interrupt" fn divide_error(frame: InterruptStackFrame) {
+    fault(&frame, format_args!("divide by zero at {:#x}", frame.instruction_pointer));
+}
+
+extern "x86-interrupt" fn invalid_opcode(frame: InterruptStackFrame) {
+    fault(&frame, format_args!("invalid opcode at {:#x}", frame.instruction_pointer));
+}
+
+extern "x86-interrupt" fn general_protection(frame: InterruptStackFrame, error_code: u64) {
+    fault(
+        &frame,
+        format_args!(
+            "general protection fault at {:#x} (error {error_code:#x})",
+            frame.instruction_pointer
+        ),
+    );
+}
+
+extern "x86-interrupt" fn page_fault(frame: InterruptStackFrame, error_code: u64) {
+    let address: u64;
+    unsafe { core::arch::asm!("mov {}, cr2", out(reg) address, options(nomem, nostack)) };
+
+    fault(
+        &frame,
+        format_args!(
+            "tried to access {address:#x} from {:#x} · MMU stopped it (code {error_code:#b})",
+            frame.instruction_pointer
+        ),
+    );
+}
+
+extern "x86-interrupt" fn double_fault(frame: InterruptStackFrame, _error_code: u64) -> ! {
+    panic!("DOUBLE FAULT at {:#x}", frame.instruction_pointer);
+}
+
+// ─────────────────────────────────────────────── Hardware interrupts
 
 extern "x86-interrupt" fn timer(_frame: InterruptStackFrame) {
     crate::task::timer::tick();
 
-    // SAFETY: estamos dentro del manejador de esta misma interrupción.
-    unsafe { end_of_interrupt(TIMER_VECTOR) };
+    // Send EOI to the LAPIC (replaces PIC EOI for the timer).
+    crate::arch::x86_64::apic::eoi();
 }
 
 extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {
-    // SAFETY: 0x60 es el puerto de datos del controlador de teclado. Hay que
-    // leerlo SIEMPRE: si no se vacía, el controlador no manda más scancodes.
     let scancode = unsafe { inb(0x60) };
     crate::task::keyboard::add_scancode(scancode);
 
-    // SAFETY: estamos dentro del manejador de esta misma interrupción.
-    unsafe { end_of_interrupt(KEYBOARD_VECTOR) };
+    // Keyboard still comes through PIC until I/O APIC migration.
+    unsafe { pic_end_of_interrupt(KEYBOARD_VECTOR) };
+}
+
+/// Spurious interrupt handler — required by the LAPIC specification.
+/// Must NOT send EOI (Intel SDM Vol. 3A, §10.9).
+extern "x86-interrupt" fn spurious(_frame: InterruptStackFrame) {
+    // Intentionally empty: spurious interrupts are a normal LAPIC artifact.
 }

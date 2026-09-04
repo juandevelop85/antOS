@@ -1,5 +1,6 @@
 //! x86_64 architecture support for antOS Kernel.
 
+pub mod apic;
 pub mod gdt;
 pub mod interrupts;
 pub mod mmu;

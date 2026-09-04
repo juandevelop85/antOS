@@ -152,59 +152,74 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     println!();
-    println!("interrupciones");
+    println!("interrupts");
 
-    // El orden importa: la IDT necesita el selector de código de NUESTRA GDT,
-    // y el manejador de doble fallo necesita que el TSS ya esté cargado.
+    // Order matters: IDT needs our GDT's code selector, and the double fault
+    // handler needs the TSS already loaded.
     gdt::init();
-    println!("  gdt          cargada, con pila propia para el doble fallo");
+    println!("  gdt          loaded, with dedicated double-fault stack");
 
     interrupts::init();
-    println!("  idt          cargada, 8 vectores atendidos");
+    println!("  idt          loaded, 9 vectors wired (incl. spurious 0xFF)");
 
-    // Prueba de que una excepción puede manejarse y CONTINUAR: `int3` salta
-    // al manejador de breakpoint, que imprime y retorna aquí mismo.
+    // Prove that an exception can be handled and CONTINUE: `int3` jumps to
+    // the breakpoint handler, which prints and returns right here.
     interrupts::trigger_breakpoint();
-    println!("  breakpoint   manejado y ejecución reanudada");
+    println!("  breakpoint   handled, execution resumed");
 
+    // Remap the PIC with only keyboard (IRQ1) unmasked. The timer (IRQ0) is
+    // now driven by the LAPIC, not the PIC.
     interrupts::init_pic();
-    interrupts::enable();
-    println!("  pic          remapeado a 32.. · temporizador y teclado activos");
+    println!("  pic 8259     remapped, keyboard-only (timer via LAPIC)");
 
     println!();
-    println!("memoria virtual");
+    println!("virtual memory");
 
     let physical_offset = boot_info
         .physical_memory_offset
         .into_option()
-        .expect("el bootloader debía mapear la memoria física");
+        .expect("bootloader must map physical memory");
     let regions: &'static MemoryRegions = &boot_info.memory_regions;
 
-    // SAFETY: el offset lo ha puesto el propio bootloader, y las regiones que
-    // marca como utilizables lo son.
+    // SAFETY: offset set by the bootloader, and usable regions are valid.
     let mut mapper = unsafe { memory::Mapper::new(physical_offset) };
     let mut frames = unsafe { memory::FrameAllocator::new(regions) };
-    println!("  física       mapeada en {physical_offset:#x}");
+    println!("  physical     mapped at {physical_offset:#x}");
 
-    // Traducir una dirección real, para ver el mecanismo en funcionamiento en
-    // vez de creérselo.
-    let en_la_pila = 0u64;
-    let virtual_address = &en_la_pila as *const u64 as u64;
+    let stack_probe = 0u64;
+    let virtual_address = &stack_probe as *const u64 as u64;
     match mapper.translate(virtual_address) {
         Some(physical) => {
-            println!("  traducción   {virtual_address:#x} → física {physical:#x}")
+            println!("  translate    {virtual_address:#x} → physical {physical:#x}")
         }
-        None => println!("  traducción   {virtual_address:#x} no está mapeada (?)"),
+        None => println!("  translate    {virtual_address:#x} not mapped (?)"),
     }
 
-    unsafe { memory::init_heap(&mut mapper, &mut frames) }.expect("no pude mapear el heap");
-    // SAFETY: el rango acaba de mapearse y nadie más lo usa.
+    unsafe { memory::init_heap(&mut mapper, &mut frames) }.expect("could not map heap");
+    // SAFETY: the range was just mapped and nobody else uses it.
     unsafe { allocator::init(memory::HEAP_START as usize, memory::HEAP_SIZE) };
-    println!("  asignador    {}", allocator::name());
-    println!("  marcos       {} entregados", frames.frames_handed_out());
+    println!("  allocator    {}", allocator::name());
+    println!("  frames       {} handed out", frames.frames_handed_out());
 
     heap_demo();
     reuse_test();
+
+    // ── APIC initialization (requires mapper + allocator) ────────────────
+    println!();
+    println!("apic");
+
+    // SAFETY: called once, mapper and allocator are valid, LAPIC address
+    // comes from the CPU's own MSR.
+    match unsafe { crate::arch::x86_64::apic::init(&mut mapper, &mut frames, 100) } {
+        Ok(()) => println!("  status       LAPIC active, PIC timer replaced"),
+        Err(e) => {
+            println!("  warning      APIC init failed: {e}");
+            println!("               falling back to PIC timer");
+        }
+    }
+
+    interrupts::enable();
+    println!("  interrupts   enabled");
 
     println!();
     println!("espacio de usuario");

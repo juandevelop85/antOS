@@ -1,6 +1,8 @@
-# artefactos de compilación
+# artefactos de compilación e imágenes de disco
 target/
 **/target/
+*.vdi
+*.iso
 
 # estado en ejecución de antOS / sysod: instantáneas, bitácora, concesiones
 .syso/
