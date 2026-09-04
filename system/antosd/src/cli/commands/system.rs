@@ -62,16 +62,36 @@ pub fn cmd_caps(catalog: &Catalog, ctx: &Ctx) -> Result<()> {
 /// garantía si el kernel lo impide.
 
 pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
-    let jail = crate::sandbox::for_host();
+    let rt = crate::runtime::detect();
+    let jail = rt.sandbox_provider();
+    let info = rt.runtime_info(ctx);
+
     println!();
-    println!("{}", paint("recinto de ejecución", BOLD));
-    println!("  motor     {}", jail.name());
-    println!("  garantiza {}", paint(jail.guarantees(), DIM));
+    println!("{}", paint("antOS runtime diagnostics", BOLD));
+    println!("  platform  {}", info.platform_name);
+    println!("  kernel    {}", info.kernel_version);
+    println!("  arch      {}", info.arch);
+    println!();
+
+    // ─── capabilities matrix ───────────────────────────────────────────
+    println!("{}", paint("capabilities matrix", BOLD));
+    print_capability("Landlock LSM", info.capabilities.landlock_lsm);
+    print_capability("Seatbelt", info.capabilities.seatbelt);
+    print_capability("Cgroups v2", info.capabilities.cgroups_v2);
+    print_capability("eBPF Supervision", info.capabilities.ebpf_supervision);
+    print_capability("KVM / Hypervisor", info.capabilities.kvm_hypervisor);
+    print_capability("Wayland Desktop", info.capabilities.wayland_desktop);
+    println!();
+
+    // ─── sandbox attack tests ──────────────────────────────────────────
+    println!("{}", paint("sandbox verification", BOLD));
+    println!("  engine     {}", jail.name());
+    println!("  guarantees {}", paint(jail.guarantees(), DIM));
     println!();
 
     let mut fallos = 0;
 
-    // Política de prueba: solo se declara el espacio de trabajo, sin red.
+    // Policy: only workspace is declared, no network.
     let solo_workspace = crate::sandbox::Policy {
         writes: vec![ctx.workspace.clone()],
         reads: vec![],
@@ -81,7 +101,7 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         quota: None,
     };
 
-    // 1) escribir fuera de lo declarado
+    // 1) write outside declared paths
     let fuga = ctx.state.join("doctor-fuga.txt");
     let _ = std::fs::remove_file(&fuga);
     let intento = crate::sandbox::run(
@@ -105,8 +125,7 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         marca(false, "escritura fuera de lo declarado: SE COMPLETÓ");
     }
 
-    // 2) escribir dentro de lo declarado debe seguir funcionando: un recinto
-    //    que lo bloquea todo no es seguro, es inútil.
+    // 2) write inside declared paths must work
     let dentro = ctx.workspace.join(".doctor-prueba");
     let _ = std::fs::remove_file(&dentro);
     let permitido = crate::sandbox::run(
@@ -129,8 +148,7 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         );
     }
 
-    // 3) leer fuera de lo declarado. Es la garantía que separa a Landlock de
-    //    Seatbelt, así que se pregunta al motor qué promete antes de juzgar.
+    // 3) read outside declared paths
     let secreto = ctx.state.join("doctor-secreto.txt");
     std::fs::write(&secreto, "credencial de mentira")?;
     let lectura = crate::sandbox::run(
@@ -158,8 +176,7 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         ),
     }
 
-    // 4) red. Se prueba en los dos sentidos para no confundir «bloqueada»
-    //    con «esta máquina no tiene internet».
+    // 4) network test
     let con_red = crate::sandbox::Policy {
         writes: vec![],
         reads: vec![],
@@ -187,18 +204,150 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         ),
     }
 
+    // ─── subsystem probes ──────────────────────────────────────────────
+    println!();
+    println!("{}", paint("subsystem probes", BOLD));
+
+    // Quota monitor
+    let qm = rt.quota_monitor();
+    let _qm_ok = qm.fidelity().is_enforcing();
+    println!(
+        "  {} quota monitor: {} ({})",
+        fidelity_icon(qm.fidelity()),
+        qm.name(),
+        paint(qm.fidelity().label(), fidelity_color(qm.fidelity()))
+    );
+
+    // Telemetry provider
+    let tp = rt.telemetry_provider();
+    println!(
+        "  {} telemetry: {} ({})",
+        fidelity_icon(tp.fidelity()),
+        tp.name(),
+        paint(tp.fidelity().label(), fidelity_color(tp.fidelity()))
+    );
+
+    // Ollama / LLM
+    let llm_icon = if info.ollama_available { paint("✓", GREEN) } else { paint("✗", YELLOW) };
+    println!(
+        "  {} ollama: {}",
+        llm_icon,
+        if info.ollama_available { "reachable" } else { "not detected" }
+    );
+    if let Some(ref ep) = info.local_llm_endpoint {
+        println!("    endpoint: {}", paint(ep, DIM));
+    }
+
     println!();
     if fallos == 0 {
-        println!("{}", paint("✓ el recinto se comporta como dice", GREEN));
+        println!("{}", paint("✓ all diagnostics passed", GREEN));
         Ok(())
     } else {
-        bail!("{fallos} comprobación(es) del recinto han fallado")
+        bail!("{fallos} diagnostic check(s) failed")
     }
+}
+
+/// `antos runtime info` — prints the full runtime diagnostic report.
+pub fn cmd_runtime_info(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let rt = crate::runtime::detect();
+    let info = rt.runtime_info(ctx);
+
+    let json_mode = args.iter().any(|a| a == "--json");
+
+    if json_mode {
+        println!("{}", serde_json::to_string_pretty(&info)?);
+        return Ok(());
+    }
+
+    println!();
+    println!("{}", paint("antOS Runtime Info", BOLD));
+    println!();
+    println!("  Platform        {}", paint(&info.platform_name, CYAN));
+    println!("  Kernel          {}", info.kernel_version);
+    println!("  Architecture    {}", info.arch);
+    println!();
+
+    println!("{}", paint("Capabilities Matrix", BOLD));
+    println!();
+    println!(
+        "  {:<22} {:<14} {}",
+        paint("Subsystem", BOLD),
+        paint("Fidelity", BOLD),
+        paint("Enforcing", BOLD),
+    );
+    println!("  {}", "─".repeat(52));
+
+    let rows: Vec<(&str, antos_protocol::CapabilityFidelity)> = vec![
+        ("Landlock LSM", info.capabilities.landlock_lsm),
+        ("Seatbelt", info.capabilities.seatbelt),
+        ("Cgroups v2", info.capabilities.cgroups_v2),
+        ("eBPF Supervision", info.capabilities.ebpf_supervision),
+        ("KVM / Hypervisor", info.capabilities.kvm_hypervisor),
+        ("Wayland Desktop", info.capabilities.wayland_desktop),
+    ];
+
+    for (name, fidelity) in &rows {
+        let enforcing = if fidelity.is_enforcing() {
+            paint("yes", GREEN)
+        } else {
+            paint("no", DIM)
+        };
+        println!(
+            "  {:<22} {:<14} {}",
+            name,
+            paint(fidelity.label(), fidelity_color(*fidelity)),
+            enforcing,
+        );
+    }
+
+    println!();
+    println!("{}", paint("Local LLM", BOLD));
+    println!(
+        "  Ollama            {}",
+        if info.ollama_available {
+            paint("✓ reachable", GREEN)
+        } else {
+            paint("✗ not detected", YELLOW)
+        }
+    );
+    if let Some(ref ep) = info.local_llm_endpoint {
+        println!("  Endpoint          {}", ep);
+    }
+
+    println!();
+    Ok(())
 }
 
 fn marca(ok: bool, texto: &str) {
     let (simbolo, color) = if ok { ("✓", GREEN) } else { ("✗", RED) };
     println!("  {} {texto}", paint(simbolo, color));
+}
+
+fn print_capability(name: &str, fidelity: antos_protocol::CapabilityFidelity) {
+    println!(
+        "  {} {:<22} {}",
+        fidelity_icon(fidelity),
+        name,
+        paint(fidelity.label(), fidelity_color(fidelity)),
+    );
+}
+
+fn fidelity_icon(f: antos_protocol::CapabilityFidelity) -> String {
+    match f {
+        antos_protocol::CapabilityFidelity::Native => paint("✓", GREEN),
+        antos_protocol::CapabilityFidelity::Emulated => paint("⚠", YELLOW),
+        antos_protocol::CapabilityFidelity::Simulated => paint("~", YELLOW),
+        antos_protocol::CapabilityFidelity::Unsupported => paint("✗", DIM),
+    }
+}
+
+fn fidelity_color(f: antos_protocol::CapabilityFidelity) -> &'static str {
+    match f {
+        antos_protocol::CapabilityFidelity::Native => GREEN,
+        antos_protocol::CapabilityFidelity::Emulated => YELLOW,
+        antos_protocol::CapabilityFidelity::Simulated => YELLOW,
+        antos_protocol::CapabilityFidelity::Unsupported => DIM,
+    }
 }
 
 pub fn cmd_log(ctx: &Ctx) -> Result<()> {

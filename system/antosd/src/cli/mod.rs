@@ -34,6 +34,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "caps" => commands::system::cmd_caps(catalog, ctx),
         "demonio" => ipc::servir(ctx, catalog),
         "doctor" => commands::system::cmd_doctor(ctx),
+        "runtime" => commands::system::cmd_runtime_info(ctx, &rest[1..]),
         "escucha" => commands::run::cmd_listen(ctx, catalog, &rest[1..], &opts),
         "log" => commands::system::cmd_log(ctx),
         "undo" => commands::undo::cmd_undo(ctx, &rest[1..]),
@@ -110,6 +111,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos log                  bitácora de lo que ha pasado
   antos undo [--ticket id]   revierte el último plan o todos los cambios de un ticket
   antos doctor               comprueba que el recinto es real, atacándolo
+  antos runtime [info|--json] diagnostica el entorno de ejecución y la matriz de capacidades (T22.4)
   antos diff [proyecto] [ref] visor interactivo de diffs y parches por proyecto
   antos edit [fichero]       abre el fichero en el editor predeterminado (Neovim / Super + E)
   antos dev [--project <p>]  espacio de trabajo TUI multipanel (Neovim + antFlow + Diffs / Super + W)
