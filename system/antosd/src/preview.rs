@@ -402,6 +402,20 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::GitHookManage { action, .. } => {
                 out.push(Line::Info(format!("gestiona hooks de Git pre-commit y pre-push (acción: «{action}»)")));
             }
+            Change::SnapshotCreate { label, .. } => {
+                let lbl = label.as_deref().unwrap_or("automática");
+                out.push(Line::Info(format!("crea instantánea atómica del entorno de trabajo y servicios (etiqueta: «{lbl}»)")));
+            }
+            Change::SnapshotList { .. } => {
+                out.push(Line::Info("lista las instantáneas registradas en el Time Machine de antOS".into()));
+            }
+            Change::SnapshotRestore { id_or_label, create_rescue, .. } => {
+                let rescue_str = if *create_rescue { " (con snapshot de rescate previo)" } else { "" };
+                out.push(Line::Info(format!("restaura el entorno completo al punto de la instantánea «{id_or_label}»{rescue_str}")));
+            }
+            Change::SnapshotDelete { id, .. } => {
+                out.push(Line::Info(format!("elimina la instantánea «{id}» del Time Machine")));
+            }
         }
         pendiente.aplicar(change);
     }

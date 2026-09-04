@@ -1,0 +1,12 @@
+name = "snapshot.restore"
+summary = "Restaura el entorno completo de trabajo y servicios al punto de una instantánea"
+
+[params]
+id = { type = "text" }
+no_rescue = { type = "boolean", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

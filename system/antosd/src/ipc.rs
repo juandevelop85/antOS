@@ -827,6 +827,30 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
                 Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
             }
         }
+        Request::CreateSnapshot { label, author } => {
+            match crate::time_machine::TimeMachineEngine::create_snapshot(&ctx.workspace, &ctx.state, label.as_deref(), author.as_deref()) {
+                Ok(meta) => enviar(&mut escritura, &Event::SnapshotCreated(meta))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ListSnapshots => {
+            match crate::time_machine::TimeMachineEngine::list_snapshots(&ctx.state) {
+                Ok(list) => enviar(&mut escritura, &Event::SnapshotsList(list))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::RestoreSnapshot { id_or_label, create_rescue } => {
+            match crate::time_machine::TimeMachineEngine::restore_snapshot(&ctx.workspace, &ctx.state, &id_or_label, create_rescue) {
+                Ok(res) => enviar(&mut escritura, &Event::SnapshotRestored(res))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::DeleteSnapshot { id } => {
+            match crate::time_machine::TimeMachineEngine::delete_snapshot(&ctx.state, &id) {
+                Ok(deleted_id) => enviar(&mut escritura, &Event::SnapshotDeleted { id: deleted_id })?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1288,6 +1312,21 @@ pub fn intencion_remota(
                 pantalla.nota(&format!("  • Pre-commit: {}", if status.pre_commit_installed { "Instalado" } else { "No instalado" }))?;
                 pantalla.nota(&format!("  • Pre-push:   {}", if status.pre_push_installed { "Instalado" } else { "No instalado" }))?;
                 pantalla.nota(&format!("  • Directorio: {}", status.hook_dir))?;
+            }
+            Event::SnapshotCreated(meta) => {
+                pantalla.nota(&format!("📸 antOS Time Machine · Instantánea [{}] creada ({} archivos, {} KiB)", meta.id, meta.files_count, meta.total_bytes / 1024))?;
+            }
+            Event::SnapshotsList(list) => {
+                pantalla.nota(&format!("⏱️ antOS Time Machine · {} instantánea(s) registradas:", list.len()))?;
+                for s in list {
+                    pantalla.nota(&format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024))?;
+                }
+            }
+            Event::SnapshotRestored(res) => {
+                pantalla.nota(&format!("⏪ antOS Time Machine · Instantánea [{}] restaurada en {} ms ({} archivos actualizados)", res.snapshot_id, res.duration_ms, res.files_restored))?;
+            }
+            Event::SnapshotDeleted { id } => {
+                pantalla.nota(&format!("🗑️ antOS Time Machine · Instantánea [{id}] eliminada."))?;
             }
             Event::Error(m) => bail!("{m}"),
         }

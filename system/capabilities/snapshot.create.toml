@@ -1,0 +1,12 @@
+name = "snapshot.create"
+summary = "Crea una instantánea atómica del entorno de trabajo, código y estado de servicios"
+
+[params]
+label = { type = "text", optional = true }
+author = { type = "text", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

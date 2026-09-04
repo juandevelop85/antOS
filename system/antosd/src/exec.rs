@@ -411,6 +411,29 @@ pub enum Change {
         workspace: PathBuf,
         action: String,
     },
+    /// T20.4 — Create atomic dev environment snapshot.
+    SnapshotCreate {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        label: Option<String>,
+        author: Option<String>,
+    },
+    /// T20.4 — List atomic dev environment snapshots.
+    SnapshotList {
+        state_dir: PathBuf,
+    },
+    /// T20.4 — Restore atomic dev environment snapshot.
+    SnapshotRestore {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        id_or_label: String,
+        create_rescue: bool,
+    },
+    /// T20.4 — Delete atomic dev environment snapshot.
+    SnapshotDelete {
+        state_dir: PathBuf,
+        id: String,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -539,7 +562,11 @@ impl Pendiente {
             | Change::TestGen { .. }
             | Change::CiRun { .. }
             | Change::CiStatus { .. }
-            | Change::GitHookManage { .. } => {}
+            | Change::GitHookManage { .. }
+            | Change::SnapshotCreate { .. }
+            | Change::SnapshotList { .. }
+            | Change::SnapshotRestore { .. }
+            | Change::SnapshotDelete { .. } => {}
         }
     }
 }
@@ -1513,6 +1540,42 @@ pub fn changes_for(
             Ok(vec![Change::GitHookManage {
                 workspace: ctx.workspace.clone(),
                 action,
+            }])
+        }
+
+        "snapshot.create" => {
+            let label = a.get("label").cloned();
+            let author = a.get("author").cloned();
+            Ok(vec![Change::SnapshotCreate {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                label,
+                author,
+            }])
+        }
+
+        "snapshot.list" => {
+            Ok(vec![Change::SnapshotList {
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "snapshot.restore" => {
+            let id_or_label = a.get("id").cloned().unwrap_or_else(|| "latest".into());
+            let no_rescue = a.get("no_rescue").map(|v| v == "true").unwrap_or(false);
+            Ok(vec![Change::SnapshotRestore {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                id_or_label,
+                create_rescue: !no_rescue,
+            }])
+        }
+
+        "snapshot.delete" => {
+            let id = a.get("id").cloned().unwrap_or_default();
+            Ok(vec![Change::SnapshotDelete {
+                state_dir: ctx.state.clone(),
+                id,
             }])
         }
 
@@ -2695,6 +2758,55 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     status.hook_dir,
                     if status.active_guards.is_empty() { "ninguna".into() } else { status.active_guards.join(", ") },
                 ));
+            }
+            Change::SnapshotCreate { workspace, state_dir, label, author } => {
+                let meta = crate::time_machine::TimeMachineEngine::create_snapshot(
+                    workspace,
+                    state_dir,
+                    label.as_deref(),
+                    author.as_deref(),
+                )?;
+                output.push(format!(
+                    "📸 antOS Time Machine · Instantánea Creada [{}]\n  • Etiqueta:  {}\n  • Autor:     {}\n  • Archivos:  {} ({} KiB)\n  • Servicios: {}",
+                    meta.id,
+                    meta.label.as_deref().unwrap_or("—"),
+                    meta.author,
+                    meta.files_count,
+                    meta.total_bytes / 1024,
+                    if meta.services_included.is_empty() { "ninguno".into() } else { meta.services_included.join(", ") },
+                ));
+            }
+            Change::SnapshotList { state_dir } => {
+                let list = crate::time_machine::TimeMachineEngine::list_snapshots(state_dir)?;
+                if list.is_empty() {
+                    output.push("antOS Time Machine · No hay instantáneas registradas.".into());
+                } else {
+                    let mut lines = vec![format!("⏱️ antOS Time Machine · Total: {} instantáneas registradas:", list.len())];
+                    for s in &list {
+                        lines.push(format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::SnapshotRestore { workspace, state_dir, id_or_label, create_rescue } => {
+                let res = crate::time_machine::TimeMachineEngine::restore_snapshot(
+                    workspace,
+                    state_dir,
+                    id_or_label,
+                    *create_rescue,
+                )?;
+                output.push(format!(
+                    "⏪ antOS Time Machine · Instantánea [{}] Restaurada\n  • Rescate:   {}\n  • Archivos:  {} restaurados, {} eliminados\n  • Duración:  {} ms",
+                    res.snapshot_id,
+                    res.rescue_snapshot_id.as_deref().unwrap_or("ninguno"),
+                    res.files_restored,
+                    res.files_deleted,
+                    res.duration_ms,
+                ));
+            }
+            Change::SnapshotDelete { state_dir, id } => {
+                let deleted = crate::time_machine::TimeMachineEngine::delete_snapshot(state_dir, id)?;
+                output.push(format!("🗑️ antOS Time Machine · Instantánea [{deleted}] eliminada con éxito."));
             }
         }
     }

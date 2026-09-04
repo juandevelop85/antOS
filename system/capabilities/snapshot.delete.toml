@@ -1,0 +1,11 @@
+name = "snapshot.delete"
+summary = "Elimina una instantánea atómica liberando espacio en disco"
+
+[params]
+id = { type = "text" }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

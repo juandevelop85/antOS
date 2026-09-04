@@ -581,6 +581,28 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("git.hook", &[("action", action)])]));
         }
 
+        // Intenciones de Snapshots Atómicos y Time Machine (T20.4)
+        if lower.contains("snapshot") || lower.contains("instantanea") || lower.contains("instantánea") || lower.contains("time machine") {
+            if lower.contains("crea") || lower.contains("guarda") || lower.contains("toma") || lower.contains("nuevo") || lower.contains("hacer") {
+                let label = after(&words, &["etiqueta", "llamado", "llamada", "nombre", "como"]);
+                let mut args = Vec::new();
+                if let Some(ref l) = label {
+                    args.push(("label", l.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("snapshot.create", &args)]));
+            } else if lower.contains("restaura") || lower.contains("recupera") || lower.contains("revert") || lower.contains("volver") {
+                let id = after(&words, &["a", "al", "snapshot", "instantanea", "instantánea"])
+                    .unwrap_or_else(|| "latest".into());
+                return Ok(Propuesta::solo(vec![step("snapshot.restore", &[("id", &id)])]));
+            } else if lower.contains("elimina") || lower.contains("borra") || lower.contains("remueve") {
+                let id = after(&words, &["snapshot", "instantanea", "instantánea"])
+                    .unwrap_or_else(|| "latest".into());
+                return Ok(Propuesta::solo(vec![step("snapshot.delete", &[("id", &id)])]));
+            } else {
+                return Ok(Propuesta::solo(vec![step("snapshot.list", &[])]));
+            }
+        }
+
         // Intenciones de Espacio de Trabajo Integrado Dev TUI (T20.1)
         if lower.contains("espacio de trabajo") || lower.contains("dev tui") || lower.contains("modo dev") || (lower.contains("workspace") && (lower.contains("inicia") || lower.contains("abre") || lower.contains("tui"))) {
             let project = after(&words, &["proyecto", "en", "para"]);
@@ -1759,5 +1781,32 @@ mod tests {
         assert_eq!(p_hook.steps.len(), 1);
         assert_eq!(p_hook.steps[0].capability, "git.hook");
         assert_eq!(p_hook.steps[0].args.get("action").map(|s| s.as_str()), Some("install"));
+    }
+
+    #[test]
+    fn test_plan_dev_snapshots() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_create = planner
+            .plan("crea snapshot llamado pre-refactor", &catalog)
+            .expect("plan snapshot create");
+        assert_eq!(p_create.steps.len(), 1);
+        assert_eq!(p_create.steps[0].capability, "snapshot.create");
+        assert_eq!(p_create.steps[0].args.get("label").map(|s| s.as_str()), Some("pre-refactor"));
+
+        let p_list = planner
+            .plan("lista snapshots del time machine", &catalog)
+            .expect("plan snapshot list");
+        assert_eq!(p_list.steps.len(), 1);
+        assert_eq!(p_list.steps[0].capability, "snapshot.list");
+
+        let p_restore = planner
+            .plan("restaura snapshot pre-refactor", &catalog)
+            .expect("plan snapshot restore");
+        assert_eq!(p_restore.steps.len(), 1);
+        assert_eq!(p_restore.steps[0].capability, "snapshot.restore");
+        assert_eq!(p_restore.steps[0].args.get("id").map(|s| s.as_str()), Some("pre-refactor"));
     }
 }

@@ -1,0 +1,10 @@
+name = "snapshot.list"
+summary = "Lista la cronología de instantáneas atómicas y estado del Time Machine"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

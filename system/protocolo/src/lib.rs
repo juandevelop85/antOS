@@ -1605,6 +1605,36 @@ pub struct GitHookStatus {
     pub active_guards: Vec<String>,
 }
 
+// ----------------------------------------------------------- dev snapshots & time machine (T20.4)
+
+/// Metadata describing a full workspace & state atomic snapshot (T20.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DevSnapshotMetadata {
+    pub id: String,
+    pub label: Option<String>,
+    pub author: String,
+    pub timestamp_secs: u64,
+    pub git_branch: Option<String>,
+    pub git_commit: Option<String>,
+    pub files_count: usize,
+    pub total_bytes: u64,
+    pub services_included: Vec<String>,
+    pub memory_graph_included: bool,
+    pub method: String,
+}
+
+/// Result of a snapshot restore operation (T20.4).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotRestoreResult {
+    pub snapshot_id: String,
+    pub rescue_snapshot_id: Option<String>,
+    pub files_restored: usize,
+    pub files_deleted: usize,
+    pub services_restored: Vec<String>,
+    pub memory_graph_restored: bool,
+    pub duration_ms: u64,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1957,6 +1987,26 @@ pub enum Request {
     ManageGitHooks {
         action: String,
     },
+    /// Create an atomic development environment snapshot (T20.4).
+    #[serde(alias = "CrearSnapshot")]
+    CreateSnapshot {
+        label: Option<String>,
+        author: Option<String>,
+    },
+    /// List all atomic development environment snapshots (T20.4).
+    #[serde(alias = "ListarSnapshots")]
+    ListSnapshots,
+    /// Restore an atomic snapshot reverting workspace and runtime state (T20.4).
+    #[serde(alias = "RestaurarSnapshot")]
+    RestoreSnapshot {
+        id_or_label: String,
+        create_rescue: bool,
+    },
+    /// Delete an atomic development snapshot (T20.4).
+    #[serde(alias = "EliminarSnapshot")]
+    DeleteSnapshot {
+        id: String,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2246,6 +2296,20 @@ pub enum Event {
     /// Git hooks installation and guard status (T20.3).
     #[serde(alias = "EstadoGitHooks")]
     GitHooksStatus(GitHookStatus),
+    /// Notification when an atomic snapshot is created (T20.4).
+    #[serde(alias = "SnapshotCreado")]
+    SnapshotCreated(DevSnapshotMetadata),
+    /// Chronological list of atomic snapshots (T20.4).
+    #[serde(alias = "ListaSnapshots")]
+    SnapshotsList(Vec<DevSnapshotMetadata>),
+    /// Notification when an atomic snapshot is restored (T20.4).
+    #[serde(alias = "SnapshotRestaurado")]
+    SnapshotRestored(SnapshotRestoreResult),
+    /// Notification when an atomic snapshot is deleted (T20.4).
+    #[serde(alias = "SnapshotEliminado")]
+    SnapshotDeleted {
+        id: String,
+    },
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3534,6 +3598,50 @@ mod tests {
         let json_hook = serde_json::to_string(&ev_hook).expect("serialize ev_hook");
         let des_hook: Event = serde_json::from_str(&json_hook).expect("deserialize ev_hook");
         assert_eq!(ev_hook, des_hook);
+    }
+
+    #[test]
+    fn test_dev_snapshot_serialization() {
+        let meta = DevSnapshotMetadata {
+            id: "snap-20260903-test".into(),
+            label: Some("pre-refactor".into()),
+            author: "human".into(),
+            timestamp_secs: 1725385000,
+            git_branch: Some("master".into()),
+            git_commit: Some("75e0297".into()),
+            files_count: 42,
+            total_bytes: 1048576,
+            services_included: vec!["postgres".into()],
+            memory_graph_included: true,
+            method: "clon".into(),
+        };
+
+        let req = Request::CreateSnapshot {
+            label: Some("pre-refactor".into()),
+            author: Some("human".into()),
+        };
+        let json_req = serde_json::to_string(&req).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req, des_req);
+
+        let ev = Event::SnapshotCreated(meta.clone());
+        let json_ev = serde_json::to_string(&ev).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev, des_ev);
+
+        let res = SnapshotRestoreResult {
+            snapshot_id: "snap-20260903-test".into(),
+            rescue_snapshot_id: Some("rescue-1234".into()),
+            files_restored: 42,
+            files_deleted: 2,
+            services_restored: vec!["postgres".into()],
+            memory_graph_restored: true,
+            duration_ms: 120,
+        };
+        let ev_res = Event::SnapshotRestored(res.clone());
+        let json_res = serde_json::to_string(&ev_res).expect("serialize ev_res");
+        let des_res: Event = serde_json::from_str(&json_res).expect("deserialize ev_res");
+        assert_eq!(ev_res, des_res);
     }
 }
 

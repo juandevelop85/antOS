@@ -57,6 +57,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.36 Espacio de Trabajo Integrado Dev TUI (`antos dev`)](#436-espacio-de-trabajo-integrado-dev-tui-antos-dev)
    - [4.37 Reproducción Autónoma de Bugs TDD y Generación de Tests (`antos reproduce` / `antos testgen`)](#437-reproducción-autónoma-de-bugs-tdd-y-generación-de-tests-antos-reproduce--antos-testgen)
    - [4.38 Matriz de CI/CD Local Paralela y Git Hooks Inteligentes (`antos ci` / `antos hook`)](#438-matriz-de-cicd-local-paralela-y-git-hooks-inteligentes-antos-ci--antos-hook)
+   - [4.39 Instantáneas Atómicas de Entorno y Time Machine de Estado (`antos snapshot`)](#439-instantáneas-atómicas-de-entorno-y-time-machine-de-estado-antos-snapshot)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1277,6 +1278,37 @@ antos hook uninstall
 antos "ejecuta ci rápido"
 antos "instala pre-commit hook"
 antos "audita pre-commit"
+```
+
+---
+
+### 4.39 Instantáneas Atómicas de Entorno y Time Machine de Estado (`antos snapshot`)
+
+Motor de snapshots atómicos y máquina del tiempo (T20.4) para congelar y revertir en menos de 200 ms el estado completo del entorno: árbol de código (incluidos archivos untracked), bases de datos de servicios locales efímeros (PostgreSQL, Redis, MariaDB) y grafo de memoria semántica:
+
+```bash
+# 1. Crear una instantánea atómica con etiqueta descriptiva
+antos snapshot create pre-refactor-auth
+antos snapshot create milestone-1 --author "dev-team"
+
+# 2. Listar la cronología de instantáneas registradas
+antos snapshot list
+antos snapshot ls
+
+# 3. Restaurar el entorno al punto exacto capturado (con snapshot de rescate previo automático)
+antos snapshot restore pre-refactor-auth
+antos snapshot restore snap-1a06984
+
+# 4. Restaurar sin generar snapshot de rescate previo
+antos snapshot restore pre-refactor-auth --no-rescue
+
+# 5. Eliminar una instantánea liberando espacio
+antos snapshot delete pre-refactor-auth
+
+# 6. Uso declarativo mediante lenguaje natural
+antos "crea snapshot llamado pre-deploy"
+antos "restaura snapshot pre-deploy"
+antos "lista snapshots del time machine"
 ```
 
 ---
