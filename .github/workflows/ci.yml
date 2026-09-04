@@ -1,0 +1,244 @@
+# antOS · CI/CD Pipeline (T22.6)
+#
+# Validates every commit and pull request across the full matrix:
+# - Host workspace (antosd, protocolo, builder) on Linux and macOS
+# - Kernel bare-metal cross-compilation for x86_64 and AArch64
+# - Code quality: rustfmt, clippy with zero warnings
+#
+# The kernel is a separate workspace targeting x86_64-unknown-none and
+# aarch64-unknown-none, so it gets its own compilation jobs.
+
+name: CI
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────── Code formatting
+  check-format:
+    name: "Format · rustfmt"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain with rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Check formatting (host workspace)
+        run: cargo fmt --all -- --check
+
+      - name: Check formatting (kernel workspace)
+        run: cargo fmt --all -- --check
+        working-directory: kernel
+
+      - name: Check formatting (user workspace)
+        run: cargo fmt --all -- --check
+        working-directory: user
+
+  # ──────────────────────────────────────────────── Clippy lint (host)
+  clippy-host:
+    name: "Lint · clippy (host)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain with clippy
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: clippy-host-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: clippy-host-${{ runner.os }}-
+
+      - name: Clippy (host workspace)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ──────────────────────────────────────────────── Test on Linux
+  test-linux:
+    name: "Test · Linux (ubuntu-latest)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: x86_64-unknown-none
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            qemu-system-arm
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-linux-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-linux-
+
+      - name: Build host workspace
+        run: cargo check --workspace
+
+      - name: Run host workspace tests
+        run: cargo test --workspace
+
+  # ──────────────────────────────────────────────── Test on macOS
+  test-macos:
+    name: "Test · macOS (Apple Silicon)"
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: x86_64-unknown-none
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: test-macos-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-macos-
+
+      - name: Build host workspace
+        run: cargo check --workspace
+
+      - name: Run host workspace tests
+        run: cargo test --workspace
+
+  # ──────────────────────────────────────────────── Kernel · x86_64
+  kernel-x86_64:
+    name: "Kernel · x86_64-unknown-none"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: x86_64-unknown-none
+
+      - name: Cache kernel build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            kernel/target
+            user/target
+          key: kernel-x86-${{ hashFiles('kernel/Cargo.lock', 'user/Cargo.lock') }}
+          restore-keys: kernel-x86-
+
+      - name: Build kernel (x86_64 bare-metal)
+        run: cargo build --manifest-path kernel/Cargo.toml --target x86_64-unknown-none
+
+  # ──────────────────────────────────────────────── Kernel · AArch64
+  kernel-aarch64:
+    name: "Kernel · aarch64-unknown-none"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: x86_64-unknown-none, aarch64-unknown-none
+
+      - name: Cache kernel build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            kernel/target
+            user/target
+          key: kernel-aarch64-${{ hashFiles('kernel/Cargo.lock', 'user/Cargo.lock') }}
+          restore-keys: kernel-aarch64-
+
+      - name: Build kernel (AArch64 bare-metal)
+        run: cargo build --manifest-path kernel/Cargo.toml --target aarch64-unknown-none
+
+  # ──────────────────────────────────────────────── Kernel · Clippy
+  clippy-kernel:
+    name: "Lint · clippy (kernel)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain with clippy
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy, rust-src, llvm-tools
+          targets: x86_64-unknown-none
+
+      - name: Cache kernel build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            kernel/target
+            user/target
+          key: clippy-kernel-${{ hashFiles('kernel/Cargo.lock', 'user/Cargo.lock') }}
+          restore-keys: clippy-kernel-
+
+      - name: Clippy (kernel, x86_64 bare-metal)
+        run: cargo clippy --manifest-path kernel/Cargo.toml --target x86_64-unknown-none -- -D warnings
+
+  # ──────────────────────────────────────────────── Builder validation
+  builder-tests:
+    name: "Builder · GPT/EFI image tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache builder build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: builder-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: builder-
+
+      - name: Run builder tests
+        run: cargo test -p builder
