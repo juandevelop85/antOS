@@ -1689,6 +1689,76 @@ pub struct BenchmarkDiffReport {
     pub auditor_verdict: String,
 }
 
+// --------------------------------------------------- git forge & issues / PRs (T21.2)
+
+/// Type of collaborative Git hosting forge (T21.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForgeKind {
+    GitHub,
+    GitLab,
+    Generic,
+}
+
+impl ForgeKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ForgeKind::GitHub => "GitHub",
+            ForgeKind::GitLab => "GitLab",
+            ForgeKind::Generic => "Git Forge",
+        }
+    }
+}
+
+/// Metadata identifying a remote repository origin (T21.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteRepoInfo {
+    pub host: String,
+    pub owner: String,
+    pub name: String,
+    pub forge: ForgeKind,
+    pub raw_url: String,
+}
+
+/// Structured issue imported from a remote forge (T21.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteIssue {
+    pub id: u64,
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub state: String,
+    pub author: String,
+    pub labels: Vec<String>,
+    pub url: String,
+    pub created_at: String,
+}
+
+/// Pull Request / Merge Request descriptor (T21.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemotePullRequest {
+    pub id: u64,
+    pub number: u64,
+    pub title: String,
+    pub body: String,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub state: String,
+    pub url: String,
+    pub draft: bool,
+}
+
+/// Status and CI inspection of an existing Pull Request (T21.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestStatusReport {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub mergeable: bool,
+    pub ci_status: Option<String>,
+    pub url: String,
+}
+
 // ---------------------------------------------------------------- mensajes
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2075,6 +2145,26 @@ pub enum Request {
     /// Retrieve historical benchmark runs (T21.1).
     #[serde(alias = "ConsultarHistorialBenchmark")]
     GetBenchmarkHistory,
+    /// List open issues from remote Git forge (T21.2).
+    #[serde(alias = "ListarIssuesRemotos")]
+    ListRemoteIssues,
+    /// Import a remote issue and generate technical ticket in docs/tickets/ (T21.2).
+    #[serde(alias = "ImportarIssueRemoto")]
+    ImportRemoteIssue {
+        id_or_url: String,
+    },
+    /// Create and publish a Pull Request / Merge Request to remote forge (T21.2).
+    #[serde(alias = "CrearPullRequest")]
+    CreatePullRequest {
+        title: Option<String>,
+        base_branch: Option<String>,
+        draft: bool,
+    },
+    /// Query status and CI checks of a Pull Request (T21.2).
+    #[serde(alias = "ConsultarPullRequest")]
+    GetPullRequestStatus {
+        number: Option<u64>,
+    },
 }
 
 /// Type aliases for backwards compatibility.
@@ -2387,6 +2477,22 @@ pub enum Event {
     /// Historical list of benchmark suite reports (T21.1).
     #[serde(alias = "HistorialBenchmark")]
     BenchmarkHistory(Vec<BenchmarkRunReport>),
+    /// List of issues retrieved from remote forge (T21.2).
+    #[serde(alias = "ListaIssuesRemotos")]
+    RemoteIssuesList(Vec<RemoteIssue>),
+    /// Confirmation of imported issue as local ticket (T21.2).
+    #[serde(alias = "IssueRemotoImportado")]
+    RemoteIssueImported {
+        ticket_id: String,
+        path: String,
+        title: String,
+    },
+    /// Confirmation of Pull Request created (T21.2).
+    #[serde(alias = "PullRequestCreado")]
+    PullRequestCreated(RemotePullRequest),
+    /// Inspection report for Pull Request status (T21.2).
+    #[serde(alias = "EstadoPullRequest")]
+    PullRequestStatus(PullRequestStatusReport),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),
@@ -3783,6 +3889,50 @@ mod tests {
         let json_diff = serde_json::to_string(&ev_diff).expect("serialize ev_diff");
         let des_diff: Event = serde_json::from_str(&json_diff).expect("deserialize ev_diff");
         assert_eq!(ev_diff, des_diff);
+    }
+
+    #[test]
+    fn test_forge_and_pr_serialization() {
+        let issue = RemoteIssue {
+            id: 101,
+            number: 42,
+            title: "Fix crash on invalid IPC token".into(),
+            body: "When token has invalid chars daemon panics".into(),
+            state: "open".into(),
+            author: "octocat".into(),
+            labels: vec!["bug".into(), "critical".into()],
+            url: "https://github.com/antos/antos/issues/42".into(),
+            created_at: "2026-09-04T08:00:00Z".into(),
+        };
+
+        let req_import = Request::ImportRemoteIssue {
+            id_or_url: "42".into(),
+        };
+        let json_req = serde_json::to_string(&req_import).expect("serialize req");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req");
+        assert_eq!(req_import, des_req);
+
+        let ev_issues = Event::RemoteIssuesList(vec![issue]);
+        let json_ev = serde_json::to_string(&ev_issues).expect("serialize ev");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev");
+        assert_eq!(ev_issues, des_ev);
+
+        let pr = RemotePullRequest {
+            id: 501,
+            number: 12,
+            title: "feat(ipc): validate tokens safely".into(),
+            body: "Fixes #42 - prevents daemon panic on invalid token".into(),
+            head_branch: "ticket/T-GH-42".into(),
+            base_branch: "master".into(),
+            state: "open".into(),
+            url: "https://github.com/antos/antos/pull/12".into(),
+            draft: false,
+        };
+
+        let ev_pr = Event::PullRequestCreated(pr);
+        let json_pr = serde_json::to_string(&ev_pr).expect("serialize pr");
+        let des_pr: Event = serde_json::from_str(&json_pr).expect("deserialize pr");
+        assert_eq!(ev_pr, des_pr);
     }
 }
 

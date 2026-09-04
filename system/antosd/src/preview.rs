@@ -427,6 +427,21 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::BenchHistory { .. } => {
                 out.push(Line::Info("consulta el historial cronológico de rendimiento y benchmarks".into()));
             }
+            Change::IssueList { .. } => {
+                out.push(Line::Info("lista los issues abiertos del repositorio remoto en GitHub/GitLab".into()));
+            }
+            Change::IssueImport { id, .. } => {
+                out.push(Line::Info(format!("importa el issue remoto #{id} y genera un ticket técnico en docs/tickets/")));
+            }
+            Change::PrCreate { title, draft, .. } => {
+                let mode = if *draft { "en borrador" } else { "listo para revisión" };
+                let t = title.as_deref().unwrap_or("parche automatizado");
+                out.push(Line::Info(format!("publica Pull Request {mode} («{t}») certificado por el Auditor")));
+            }
+            Change::PrStatus { number, .. } => {
+                let n_str = number.map(|n| format!("#{n}")).unwrap_or_else(|| "más reciente".into());
+                out.push(Line::Info(format!("consulta el estado de integración continua del Pull Request {n_str}")));
+            }
         }
         pendiente.aplicar(change);
     }

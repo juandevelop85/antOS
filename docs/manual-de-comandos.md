@@ -59,6 +59,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.38 Matriz de CI/CD Local Paralela y Git Hooks Inteligentes (`antos ci` / `antos hook`)](#438-matriz-de-cicd-local-paralela-y-git-hooks-inteligentes-antos-ci--antos-hook)
    - [4.39 Instantáneas Atómicas de Entorno y Time Machine de Estado (`antos snapshot`)](#439-instantáneas-atómicas-de-entorno-y-time-machine-de-estado-antos-snapshot)
    - [4.40 Benchmarking Continuo y Detección de Regresiones de Rendimiento (`antos bench`)](#440-benchmarking-continuo-y-detección-de-regresiones-de-rendimiento-antos-bench)
+   - [4.41 Sincronización con Forjas Git: Issues y Pull Requests (`antos issue` / `antos pr`)](#441-sincronización-con-forjas-git-issues-y-pull-requests-antos-issue--antos-pr)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -1335,6 +1336,36 @@ antos bench history
 antos "ejecuta benchmarks del proyecto"
 antos "compara rendimiento contra master"
 antos "muestra historial de rendimiento"
+```
+
+---
+
+### 4.41 Sincronización con Forjas Git: Issues y Pull Requests (`antos issue` / `antos pr`)
+
+Integración bidireccional nativa con plataformas remotas de control de versiones (GitHub y GitLab) a través de tokens seguros gestionados en la bóveda (`system/antosd/src/vault.rs`):
+
+```bash
+# 1. Listar issues abiertos en el repositorio remoto configurado en origin
+antos issue list
+
+# 2. Importar un issue remoto convirtiéndolo en un ticket técnico en docs/tickets/
+antos issue import 42
+antos issue import https://github.com/usuario/repo/issues/42
+
+# 3. Formular y publicar un Pull Request / Merge Request con certificación del Auditor
+antos pr create
+antos pr create --draft
+antos pr create --title "feat(core): nueva funcionalidad" --base master
+
+# 4. Consultar el estado y resultados de CI checks del Pull Request
+antos pr status
+antos pr status 1
+
+# 5. Planificación declarativa en lenguaje natural
+antos "lista issues remotos"
+antos "importa issue 42"
+antos "crea pull request"
+antos "revisa estado del pull request"
 ```
 
 ---

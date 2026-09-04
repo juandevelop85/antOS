@@ -868,6 +868,34 @@ fn atender(ctx: &Ctx, catalog: &Catalog, flujo: UnixStream) -> Result<()> {
             let list = crate::bench::BenchEngine::load_history(&ctx.state);
             enviar(&mut escritura, &Event::BenchmarkHistory(list))?;
         }
+        Request::ListRemoteIssues => {
+            match crate::forge::ForgeEngine::list_issues(&ctx.workspace, &ctx.state) {
+                Ok(issues) => enviar(&mut escritura, &Event::RemoteIssuesList(issues))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ImportRemoteIssue { id_or_url } => {
+            match crate::forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, &id_or_url) {
+                Ok((ticket_id, path, title)) => enviar(&mut escritura, &Event::RemoteIssueImported {
+                    ticket_id,
+                    path: path.display().to_string(),
+                    title,
+                })?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::CreatePullRequest { title, base_branch, draft } => {
+            match crate::forge::ForgeEngine::create_pull_request(&ctx.workspace, &ctx.state, title.as_deref(), base_branch.as_deref(), draft) {
+                Ok(pr) => enviar(&mut escritura, &Event::PullRequestCreated(pr))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetPullRequestStatus { number } => {
+            match crate::forge::ForgeEngine::get_pull_request_status(&ctx.state, number) {
+                Ok(status) => enviar(&mut escritura, &Event::PullRequestStatus(status))?,
+                Err(e) => enviar(&mut escritura, &Event::Error(e.to_string()))?,
+            }
+        }
     }
     Ok(())
 }
@@ -1363,6 +1391,21 @@ pub fn intencion_remota(
                 for h in list {
                     pantalla.nota(&format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms))?;
                 }
+            }
+            Event::RemoteIssuesList(issues) => {
+                pantalla.nota(&format!("🐙 antOS Forge · {} issues abiertos en origen:", issues.len()))?;
+                for i in issues {
+                    pantalla.nota(&format!("  • #{:<4} {} (@{})", i.number, i.title, i.author))?;
+                }
+            }
+            Event::RemoteIssueImported { ticket_id, path, title } => {
+                pantalla.nota(&format!("📥 antOS Forge · Issue importado como [{ticket_id}]: {title} ({path})"))?;
+            }
+            Event::PullRequestCreated(pr) => {
+                pantalla.nota(&format!("🚀 antOS Forge · Pull Request #{}: {} ({})", pr.number, pr.title, pr.url))?;
+            }
+            Event::PullRequestStatus(status) => {
+                pantalla.nota(&format!("🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]", status.number, status.title, status.state))?;
             }
             Event::Error(m) => bail!("{m}"),
         }

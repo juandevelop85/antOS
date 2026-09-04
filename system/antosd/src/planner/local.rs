@@ -131,6 +131,9 @@ impl Planner for LocalPlanner {
             && !lower.contains("snapshot")
             && !lower.contains("instantanea")
             && !lower.contains("instantánea")
+            && !lower.contains("issue")
+            && !lower.contains("pull")
+            && !lower.contains("pr")
         {
             let path = words.last().cloned().unwrap_or_default();
             return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
@@ -285,7 +288,7 @@ impl Planner for LocalPlanner {
             return Ok(Propuesta::solo(vec![step("env.service_up", &args)]));
         }
 
-        if (lower.contains("puerto") || lower.contains("port"))
+        if (lower.contains("puerto") || (lower.contains("port") && !lower.contains("import")))
             && !lower.contains("web")
             && !lower.contains("websocket")
         {
@@ -624,6 +627,36 @@ impl Planner for LocalPlanner {
                     args.push(("target", t.as_str()));
                 }
                 return Ok(Propuesta::solo(vec![step("bench.run", &args)]));
+            }
+        }
+
+        // Intenciones de Forjas Git: Issues y Pull Requests (T21.2)
+        if lower.contains("issue") {
+            if lower.contains("import") || lower.contains("descarga") || lower.contains("trae") || lower.contains("sincroniza") {
+                let id = after(&words, &["issue", "el", "#", "de", "numero", "número"])
+                    .unwrap_or_else(|| "42".into());
+                return Ok(Propuesta::solo(vec![step("issue.import", &[("id", &id)])]));
+            } else {
+                return Ok(Propuesta::solo(vec![step("issue.list", &[])]));
+            }
+        }
+
+        if lower.contains("pull request") || lower.contains("merge request") || lower.contains(" pr ") || lower.ends_with(" pr") || lower.starts_with("pr ") {
+            if lower.contains("estado") || lower.contains("status") || lower.contains("ci") || lower.contains("revisa") {
+                let num = after(&words, &["pr", "request", "numero", "número", "#"]);
+                let mut args = Vec::new();
+                if let Some(ref n) = num {
+                    args.push(("number", n.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("pr.status", &args)]));
+            } else {
+                let draft = if lower.contains("draft") || lower.contains("borrador") { "true" } else { "false" };
+                let title = after(&words, &["titulo", "título", "con", "llamado"]);
+                let mut args = vec![("draft", draft)];
+                if let Some(ref t) = title {
+                    args.push(("title", t.as_str()));
+                }
+                return Ok(Propuesta::solo(vec![step("pr.create", &args)]));
             }
         }
 
@@ -1858,5 +1891,37 @@ mod tests {
             .expect("plan bench history");
         assert_eq!(p_hist.steps.len(), 1);
         assert_eq!(p_hist.steps[0].capability, "bench.history");
+    }
+
+    #[test]
+    fn test_plan_forge_issues_and_prs() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+        let planner = LocalPlanner;
+
+        let p_list = planner
+            .plan("lista issues remotos", &catalog)
+            .expect("plan issue list");
+        assert_eq!(p_list.steps.len(), 1);
+        assert_eq!(p_list.steps[0].capability, "issue.list");
+
+        let p_import = planner
+            .plan("importa issue 42", &catalog)
+            .expect("plan issue import");
+        assert_eq!(p_import.steps.len(), 1);
+        assert_eq!(p_import.steps[0].capability, "issue.import");
+        assert_eq!(p_import.steps[0].args.get("id").map(|s| s.as_str()), Some("42"));
+
+        let p_pr = planner
+            .plan("crea pull request", &catalog)
+            .expect("plan pr create");
+        assert_eq!(p_pr.steps.len(), 1);
+        assert_eq!(p_pr.steps[0].capability, "pr.create");
+
+        let p_status = planner
+            .plan("revisa estado del pull request", &catalog)
+            .expect("plan pr status");
+        assert_eq!(p_status.steps.len(), 1);
+        assert_eq!(p_status.steps[0].capability, "pr.status");
     }
 }

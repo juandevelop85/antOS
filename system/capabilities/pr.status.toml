@@ -1,0 +1,11 @@
+name = "pr.status"
+summary = "Consulta el estado de integración continua y revisión del Pull Request remoto"
+
+[params]
+number = { type = "integer", optional = true }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

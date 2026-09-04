@@ -1,0 +1,10 @@
+name = "issue.list"
+summary = "Lista los issues abiertos del repositorio remoto en GitHub o GitLab"
+
+[params]
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

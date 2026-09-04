@@ -23,6 +23,7 @@ pub mod ebpf;
 pub mod env;
 mod exec;
 pub mod flow;
+pub mod forge;
 pub mod git;
 mod grants;
 pub mod installer;
@@ -156,6 +157,8 @@ fn run() -> Result<()> {
         "hook" | "hooks" => cmd_hook(&ctx, &rest[1..]),
         "snapshot" | "snapshots" | "tm" => cmd_snapshot(&ctx, &rest[1..]),
         "bench" | "benchmark" => cmd_bench(&ctx, &rest[1..]),
+        "issue" | "issues" => cmd_issue(&ctx, &rest[1..]),
+        "pr" | "pull-request" => cmd_pr(&ctx, &rest[1..]),
         "desktop" | "wm" => cmd_desktop(&ctx, &rest[1..]),
         "barra" | "bar" => cmd_barra(&ctx, &rest[1..]),
         "boot" | "qemu" => cmd_boot(&ctx, &rest[1..]),
@@ -4193,6 +4196,128 @@ fn cmd_bench(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 }
 
+// ------------------------------------------------------------------ forge: issues & pr (T21.2)
+
+fn cmd_issue(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("list");
+    match sub {
+        "list" | "ls" => {
+            println!("\n{}", paint("🐙 antOS Git Forge · Issues Abiertos en Repositorio Remoto (T21.2)", BOLD));
+            let issues = forge::ForgeEngine::list_issues(&ctx.workspace, &ctx.state)?;
+            if issues.is_empty() {
+                println!("  No se encontraron issues abiertos en el repositorio remoto.\n");
+                return Ok(());
+            }
+
+            println!("  {:<8} {:<42} {:<16} {}",
+                paint("NUM", BOLD),
+                paint("TÍTULO", BOLD),
+                paint("AUTOR", BOLD),
+                paint("ETIQUETAS", BOLD));
+            println!("  {}", "─".repeat(84));
+
+            for issue in &issues {
+                let tags = if issue.labels.is_empty() { "—".to_string() } else { issue.labels.join(", ") };
+                println!("  #{:<7} {:<42} @{:<15} {}",
+                    paint(&issue.number.to_string(), CYAN),
+                    if issue.title.len() > 40 { format!("{}...", &issue.title[..37]) } else { issue.title.clone() },
+                    issue.author,
+                    paint(&tags, DIM));
+            }
+            println!("  {}", "─".repeat(84));
+            println!("\n  Importa un issue a ticket técnico local con: antos issue import <numero>\n");
+            Ok(())
+        }
+        "import" | "sync" => {
+            let id = args.get(1).map(String::as_str).unwrap_or("42");
+            println!("\n{}", paint("📥 antOS Git Forge · Importando Issue Remoto (T21.2)", BOLD));
+
+            let (ticket_id, path, title) = forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, id)?;
+
+            println!("  Ticket Creado: [{}]", paint(&ticket_id, CYAN));
+            println!("  Título:        {}", title);
+            println!("  Ubicación:     {}", paint(&path.display().to_string(), DIM));
+            println!("\n  El issue ha sido estructurado con criterios de aceptación en docs/tickets/.");
+            println!("  Despáchalo al equipo con: antos agent run {}\n", ticket_id);
+            Ok(())
+        }
+        _ => {
+            println!("\nUso:");
+            println!("  antos issue list                  Lista issues abiertos en GitHub/GitLab");
+            println!("  antos issue import <id_o_url>     Importa issue y genera ticket técnico local\n");
+            Ok(())
+        }
+    }
+}
+
+fn cmd_pr(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let sub = args.first().map(String::as_str).unwrap_or("status");
+    match sub {
+        "create" | "push" => {
+            let mut title = None;
+            let mut base = None;
+            let mut draft = false;
+            let mut i = 1;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--title" | "-t" => {
+                        if let Some(t) = args.get(i + 1) {
+                            title = Some(t.as_str());
+                            i += 1;
+                        }
+                    }
+                    "--base" | "-b" => {
+                        if let Some(b) = args.get(i + 1) {
+                            base = Some(b.as_str());
+                            i += 1;
+                        }
+                    }
+                    "--draft" | "-d" => {
+                        draft = true;
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+
+            println!("\n{}", paint("🚀 antOS Git Forge · Publicando Pull Request / Merge Request (T21.2)", BOLD));
+            let pr = forge::ForgeEngine::create_pull_request(
+                &ctx.workspace,
+                &ctx.state,
+                title,
+                base,
+                draft,
+            )?;
+
+            println!("  PR #{}:      {}", paint(&pr.number.to_string(), CYAN), paint(&pr.title, BOLD));
+            println!("  Rama:        {} -> {}", paint(&pr.head_branch, DIM), paint(&pr.base_branch, CYAN));
+            println!("  Modo:        {}", if pr.draft { "Borrador (Draft PR)" } else { "Listo para Revisión (Ready)" });
+            println!("  Enlace Web:  {}", paint(&pr.url, CYAN));
+            println!("\n  Pull Request formulado y publicado exitosamente con certificación del Auditor.\n");
+            Ok(())
+        }
+        "status" | "info" => {
+            let pr_num = args.get(1).and_then(|n| n.trim_start_matches('#').parse::<u64>().ok());
+            println!("\n{}", paint("🔍 antOS Git Forge · Estado de Pull Request Remoto (T21.2)", BOLD));
+
+            let status = forge::ForgeEngine::get_pull_request_status(&ctx.state, pr_num)?;
+
+            println!("  PR #{}:      {}", paint(&status.number.to_string(), CYAN), status.title);
+            println!("  Estado:      {}", paint(&status.state.to_uppercase(), GREEN));
+            println!("  Fusión:      {}", if status.mergeable { "Limpia (Sin conflictos)" } else { "Conflictos detectados" });
+            println!("  CI Checks:   {}", status.ci_status.as_deref().unwrap_or("En progreso"));
+            println!("  URL:         {}\n", paint(&status.url, DIM));
+            Ok(())
+        }
+        _ => {
+            println!("\nUso:");
+            println!("  antos pr create [--draft] [--title <t>]   Formula y publica Pull Request certificado");
+            println!("  antos pr status [numero]                  Consulta el estado y CI checks del PR\n");
+            Ok(())
+        }
+    }
+}
+
 // ------------------------------------------------------------------ desktop
 
 fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -6667,6 +6792,8 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos hook [install|check] gestión de hooks de Git pre-commit con auditoría de secretos (T20.3)
   antos snapshot [create|restore|list] Time Machine atómico de código, servicios y estado (T20.4)
   antos bench [run|diff|history] benchmarking continuo y detección de regresiones en worktrees (T21.1)
+  antos issue [list|import]  sincronización e importación de issues remotos de GitHub/GitLab (T21.2)
+  antos pr [create|status]   publicación y consulta de Pull Requests / Merge Requests certificados (T21.2)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

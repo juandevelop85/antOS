@@ -1,0 +1,13 @@
+name = "pr.create"
+summary = "Formula y publica un Pull Request / Merge Request en la forja remota"
+
+[params]
+title = { type = "text", optional = true }
+base = { type = "text", optional = true }
+draft = { type = "boolean", optional = true }
+
+[effects]
+
+[policy]
+tier = "confirm"
+reversible = "never"

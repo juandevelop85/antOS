@@ -1,0 +1,11 @@
+name = "issue.import"
+summary = "Importa un issue remoto y genera un ticket técnico estructurado en docs/tickets/"
+
+[params]
+id = { type = "text" }
+
+[effects]
+
+[policy]
+tier = "auto"
+reversible = "snapshot"

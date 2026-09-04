@@ -451,6 +451,30 @@ pub enum Change {
     BenchHistory {
         state_dir: PathBuf,
     },
+    /// T21.2 — List open remote issues.
+    IssueList {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+    },
+    /// T21.2 — Import remote issue to local technical ticket.
+    IssueImport {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        id: String,
+    },
+    /// T21.2 — Create and publish Pull Request.
+    PrCreate {
+        workspace: PathBuf,
+        state_dir: PathBuf,
+        title: Option<String>,
+        base_branch: Option<String>,
+        draft: bool,
+    },
+    /// T21.2 — Query Pull Request status.
+    PrStatus {
+        state_dir: PathBuf,
+        number: Option<u64>,
+    },
 }
 
 /// Lo que el plan ya ha decidido escribir, antes de haberlo escrito.
@@ -586,7 +610,11 @@ impl Pendiente {
             | Change::SnapshotDelete { .. }
             | Change::BenchRun { .. }
             | Change::BenchDiff { .. }
-            | Change::BenchHistory { .. } => {}
+            | Change::BenchHistory { .. }
+            | Change::IssueList { .. }
+            | Change::IssueImport { .. }
+            | Change::PrCreate { .. }
+            | Change::PrStatus { .. } => {}
         }
     }
 }
@@ -1622,6 +1650,43 @@ pub fn changes_for(
         "bench.history" => {
             Ok(vec![Change::BenchHistory {
                 state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "issue.list" => {
+            Ok(vec![Change::IssueList {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+            }])
+        }
+
+        "issue.import" => {
+            let id = a.get("id").cloned().unwrap_or_else(|| "42".into());
+            Ok(vec![Change::IssueImport {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                id,
+            }])
+        }
+
+        "pr.create" => {
+            let title = a.get("title").cloned();
+            let base_branch = a.get("base").cloned();
+            let draft = a.get("draft").map(|v| v == "true").unwrap_or(false);
+            Ok(vec![Change::PrCreate {
+                workspace: ctx.workspace.clone(),
+                state_dir: ctx.state.clone(),
+                title,
+                base_branch,
+                draft,
+            }])
+        }
+
+        "pr.status" => {
+            let number = a.get("number").and_then(|n| n.parse::<u64>().ok());
+            Ok(vec![Change::PrStatus {
+                state_dir: ctx.state.clone(),
+                number,
             }])
         }
 
@@ -2895,6 +2960,57 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     }
                     output.push(lines.join("\n"));
                 }
+            }
+            Change::IssueList { workspace, state_dir } => {
+                let issues = crate::forge::ForgeEngine::list_issues(workspace, state_dir)?;
+                if issues.is_empty() {
+                    output.push("antOS Forge · No hay issues abiertos en el repositorio remoto.".into());
+                } else {
+                    let mut lines = vec![format!("🐙 antOS Forge · Total: {} issues abiertos en origen:", issues.len())];
+                    for i in &issues {
+                        lines.push(format!("  • #{:<4} {} (@{})", i.number, i.title, i.author));
+                    }
+                    output.push(lines.join("\n"));
+                }
+            }
+            Change::IssueImport { workspace, state_dir, id } => {
+                let (ticket_id, path, title) = crate::forge::ForgeEngine::import_issue(workspace, state_dir, id)?;
+                output.push(format!(
+                    "📥 antOS Forge · Issue Importado con Éxito\n  • Ticket ID: [{}]\n  • Título:    {}\n  • Fichero:   {}",
+                    ticket_id,
+                    title,
+                    path.display(),
+                ));
+            }
+            Change::PrCreate { workspace, state_dir, title, base_branch, draft } => {
+                let pr = crate::forge::ForgeEngine::create_pull_request(
+                    workspace,
+                    state_dir,
+                    title.as_deref(),
+                    base_branch.as_deref(),
+                    *draft,
+                )?;
+                output.push(format!(
+                    "🚀 antOS Forge · Pull Request #{}: {}\n  • Rama:      {} -> {}\n  • Modo:      {}\n  • URL:       {}",
+                    pr.number,
+                    pr.title,
+                    pr.head_branch,
+                    pr.base_branch,
+                    if pr.draft { "Borrador" } else { "Listo" },
+                    pr.url,
+                ));
+            }
+            Change::PrStatus { state_dir, number } => {
+                let status = crate::forge::ForgeEngine::get_pull_request_status(state_dir, *number)?;
+                output.push(format!(
+                    "🔍 antOS Forge · Pull Request #{}: {}\n  • Estado:    {}\n  • Fusión:    {}\n  • CI Checks: {}\n  • URL:       {}",
+                    status.number,
+                    status.title,
+                    status.state,
+                    if status.mergeable { "Limpia" } else { "Conflictos" },
+                    status.ci_status.as_deref().unwrap_or("—"),
+                    status.url,
+                ));
             }
         }
     }
