@@ -71,8 +71,13 @@ impl DocArchEngine {
             }
         }
 
-        // 3. Scan IPC requests and events in system/protocolo/src/lib.rs
-        let proto_rs = effective_root.join("system").join("protocolo").join("src").join("lib.rs");
+        // 3. Scan IPC requests and events in system/protocolo/src/ipc.rs (or lib.rs)
+        let proto_ipc = effective_root.join("system").join("protocolo").join("src").join("ipc.rs");
+        let proto_rs = if proto_ipc.exists() {
+            proto_ipc
+        } else {
+            effective_root.join("system").join("protocolo").join("src").join("lib.rs")
+        };
         if let Ok(content) = fs::read_to_string(&proto_rs) {
             if let Some(req_start) = content.find("pub enum Request {") {
                 if let Some(req_end) = content[req_start..].find("\n}") {
