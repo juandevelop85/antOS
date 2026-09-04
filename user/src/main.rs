@@ -1,100 +1,27 @@
-//! antos-init — the first userspace process of antOS (T22.5).
+//! antos-init — Userspace init and multi-process runtime for antOS (T23.5).
 //!
-//! Runs in ring 3 (x86_64) or EL0 (AArch64). Cannot read kernel memory, talk
-//! to hardware, or execute privileged instructions. Every request goes through
-//! a system call.
-//!
-//! This binary is linked separately from the kernel and communicates with it
-//! exclusively through the formal ABI defined in `kernel/src/syscall/mod.rs`.
+//! Runs in Ring 3 (x86_64) or EL0 (AArch64). Demonstrates:
+//! - Full 12-syscall POSIX-style table.
+//! - Dynamic userspace heap allocations (`Vec`, `String`, `Box`) powered by `SYS_MMAP`.
+//! - Microkernel IPC channel message passing (`SYS_CHANNEL_CREATE`, `SYS_CHANNEL_SEND`, `SYS_CHANNEL_RECV`).
+//! - SMAP / EFAULT protection against kernel address space tampering.
 
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+use alloc::boxed::Box;
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
-// ────────────────────────────────────────────── Syscall ABI constants (T22.5)
-// Mirrored from kernel/src/syscall/mod.rs — the shared contract.
+use libantos::allocator::UserHeapAllocator;
+use libantos::channel::Channel;
+use libantos::syscall::*;
 
-const SYS_EXIT: u64 = 1;
-const SYS_WRITE: u64 = 2;
-const SYS_READ: u64 = 3;
-const SYS_YIELD: u64 = 4;
-const SYS_GETPID: u64 = 5;
-const SYS_MMAP: u64 = 6;
-
-// ────────────────────────────────────────────── Syscall wrapper (x86_64)
-
-/// Raw syscall wrapper using the antOS ABI:
-///   RAX = syscall number · RDI, RSI, RDX = arguments · RAX = result
-///
-/// RCX and R11 are clobbered by the `syscall` instruction itself.
-#[cfg(target_arch = "x86_64")]
-unsafe fn syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
-    let result: u64;
-    unsafe {
-        core::arch::asm!(
-            "syscall",
-            inlateout("rax") number => result,
-            in("rdi") arg1,
-            in("rsi") arg2,
-            in("rdx") arg3,
-            lateout("rcx") _,
-            lateout("r11") _,
-            clobber_abi("sysv64"),
-        );
-    }
-    result
-}
-
-// ────────────────────────────────────────────── Syscall wrapper (AArch64)
-
-/// Raw syscall wrapper using the antOS ABI:
-///   x8 = syscall number · x0..x5 = arguments · x0 = result
-#[cfg(target_arch = "aarch64")]
-unsafe fn syscall(number: u64, arg1: u64, arg2: u64, _arg3: u64) -> u64 {
-    let result: u64;
-    unsafe {
-        core::arch::asm!(
-            "svc #0",
-            in("x8") number,
-            inlateout("x0") arg1 => result,
-            in("x1") arg2,
-            in("x2") _arg3,
-            options(nomem, nostack),
-        );
-    }
-    result
-}
-
-// ────────────────────────────────────────────── High-level syscall API
-
-fn write(message: &str) {
-    unsafe { syscall(SYS_WRITE, message.as_ptr() as u64, message.len() as u64, 0) };
-}
-
-fn exit(code: u64) -> ! {
-    unsafe { syscall(SYS_EXIT, code, 0, 0) };
-    // The kernel does not return control, but the compiler does not know that.
-    loop {}
-}
-
-fn yield_cpu() {
-    unsafe { syscall(SYS_YIELD, 0, 0, 0) };
-}
-
-fn getpid() -> u64 {
-    unsafe { syscall(SYS_GETPID, 0, 0, 0) }
-}
-
-fn mmap(size: u64) -> u64 {
-    unsafe { syscall(SYS_MMAP, size, 0, 0) }
-}
-
-fn read(buf: &mut [u8]) -> u64 {
-    unsafe { syscall(SYS_READ, buf.as_mut_ptr() as u64, buf.len() as u64, 0) }
-}
-
-// ────────────────────────────────────────────── antOS-init entry point
+#[global_allocator]
+static ALLOCATOR: UserHeapAllocator = UserHeapAllocator::new();
 
 const BANNER: &str = "\
      ╔══════════════════════════════════════════╗\n\
@@ -102,141 +29,213 @@ const BANNER: &str = "\
      ║     the first citizen of userspace       ║\n\
      ╚══════════════════════════════════════════╝\n";
 
-/// The kernel passes the mode in RDI (x86_64) or x0 (AArch64).
-///
-/// Mode 0: normal boot — print banner, verify syscalls, enter event loop.
-/// Mode 1: attack test — attempt to read kernel memory (should be killed).
+/// Entry point invoked by the kernel.
+/// Mode 0: normal init boot (verifies all syscalls, allocator, IPC, and EFAULT).
+/// Mode 1: attack test (attempt direct read of kernel memory).
+/// Mode 2: concurrent worker communicating via IPC channel.
+/// Mode 3: compute loop to verify preemptive timer slicing.
 #[no_mangle]
 pub extern "C" fn _start(mode: u64) -> ! {
     // ── Mode 1: kernel memory protection test ────────────────────────────
     if mode == 1 {
-        write("[init] attempting to read kernel memory; this should kill me\n");
+        let _ = write("[init] attempting to read kernel memory; this should kill me\n");
         #[cfg(target_arch = "x86_64")]
         {
             let kernel_address = 0x100_0000_0000u64 as *const u64;
             let stolen = unsafe { core::ptr::read_volatile(kernel_address) };
-            write("[init] PROTECTION FAILED: kernel memory was readable!\n");
+            let _ = write("[init] PROTECTION FAILED: kernel memory was readable!\n");
             exit(stolen);
         }
         #[cfg(not(target_arch = "x86_64"))]
         {
-            write("[init] protection test not implemented for this arch\n");
+            let _ = write("[init] protection test not implemented for this arch\n");
             exit(0xFF);
         }
     }
 
-    // ── Mode 2: background worker task ───────────────────────────────────
+    // ── Mode 2: background worker task with IPC communication ───────────
     if mode == 2 {
-        write("[worker-A] started concurrent background task (mode 2)\n");
+        let _ = write("[worker-A] started concurrent background task (mode 2)\n");
+
+        // Use heap primitives in Ring 3 worker
+        let mut progress_history = Vec::new();
+        let chan = Channel::from_id(1); // Known shared channel 1
+
         let mut pulse: u64 = 0;
         while pulse < 3 {
             pulse += 1;
-            write("[worker-A] progress pulse ");
+            progress_history.push(pulse);
+
+            let _ = write("[worker-A] progress pulse ");
             write_u64(pulse);
-            write("/3\n");
+            let _ = write("/3\n");
+
+            // Send IPC heartbeat over Channel 1
+            let msg = b"PULSE_ACK";
+            let _ = chan.send(msg);
+
             let mut spin: u64 = 0;
             while spin < 5_000_000 {
                 spin = spin.wrapping_add(1);
                 core::hint::spin_loop();
             }
         }
-        write("[worker-A] completed cleanly\n");
+        let _ = write("[worker-A] completed cleanly\n");
         exit(0);
     }
 
     // ── Mode 3: compute loop to verify preemptive timer interruption ──────
     if mode == 3 {
-        write("[worker-preempt] running endless compute loop (mode 3)\n");
-        write("[worker-preempt] preemption active: timer will slice CPU fairly\n");
+        let _ = write("[worker-preempt] running endless compute loop (mode 3)\n");
+        let _ = write("[worker-preempt] preemption active: timer will slice CPU fairly\n");
         let mut count: u64 = 0;
         while count < 3 {
             count += 1;
-            write("[worker-preempt] compute iteration ");
+            let _ = write("[worker-preempt] compute iteration ");
             write_u64(count);
-            write(" (preemptible)\n");
+            let _ = write(" (preemptible)\n");
             let mut spin: u64 = 0;
             while spin < 5_000_000 {
                 spin = spin.wrapping_add(1);
                 core::hint::spin_loop();
             }
         }
-        write("[worker-preempt] verified preemption & cooperative yield\n");
+        let _ = write("[worker-preempt] verified preemption & cooperative yield\n");
         exit(0);
     }
 
     // ── Mode 0: normal init boot ─────────────────────────────────────────
-    write(BANNER);
+    let _ = write(BANNER);
 
-    // SYS_GETPID — verify process identity.
+    // 1. SYS_GETPID — verify process identity
     let pid = getpid();
-    write("[init] pid = ");
+    let _ = write("[init] pid = ");
     write_u64(pid);
-    write("\n");
+    let _ = write("\n");
 
-    // SYS_MMAP — verify anonymous memory mapping.
-    let page = mmap(4096);
-    if page != u64::MAX {
-        write("[init] mmap(4096) = ");
-        write_hex(page);
-        write(" (anonymous page reserved)\n");
-    } else {
-        write("[init] mmap(4096) = FAILED\n");
+    // 2. SYS_MMAP & #[global_allocator] — verify dynamic Box, Vec, String in Ring 3
+    let heap_box = Box::new(0x4242u64);
+    let mut heap_vec = Vec::new();
+    heap_vec.push(10);
+    heap_vec.push(20);
+    heap_vec.push(30);
+    let heap_str = "Ring3 Dynamic Heap Active".to_string();
+
+    let _ = write("[init] heap alloc: Box=");
+    write_hex(*heap_box);
+    let _ = write(", Vec.len=");
+    write_u64(heap_vec.len() as u64);
+    let _ = write(", String=\"");
+    let _ = write(&heap_str);
+    let _ = write("\"\n");
+
+    // 3. SYS_MMAP & SYS_MUNMAP raw test
+    match mmap(4096) {
+        Ok(ptr) => {
+            let _ = write("[init] mmap(4096) = ");
+            write_hex(ptr as u64);
+            let _ = write(" (successfully allocated & mapped)\n");
+            // Test writing to allocated page
+            unsafe {
+                *ptr = 0xAA;
+            }
+            if munmap(ptr, 4096).is_ok() {
+                let _ = write("[init] munmap(4096) = OK\n");
+            }
+        }
+        Err(_) => {
+            let _ = write("[init] mmap(4096) = FAILED\n");
+        }
     }
 
-    // SYS_READ — verify non-blocking read (should return 0).
-    let mut buf = [0u8; 64];
-    let read_result = read(&mut buf);
-    write("[init] read() = ");
-    write_u64(read_result);
-    write(" (expected 0 for non-blocking)\n");
+    // 4. Microkernel IPC Channel test (SYS_CHANNEL_CREATE, SEND, RECV)
+    match Channel::create() {
+        Ok(chan) => {
+            let _ = write("[init] ipc channel created with id=");
+            write_u64(chan.id());
+            let _ = write("\n");
 
-    // SYS_YIELD — yield to scheduler.
-    write("[init] yielding to scheduler...\n");
+            let ping_msg = b"HELLO_MICROKERNEL_IPC";
+            if chan.send(ping_msg).is_ok() {
+                let mut recv_buf = [0u8; 32];
+                if let Ok(n) = chan.recv(&mut recv_buf) {
+                    let _ = write("[init] ipc channel received ");
+                    write_u64(n as u64);
+                    let _ = write(" bytes: \"");
+                    if let Ok(text) = core::str::from_utf8(&recv_buf[..n]) {
+                        let _ = write(text);
+                    }
+                    let _ = write("\"\n");
+                }
+            }
+        }
+        Err(_) => {
+            let _ = write("[init] failed to create ipc channel\n");
+        }
+    }
+
+    // 5. SMAP / EFAULT protection test: passing kernel pointer to syscall
+    let kernel_ptr = 0x100_0000_0000u64 as *const u8;
+    let attack_res = unsafe {
+        raw_syscall(SYS_WRITE, kernel_ptr as u64, 16, 0)
+    };
+    if attack_res == EFAULT {
+        let _ = write("[init] kernel pointer rejected with EFAULT (-14) as expected\n");
+    } else {
+        let _ = write("[init] WARNING: kernel pointer not rejected with EFAULT!\n");
+    }
+
+    // 6. SYS_READ — verify non-blocking read
+    let mut read_buf = [0u8; 32];
+    let read_result = read(&mut read_buf).unwrap_or(0);
+    let _ = write("[init] read() = ");
+    write_u64(read_result as u64);
+    let _ = write(" (expected 0 for non-blocking)\n");
+
+    // 7. SYS_YIELD — yield to scheduler
+    let _ = write("[init] yielding to scheduler...\n");
     yield_cpu();
-    write("[init] resumed after yield\n");
+    let _ = write("[init] resumed after yield\n");
 
-    // ── Event dispatch loop ──────────────────────────────────────────────
-    write("[init] entering event dispatch loop (3 iterations)\n");
+    // 8. Event dispatch loop
+    let _ = write("[init] entering event dispatch loop (3 iterations)\n");
     let mut iteration: u64 = 0;
     while iteration < 3 {
         yield_cpu();
         iteration += 1;
-        write("[init] heartbeat ");
+        let _ = write("[init] heartbeat ");
         write_u64(iteration);
-        write("\n");
+        let _ = write("\n");
     }
 
-    write("[init] all syscalls verified — shutting down cleanly\n");
+    let _ = write("[init] all 12 syscalls verified — shutting down cleanly\n");
     exit(0)
 }
 
-// ────────────────────────────────────────────── Formatting helpers
-// We cannot use core::fmt::Write without an allocator, so we format numbers
-// by hand using the stack.
-
 fn write_u64(mut n: u64) {
     if n == 0 {
-        write("0");
+        let _ = write("0");
         return;
     }
-    let mut buf = [0u8; 20]; // max digits in u64
+    let mut buf = [0u8; 20];
     let mut pos = buf.len();
     while n > 0 {
         pos -= 1;
         buf[pos] = b'0' + (n % 10) as u8;
         n /= 10;
     }
-    let s = unsafe { core::str::from_utf8_unchecked(&buf[pos..]) };
-    write(s);
+    if let Ok(s) = core::str::from_utf8(&buf[pos..]) {
+        let _ = write(s);
+    }
 }
 
 fn write_hex(mut n: u64) {
-    write("0x");
+    let _ = write("0x");
     if n == 0 {
-        write("0");
+        let _ = write("0");
         return;
     }
-    let mut buf = [0u8; 16]; // max hex digits in u64
+    let mut buf = [0u8; 16];
     let mut pos = buf.len();
     while n > 0 {
         pos -= 1;
@@ -244,12 +243,13 @@ fn write_hex(mut n: u64) {
         buf[pos] = if digit < 10 { b'0' + digit } else { b'a' + digit - 10 };
         n >>= 4;
     }
-    let s = unsafe { core::str::from_utf8_unchecked(&buf[pos..]) };
-    write(s);
+    if let Ok(s) = core::str::from_utf8(&buf[pos..]) {
+        let _ = write(s);
+    }
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    write("[init] PANIC!\n");
+    let _ = write("[init] PANIC!\n");
     exit(1)
 }

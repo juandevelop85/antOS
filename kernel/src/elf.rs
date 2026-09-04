@@ -111,6 +111,18 @@ pub unsafe fn load(
     Ok(header.entry)
 }
 
+/// Extracts the entry point address from an ELF binary image.
+pub fn parse_entry(image: &[u8]) -> Option<u64> {
+    if image.len() < core::mem::size_of::<Header>() {
+        return None;
+    }
+    let header: Header = unsafe { core::ptr::read_unaligned(image.as_ptr() as *const Header) };
+    if &header.identification[0..4] != MAGIC || header.identification[4] != CLASS_64 {
+        return None;
+    }
+    Some(header.entry)
+}
+
 unsafe fn load_segment(
     image: &[u8],
     segment: &ProgramHeader,

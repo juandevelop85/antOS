@@ -1777,4 +1777,37 @@ use crate::*;
         assert_eq!(node, des_node);
     }
 
+    #[test]
+    fn test_syscall_and_microkernel_ipc_models() {
+        let sc = SyscallTableInfo {
+            total_syscalls: 12,
+            active_architecture: "x86_64".into(),
+            user_address_limit: 0x0000_0100_0000_0000,
+            smap_efault_protection: true,
+        };
+        let json_sc = serde_json::to_string(&sc).expect("serialize syscall table info");
+        let des_sc: SyscallTableInfo = serde_json::from_str(&json_sc).expect("deserialize syscall table info");
+        assert_eq!(sc, des_sc);
+
+        let chan = IpcChannelInfo {
+            channel_id: 1,
+            pending_messages: 2,
+            max_messages: 32,
+            max_message_size: 1024,
+            waiting_receiver: false,
+        };
+        let json_chan = serde_json::to_string(&chan).expect("serialize ipc channel info");
+        let des_chan: IpcChannelInfo = serde_json::from_str(&json_chan).expect("deserialize ipc channel info");
+        assert_eq!(chan, des_chan);
+
+        let msg = IpcMessageSummary {
+            channel_id: 1,
+            sender_pid: 2,
+            payload_size: 64,
+        };
+        let json_msg = serde_json::to_string(&msg).expect("serialize ipc message summary");
+        let des_msg: IpcMessageSummary = serde_json::from_str(&json_msg).expect("deserialize ipc message summary");
+        assert_eq!(msg, des_msg);
+    }
+
 

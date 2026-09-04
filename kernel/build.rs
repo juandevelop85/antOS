@@ -48,7 +48,7 @@ fn main() {
         .current_dir(&user_dir)
         .args(["build", "--target", "x86_64-unknown-none", "--target-dir"])
         .arg(&target_dir)
-        .env_remove("RUSTFLAGS")
+        .env("RUSTFLAGS", "-C relocation-model=static -C link-arg=--image-base=0x400000")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env_remove("RUSTC")
         .env_remove("RUSTC_WRAPPER")
@@ -90,4 +90,8 @@ fn main() {
     println!("cargo:rustc-env=INITRD_TAR={}", initrd_path.display());
     println!("cargo:rerun-if-changed={}", user_dir.join("src/main.rs").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("Cargo.toml").display());
+    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/lib.rs").display());
+    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/syscall.rs").display());
+    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/allocator.rs").display());
+    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/channel.rs").display());
 }

@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "antos-init"
 version = "0.1.0"
+dependencies = [
+ "libantos",
+]
+
+[[package]]
+name = "libantos"
+version = "0.1.0"

@@ -204,13 +204,11 @@ unsafe extern "C" fn syscall_entry() {
     )
 }
 
-extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, _arg3: u64) -> u64 {
+extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
     match number {
         syscall::SYS_EXIT => {
             if crate::task::scheduler::is_active() {
                 crate::task::scheduler::exit_current_syscall(arg1);
-                // When scheduler is active, this thread has ended. Sleep until next interrupt
-                // if no immediate thread was resumed.
                 loop {
                     unsafe { core::arch::asm!("sti; hlt", options(nomem, nostack)) };
                 }
@@ -222,38 +220,41 @@ extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, _arg3: u64) -> u
         syscall::SYS_YIELD => sys_yield(),
         syscall::SYS_GETPID => sys_getpid(),
         syscall::SYS_MMAP => sys_mmap(arg1),
+        syscall::SYS_MUNMAP => sys_munmap(arg1, arg2),
+        syscall::SYS_SPAWN => sys_spawn(arg1, arg2, arg3),
+        syscall::SYS_WAITPID => sys_waitpid(arg1),
+        syscall::SYS_CHANNEL_CREATE => sys_channel_create(),
+        syscall::SYS_CHANNEL_SEND => sys_channel_send(arg1, arg2, arg3),
+        syscall::SYS_CHANNEL_RECV => sys_channel_recv(arg1, arg2, arg3),
         _ => {
             println!("  unknown syscall: {number}");
-            u64::MAX
+            syscall::EINVAL
         }
     }
 }
 
 fn sys_write(pointer: u64, length: u64) -> u64 {
-    // Every pointer from userspace is hostile until validated.
-    if !syscall::validate_user_buffer(pointer, length) {
-        return u64::MAX;
+    if let Err(e) = syscall::validate_user_ptr(pointer, length) {
+        return e;
+    }
+    if length > syscall::MAX_BUFFER_SIZE {
+        return syscall::EINVAL;
     }
 
-    // LIMITATION: we check the RANGE, not that the pages are mapped.
     let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length as usize) };
-
     match core::str::from_utf8(bytes) {
         Ok(text) => {
             print!("     [user] {text}");
             length
         }
-        Err(_) => u64::MAX,
+        Err(_) => syscall::EINVAL,
     }
 }
 
 fn sys_read(pointer: u64, max_length: u64) -> u64 {
-    if !syscall::validate_user_buffer(pointer, max_length) {
-        return u64::MAX;
+    if let Err(e) = syscall::validate_user_ptr(pointer, max_length) {
+        return e;
     }
-
-    // Non-blocking: return 0 if no input is available.
-    // TODO: wire to the keyboard ring buffer when the keyboard task is active.
     0
 }
 
@@ -272,21 +273,113 @@ fn sys_getpid() -> u64 {
 }
 
 fn sys_mmap(requested_size: u64) -> u64 {
-    if requested_size == 0 || requested_size > 16 * PAGE_SIZE {
-        return u64::MAX;
+    if requested_size == 0 || requested_size > 256 * PAGE_SIZE {
+        return syscall::EINVAL;
     }
 
-    // Round up to page boundary.
     let pages = (requested_size + PAGE_SIZE - 1) / PAGE_SIZE;
     let size = pages * PAGE_SIZE;
-
     let addr = MMAP_NEXT.fetch_add(size, Ordering::Relaxed);
 
-    // We cannot actually map pages here without the mapper/allocator, which
-    // are not accessible from the syscall handler. For now, report the
-    // address that WOULD be mapped. The kernel main will pre-map a pool.
-    // TODO: pass mapper/allocator through a global or per-CPU structure.
-    addr
+    match crate::memory::mmap_user_pages(addr, pages as usize) {
+        Ok(mapped_addr) => mapped_addr,
+        Err(e) => e,
+    }
+}
+
+fn sys_munmap(addr: u64, size: u64) -> u64 {
+    if addr % PAGE_SIZE != 0 || size == 0 {
+        return syscall::EINVAL;
+    }
+    if let Err(e) = syscall::validate_user_ptr(addr, size) {
+        return e;
+    }
+    let pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    match crate::memory::munmap_user_pages(addr, pages as usize) {
+        Ok(()) => 0,
+        Err(e) => e,
+    }
+}
+
+fn sys_spawn(path_ptr: u64, path_len: u64, mode: u64) -> u64 {
+    if let Err(e) = syscall::validate_user_ptr(path_ptr, path_len) {
+        return e;
+    }
+    if path_len > 256 {
+        return syscall::EINVAL;
+    }
+
+    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, path_len as usize) };
+    let Ok(path_str) = core::str::from_utf8(path_bytes) else {
+        return syscall::EINVAL;
+    };
+
+    let Ok(binary) = crate::fs::vfs::read_all(path_str) else {
+        return syscall::ENOENT;
+    };
+
+    let Some(entry) = crate::elf::parse_entry(&binary) else {
+        return syscall::EINVAL;
+    };
+
+    let cr3_root: u64;
+    unsafe { core::arch::asm!("mov {}, cr3", out(reg) cr3_root, options(nomem, nostack)) };
+
+    // Allocate stack space for new process (64 KiB = 16 pages)
+    let stack_base = MMAP_NEXT.fetch_add(16 * PAGE_SIZE, Ordering::Relaxed);
+    if crate::memory::mmap_user_pages(stack_base, 16).is_err() {
+        return syscall::ENOMEM;
+    }
+    let stack_top = stack_base + 16 * PAGE_SIZE;
+
+    let (pid, _tid) = crate::task::scheduler::spawn_process(
+        path_str,
+        cr3_root,
+        entry,
+        stack_top,
+        0,
+        true,
+        mode,
+    );
+    pid
+}
+
+fn sys_waitpid(_target_pid: u64) -> u64 {
+    if crate::task::scheduler::is_active() {
+        sys_yield();
+    }
+    0
+}
+
+fn sys_channel_create() -> u64 {
+    match crate::ipc::create_channel() {
+        Ok(id) => id,
+        Err(e) => e,
+    }
+}
+
+fn sys_channel_send(channel_id: u64, buf_ptr: u64, len: u64) -> u64 {
+    if let Err(e) = syscall::validate_user_ptr(buf_ptr, len) {
+        return e;
+    }
+    let current_pid = sys_getpid();
+    let slice = unsafe { core::slice::from_raw_parts(buf_ptr as *const u8, len as usize) };
+    match crate::ipc::send_message(channel_id, current_pid, slice) {
+        Ok(sent_bytes) => sent_bytes as u64,
+        Err(e) => e,
+    }
+}
+
+fn sys_channel_recv(channel_id: u64, buf_ptr: u64, max_len: u64) -> u64 {
+    if let Err(e) = syscall::validate_user_ptr(buf_ptr, max_len) {
+        return e;
+    }
+    let current_pid = sys_getpid();
+    let slice = unsafe { core::slice::from_raw_parts_mut(buf_ptr as *mut u8, max_len as usize) };
+    match crate::ipc::recv_message(channel_id, current_pid, slice) {
+        Ok(recv_bytes) => recv_bytes as u64,
+        Err(e) => e,
+    }
 }
 
 /// # Safety

@@ -50,7 +50,7 @@ const HUGE: u64 = 1 << 7;
 const ADDRESS_MASK: u64 = 0x000f_ffff_ffff_f000;
 
 pub struct Mapper {
-    physical_offset: u64,
+    pub physical_offset: u64,
 }
 
 impl Mapper {
@@ -170,6 +170,34 @@ impl Mapper {
         crate::arch::current::mmu::CurrentMmu::flush_tlb(virtual_address);
         Ok(())
     }
+
+    /// Desmapea una página virtual de nivel 1 e invalida la entrada TLB.
+    pub unsafe fn unmap(&mut self, virtual_address: u64) -> Result<u64, &'static str> {
+        let mut table = self.level4_table();
+        for level in (2..=4u32).rev() {
+            let index = table_index(virtual_address, level);
+            let entry = unsafe { *self.entry(table, index) };
+            if entry & PRESENT == 0 {
+                return Err("page not mapped");
+            }
+            if level > 1 && entry & HUGE != 0 {
+                return Err("huge page unmap unsupported");
+            }
+            table = entry & ADDRESS_MASK;
+        }
+
+        let index = table_index(virtual_address, 1);
+        let entry_ptr = unsafe { self.entry(table, index) };
+        let entry_val = unsafe { *entry_ptr };
+        if entry_val & PRESENT == 0 {
+            return Err("page not mapped");
+        }
+        unsafe { *entry_ptr = 0 };
+
+        use crate::arch::traits::ArchMmu;
+        crate::arch::current::mmu::CurrentMmu::flush_tlb(virtual_address);
+        Ok(entry_val & ADDRESS_MASK)
+    }
 }
 
 /// Extrae el índice de 9 bits que corresponde a un nivel.
@@ -265,5 +293,68 @@ pub unsafe fn init_heap(mapper: &mut Mapper, allocator: &mut FrameAllocator) -> 
         HEAP_START,
         pages
     );
+    Ok(())
+}
+
+// ----------------------------------------------------------- global memory controller
+
+/// Global controller managing page tables and physical frame allocations.
+pub struct MemoryController {
+    pub mapper: Mapper,
+    pub allocator: FrameAllocator,
+}
+
+unsafe impl Send for MemoryController {}
+unsafe impl Sync for MemoryController {}
+
+pub static MEMORY_CONTROLLER: crate::sync::SpinLock<Option<MemoryController>> =
+    crate::sync::SpinLock::new(None);
+
+/// Initializes the global memory controller with the active mapper and frame allocator.
+pub fn init_memory_controller(mapper: Mapper, allocator: FrameAllocator) {
+    *MEMORY_CONTROLLER.lock() = Some(MemoryController { mapper, allocator });
+}
+
+/// Allocates physical frames and maps contiguous user pages starting at `start_vaddr`.
+pub fn mmap_user_pages(start_vaddr: u64, page_count: usize) -> Result<u64, u64> {
+    let mut guard = MEMORY_CONTROLLER.lock();
+    let Some(controller) = guard.as_mut() else {
+        return Err(crate::syscall::ENOMEM);
+    };
+
+    for i in 0..page_count {
+        let vaddr = start_vaddr + (i as u64) * PAGE_SIZE;
+        let Some(frame) = controller.allocator.allocate() else {
+            return Err(crate::syscall::ENOMEM);
+        };
+        // Zero physical page content
+        unsafe {
+            let virt = (frame + controller.mapper.physical_offset) as *mut u8;
+            core::ptr::write_bytes(virt, 0, PAGE_SIZE as usize);
+        }
+        if unsafe {
+            controller
+                .mapper
+                .map(vaddr, frame, PRESENT | WRITABLE | USER, &mut controller.allocator)
+        }
+        .is_err()
+        {
+            return Err(crate::syscall::ENOMEM);
+        }
+    }
+    Ok(start_vaddr)
+}
+
+/// Unmaps user pages starting at `start_vaddr`.
+pub fn munmap_user_pages(start_vaddr: u64, page_count: usize) -> Result<(), u64> {
+    let mut guard = MEMORY_CONTROLLER.lock();
+    let Some(controller) = guard.as_mut() else {
+        return Err(crate::syscall::EINVAL);
+    };
+
+    for i in 0..page_count {
+        let vaddr = start_vaddr + (i as u64) * PAGE_SIZE;
+        let _ = unsafe { controller.mapper.unmap(vaddr) };
+    }
     Ok(())
 }

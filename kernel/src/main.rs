@@ -26,6 +26,7 @@ mod elf;
 mod memory;
 #[allow(dead_code)]
 mod sync;
+pub mod ipc;
 pub mod syscall;
 #[allow(dead_code)]
 mod task;
@@ -327,6 +328,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .expect("no pude mapear la pila de usuario");
     println!("  cargado      entrada {entry:#x} · pila {user_stack:#x}");
 
+    // Separate user stack for process 2 (0x6000_0000)
+    let user_stack_2 = unsafe {
+        userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames)
+    }.expect("no pude mapear pila para proceso 2");
+
+    // Initialize global memory controller for dynamic syscalls (mmap, munmap, spawn)
+    memory::init_memory_controller(mapper, frames);
+
     println!();
     println!("  ─── ejecución limpia ───");
     // SAFETY: entrada y pila están mapeadas con el bit de usuario.
@@ -350,11 +359,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let cr3_root: u64;
     unsafe { core::arch::asm!("mov {}, cr3", out(reg) cr3_root, options(nomem, nostack)) };
-
-    // Separate user stack for process 2 (0x6000_0000)
-    let user_stack_2 = unsafe {
-        userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames)
-    }.expect("no pude mapear pila para proceso 2");
 
     // Spawn Process 1: background worker (mode 2)
     let (pid1, tid1) = task::scheduler::spawn_process(

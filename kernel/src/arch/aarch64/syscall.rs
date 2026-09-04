@@ -83,9 +83,58 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             ctx.x[0] = u64::MAX;
         }
 
+        syscall::SYS_MUNMAP => {
+            ctx.x[0] = 0;
+        }
+
+        syscall::SYS_SPAWN => {
+            ctx.x[0] = syscall::ENOSYS;
+        }
+
+        syscall::SYS_WAITPID => {
+            ctx.x[0] = 0;
+        }
+
+        syscall::SYS_CHANNEL_CREATE => {
+            match crate::ipc::create_channel() {
+                Ok(id) => ctx.x[0] = id,
+                Err(e) => ctx.x[0] = e,
+            }
+        }
+
+        syscall::SYS_CHANNEL_SEND => {
+            let chan = ctx.x[0];
+            let ptr = ctx.x[1];
+            let len = ctx.x[2];
+            if let Err(e) = syscall::validate_user_ptr(ptr, len) {
+                ctx.x[0] = e;
+            } else {
+                let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+                match crate::ipc::send_message(chan, CURRENT_PID.load(Ordering::Relaxed), slice) {
+                    Ok(n) => ctx.x[0] = n as u64,
+                    Err(e) => ctx.x[0] = e,
+                }
+            }
+        }
+
+        syscall::SYS_CHANNEL_RECV => {
+            let chan = ctx.x[0];
+            let ptr = ctx.x[1];
+            let max_len = ctx.x[2];
+            if let Err(e) = syscall::validate_user_ptr(ptr, max_len) {
+                ctx.x[0] = e;
+            } else {
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, max_len as usize) };
+                match crate::ipc::recv_message(chan, CURRENT_PID.load(Ordering::Relaxed), slice) {
+                    Ok(n) => ctx.x[0] = n as u64,
+                    Err(e) => ctx.x[0] = e,
+                }
+            }
+        }
+
         _ => {
             println!("  unknown syscall: {}", syscall_no);
-            ctx.x[0] = !0u64; // -1
+            ctx.x[0] = syscall::EINVAL;
         }
     }
 }

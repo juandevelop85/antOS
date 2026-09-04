@@ -746,4 +746,33 @@ pub struct KernelVfsNode {
     pub is_dir: bool,
 }
 
+// ----------------------------------------------------------- syscall ABI & microkernel IPC (T23.5)
+
+/// Metadata and metrics of the kernel system call interface.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyscallTableInfo {
+    pub total_syscalls: u32,
+    pub active_architecture: String,
+    pub user_address_limit: u64,
+    pub smap_efault_protection: bool,
+}
+
+/// Status and metrics of an active microkernel IPC channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IpcChannelInfo {
+    pub channel_id: u64,
+    pub pending_messages: usize,
+    pub max_messages: usize,
+    pub max_message_size: usize,
+    pub waiting_receiver: bool,
+}
+
+/// Summary of an IPC message sent through a channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IpcMessageSummary {
+    pub channel_id: u64,
+    pub sender_pid: u64,
+    pub payload_size: usize,
+}
+
 

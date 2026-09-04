@@ -1,11 +1,16 @@
-# antOS init process — the first userspace binary loaded by the kernel.
-# Separate workspace: compiled to a static ELF for x86_64-unknown-none.
 [workspace]
+members = [
+    ".",
+    "libantos",
+]
 
 [package]
 name = "antos-init"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+libantos = { path = "libantos" }
 
 [[bin]]
 name = "antos-init"
