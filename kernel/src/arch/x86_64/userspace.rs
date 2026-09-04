@@ -74,7 +74,21 @@ pub fn init() {
     }
 }
 
-/// Allocates and maps the user program stack.
+/// Allocates and maps a user program stack at a custom top virtual address.
+pub unsafe fn map_user_stack_at(
+    stack_top: u64,
+    mapper: &mut Mapper,
+    allocator: &mut FrameAllocator,
+) -> Result<u64, &'static str> {
+    for page in 0..USER_STACK_PAGES {
+        let address = stack_top - (page + 1) * PAGE_SIZE;
+        let frame = allocator.allocate().ok_or("no frames for user stack")?;
+        unsafe { mapper.map(address, frame, PRESENT | WRITABLE | USER, allocator)? };
+    }
+    Ok(stack_top)
+}
+
+/// Allocates and maps the default user program stack.
 ///
 /// # Safety
 /// Call only once; the range must not overlap kernel memory.
@@ -82,12 +96,7 @@ pub unsafe fn map_user_stack(
     mapper: &mut Mapper,
     allocator: &mut FrameAllocator,
 ) -> Result<u64, &'static str> {
-    for page in 0..USER_STACK_PAGES {
-        let address = USER_STACK_TOP - (page + 1) * PAGE_SIZE;
-        let frame = allocator.allocate().ok_or("no frames for user stack")?;
-        unsafe { mapper.map(address, frame, PRESENT | WRITABLE | USER, allocator)? };
-    }
-    Ok(USER_STACK_TOP)
+    unsafe { map_user_stack_at(USER_STACK_TOP, mapper, allocator) }
 }
 
 /// Drops to ring 3 and does not return until the program exits.
@@ -197,7 +206,17 @@ unsafe extern "C" fn syscall_entry() {
 
 extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, _arg3: u64) -> u64 {
     match number {
-        syscall::SYS_EXIT => return_to_kernel(arg1),
+        syscall::SYS_EXIT => {
+            if crate::task::scheduler::is_active() {
+                crate::task::scheduler::exit_current_syscall(arg1);
+                // When scheduler is active, this thread has ended. Sleep until next interrupt
+                // if no immediate thread was resumed.
+                loop {
+                    unsafe { core::arch::asm!("sti; hlt", options(nomem, nostack)) };
+                }
+            }
+            return_to_kernel(arg1)
+        }
         syscall::SYS_WRITE => sys_write(arg1, arg2),
         syscall::SYS_READ => sys_read(arg1, arg2),
         syscall::SYS_YIELD => sys_yield(),
@@ -239,7 +258,9 @@ fn sys_read(pointer: u64, max_length: u64) -> u64 {
 }
 
 fn sys_yield() -> u64 {
-    // Voluntarily yield to the scheduler by halting until the next interrupt.
+    if crate::task::scheduler::is_active() {
+        crate::task::scheduler::expire_current_quantum();
+    }
     unsafe {
         core::arch::asm!("sti; hlt", options(nomem, nostack));
     }

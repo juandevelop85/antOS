@@ -90,6 +90,16 @@ pub fn syscall_stack_top() -> u64 {
     unsafe { stack_top(SYSCALL_STACK.get()) }
 }
 
+/// Sets the privilege level 0 stack pointer (RSP0) in the TSS.
+///
+/// When an interrupt or exception arrives while the CPU is executing in ring 3,
+/// the hardware automatically switches RSP to `privilege_stack_table[0]`.
+pub fn set_tss_rsp0(stack_top: u64) {
+    unsafe {
+        TSS.get_mut().privilege_stack_table[0] = stack_top;
+    }
+}
+
 /// El TSS de 64 bits: ya no guarda registros de una tarea, solo punteros de
 /// pila. `packed(4)` porque el formato del hardware no está alineado a 8.
 #[repr(C, packed(4))]

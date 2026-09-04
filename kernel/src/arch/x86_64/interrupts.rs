@@ -102,7 +102,7 @@ pub fn init() {
         set(idt, 14, page_fault as *const () as usize, 0);
 
         // Hardware interrupts.
-        set(idt, TIMER_VECTOR as usize, timer as *const () as usize, 0);
+        set(idt, TIMER_VECTOR as usize, timer_interrupt_entry as *const () as usize, 0);
         set(idt, KEYBOARD_VECTOR as usize, keyboard as *const () as usize, 0);
         set(idt, SPURIOUS_VECTOR as usize, spurious as *const () as usize, 0);
 
@@ -248,11 +248,67 @@ extern "x86-interrupt" fn double_fault(frame: InterruptStackFrame, _error_code: 
 
 // ─────────────────────────────────────────────── Hardware interrupts
 
-extern "x86-interrupt" fn timer(_frame: InterruptStackFrame) {
+/// Naked assembly entry point for the periodic timer interrupt (vector 32).
+///
+/// Saves all general-purpose registers to form a complete `CpuContext` on the stack,
+/// passes a pointer to the context to `timer_interrupt_handler` for potential
+/// task preemption / context switching, and then executes `iretq` to resume the
+/// chosen thread.
+#[unsafe(naked)]
+pub unsafe extern "C" fn timer_interrupt_entry() {
+    core::arch::naked_asm!(
+        "push rax",
+        "push rcx",
+        "push rdx",
+        "push rbx",
+        "push rbp",
+        "push rsi",
+        "push rdi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+
+        "mov rdi, rsp",
+        "call {handler}",
+
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rdi",
+        "pop rsi",
+        "pop rbp",
+        "pop rbx",
+        "pop rdx",
+        "pop rcx",
+        "pop rax",
+        "iretq",
+        handler = sym timer_interrupt_handler,
+    );
+}
+
+extern "C" fn timer_interrupt_handler(ctx: &mut crate::task::pcb::CpuContext) {
+    // 1. Advance async timer ticks and notify waiting async futures
     crate::task::timer::tick();
 
-    // Send EOI to the LAPIC (replaces PIC EOI for the timer).
-    crate::arch::x86_64::apic::eoi();
+    // 2. Scheduler preemption hook: evaluates quantum and switches context if needed
+    crate::task::scheduler::on_timer_tick(ctx);
+
+    // 3. Send End-of-Interrupt to LAPIC or fallback PIC
+    if crate::arch::x86_64::apic::is_initialized() {
+        crate::arch::x86_64::apic::eoi();
+    } else {
+        unsafe { pic_end_of_interrupt(TIMER_VECTOR) };
+    }
 }
 
 extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {

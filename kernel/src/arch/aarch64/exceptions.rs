@@ -226,6 +226,11 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         let irq_id = crate::arch::aarch64::gic::acknowledge();
         if irq_id == crate::arch::aarch64::timer::TIMER_IRQ {
             crate::arch::aarch64::timer::handle_timer_interrupt();
+            // Preemption hook: check quantum and switch context if needed
+            let cpu_ctx = unsafe {
+                &mut *(ctx as *mut ExceptionContext as *mut crate::task::pcb::CpuContext)
+            };
+            crate::task::scheduler::on_timer_tick(cpu_ctx);
         }
         crate::arch::aarch64::gic::end_of_interrupt(irq_id);
         return;

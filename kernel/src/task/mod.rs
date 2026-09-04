@@ -17,7 +17,14 @@
 
 pub mod executor;
 pub mod keyboard;
+pub mod pcb;
+pub mod scheduler;
 pub mod timer;
+
+#[allow(unused_imports)]
+pub use pcb::{CpuContext, ProcessControlBlock, ProcessState, ThreadControlBlock, ThreadState};
+#[allow(unused_imports)]
+pub use scheduler::Scheduler;
 
 use alloc::boxed::Box;
 use core::future::Future;

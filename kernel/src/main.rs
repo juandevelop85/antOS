@@ -252,6 +252,54 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("  el kernel recuperó el control · código {code:#x}");
 
     println!();
+    println!("multitarea preemptiva (T23.2)");
+
+    task::scheduler::init();
+    println!(
+        "  scheduler    Round-Robin activo · quantum {} ticks ({} ms)",
+        task::scheduler::DEFAULT_QUANTUM_TICKS,
+        task::scheduler::DEFAULT_QUANTUM_TICKS * 10
+    );
+
+    let cr3_root: u64;
+    unsafe { core::arch::asm!("mov {}, cr3", out(reg) cr3_root, options(nomem, nostack)) };
+
+    // Separate user stack for process 2 (0x6000_0000)
+    let user_stack_2 = unsafe {
+        userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames)
+    }.expect("no pude mapear pila para proceso 2");
+
+    // Spawn Process 1: background worker (mode 2)
+    let (pid1, tid1) = task::scheduler::spawn_process(
+        "worker-pulse",
+        cr3_root,
+        entry,
+        user_stack,
+        0, // auto-allocate kernel stack
+        true,
+        2, // mode 2
+    );
+    println!("  proceso 1    spawned PID {pid1} (TID {tid1}) · worker concurrente");
+
+    // Spawn Process 2: preemptible compute worker (mode 3)
+    let (pid2, tid2) = task::scheduler::spawn_process(
+        "worker-preempt",
+        cr3_root,
+        entry,
+        user_stack_2,
+        0, // auto-allocate kernel stack
+        true,
+        3, // mode 3
+    );
+    println!("  proceso 2    spawned PID {pid2} (TID {tid2}) · worker preemptivo");
+
+    let metrics = task::scheduler::metrics();
+    println!(
+        "  metricas     {} procesos, {} hilos en cola de listos",
+        metrics.total_processes, metrics.ready_threads
+    );
+
+    println!();
     println!("multitarea cooperativa");
 
     let mut executor = task::executor::Executor::new();

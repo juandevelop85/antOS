@@ -1674,3 +1674,46 @@ use crate::*;
         assert_eq!(ev, des_ev);
     }
 
+    #[test]
+    fn test_preemptive_scheduler_and_pcb_tcb_serde() {
+        let pcb = ProcessInfo {
+            pid: 1,
+            name: "antos-init".into(),
+            page_table_root: 0x1000_0000,
+            state: ProcessState::Running,
+            threads: vec![1, 2],
+            exit_code: None,
+            memory_bytes: 65536,
+        };
+        let json_pcb = serde_json::to_string(&pcb).expect("serialize pcb");
+        let des_pcb: ProcessInfo = serde_json::from_str(&json_pcb).expect("deserialize pcb");
+        assert_eq!(pcb, des_pcb);
+
+        let tcb = ThreadInfo {
+            tid: 1,
+            pid: 1,
+            state: ThreadState::Running,
+            priority: 10,
+            user_sp: 0x7000_0000,
+            kernel_sp: 0xFFFF_8000_2000_0000,
+            total_ticks: 42,
+            time_slice_remaining: 2,
+        };
+        let json_tcb = serde_json::to_string(&tcb).expect("serialize tcb");
+        let des_tcb: ThreadInfo = serde_json::from_str(&json_tcb).expect("deserialize tcb");
+        assert_eq!(tcb, des_tcb);
+
+        let stats = SchedulerStats {
+            total_processes: 2,
+            active_processes: 2,
+            total_threads: 3,
+            ready_threads: 2,
+            context_switches: 150,
+            quantum_ticks: 2,
+            preemption_enabled: true,
+        };
+        let json_stats = serde_json::to_string(&stats).expect("serialize stats");
+        let des_stats: SchedulerStats = serde_json::from_str(&json_stats).expect("deserialize stats");
+        assert_eq!(stats, des_stats);
+    }
+

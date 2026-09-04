@@ -613,3 +613,62 @@ pub struct WebAuthSession {
     pub client_label: Option<String>,
 }
 
+// ----------------------------------------------------------- preemptive scheduler & task control (T23.2)
+
+/// Operating state of a process in the antOS preemptive scheduler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessState {
+    Ready,
+    Running,
+    Blocked,
+    Terminated,
+}
+
+/// Execution state of a thread inside a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThreadState {
+    Ready,
+    Running,
+    Blocked,
+    Terminated,
+}
+
+/// Information and inspection model for an active or terminated process (PCB snapshot).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    pub pid: u64,
+    pub name: String,
+    pub page_table_root: u64,
+    pub state: ProcessState,
+    pub threads: Vec<u64>,
+    pub exit_code: Option<u64>,
+    pub memory_bytes: usize,
+}
+
+/// Information and inspection model for a thread (TCB snapshot).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadInfo {
+    pub tid: u64,
+    pub pid: u64,
+    pub state: ThreadState,
+    pub priority: u8,
+    pub user_sp: u64,
+    pub kernel_sp: u64,
+    pub total_ticks: u64,
+    pub time_slice_remaining: u32,
+}
+
+/// Telemetry and metrics for the preemptive scheduler.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchedulerStats {
+    pub total_processes: usize,
+    pub active_processes: usize,
+    pub total_threads: usize,
+    pub ready_threads: usize,
+    pub context_switches: u64,
+    pub quantum_ticks: u32,
+    pub preemption_enabled: bool,
+}
+

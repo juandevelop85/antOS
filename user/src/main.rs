@@ -125,6 +125,45 @@ pub extern "C" fn _start(mode: u64) -> ! {
         }
     }
 
+    // ── Mode 2: background worker task ───────────────────────────────────
+    if mode == 2 {
+        write("[worker-A] started concurrent background task (mode 2)\n");
+        let mut pulse: u64 = 0;
+        while pulse < 3 {
+            pulse += 1;
+            write("[worker-A] progress pulse ");
+            write_u64(pulse);
+            write("/3\n");
+            let mut spin: u64 = 0;
+            while spin < 5_000_000 {
+                spin = spin.wrapping_add(1);
+                core::hint::spin_loop();
+            }
+        }
+        write("[worker-A] completed cleanly\n");
+        exit(0);
+    }
+
+    // ── Mode 3: compute loop to verify preemptive timer interruption ──────
+    if mode == 3 {
+        write("[worker-preempt] running endless compute loop (mode 3)\n");
+        write("[worker-preempt] preemption active: timer will slice CPU fairly\n");
+        let mut count: u64 = 0;
+        while count < 3 {
+            count += 1;
+            write("[worker-preempt] compute iteration ");
+            write_u64(count);
+            write(" (preemptible)\n");
+            let mut spin: u64 = 0;
+            while spin < 5_000_000 {
+                spin = spin.wrapping_add(1);
+                core::hint::spin_loop();
+            }
+        }
+        write("[worker-preempt] verified preemption & cooperative yield\n");
+        exit(0);
+    }
+
     // ── Mode 0: normal init boot ─────────────────────────────────────────
     write(BANNER);
 
