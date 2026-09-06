@@ -1810,4 +1810,32 @@ use crate::*;
         assert_eq!(msg, des_msg);
     }
 
+    #[test]
+    fn test_limine_boot_config_and_hybrid_report() {
+        let default_cfg = LimineBootConfig::default();
+        assert_eq!(default_cfg.timeout_seconds, 3);
+        assert_eq!(default_cfg.protocol, "limine");
+        assert_eq!(default_cfg.kernel_path, "boot():/KERNEL.ELF");
+        assert_eq!(default_cfg.resolution, "1280x720x32");
+
+        let json_cfg = serde_json::to_string(&default_cfg).expect("serialize limine config");
+        let des_cfg: LimineBootConfig = serde_json::from_str(&json_cfg).expect("deserialize limine config");
+        assert_eq!(default_cfg, des_cfg);
+
+        let report = HybridBootImageReport {
+            success: true,
+            image_path: "/target/antos-uefi-x86_64.img".into(),
+            architecture: "x86_64".into(),
+            format: "gpt-esp-hybrid".into(),
+            efi_bootloader: "BOOTX64.EFI".into(),
+            pe_signature_valid: true,
+            limine_conf_generated: true,
+            esp_size_bytes: 67108864,
+            summary: "Hybrid UEFI GPT / BIOS Limine image generated successfully".into(),
+        };
+        let json_rep = serde_json::to_string(&report).expect("serialize hybrid report");
+        let des_rep: HybridBootImageReport = serde_json::from_str(&json_rep).expect("deserialize hybrid report");
+        assert_eq!(report, des_rep);
+    }
+
 

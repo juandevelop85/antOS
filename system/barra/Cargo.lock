@@ -6,14 +6,14 @@ version = 4
 name = "antos-barra"
 version = "0.1.0"
 dependencies = [
- "antos-protocolo",
+ "antos-protocol",
  "gtk4",
  "gtk4-layer-shell",
  "serde_json",
 ]
 
 [[package]]
-name = "antos-protocolo"
+name = "antos-protocol"
 version = "0.1.0"
 dependencies = [
  "serde",

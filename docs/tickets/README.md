@@ -79,7 +79,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 23** | [T23.3](T23.3-consola-grafica-framebuffer-con-fuente-bitmap-y-secuencias-ansi.md) | Consola Gráfica Framebuffer en Pantalla con Fuente Bitmap y Secuencias ANSI | ✅ Completado |
 | **Fase 23** | [T23.4](T23.4-driver-de-bloque-virtio-blk-y-sistema-de-ficheros-initrd-tarfs.md) | Driver de Bloque VirtIO (`virtio-blk`) y Sistema de Ficheros Inicial Initrd/tarfs | ✅ Completado |
 | **Fase 23** | [T23.5](T23.5-ampliacion-de-llamadas-al-sistema-posix-e-ipc-por-canales-microkernel.md) | Ampliación de Llamadas al Sistema POSIX e IPC por Canales Microkernel | ✅ Completado |
-| **Fase 24** | [T24.1](T24.1-integracion-de-bootloader-uefi-limine-en-builder-para-arranque-hibrido.md) | Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido | ⏳ Pendiente |
+| **Fase 24** | [T24.1](T24.1-integracion-de-bootloader-uefi-limine-en-builder-para-arranque-hibrido.md) | Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido | ✅ Completado |
 | **Fase 24** | [T24.2](T24.2-empaquetador-de-ramdisk-initramfs-live-con-sistema-base-y-herramientas.md) | Empaquetador de Ramdisk (Initramfs) Live con Sistema Base y Herramientas | ⏳ Pendiente |
 | **Fase 24** | [T24.3](T24.3-drivers-de-almacenamiento-fisico-ahci-sata-y-nvme-para-deteccion-de-discos.md) | Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos | ⏳ Pendiente |
 | **Fase 24** | [T24.4](T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) | Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ⏳ Pendiente |

@@ -401,6 +401,48 @@ pub struct BootloaderReport {
     pub summary: String,
 }
 
+/// Declarative Limine bootloader configuration and hybrid image parameters (T24.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LimineBootConfig {
+    pub timeout_seconds: u32,
+    pub default_entry: u32,
+    pub graphics: bool,
+    pub title: String,
+    pub protocol: String,
+    pub kernel_path: String,
+    pub resolution: String,
+    pub comment: String,
+}
+
+impl Default for LimineBootConfig {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 3,
+            default_entry: 1,
+            graphics: true,
+            title: "/antOS (Desarrollo y Orquestación Multi-Agente)".into(),
+            protocol: "limine".into(),
+            kernel_path: "boot():/KERNEL.ELF".into(),
+            resolution: "1280x720x32".into(),
+            comment: "Sistema operativo antOS en modo bare-metal nativo".into(),
+        }
+    }
+}
+
+/// Deployment and verification report for hybrid UEFI/BIOS boot image (T24.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HybridBootImageReport {
+    pub success: bool,
+    pub image_path: String,
+    pub architecture: String,
+    pub format: String,
+    pub efi_bootloader: String,
+    pub pe_signature_valid: bool,
+    pub limine_conf_generated: bool,
+    pub esp_size_bytes: u64,
+    pub summary: String,
+}
+
 
 
 // ------------------------------------------------------------- packages (antpkg)

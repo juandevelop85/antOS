@@ -2,6 +2,8 @@
 //!
 //! Generates bootable disk images (.img) and hybrid ISOs (.iso) for x86_64 and AArch64.
 
+pub mod limine;
+
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -123,7 +125,8 @@ impl<'a> Seek for PartitionSlice<'a> {
     }
 }
 
-/// Creates a bootable UEFI GPT disk image with an EFI System Partition (FAT32).
+/// Creates a bootable hybrid UEFI GPT / BIOS disk image with an EFI System Partition (FAT32)
+/// powered by Limine Bootloader v8+ (T24.1).
 pub fn create_uefi_disk_image(
     kernel_path: &Path,
     out_image: &Path,
@@ -177,7 +180,7 @@ pub fn create_uefi_disk_image(
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
     }
 
-    // 3. Format ESP partition with FAT
+    // 3. Format ESP partition with FAT32 and populate Limine Bootloader files
     let partition_offset = start_lba * sector_size;
     {
         let mut file = OpenOptions::new()
@@ -201,19 +204,43 @@ pub fn create_uefi_disk_image(
         efi_dir.create_dir("BOOT")?;
         let boot_dir = efi_dir.open_dir("BOOT")?;
 
-        // Write EFI binary
-        let efi_name = arch.efi_filename();
-        let mut efi_file = boot_dir.create_file(efi_name)?;
-        efi_file.write_all(&kernel_data)?;
+        // Write official Limine PE32+ UEFI binaries for both x86_64 and AArch64
+        let mut x86_efi = boot_dir.create_file("BOOTX64.EFI")?;
+        x86_efi.write_all(limine::BOOTX64_EFI)?;
 
-        // Also save kernel ELF in root for direct bootloaders
+        let mut aarch_efi = boot_dir.create_file("BOOTAA64.EFI")?;
+        aarch_efi.write_all(limine::BOOTAA64_EFI)?;
+
+        // Save compiled antOS kernel ELF in root
         let mut kernel_file = root.create_file("KERNEL.ELF")?;
         kernel_file.write_all(&kernel_data)?;
 
-        // Write /startup.nsh script for automated UEFI shell boot
+        // Write declarative /limine.conf in root
+        let conf_content = limine::generate_limine_conf(None, None);
+        let mut conf_file = root.create_file("limine.conf")?;
+        conf_file.write_all(conf_content.as_bytes())?;
+
+        // Also duplicate /EFI/BOOT/limine.conf for firmware lookup compatibility
+        let mut efi_conf_file = boot_dir.create_file("limine.conf")?;
+        efi_conf_file.write_all(conf_content.as_bytes())?;
+
+        // Write /limine-bios.sys in root for hybrid BIOS booting
+        let mut bios_sys = root.create_file("limine-bios.sys")?;
+        bios_sys.write_all(limine::LIMINE_BIOS_SYS)?;
+
+        // Write /startup.nsh script for automated UEFI shell fallback
         let mut startup = root.create_file("startup.nsh")?;
-        let script = format!("\\EFI\\BOOT\\{}\r\n", efi_name);
+        let script = limine::generate_startup_nsh(arch);
         startup.write_all(script.as_bytes())?;
+    }
+
+    // 4. Install Limine BIOS boot code into MBR / LBA 0 (and Stage 2 at LBA 64)
+    {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(out_image)?;
+        limine::install_limine_bios_mbr(&mut file)?;
     }
 
     Ok(out_image.to_path_buf())
@@ -245,21 +272,21 @@ mod tests {
     }
 
     #[test]
-    fn test_create_uefi_disk_image_and_inspect_fat() {
+    fn test_create_uefi_disk_image_and_inspect_limine() {
         let temp_dir = std::env::temp_dir();
         let dummy_kernel = temp_dir.join("dummy_kernel.elf");
-        let dummy_img = temp_dir.join("test_uefi.img");
+        let dummy_img = temp_dir.join("test_uefi_limine.img");
 
-        let kernel_content = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\xB7\x00"; // AArch64 ELF
+        let kernel_content = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3E\x00"; // x86_64 ELF
         std::fs::write(&dummy_kernel, kernel_content).unwrap();
 
         let arch = detect_architecture(&dummy_kernel);
-        assert_eq!(arch, Architecture::AArch64);
+        assert_eq!(arch, Architecture::X86_64);
 
         let out = create_uefi_disk_image(&dummy_kernel, &dummy_img, arch).unwrap();
         assert!(out.exists());
 
-        // Verify with fatfs that /EFI/BOOT/BOOTAA64.EFI was created
+        // Verify with fatfs that Limine UEFI binaries and kernel ELF were properly written
         let mut file = File::open(&dummy_img).unwrap();
         let sector_size = 512u64;
         let start_lba = 2048u64;
@@ -271,14 +298,62 @@ mod tests {
 
         let efi_dir = root.open_dir("EFI").unwrap();
         let boot_dir = efi_dir.open_dir("BOOT").unwrap();
-        let mut efi_file = boot_dir.open_file("BOOTAA64.EFI").unwrap();
-        let mut read_back = Vec::new();
-        efi_file.read_to_end(&mut read_back).unwrap();
 
-        assert_eq!(read_back, kernel_content);
+        // 1. Verify BOOTX64.EFI is a valid PE32+ application with MZ header (0x4D, 0x5A)
+        let mut x86_file = boot_dir.open_file("BOOTX64.EFI").unwrap();
+        let mut x86_bytes = Vec::new();
+        x86_file.read_to_end(&mut x86_bytes).unwrap();
+        assert_eq!(&x86_bytes[0..2], &[0x4D, 0x5A]);
+        assert!(limine::is_valid_pe(&x86_bytes));
+        assert!(limine::is_valid_pe32_plus(&x86_bytes));
+
+        // 2. Verify BOOTAA64.EFI is also present and a valid PE32+ application
+        let mut arm_file = boot_dir.open_file("BOOTAA64.EFI").unwrap();
+        let mut arm_bytes = Vec::new();
+        arm_file.read_to_end(&mut arm_bytes).unwrap();
+        assert_eq!(&arm_bytes[0..2], &[0x4D, 0x5A]);
+        assert!(limine::is_valid_pe(&arm_bytes));
+        assert!(limine::is_valid_pe32_plus(&arm_bytes));
+
+        // 3. Verify KERNEL.ELF matches our kernel payload
+        let mut k_file = root.open_file("KERNEL.ELF").unwrap();
+        let mut k_bytes = Vec::new();
+        k_file.read_to_end(&mut k_bytes).unwrap();
+        assert_eq!(k_bytes, kernel_content);
+
+        // 4. Verify limine.conf contains protocol: limine and resolution
+        let mut conf_file = root.open_file("limine.conf").unwrap();
+        let mut conf_str = String::new();
+        conf_file.read_to_string(&mut conf_str).unwrap();
+        assert!(conf_str.contains("protocol: limine"));
+        assert!(conf_str.contains("kernel_path: boot():/KERNEL.ELF"));
+        assert!(conf_str.contains("resolution: 1280x720x32"));
+
+        // 5. Verify limine-bios.sys exists in root for hybrid BIOS boot
+        let mut bios_sys = root.open_file("limine-bios.sys").unwrap();
+        let mut bios_bytes = Vec::new();
+        bios_sys.read_to_end(&mut bios_bytes).unwrap();
+        assert!(!bios_bytes.is_empty());
+
+        // 6. Verify startup.nsh
+        let mut nsh_file = root.open_file("startup.nsh").unwrap();
+        let mut nsh_str = String::new();
+        nsh_file.read_to_string(&mut nsh_str).unwrap();
+        assert!(nsh_str.contains("BOOTX64.EFI"));
+
+        // 7. Verify Limine MBR installation at LBA 0
+        let mut raw_disk = File::open(&dummy_img).unwrap();
+        let mut mbr_buf = [0u8; 512];
+        raw_disk.read_exact(&mut mbr_buf).unwrap();
+        // MBR signature
+        assert_eq!(&mbr_buf[510..512], &[0x55, 0xAA]);
+        // Stage 2 location offset encoded at 0x1A4 (32,768 = 64 * 512)
+        let stage2_loc = u64::from_le_bytes(mbr_buf[0x1A4..0x1A4 + 8].try_into().unwrap());
+        assert_eq!(stage2_loc, 64 * 512);
 
         // Cleanup
         let _ = std::fs::remove_file(dummy_kernel);
         let _ = std::fs::remove_file(dummy_img);
     }
 }
+

@@ -76,6 +76,13 @@ fn main() {
                 create_uefi_disk_image(&kernel, &uefi_image, Architecture::X86_64)
                     .expect("no se pudo crear la imagen UEFI x86_64");
                 println!("  imagen uefi  {}", uefi_image.display());
+
+                if format == "all" || format == "iso" {
+                    let iso_image = out_dir.join("antos-x86_64.iso");
+                    create_iso_image(&uefi_image, &iso_image)
+                        .expect("no se pudo crear la imagen ISO x86_64");
+                    println!("  imagen iso   {}", iso_image.display());
+                }
             }
         }
         Architecture::AArch64 => {
