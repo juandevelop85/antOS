@@ -443,6 +443,63 @@ pub struct HybridBootImageReport {
     pub summary: String,
 }
 
+/// Configuration for the Live Ramdisk (Initramfs) packaging and deployment (T24.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveRamdiskConfig {
+    pub format: String,
+    pub compression: String,
+    pub target_path: String,
+    pub include_tools: Vec<String>,
+    pub include_configs: Vec<String>,
+    pub mount_points: Vec<String>,
+    pub auto_mount_rootfs: bool,
+}
+
+impl Default for LiveRamdiskConfig {
+    fn default() -> Self {
+        Self {
+            format: "ustar".into(),
+            compression: "none".into(),
+            target_path: "boot():/initrd.img".into(),
+            include_tools: vec![
+                "/bin/antos".into(),
+                "/bin/antosd".into(),
+                "/bin/sh".into(),
+                "/bin/parted".into(),
+                "/bin/mkfs.ext4".into(),
+                "/sbin/init".into(),
+            ],
+            include_configs: vec![
+                "/etc/hostname".into(),
+                "/etc/os-release".into(),
+                "/etc/fstab".into(),
+                "/etc/antos.conf".into(),
+            ],
+            mount_points: vec![
+                "/dev".into(),
+                "/proc".into(),
+                "/sys".into(),
+                "/mnt".into(),
+                "/tmp".into(),
+            ],
+            auto_mount_rootfs: true,
+        }
+    }
+}
+
+/// Metadata manifest describing a packaged Live Ramdisk (T24.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiveRamdiskManifest {
+    pub hostname: String,
+    pub os_name: String,
+    pub version: String,
+    pub total_entries: usize,
+    pub total_size_bytes: usize,
+    pub has_init: bool,
+    pub tools_count: usize,
+    pub summary: String,
+}
+
 
 
 // ------------------------------------------------------------- packages (antpkg)

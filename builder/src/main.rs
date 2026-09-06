@@ -61,6 +61,11 @@ fn main() {
     println!("  kernel       {}", kernel.display());
     println!("  arquitectura {:?}", arch);
 
+    let initrd_path = out_dir.join("initrd.img");
+    let initrd_data = builder::ramdisk::build_live_ramdisk(None);
+    std::fs::write(&initrd_path, &initrd_data).expect("no se pudo escribir initrd.img");
+    println!("  live ramdisk {} ({} KiB)", initrd_path.display(), initrd_data.len() / 1024);
+
     match arch {
         Architecture::X86_64 => {
             if format == "all" || format == "bios" {

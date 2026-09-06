@@ -3,6 +3,7 @@
 //! Generates bootable disk images (.img) and hybrid ISOs (.iso) for x86_64 and AArch64.
 
 pub mod limine;
+pub mod ramdisk;
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -215,8 +216,13 @@ pub fn create_uefi_disk_image(
         let mut kernel_file = root.create_file("KERNEL.ELF")?;
         kernel_file.write_all(&kernel_data)?;
 
-        // Write declarative /limine.conf in root
-        let conf_content = limine::generate_limine_conf(None, None);
+        // Package and write Live Ramdisk (/initrd.img) in root (T24.2)
+        let initrd_data = ramdisk::build_live_ramdisk(None);
+        let mut initrd_file = root.create_file("initrd.img")?;
+        initrd_file.write_all(&initrd_data)?;
+
+        // Write declarative /limine.conf in root with kernel and module paths
+        let conf_content = limine::generate_limine_conf(None, Some("boot():/initrd.img"), None);
         let mut conf_file = root.create_file("limine.conf")?;
         conf_file.write_all(conf_content.as_bytes())?;
 
@@ -286,7 +292,7 @@ mod tests {
         let out = create_uefi_disk_image(&dummy_kernel, &dummy_img, arch).unwrap();
         assert!(out.exists());
 
-        // Verify with fatfs that Limine UEFI binaries and kernel ELF were properly written
+        // Verify with fatfs that Limine UEFI binaries, initrd.img, and kernel ELF were properly written
         let mut file = File::open(&dummy_img).unwrap();
         let sector_size = 512u64;
         let start_lba = 2048u64;
@@ -321,27 +327,35 @@ mod tests {
         k_file.read_to_end(&mut k_bytes).unwrap();
         assert_eq!(k_bytes, kernel_content);
 
-        // 4. Verify limine.conf contains protocol: limine and resolution
+        // 4. Verify initrd.img is present and is a valid USTAR archive (T24.2)
+        let mut initrd_file = root.open_file("initrd.img").unwrap();
+        let mut initrd_bytes = Vec::new();
+        initrd_file.read_to_end(&mut initrd_bytes).unwrap();
+        assert!(!initrd_bytes.is_empty());
+        assert_eq!(&initrd_bytes[257..262], b"ustar");
+
+        // 5. Verify limine.conf contains protocol: limine, kernel_path, and module_path
         let mut conf_file = root.open_file("limine.conf").unwrap();
         let mut conf_str = String::new();
         conf_file.read_to_string(&mut conf_str).unwrap();
         assert!(conf_str.contains("protocol: limine"));
         assert!(conf_str.contains("kernel_path: boot():/KERNEL.ELF"));
+        assert!(conf_str.contains("module_path: boot():/initrd.img"));
         assert!(conf_str.contains("resolution: 1280x720x32"));
 
-        // 5. Verify limine-bios.sys exists in root for hybrid BIOS boot
+        // 6. Verify limine-bios.sys exists in root for hybrid BIOS boot
         let mut bios_sys = root.open_file("limine-bios.sys").unwrap();
         let mut bios_bytes = Vec::new();
         bios_sys.read_to_end(&mut bios_bytes).unwrap();
         assert!(!bios_bytes.is_empty());
 
-        // 6. Verify startup.nsh
+        // 7. Verify startup.nsh
         let mut nsh_file = root.open_file("startup.nsh").unwrap();
         let mut nsh_str = String::new();
         nsh_file.read_to_string(&mut nsh_str).unwrap();
         assert!(nsh_str.contains("BOOTX64.EFI"));
 
-        // 7. Verify Limine MBR installation at LBA 0
+        // 8. Verify Limine MBR installation at LBA 0
         let mut raw_disk = File::open(&dummy_img).unwrap();
         let mut mbr_buf = [0u8; 512];
         raw_disk.read_exact(&mut mbr_buf).unwrap();

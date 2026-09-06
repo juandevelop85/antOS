@@ -1838,4 +1838,36 @@ use crate::*;
         assert_eq!(report, des_rep);
     }
 
+    #[test]
+    fn test_live_ramdisk_config_and_manifest() {
+        let cfg = LiveRamdiskConfig::default();
+        assert_eq!(cfg.format, "ustar");
+        assert_eq!(cfg.compression, "none");
+        assert_eq!(cfg.target_path, "boot():/initrd.img");
+        assert!(cfg.include_tools.contains(&"/bin/sh".to_string()));
+        assert!(cfg.include_tools.contains(&"/bin/parted".to_string()));
+        assert!(cfg.include_tools.contains(&"/bin/mkfs.ext4".to_string()));
+        assert!(cfg.include_configs.contains(&"/etc/os-release".to_string()));
+        assert!(cfg.mount_points.contains(&"/proc".to_string()));
+
+        let json_cfg = serde_json::to_string(&cfg).expect("serialize ramdisk config");
+        let des_cfg: LiveRamdiskConfig = serde_json::from_str(&json_cfg).expect("deserialize ramdisk config");
+        assert_eq!(cfg, des_cfg);
+
+        let manifest = LiveRamdiskManifest {
+            hostname: "antos-live".into(),
+            os_name: "antOS".into(),
+            version: "0.1.0-alpha".into(),
+            total_entries: 20,
+            total_size_bytes: 2097152,
+            has_init: true,
+            tools_count: 6,
+            summary: "Live Ramdisk USTAR rootfs packaged with all standard tools".into(),
+        };
+        let json_m = serde_json::to_string(&manifest).expect("serialize ramdisk manifest");
+        let des_m: LiveRamdiskManifest = serde_json::from_str(&json_m).expect("deserialize ramdisk manifest");
+        assert_eq!(manifest, des_m);
+    }
+
+
 

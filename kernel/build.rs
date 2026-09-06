@@ -63,15 +63,24 @@ fn main() {
     let binary = target_dir.join("x86_64-unknown-none/debug/antos-init");
     let binary_bytes = std::fs::read(&binary).expect("could not read compiled user binary");
 
-    // Construct USTAR archive containing /bin/init, /bin/worker, and configuration files
+    // Construct USTAR archive containing live userspace hierarchy (T24.2)
     let mut tar = Vec::new();
     add_tar_file(&mut tar, "bin/init", &binary_bytes);
+    add_tar_file(&mut tar, "bin/antos", &binary_bytes);
+    add_tar_file(&mut tar, "bin/antosd", &binary_bytes);
+    add_tar_file(&mut tar, "bin/sh", b"#!/bin/sh\necho 'antOS Live Minimal Shell ready'\n");
+    add_tar_file(&mut tar, "bin/parted", b"#!/bin/sh\necho 'antOS parted partition tool'\n");
+    add_tar_file(&mut tar, "bin/mkfs.ext4", b"#!/bin/sh\necho 'antOS mkfs filesystem formatter'\n");
     add_tar_file(&mut tar, "bin/worker", &binary_bytes);
+    add_tar_file(&mut tar, "sbin/init", &binary_bytes);
 
-    let conf = b"# antOS System Configuration\nhostname=antos-node0\nversion=0.1.0-alpha\nscheduler=round-robin\nquantum_ms=20\nvfs=tarfs\nroot_device=virtio-blk\n";
+    add_tar_file(&mut tar, "etc/hostname", b"antos-live\n");
+    add_tar_file(&mut tar, "etc/os-release", b"NAME=\"antOS\"\nID=antos\nPRETTY_NAME=\"antOS Live Developer OS\"\nVERSION=\"0.1.0-alpha\"\n");
+    add_tar_file(&mut tar, "etc/fstab", b"rootfs / tmpfs rw 0 0\nproc /proc proc defaults 0 0\nsysfs /sys sysfs defaults 0 0\n");
+    let conf = b"# antOS System Configuration\nhostname=antos-live\nversion=0.1.0-alpha\nscheduler=round-robin\nquantum_ms=20\nvfs=tarfs\nroot_device=initrd\n";
     add_tar_file(&mut tar, "etc/antos.conf", conf);
 
-    let readme = b"Welcome to antOS - Native AI & Multi-Agent Operating System\nVFS initialized with USTAR tarfs backing.\n";
+    let readme = b"Welcome to antOS - Native AI & Multi-Agent Operating System\nVFS initialized with Live Ramdisk backing.\n";
     add_tar_file(&mut tar, "README.txt", readme);
 
     // End-of-archive marker (two 512-byte zero blocks)

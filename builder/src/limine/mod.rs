@@ -67,9 +67,14 @@ pub fn get_efi_bootloader(arch: Architecture) -> &'static [u8] {
     }
 }
 
-/// Generates declarative `limine.conf` configuration matching T24.1 specifications.
-pub fn generate_limine_conf(kernel_path: Option<&str>, resolution: Option<&str>) -> String {
+/// Generates declarative `limine.conf` configuration matching T24.1 & T24.2 specifications.
+pub fn generate_limine_conf(
+    kernel_path: Option<&str>,
+    module_path: Option<&str>,
+    resolution: Option<&str>,
+) -> String {
     let kpath = kernel_path.unwrap_or("boot():/KERNEL.ELF");
+    let mpath = module_path.unwrap_or("boot():/initrd.img");
     let res = resolution.unwrap_or("1280x720x32");
     format!(
         "timeout: 3\n\
@@ -78,6 +83,7 @@ pub fn generate_limine_conf(kernel_path: Option<&str>, resolution: Option<&str>)
          /antOS (Desarrollo y Orquestación Multi-Agente)\n    \
              protocol: limine\n    \
              kernel_path: {kpath}\n    \
+             module_path: {mpath}\n    \
              resolution: {res}\n    \
              comment: Sistema operativo antOS en modo bare-metal nativo\n"
     )
@@ -148,12 +154,13 @@ mod tests {
 
     #[test]
     fn test_generate_limine_conf() {
-        let conf = generate_limine_conf(None, None);
+        let conf = generate_limine_conf(None, None, None);
         assert!(conf.contains("timeout: 3"));
         assert!(conf.contains("default_entry: 1"));
         assert!(conf.contains("graphics: yes"));
         assert!(conf.contains("protocol: limine"));
         assert!(conf.contains("kernel_path: boot():/KERNEL.ELF"));
+        assert!(conf.contains("module_path: boot():/initrd.img"));
         assert!(conf.contains("resolution: 1280x720x32"));
     }
 

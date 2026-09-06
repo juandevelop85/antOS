@@ -273,6 +273,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         println!("  virtio-blk   no detectado en bus PCI · usando ramdisk en memoria");
     }
 
+    if let Ok(ramdisk) = fs::ramdisk::Ramdisk::new(EMBEDDED_INITRD) {
+        println!("  initramfs    Live Ramdisk detectado ({} KiB, {} entradas, init: {})",
+            ramdisk.size() / 1024, ramdisk.entry_count(), ramdisk.has_init());
+    }
+
     // Mount root filesystem: prefer block device if available, else embedded initrd
     let root_fs = if virtio_blk_found {
         match fs::tarfs::TarFs::from_block_device() {
