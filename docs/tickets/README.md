@@ -82,7 +82,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 24** | [T24.1](T24.1-integracion-de-bootloader-uefi-limine-en-builder-para-arranque-hibrido.md) | Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido | ✅ Completado |
 | **Fase 24** | [T24.2](T24.2-empaquetador-de-ramdisk-initramfs-live-con-sistema-base-y-herramientas.md) | Empaquetador de Ramdisk (Initramfs) Live con Sistema Base y Herramientas | ✅ Completado |
 | **Fase 24** | [T24.3](T24.3-drivers-de-almacenamiento-fisico-ahci-sata-y-nvme-para-deteccion-de-discos.md) | Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos | ✅ Completado |
-| **Fase 24** | [T24.4](T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) | Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ⏳ Pendiente |
+| **Fase 24** | [T24.4](T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) | Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ✅ Completado |
 | **Fase 24** | [T24.5](T24.5-generador-automatizado-de-live-usb-y-script-de-grabacion-antos-usb.md) | Generador Automatizado de Live USB y Script de Grabación (`antos usb flash`) | ⏳ Pendiente |
 | **Fase 25** | [T25.1](T25.1-extension-de-antpkg-para-aplicaciones-graficas-xdg-y-desktop-entries.md) | Extensión de `antpkg` para Aplicaciones Gráficas XDG y Desktop Entries | ⏳ Pendiente |
 | **Fase 25** | [T25.2](T25.2-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-graficos.md) | Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`) | ⏳ Pendiente |

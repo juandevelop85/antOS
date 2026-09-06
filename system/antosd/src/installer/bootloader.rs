@@ -158,9 +158,15 @@ impl BootloaderEngine {
         let efi_antos_dir = esp_dir.join("EFI/antOS");
         let efi_boot_dir = esp_dir.join("EFI/BOOT");
 
-        fs::create_dir_all(&entries_dir).context("Creando loader/entries")?;
-        fs::create_dir_all(&efi_antos_dir).context("Creando EFI/antOS")?;
-        fs::create_dir_all(&efi_boot_dir).context("Creando EFI/BOOT")?;
+        if config.dry_run {
+            let _ = fs::create_dir_all(&entries_dir);
+            let _ = fs::create_dir_all(&efi_antos_dir);
+            let _ = fs::create_dir_all(&efi_boot_dir);
+        } else {
+            fs::create_dir_all(&entries_dir).context("Creando loader/entries")?;
+            fs::create_dir_all(&efi_antos_dir).context("Creando EFI/antOS")?;
+            fs::create_dir_all(&efi_boot_dir).context("Creando EFI/BOOT")?;
+        }
 
         // 1. Colocar o simular binario cargador antos.efi y BOOTX64.EFI
         let stub_content = b"\x7fELF antOS UEFI Stub Binary";
@@ -175,7 +181,11 @@ impl BootloaderEngine {
 
         // 2. loader.conf
         let loader_conf = Self::generate_loader_conf(config.timeout_seconds, "antos.conf");
-        fs::write(esp_dir.join("loader/loader.conf"), &loader_conf)?;
+        if config.dry_run {
+            let _ = fs::write(esp_dir.join("loader/loader.conf"), &loader_conf);
+        } else {
+            fs::write(esp_dir.join("loader/loader.conf"), &loader_conf)?;
+        }
 
         // 3. loader/entries/antos.conf
         let antos_entry = Self::generate_antos_entry(
@@ -183,13 +193,17 @@ impl BootloaderEngine {
             "/EFI/antOS/initrd.img",
             "3a8d8e62-f72b-4e1b-9721-a1e4c7d81234",
         );
-        fs::write(entries_dir.join("antos.conf"), &antos_entry)?;
+        if config.dry_run {
+            let _ = fs::write(entries_dir.join("antos.conf"), &antos_entry);
+        } else {
+            fs::write(entries_dir.join("antos.conf"), &antos_entry)?;
+        }
 
         let mut entries_configured = vec!["antos.conf (antOS v0.1.0)".into()];
 
         // 4. Configurar entradas detectadas de otros sistemas (Dual Boot)
         let probed = if config.detected_os.is_empty() {
-            Self::probe_operating_systems(&esp_dir)?
+            Self::probe_operating_systems(&esp_dir).unwrap_or_default()
         } else {
             config.detected_os.clone()
         };
@@ -197,26 +211,34 @@ impl BootloaderEngine {
         for os in &probed {
             if os.os_type == "windows" {
                 let win_conf = Self::generate_windows_entry(&os.efi_path);
-                fs::write(entries_dir.join("windows.conf"), &win_conf)?;
+                if config.dry_run {
+                    let _ = fs::write(entries_dir.join("windows.conf"), &win_conf);
+                } else {
+                    fs::write(entries_dir.join("windows.conf"), &win_conf)?;
+                }
                 entries_configured.push("windows.conf (Windows Boot Manager)".into());
             } else if os.os_type == "linux" {
                 let fname = format!("{}.conf", os.name.to_lowercase().replace(' ', "-"));
                 let lin_conf = Self::generate_linux_entry(&os.name, &os.efi_path);
-                fs::write(entries_dir.join(&fname), &lin_conf)?;
+                if config.dry_run {
+                    let _ = fs::write(entries_dir.join(&fname), &lin_conf);
+                } else {
+                    fs::write(entries_dir.join(&fname), &lin_conf)?;
+                }
                 entries_configured.push(format!("{} ({})", fname, os.name));
             }
         }
 
         // 5. Comando de registro NVRAM con efibootmgr
         let efibootmgr_cmd = format!(
-            "efibootmgr -c -d {} -p {} -L \"antOS\" -l \"\\EFI\\antOS\\antos.efi\"",
+            "efibootmgr -c -d {} -p {} -L \"antOS Linux\" -l \"\\EFI\\antOS\\antos.efi\"",
             config.target_device, config.efi_partition
         );
 
         if !config.dry_run {
             // En Linux real con soporte efivarfs
             let _ = std::process::Command::new("efibootmgr")
-                .args(["-c", "-d", &config.target_device, "-p", &config.efi_partition.to_string(), "-L", "antOS", "-l", "\\EFI\\antOS\\antos.efi"])
+                .args(["-c", "-d", &config.target_device, "-p", &config.efi_partition.to_string(), "-L", "antOS Linux", "-l", "\\EFI\\antOS\\antos.efi"])
                 .output();
         }
 
@@ -300,7 +322,7 @@ mod tests {
         let report = BootloaderEngine::install_bootloader(&cfg).expect("install bootloader");
         assert!(report.success);
         assert!(report.entries_configured.len() >= 2);
-        assert!(report.efibootmgr_command.contains("efibootmgr -c -d /dev/nvme0n1 -p 1 -L \"antOS\""));
+        assert!(report.efibootmgr_command.contains("efibootmgr -c -d /dev/nvme0n1 -p 1 -L \"antOS Linux\""));
         assert!(esp.join("loader/loader.conf").exists());
         assert!(esp.join("loader/entries/antos.conf").exists());
         assert!(esp.join("loader/entries/windows.conf").exists());
