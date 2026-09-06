@@ -258,6 +258,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                             dev.bus, dev.slot, dev.func, sectors, cap_mb
                         );
                         *drivers::virtio_blk::BLOCK_DEVICE.lock() = Some(blk);
+                        drivers::storage::register_virtio_device("/dev/vda", sectors, 512, "VirtIO Block Device");
                         virtio_blk_found = true;
                     }
                     Err(e) => {
@@ -268,6 +269,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             break;
         }
     }
+
+    // Detect and initialize physical storage controllers (AHCI / NVMe) (T24.3)
+    drivers::storage::detect_and_init_storage(&pci_devices, &mut mapper, &mut frames, physical_offset);
 
     if !virtio_blk_found {
         println!("  virtio-blk   no detectado en bus PCI · usando ramdisk en memoria");

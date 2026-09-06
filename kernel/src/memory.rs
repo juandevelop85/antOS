@@ -358,3 +358,64 @@ pub fn munmap_user_pages(start_vaddr: u64, page_count: usize) -> Result<(), u64>
     }
     Ok(())
 }
+
+/// Returns the physical memory mapping offset used by the kernel.
+pub fn physical_memory_offset() -> u64 {
+    MEMORY_CONTROLLER.lock().as_ref().map(|c| c.mapper.physical_offset).unwrap_or(0)
+}
+
+/// Translates a physical address to the higher-half virtual address.
+pub fn phys_to_virt(phys: u64) -> u64 {
+    phys + physical_memory_offset()
+}
+
+/// Allocates a single 4 KiB frame for DMA and returns (physical_address, virtual_address).
+/// The page is initialized with zeros.
+pub fn allocate_dma_frame() -> Option<(u64, u64)> {
+    let mut guard = MEMORY_CONTROLLER.lock();
+    let controller = guard.as_mut()?;
+    let frame = controller.allocator.allocate()?;
+    let virt = frame + controller.mapper.physical_offset;
+    unsafe {
+        core::ptr::write_bytes(virt as *mut u8, 0, PAGE_SIZE as usize);
+    }
+    Some((frame, virt))
+}
+
+/// Allocates `count` contiguous 4 KiB frames for DMA and returns (physical_address, virtual_address).
+/// The pages are initialized with zeros.
+pub fn allocate_dma_frames(count: usize) -> Option<(u64, u64)> {
+    if count == 0 {
+        return None;
+    }
+    let mut guard = MEMORY_CONTROLLER.lock();
+    let controller = guard.as_mut()?;
+    let frame = controller.allocator.allocate_contiguous(count)?;
+    let virt = frame + controller.mapper.physical_offset;
+    unsafe {
+        core::ptr::write_bytes(virt as *mut u8, 0, count * PAGE_SIZE as usize);
+    }
+    Some((frame, virt))
+}
+
+/// Ensures that a physical MMIO memory range is mapped in the virtual address space.
+/// Returns the virtual address pointing to `phys_start`.
+pub fn ensure_mmio_mapped(phys_start: u64, size: usize) -> Result<u64, &'static str> {
+    let mut guard = MEMORY_CONTROLLER.lock();
+    let controller = guard.as_mut().ok_or("Memory controller uninitialized")?;
+    let phys_offset = controller.mapper.physical_offset;
+    let virt_start = phys_start + phys_offset;
+    let num_pages = (size as u64).div_ceil(PAGE_SIZE);
+
+    for i in 0..num_pages {
+        let p_addr = (phys_start & !0xFFF) + i * PAGE_SIZE;
+        let v_addr = (virt_start & !0xFFF) + i * PAGE_SIZE;
+        if controller.mapper.translate(v_addr).is_none() {
+            unsafe {
+                controller.mapper.map(v_addr, p_addr, PRESENT | WRITABLE, &mut controller.allocator)?;
+            }
+        }
+    }
+    Ok(virt_start)
+}
+

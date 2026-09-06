@@ -1869,5 +1869,41 @@ use crate::*;
         assert_eq!(manifest, des_m);
     }
 
+    #[test]
+    fn test_storage_subsystem_serialization() {
+        let sda = StorageDeviceInfo {
+            device_node: "/dev/sda".into(),
+            interface: StorageInterfaceKind::AhciSata,
+            model: "Samsung SSD 870 EVO 500GB".into(),
+            sector_size: 512,
+            total_sectors: 976773168,
+            capacity_bytes: 500107862016,
+            read_only: false,
+        };
 
+        let nvme0n1 = StorageDeviceInfo {
+            device_node: "/dev/nvme0n1".into(),
+            interface: StorageInterfaceKind::Nvme,
+            model: "WD_BLACK SN850X 1000GB".into(),
+            sector_size: 4096,
+            total_sectors: 244190646,
+            capacity_bytes: 1000204886016,
+            read_only: false,
+        };
 
+        let status = StorageSubsystemStatus {
+            total_devices: 2,
+            ahci_controllers_found: 1,
+            nvme_controllers_found: 1,
+            virtio_devices_found: 0,
+            devices: vec![sda.clone(), nvme0n1.clone()],
+        };
+
+        let json_status = serde_json::to_string(&status).expect("serialize storage subsystem status");
+        let des_status: StorageSubsystemStatus =
+            serde_json::from_str(&json_status).expect("deserialize storage subsystem status");
+        assert_eq!(status, des_status);
+        assert_eq!(des_status.devices.len(), 2);
+        assert_eq!(des_status.devices[0].interface, StorageInterfaceKind::AhciSata);
+        assert_eq!(des_status.devices[1].interface, StorageInterfaceKind::Nvme);
+    }

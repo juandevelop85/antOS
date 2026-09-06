@@ -3,4 +3,5 @@
 //! Includes PCI bus enumeration, VirtIO block device driver, and peripheral controllers.
 
 pub mod pci;
+pub mod storage;
 pub mod virtio_blk;

@@ -18,6 +18,17 @@ pub enum PciBar {
     Memory64 { addr: u64, prefetchable: bool },
 }
 
+impl PciBar {
+    /// Returns the physical memory base address if this BAR is Memory32 or Memory64.
+    pub fn memory_address(&self) -> Option<u64> {
+        match self {
+            PciBar::Memory32 { addr, .. } => Some(*addr as u64),
+            PciBar::Memory64 { addr, .. } => Some(*addr),
+            _ => None,
+        }
+    }
+}
+
 /// Represents an identified physical or virtual PCI function.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PciDevice {
@@ -36,6 +47,11 @@ pub struct PciDevice {
 }
 
 impl PciDevice {
+    /// Retrieves a decoded BAR by index (0..5).
+    pub fn get_bar(&self, index: usize) -> Option<PciBar> {
+        self.bars.get(index).copied()
+    }
+
     /// Reads a 32-bit dword from this device's configuration space.
     pub unsafe fn read_config_u32(&self, offset: u8) -> u32 {
         read_config_u32(self.bus, self.slot, self.func, offset)
@@ -63,6 +79,26 @@ impl PciDevice {
             // Bit 0: I/O Space, Bit 1: Memory Space, Bit 2: Bus Master
             self.write_config_u16(0x04, cmd | 0x0007);
         }
+    }
+
+    /// Returns true if this PCI device belongs to Mass Storage Class (0x01).
+    pub fn is_mass_storage(&self) -> bool {
+        self.class == 0x01
+    }
+
+    /// Returns true if this PCI device is a Serial ATA AHCI 1.0+ Controller (0x01, 0x06, 0x01).
+    pub fn is_ahci_controller(&self) -> bool {
+        self.class == 0x01 && self.subclass == 0x06 && self.prog_if == 0x01
+    }
+
+    /// Returns true if this PCI device is a Non-Volatile Memory (NVMe) Controller (0x01, 0x08, 0x02).
+    pub fn is_nvme_controller(&self) -> bool {
+        self.class == 0x01 && self.subclass == 0x08 && self.prog_if == 0x02
+    }
+
+    /// Returns true if this PCI device is an IDE Controller (0x01, 0x01).
+    pub fn is_ide_controller(&self) -> bool {
+        self.class == 0x01 && self.subclass == 0x01
     }
 }
 
@@ -230,3 +266,28 @@ pub fn find_device(vendor_id: u16, device_id: u16) -> Option<PciDevice> {
     }
     None
 }
+
+/// Finds all PCI SATA AHCI controllers present on the bus.
+pub fn find_ahci_controllers() -> Vec<PciDevice> {
+    scan_pci_bus()
+        .into_iter()
+        .filter(|dev| dev.is_ahci_controller())
+        .collect()
+}
+
+/// Finds all PCI NVMe controllers present on the bus.
+pub fn find_nvme_controllers() -> Vec<PciDevice> {
+    scan_pci_bus()
+        .into_iter()
+        .filter(|dev| dev.is_nvme_controller())
+        .collect()
+}
+
+/// Finds all PCI Mass Storage controllers (AHCI, NVMe, IDE, SCSI) present on the bus.
+pub fn find_storage_controllers() -> Vec<PciDevice> {
+    scan_pci_bus()
+        .into_iter()
+        .filter(|dev| dev.is_mass_storage())
+        .collect()
+}
+

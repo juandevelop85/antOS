@@ -874,4 +874,37 @@ pub struct IpcMessageSummary {
     pub payload_size: usize,
 }
 
+// ----------------------------------------------------------- physical storage subsystem (T24.3)
+
+/// Hardware interface type of a mass storage device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageInterfaceKind {
+    VirtioBlk,
+    AhciSata,
+    Nvme,
+}
+
+/// Metadata and state describing a physical or virtual mass storage device.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageDeviceInfo {
+    pub device_node: String,
+    pub interface: StorageInterfaceKind,
+    pub model: String,
+    pub sector_size: usize,
+    pub total_sectors: u64,
+    pub capacity_bytes: u64,
+    pub read_only: bool,
+}
+
+/// Status and inventory of the kernel mass storage subsystem.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageSubsystemStatus {
+    pub total_devices: usize,
+    pub ahci_controllers_found: usize,
+    pub nvme_controllers_found: usize,
+    pub virtio_devices_found: usize,
+    pub devices: Vec<StorageDeviceInfo>,
+}
+
 
