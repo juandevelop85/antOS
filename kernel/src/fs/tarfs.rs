@@ -4,8 +4,10 @@
 //! indexing files and providing zero-copy or sector-buffered file reads.
 
 use alloc::string::{String, ToString};
+#[cfg(target_arch = "x86_64")]
 use alloc::vec;
 use alloc::vec::Vec;
+#[cfg(target_arch = "x86_64")]
 use crate::drivers::virtio_blk;
 use super::vfs::{DirEntry, FileInfo, FsError};
 
@@ -70,45 +72,52 @@ impl TarFs {
 
     /// Mounts and indexes a USTAR archive from the VirtIO block device.
     pub fn from_block_device() -> Result<Self, FsError> {
-        if !virtio_blk::is_available() {
-            return Err(FsError::IoError);
+        #[cfg(target_arch = "x86_64")]
+        {
+            if !virtio_blk::is_available() {
+                return Err(FsError::IoError);
+            }
+
+            let mut entries = Vec::new();
+            let mut sector = 0u64;
+            let mut header_buf = [0u8; 512];
+
+            let max_sectors = virtio_blk::capacity_sectors();
+            while sector < max_sectors {
+                if virtio_blk::read_blocks(sector, &mut header_buf).is_err() {
+                    break;
+                }
+
+                // Check for end of tar archive
+                if header_buf.iter().all(|&b| b == 0) {
+                    break;
+                }
+
+                if let Some((path, size, is_dir)) = parse_header(&header_buf) {
+                    let data_sector = (sector + 1) as usize;
+                    entries.push(TarEntry {
+                        path,
+                        size,
+                        is_dir,
+                        sector_or_offset: data_sector,
+                    });
+
+                    let blocks = ((size + 511) / 512) as u64;
+                    sector = sector + 1 + blocks;
+                } else {
+                    sector += 1;
+                }
+            }
+
+            Ok(TarFs {
+                backing: TarBacking::BlockDevice,
+                entries,
+            })
         }
-
-        let mut entries = Vec::new();
-        let mut sector = 0u64;
-        let mut header_buf = [0u8; 512];
-
-        let max_sectors = virtio_blk::capacity_sectors();
-        while sector < max_sectors {
-            if virtio_blk::read_blocks(sector, &mut header_buf).is_err() {
-                break;
-            }
-
-            // Check for end of tar archive
-            if header_buf.iter().all(|&b| b == 0) {
-                break;
-            }
-
-            if let Some((path, size, is_dir)) = parse_header(&header_buf) {
-                let data_sector = (sector + 1) as usize;
-                entries.push(TarEntry {
-                    path,
-                    size,
-                    is_dir,
-                    sector_or_offset: data_sector,
-                });
-
-                let blocks = ((size + 511) / 512) as u64;
-                sector = sector + 1 + blocks;
-            } else {
-                sector += 1;
-            }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            Err(FsError::IoError)
         }
-
-        Ok(TarFs {
-            backing: TarBacking::BlockDevice,
-            entries,
-        })
     }
 
     /// Finds a metadata entry for the given normalized path.
@@ -134,12 +143,19 @@ impl TarFs {
                 }
             }
             TarBacking::BlockDevice => {
-                let sector_count = (entry.size + 511) / 512;
-                let mut raw_buf = vec![0u8; sector_count * 512];
-                virtio_blk::read_blocks(entry.sector_or_offset as u64, &mut raw_buf)
-                    .map_err(|_| FsError::IoError)?;
-                raw_buf.truncate(entry.size);
-                Ok(raw_buf)
+                #[cfg(target_arch = "x86_64")]
+                {
+                    let sector_count = (entry.size + 511) / 512;
+                    let mut raw_buf = vec![0u8; sector_count * 512];
+                    virtio_blk::read_blocks(entry.sector_or_offset as u64, &mut raw_buf)
+                        .map_err(|_| FsError::IoError)?;
+                    raw_buf.truncate(entry.size);
+                    Ok(raw_buf)
+                }
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    Err(FsError::IoError)
+                }
             }
         }
     }
