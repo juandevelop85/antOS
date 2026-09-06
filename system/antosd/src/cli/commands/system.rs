@@ -838,6 +838,13 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
     crate::installer::cli::cmd_install(ctx, args)
 }
 
+// ---------------------------------------------------- live usb & flash (T24.5)
+
+pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
+    crate::installer::usb::cmd_usb(ctx, args)
+}
+
+
 
 // ---------------------------------------------------- bootloader & uefi (T15.3)
 

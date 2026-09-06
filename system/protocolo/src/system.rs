@@ -500,9 +500,47 @@ pub struct LiveRamdiskManifest {
     pub summary: String,
 }
 
+/// Removable USB mass storage device representation for Live USB creation (T24.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsbDeviceInfo {
+    pub path: String,
+    pub vendor: String,
+    pub model: String,
+    pub size_bytes: u64,
+    pub bus_type: String,
+    pub is_removable: bool,
+    pub is_system_disk: bool,
+    pub mount_points: Vec<String>,
+}
 
+/// Report of a Live USB ISO image build operation (T24.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UsbBuildReport {
+    pub success: bool,
+    pub iso_path: String,
+    pub sha256_path: String,
+    pub sha256_checksum: String,
+    pub architecture: String,
+    pub size_bytes: u64,
+    pub summary: String,
+}
+
+/// Report of a USB flash operation with sector verification (T24.5).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsbFlashReport {
+    pub success: bool,
+    pub target_device: String,
+    pub image_path: String,
+    pub bytes_written: u64,
+    pub sha256_checksum: String,
+    pub duration_seconds: f64,
+    pub average_speed_mbps: f64,
+    pub verified: bool,
+    pub summary: String,
+}
 
 // ------------------------------------------------------------- packages (antpkg)
+
 
 /// Declarative package recipe specification (T16.2).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

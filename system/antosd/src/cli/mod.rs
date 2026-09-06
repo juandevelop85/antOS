@@ -79,6 +79,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "disk" | "storage" | "part" => commands::system::cmd_disk(ctx, &rest[1..]),
         "install" | "installer" => commands::system::cmd_install(ctx, &rest[1..]),
         "bootloader" | "uefi" => commands::system::cmd_bootloader(ctx, &rest[1..]),
+        "usb" | "liveusb" | "flash" => commands::system::cmd_usb(ctx, &rest[1..]),
         "vm" | "microvm" => commands::system::cmd_vm(ctx, &rest[1..]),
         "pkg" | "antpkg" | "package" => commands::pkg::cmd_pkg(ctx, &rest[1..]),
         "autopilot" | "sentinel" | "centinela" => commands::system::cmd_autopilot(ctx, &rest[1..]),

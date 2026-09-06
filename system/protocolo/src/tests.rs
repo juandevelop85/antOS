@@ -905,6 +905,52 @@ use crate::*;
     }
 
     #[test]
+    fn test_usb_types_serialization() {
+        let usb_dev = UsbDeviceInfo {
+            path: "/dev/sdb".into(),
+            vendor: "SanDisk".into(),
+            model: "Ultra USB 3.0".into(),
+            size_bytes: 32 * 1024 * 1024 * 1024,
+            bus_type: "usb".into(),
+            is_removable: true,
+            is_system_disk: false,
+            mount_points: vec!["/media/usb".into()],
+        };
+        let json_dev = serde_json::to_string(&usb_dev).expect("serialize usb_dev");
+        let des_dev: UsbDeviceInfo = serde_json::from_str(&json_dev).expect("deserialize usb_dev");
+        assert_eq!(usb_dev, des_dev);
+
+        let build_rep = UsbBuildReport {
+            success: true,
+            iso_path: "/tmp/antos-live.iso".into(),
+            sha256_path: "/tmp/antos-live.iso.sha256".into(),
+            sha256_checksum: "abcd1234ef".into(),
+            architecture: "x86_64".into(),
+            size_bytes: 750000000,
+            summary: "ISO build succeeded".into(),
+        };
+        let json_bld = serde_json::to_string(&build_rep).expect("serialize build_rep");
+        let des_bld: UsbBuildReport = serde_json::from_str(&json_bld).expect("deserialize build_rep");
+        assert_eq!(build_rep, des_bld);
+
+        let flash_rep = UsbFlashReport {
+            success: true,
+            target_device: "/dev/sdb".into(),
+            image_path: "/tmp/antos-live.iso".into(),
+            bytes_written: 750000000,
+            sha256_checksum: "abcd1234ef".into(),
+            duration_seconds: 15.2,
+            average_speed_mbps: 49.34,
+            verified: true,
+            summary: "USB flashed and verified successfully".into(),
+        };
+        let json_fls = serde_json::to_string(&flash_rep).expect("serialize flash_rep");
+        let des_fls: UsbFlashReport = serde_json::from_str(&json_fls).expect("deserialize flash_rep");
+        assert_eq!(flash_rep, des_fls);
+    }
+
+
+    #[test]
     fn test_microvm_types_serialization() {
         let cfg = MicrovmConfig {
             vm_id: "vm-test-1".into(),
