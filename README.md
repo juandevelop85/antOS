@@ -338,6 +338,27 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
 
 ---
 
+### 14. Creación de Live USB e Instalación en Hardware Físico (`antos usb` / `antos install`)
+
+```bash
+# 1. Construir la imagen híbrida autoarrancable (UEFI + MBR) y calcular suma SHA-256
+antos usb build --arch x86_64 --out antos-live.iso
+
+# 2. Listar unidades USB y medios extraíbles elegibles (con salvaguarda de discos internos)
+antos usb list
+
+# 3. Grabar la imagen en el pendrive con streaming por bloques de 4 MiB y verificación SHA-256
+antos usb flash --image antos-live.iso --target /dev/sdb --apply
+
+# 4. En el equipo destino físico arrancado desde el Live USB, lanzar el asistente guiado:
+antos install
+```
+
+> 📖 **Para instrucciones completas de arranque, compatibilidad directa con Ventoy, Rufus, BalenaEtcher y configuración UEFI/AHCI, consulta la [Guía de Creación de Live USB e Instalación Física](docs/guia-live-usb-e-instalacion-fisica.md).**
+
+---
+
+
 ### 13. Ecosistema Multi-LLM y Catálogo de Modelos Gratuitos (`antos llm`)
 ```bash
 # Diagnóstico integral de motores LLM, endpoints, latencia y claves en bóveda
@@ -487,6 +508,30 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 18** | [T18.2](docs/tickets/T18.2-arranque-aarch64-consola-serie-pl011-y-vectores-de-excepcion-vbar-el1.md) · Arranque AArch64, Consola Serie PL011 y Vectores de Excepción VBAR_EL1 | ✅ Completado |
 | **Fase 18** | [T18.3](docs/tickets/T18.3-paginacion-aarch64-ttbr0-ttbr1-y-controlador-de-interrupciones-gic.md) · Paginación AArch64 (TTBR0/TTBR1) y Controlador de Interrupciones GIC | ✅ Completado |
 | **Fase 18** | [T18.4](docs/tickets/T18.4-llamadas-al-sistema-svc-en-aarch64-y-generacion-de-imagenes-uefi-bootaa64-efi.md) · Llamadas al Sistema (SVC) en AArch64 y Generación de Imágenes UEFI (BOOTAA64.EFI) | ✅ Completado |
+| **Fase 19** | [T19.1](docs/tickets/T19.1-entorno-de-desarrollo-tui-multipanel-para-terminales-modernas.md) · Entorno de Desarrollo TUI Multipanel para Terminales Modernas (`antos dev`) | ✅ Completado |
+| **Fase 19** | [T19.2](docs/tickets/T19.2-integracion-profunda-de-editor-neovim-con-protocolos-ipc-y-eventos.md) · Integración Profunda de Editor Neovim con Protocolos IPC y Eventos | ✅ Completado |
+| **Fase 20** | [T20.1](docs/tickets/T20.1-analizador-de-fallos-heuristico-y-extraccion-de-trazas-de-stack.md) · Analizador de Fallos Heurístico y Extracción de Trazas de Stack | ✅ Completado |
+| **Fase 20** | [T20.2](docs/tickets/T20.2-generador-autonomo-de-reproduccion-de-bugs-y-tests-de-regresion.md) · Generador Autónomo de Reproducción de Bugs y Tests de Regresión TDD | ✅ Completado |
+| **Fase 20** | [T20.3](docs/tickets/T20.3-matriz-de-integracion-continua-local-paralela-en-sandboxes.md) · Matriz de Integración Continua Local Paralela en Sandboxes (`antos ci`) | ✅ Completado |
+| **Fase 20** | [T20.4](docs/tickets/T20.4-time-machine-de-estado-de-desarrollo-y-snapshots-atomicos.md) · Time Machine de Estado de Desarrollo y Snapshots Atómicos (`antos snapshot`) | ✅ Completado |
+| **Fase 21** | [T21.1](docs/tickets/T21.1-motor-de-benchmarking-continuo-y-deteccion-de-regresiones-en-worktrees.md) · Motor de Benchmarking Continuo y Detección de Regresiones en Worktrees | ✅ Completado |
+| **Fase 21** | [T21.2](docs/tickets/T21.2-integracion-con-forges-remotos-github-gitlab-para-issues-y-prs.md) · Integración con Forges Remotos (GitHub / GitLab) para Issues y PRs | ✅ Completado |
+| **Fase 21** | [T21.3](docs/tickets/T21.3-generador-automatico-de-diagramas-de-arquitectura-vivos-mermaid-y-markdown.md) · Generador Automático de Diagramas de Arquitectura Vivos (Mermaid) | ✅ Completado |
+| **Fase 22** | [T22.1](docs/tickets/T22.1-interfaz-web-reactiva-para-la-consola-remota-y-terminal-xtermjs.md) · Interfaz Web Reactiva para Consola Remota y Terminal xterm.js | ✅ Completado |
+| **Fase 22** | [T22.2](docs/tickets/T22.2-protocolo-de-comunicacion-bidireccional-websocket-con-autenticacion-sha256.md) · Comunicación Bidireccional WebSocket con Autenticación SHA-256 | ✅ Completado |
+| **Fase 22** | [T22.3](docs/tickets/T22.3-despacho-distribuido-de-tareas-en-swarm-peer-to-peer.md) · Despacho Distribuido de Tareas en Swarm Peer-to-Peer (`antos swarm`) | ✅ Completado |
+| **Fase 22** | [T22.4](docs/tickets/T22.4-abstraccion-de-plataforma-runtime-para-darwin-macos-y-bare-metal.md) · Abstracción de Plataforma Runtime para macOS y Bare Metal (`antos runtime`) | ✅ Completado |
+| **Fase 23** | [T23.1](docs/tickets/T23.1-descriptor-de-tablas-de-interrupciones-idt-y-controlador-apic.md) · Descriptor de Tablas de Interrupciones IDT y Controlador APIC | ✅ Completado |
+| **Fase 23** | [T23.2](docs/tickets/T23.2-gestor-de-memoria-fisica-pmm-y-paginacion-virtual-vmm-en-kernel.md) · Gestor de Memoria Física (PMM) y Paginación Virtual (VMM) en Kernel | ✅ Completado |
+| **Fase 23** | [T23.3](docs/tickets/T23.3-planificador-multitarea-apropiativo-y-context-switch-tss.md) · Planificador Multitarea Apropiativo y Context Switch / TSS | ✅ Completado |
+| **Fase 23** | [T23.4](docs/tickets/T23.4-driver-de-bloque-virtio-blk-y-sistema-de-ficheros-initrd-tarfs.md) · Driver de Bloque VirtIO (`virtio-blk`) y Sistema de Ficheros Initrd/tarfs | ✅ Completado |
+| **Fase 23** | [T23.5](docs/tickets/T23.5-ampliacion-de-llamadas-al-sistema-posix-e-ipc-por-canales-microkernel.md) · Ampliación de Llamadas al Sistema POSIX e IPC por Canales Microkernel | ✅ Completado |
+| **Fase 24** | [T24.1](docs/tickets/T24.1-integracion-de-bootloader-uefi-limine-en-builder-para-arranque-hibrido.md) · Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido | ✅ Completado |
+| **Fase 24** | [T24.2](docs/tickets/T24.2-empaquetador-de-ramdisk-initramfs-live-con-sistema-base-y-herramientas.md) · Empaquetador de Ramdisk (Initramfs) Live con Sistema Base y Herramientas | ✅ Completado |
+| **Fase 24** | [T24.3](docs/tickets/T24.3-drivers-de-almacenamiento-fisico-ahci-sata-y-nvme-para-deteccion-de-discos.md) · Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos | ✅ Completado |
+| **Fase 24** | [T24.4](docs/tickets/T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) · Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ✅ Completado |
+| **Fase 24** | [T24.5](docs/tickets/T24.5-generador-automatizado-de-live-usb-y-script-de-grabacion-antos-usb.md) · Generador Automatizado de Live USB y Script de Grabación (`antos usb flash`) | ✅ Completado |
+
 
 ---
 

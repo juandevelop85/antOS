@@ -80,9 +80,44 @@ Esta versión culmina las **14 Fases** de desarrollo del plan maestro con **34 t
 - **[T14.2] Agente Multimodal con Captura Wayland (VisualQA):** Rol de inspección visual de interfaces gráficas mediante screencopy (`grim`/XDG portal), evaluando fidelidad de diseño, contraste WCAG 2.1 AAA y desalineaciones CSS con modelos de visión (Llava vía Ollama) o análisis heurístico.
 - **[T14.3] Generador de Live ISO y Distribución Oficial:** Receta declarativa NixOS (`live-image.nix`), script de empaquetado release (`system/build-release.sh`), imagen booteable híbrida y sumas criptográficas SHA256.
 
+#### 🔹 Fase 24: Live USB, Instalador Guiado y Arranque en Metal
+- **[T24.1] Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido:**
+  - Binarios oficiales PE32+ de Limine (`BOOTX64.EFI` y `BOOTAA64.EFI`) embebidos en el crate `builder`.
+  - Generador declarativo de archivos `/limine.conf`, `/EFI/BOOT/limine.conf` y `/startup.nsh`.
+  - Código de arranque MBR para compatibilidad BIOS legacy y partición ESP FAT32 para UEFI nativo.
+  - Creación de imágenes híbridas `.img` y `.iso` arrancables directamente en hardware y máquinas virtuales.
+- **[T24.2] Empaquetador de Ramdisk (Initramfs) Live con Sistema Base y Herramientas:**
+  - Módulo `builder::ramdisk` para empaquetado autónomo en formato micro-tar (`ustar`) de 512 bytes.
+  - Estructura jerárquica de directorios del sistema de ficheros raíz (`/bin`, `/sbin`, `/etc`, `/dev`, `/proc`, `/sys`, `/mnt`, `/tmp`).
+  - Inclusión del script maestro `/init` para montaje de sistemas virtuales (`devtmpfs`, `proc`, `sysfs`, `tmpfs`) y lanzamiento de `antosd` en modo Live.
+  - Despliegue automático de utilidades del sistema (`antos`, `antosd`, `sh`, `parted`, `mkfs.ext4`) y manifiestos de configuración (`/etc/os-release`, `/etc/fstab`, `/etc/hostname`).
+- **[T24.3] Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos:**
+  - Enumeración de controladores de almacenamiento masivo en bus PCI (`Class 0x01`: AHCI `0x06`, NVMe `0x08`, IDE `0x01`).
+  - Driver nativo SATA / AHCI 1.0+ en `kernel/src/drivers/storage/ahci.rs` con soporte de comandos ATA `IDENTIFY DEVICE` (0xEC), `READ DMA EXT` (0x25) y `WRITE DMA EXT` (0x35) mediante listas de comando DMA y tablas PRDT.
+  - Driver nativo PCIe NVMe 1.0+ en `kernel/src/drivers/storage/nvme.rs` con colas Admin (ASQ/ACQ) e I/O (IOSQ/IOCQ), doorbells MMIO y comandos NVM Read/Write con soporte de sectores de 512 y 4096 bytes.
+  - Capa unificada de dispositivos de bloque `/dev/sda` y `/dev/nvme0n1` y contratos de datos IPC en `system/protocolo`.
+- **[T24.4] Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`):**
+  - Módulo `system/antosd/src/installer/cli.rs` con asistente paso a paso para la sesión Live:
+    * Paso 1: Detección y selección de discos de almacenamiento físicos con modelo, capacidad y SO existentes.
+    * Paso 2: Modos de instalación: Disco Completo (con advertencia en rojo y confirmación textual estricta `SI`) o Dual-Boot seguro preservando la partición ESP y SO vecino.
+    * Paso 3: Configuración de parámetros de sistema (hostname, usuario, timezone, keymap).
+    * Paso 4: Despliegue guiado con barras de progreso animadas en terminal (particionamiento GPT, formateo, montaje en `/mnt/target`, copia de sistema base y capacidades antOS).
+    * Paso 5: Generación persistente de `/etc/fstab`, registro UEFI NVRAM con `efibootmgr` (etiqueta `"antOS Linux"`) y desmontaje seguro.
+  - Soporte de instalación desatendida no interactiva mediante `--config <archivo.toml>` y despliegue directo por flags.
+- **[T24.5] Generador Automatizado de Live USB y Script de Grabación (`antos usb flash`):**
+  - Módulo `system/antosd/src/installer/usb.rs` (`UsbManager`) con subcomandos `list`, `build`, `flash`, `verify`.
+  - Detección segura de medios extraíbles USB en Linux (`lsblk`) y macOS (`diskutil`).
+  - Salvaguarda crítica `is_safe_target` con bloqueo estricto de discos internos (NVMe, SATA del host, particiones `/` o `/boot` y discos superiores a 512 GB).
+  - Grabación bit a bit en bloques de 4 MiB con barra de progreso dinámica en tiempo real (porcentaje, MB/s y tiempo transcurrido).
+  - Verificación criptográfica obligatoria SHA-256 de los sectores grabados para certificar cero corrupción.
+  - Compatibilidad directa con Ventoy (arranque directo de la ISO), Rufus (modo ISO y DD) y BalenaEtcher.
+  - Guía oficial de instalación paso a paso en `docs/guia-live-usb-e-instalacion-fisica.md`.
+
 ---
 
-### 📦 Artefactos de Distribución v0.1.0
+### 📦 Artefactos de Distribución
 - `antos-v0.1.0-<os>-<arch>.tar.gz`: Binarios de antOS (`antos`, `antosd`, `builder`), capacidades declarativas y documentación.
-- `antos-live-x86_64.iso`: Imagen de disco arrancable híbrida para pruebas en bare metal o máquinas virtuales.
-- `SHA256SUMS`: Sumas de comprobación criptográficas para verificación de integridad.
+- `antos-live-x86_64.iso`: Imagen de disco arrancable híbrida para pruebas en bare metal, pendrives Live USB o hipervisores (QEMU, UTM, VirtualBox).
+- `antos-live-x86_64.iso.sha256`: Suma de comprobación SHA-256 generada automáticamente para verificación de integridad.
+- `SHA256SUMS`: Sumas de comprobación criptográficas de todos los artefactos de la distribución.
+

@@ -16,6 +16,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
      - [B. Arquitectura AArch64 / ARM 64-bit (Bare Metal y UEFI)](#b-arquitectura-aarch64--arm-64-bit-bare-metal-y-uefi)
      - [C. Opciones del CLI `builder`](#c-opciones-del-cli-builder)
      - [D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)](#d-guía-paso-a-paso-para-hipervisores-utm-y-virtualbox)
+   - [Método 7: Live USB Booteable e Instalación en Hardware Real (Bare Metal)](#método-7-live-usb-booteable-e-instalación-en-hardware-real-bare-metal)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
 4. [Catálogo Exhaustivo de Comandos y Subcomandos](#4-catálogo-exhaustivo-de-comandos-y-subcomandos)
@@ -61,6 +62,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.40 Benchmarking Continuo y Detección de Regresiones de Rendimiento (`antos bench`)](#440-benchmarking-continuo-y-detección-de-regresiones-de-rendimiento-antos-bench)
    - [4.41 Sincronización con Forjas Git: Issues y Pull Requests (`antos issue` / `antos pr`)](#441-sincronización-con-forjas-git-issues-y-pull-requests-antos-issue--antos-pr)
    - [4.42 Generador y Sincronizador de Documentación Viva y Diagramas Mermaid (`antos doc`)](#442-generador-y-sincronizador-de-documentación-viva-y-diagramas-mermaid-antos-doc)
+   - [4.43 Gestor y Grabador Seguro de Memorias Live USB (`antos usb`)](#443-gestor-y-grabador-seguro-de-memorias-live-usb-antos-usb)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -69,7 +71,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
- │                      6 MODOS DE EJECUCIÓN DE antOS                          │
+ │                      7 MODOS DE EJECUCIÓN DE antOS                          │
  ├─────────────────────────────────────────────────────────────────────────────┤
  │ 1. CLI y Centro de Control (Host): Desarrollo diario en macOS y Linux       │
  │ 2. Demonio IPC en Segundo Plano: Escucha en socket UNIX y atiende clientes  │
@@ -77,6 +79,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
  │ 4. Contenedor Linux (Landlock LSM): Verificación de aislamiento kernel      │
  │ 5. Máquina Virtual NixOS en QEMU: Sistema operativo completo y servicios    │
  │ 6. Kernel Bare-Metal no_std en QEMU: x86_64 (BIOS/UEFI) y AArch64 (ARM64)   │
+ │ 7. Live USB e Instalación Bare-Metal: Instalación en NVMe/SATA físicos       │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -303,7 +306,35 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
 
 ---
 
+### Método 7: Live USB Booteable e Instalación en Hardware Real (Bare Metal)
+
+Este método permite arrancar un medio de instalación extraíble en cualquier computadora física (PC, laptop o servidor) y desplegar el sistema operativo antOS directamente en discos físicos NVMe o SATA:
+
+```bash
+# 1. Construir la imagen híbrida autoarrancable (UEFI + BIOS MBR) y generar suma SHA-256
+antos usb build --arch x86_64 --out antos-live.iso
+
+# 2. Listar unidades USB extraíbles detectadas de forma segura (bloquea discos internos)
+antos usb list
+
+# 3. Grabar la imagen en la memoria USB con progreso en tiempo real y verificación de integridad
+antos usb flash --image antos-live.iso --target /dev/sdb --apply
+```
+
+#### Flujo de Instalación en la Máquina Física:
+1. Conecta el pendrive USB en el equipo destino y enciéndelo presionando la tecla de arranque (`F12`, `F11`, `F8` o `F9`).
+2. Selecciona la entrada UEFI correspondiente a la memoria USB.
+3. El gestor Limine cargará el kernel `no_std`, montará el initramfs en RAM y desplegará la sesión Live.
+4. Abre una terminal e inicia el asistente de instalación interactivo:
+   ```bash
+   antos install
+   ```
+5. Selecciona el disco de destino (`/dev/nvme0n1` o `/dev/sda`), elige entre instalación limpia en disco completo (escribiendo `SI`) o Dual-Boot seguro, y completa la configuración. Al finalizar, retira la memoria USB y reinicia el equipo con `reboot`.
+
+---
+
 ## 2. Variables de Entorno Globales
+
 
 | Variable | Descripción | Valor por Defecto |
 | :--- | :--- | :--- |
@@ -1013,24 +1044,47 @@ antos disk partition /dev/nvme0n1 --clean --apply
 
 ### 4.29 Asistente e Instalador de Sistema Base a Disco Duro (`antos install`)
 
-Motor de despliegue guiado y no interactivo para instalar antOS en el disco duro o unidad NVMe/SSD de la máquina. Permite instalar como **sistema operativo principal** (particionamiento y formateo limpio de disco completo) o como **sistema secundario en Dual Boot** (preservando la partición EFI ESP y sistemas operativos Windows o Linux preexistentes):
+Motor de despliegue guiado (interactivo por consola) y desatendido (archivo de configuración TOML) para instalar antOS en discos duros físicos o unidades NVMe/SATA SSD durante la sesión Live USB:
+
+* **Paso 1: Detección de Hardware y Discos:** Inspecciona CPU, memoria RAM, modo de arranque (UEFI vs BIOS) y lista los dispositivos físicos (`/dev/nvme0n1`, `/dev/sda`) indicando capacidad, tipo de bus y si contienen sistemas preexistentes.
+* **Paso 2: Modo de Instalación:**
+  * **Opción 1: Disco Completo (Instalación Limpia):** Requiere confirmación explícita escribiendo en mayúsculas `SI`. Genera tabla GPT con partición ESP (512 MB, FAT32), partición Swap y partición raíz `/` (`ext4`).
+  * **Opción 2: Dual Boot Seguro:** Preserva particiones de Windows/Linux y la partición ESP preexistente, utilizando espacio libre contiguo o redimensionando sin pérdida.
+* **Paso 3: Parámetros del Sistema:** Configuración interactiva de `hostname`, zona horaria, distribución de teclado (`keymap`), nombre de usuario y contraseña.
+* **Paso 4: Despliegue con Barra de Progreso:** Formateo de sistemas de archivos, montaje en `/mnt/target`, copia secuencial del sistema base con porcentaje visual, y generación de `/etc/fstab` con UUIDs persistentes.
+* **Paso 5: Registro UEFI y Finalización:** Inscribe la entrada `"antOS Linux"` en la NVRAM con `efibootmgr`, desmonta particiones de manera limpia y notifica que se puede extraer la memoria USB para reiniciar.
 
 ```bash
-# Listar discos compatibles y recomendación de modo (Principal vs Dual Boot)
+# Iniciar el asistente guiado interactivo por terminal (5 pasos)
+antos install
+
+# Listar discos compatibles y recomendaciones (Limpio vs Dual Boot)
+antos install --list
 antos install list
 
-# Asistente guiado e interactivo por terminal (detecta discos y simula instalación)
-antos install wizard
-antos install gui
+# Instalación desatendida / automatizada mediante archivo de configuración TOML
+antos install --config /etc/antos/install.toml
+antos install -c mis_parametros.toml
 
-# Despliegue en modo Dual Boot (preservando Windows/Linux y cargadores existentes, simulación segura)
-antos install run --target /dev/nvme0n1 --dual-boot --user antos --host antos-box
+# Despliegue directo en modo Dual Boot (simulación segura por defecto)
+antos install --target /dev/nvme0n1 --dual-boot
 
-# Despliegue en modo Sistema Principal Limpio (simulación segura)
-antos install run --target /dev/sda --clean
+# Despliegue directo en modo Disco Completo (simulación segura)
+antos install --target /dev/sda --clean
 
-# Aplicar la instalación definitiva en el hardware (acción destructiva controlada)
-antos install run --target /dev/nvme0n1 --dual-boot --apply
+# Aplicar la instalación definitiva en el hardware real (requiere confirmación)
+antos install --target /dev/nvme0n1 --clean --apply
+```
+
+#### Ejemplo de Archivo de Configuración Desatendido (`install.toml`):
+```toml
+target_device = "/dev/nvme0n1"
+clean_install = false          # false = Dual Boot seguro, true = disco completo
+hostname = "antos-workstation"
+timezone = "America/Bogota"
+keymap = "es"
+username = "developer"
+password_hash = "$6$rounds=50000$..."
 ```
 
 ---
@@ -1398,6 +1452,38 @@ antos "genera diagrama de arquitectura"
 antos "sincroniza documentacion de arquitectura"
 antos "verifica documentacion de arquitectura"
 ```
+
+---
+
+### 4.43 Gestor y Grabador Seguro de Memorias Live USB (`antos usb`)
+
+Automatiza la creación de medios de arranque extraíbles y el volcado seguro en memorias pendrive USB para instalar o probar antOS en hardware real. Incluye mecanismos de protección de disco que impiden la sobreescritura accidental de unidades internas (NVMe/SATA del sistema anfitrión), reporte de progreso en bloques de 4 MiB y validación criptográfica SHA-256:
+
+```bash
+# 1. Listar unidades USB extraíbles detectadas de forma segura (excluye discos internos)
+antos usb list
+antos usb devices
+
+# 2. Generar la imagen híbrida autoarrancable (UEFI + BIOS MBR) y su checksum SHA-256
+antos usb build
+antos usb build --arch x86_64 --out target/antos-live-x86_64.iso
+antos usb build --arch aarch64 --out target/antos-live-aarch64.iso
+
+# 3. Grabar la imagen en una memoria USB (Dry-Run de simulación segura por defecto)
+antos usb flash --image target/antos-live-x86_64.iso --target /dev/sdb
+
+# 4. Aplicar la grabación real en el pendrive (requiere confirmación y --apply)
+antos usb flash --image target/antos-live-x86_64.iso --target /dev/sdb --apply
+
+# 5. Verificar la integridad de la memoria USB grabada frente a la imagen original
+antos usb verify --image target/antos-live-x86_64.iso --target /dev/sdb
+```
+
+#### Características Clave del Grabador USB:
+* **Protección de Discos Internos:** Filtra automáticamente discos marcados como internos o del sistema operativo (`diskutil` en macOS, `lsblk` en Linux), permitiendo seleccionar únicamente unidades extraíbles con bus USB.
+* **Streaming en Bloques de 4 MiB:** Escritura directa con buffer de alto rendimiento, cálculo de velocidad de transferencia en MB/s y barra de progreso porcentual.
+* **Sincronización a Hardware y Verificación:** Ejecuta `sync`/`fsync` al finalizar y verifica el hash SHA-256 para asegurar que no existan sectores corruptos en el pendrive.
+* **Compatibilidad Multiboot:** La imagen ISO híbrida generada es compatible directamente con herramientas como **Rufus** (modo DD y modo ISO), **BalenaEtcher** y arranque directo en **Ventoy**.
 
 ---
 
