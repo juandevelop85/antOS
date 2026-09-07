@@ -46,7 +46,7 @@ pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
 // ------------------------------------------------------------- el protocolo
 
 #[allow(unused_imports, deprecated)]
-pub use antos_protocol::{Event, Evento, Request};
+pub use antos_protocol::{Event, Evento, PackageAppType, Request};
 #[allow(unused_imports, deprecated)]
 pub use antos_protocol::Peticion;
 
@@ -743,6 +743,18 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let report = crate::pkg::PackageEngine::validate_desktop_entry(&content);
             send(&mut writer, &Event::DesktopValidationReport(report))?;
         }
+        Request::SearchPackages { query } => {
+            match crate::pkg::PackageEngine::search_catalog(&query) {
+                Ok(results) => send(&mut writer, &Event::PackageSearchResults(results))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::GetPackageInfo { recipe } => {
+            match crate::pkg::PackageEngine::resolve_manifest(&recipe) {
+                Ok(info) => send(&mut writer, &Event::PackageInfo(info))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
         Request::ListApps { source } => {
             match crate::apps::AppEngine::list_apps(&ctx.state, source) {
                 Ok(apps) => send(&mut writer, &Event::AppList(apps))?,
@@ -1360,6 +1372,71 @@ pub fn intencion_remota(
                 }
                 for warn in &rep.warnings {
                     term.on_note(&format!("  - [WARN] {warn}"))?;
+                }
+            }
+            Event::PackageSearchResults(results) => {
+                if results.is_empty() {
+                    term.on_note("antpkg Catálogo: No se encontraron paquetes coincidentes.")?;
+                } else {
+                    term.on_note(&format!("📦 antpkg Catálogo · Paquetes encontrados ({}):", results.len()))?;
+                    for p in results {
+                        let app_type_str = match p.app_type {
+                            PackageAppType::Gui => "GUI",
+                            PackageAppType::Cli => "CLI",
+                        };
+                        let cat_str = if let Some(ref d) = p.desktop_entry {
+                            format!(" [{}]", d.categories.join(", "))
+                        } else {
+                            String::new()
+                        };
+                        term.on_note(&format!("  • {} v{} ({}){} - {}",
+                            p.name, p.version, app_type_str, cat_str, p.description
+                        ))?;
+                    }
+                }
+            }
+            Event::PackageInfo(info) => {
+                term.on_note(&format!("📦 antpkg Receta: {} v{}", info.name, info.version))?;
+                term.on_note(&format!("  • Descripción: {}", info.description))?;
+                if let Some(ref home) = info.homepage {
+                    term.on_note(&format!("  • Homepage:    {}", home))?;
+                }
+                if let Some(ref lic) = info.license {
+                    term.on_note(&format!("  • Licencia:    {}", lic))?;
+                }
+                let app_type_str = match info.app_type {
+                    PackageAppType::Gui => "GUI (Wayland/X11)",
+                    PackageAppType::Cli => "CLI (Terminal)",
+                };
+                term.on_note(&format!("  • Tipo de App: {}", app_type_str))?;
+                if !info.binaries.is_empty() {
+                    term.on_note(&format!("  • Binarios:    {}", info.binaries.join(", ")))?;
+                }
+                if let Some(ref src) = info.source_url {
+                    term.on_note(&format!("  • Origen:      {}", src))?;
+                }
+                if let Some(ref sha) = info.sha256 {
+                    term.on_note(&format!("  • SHA-256:     {}", sha))?;
+                }
+                if !info.dependencies.is_empty() {
+                    term.on_note(&format!("  • Deps:        {}", info.dependencies.join(", ")))?;
+                }
+                if let Some(ref d) = info.desktop_entry {
+                    term.on_note("  • Entrada de escritorio:")?;
+                    term.on_note(&format!("      Nombre:     {}", d.name))?;
+                    if let Some(ref g) = d.generic_name {
+                        term.on_note(&format!("      Genérico:   {}", g))?;
+                    }
+                    term.on_note(&format!("      Ejecutable: {}", d.exec))?;
+                    if let Some(ref ic) = d.icon {
+                        term.on_note(&format!("      Icono:      {}", ic))?;
+                    }
+                    if !d.categories.is_empty() {
+                        term.on_note(&format!("      Categorías: {}", d.categories.join("; ")))?;
+                    }
+                    if !d.mime_types.is_empty() {
+                        term.on_note(&format!("      MIME:       {}", d.mime_types.join("; ")))?;
+                    }
                 }
             }
             Event::AppList(apps) => {

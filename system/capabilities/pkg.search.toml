@@ -1,0 +1,12 @@
+name = "pkg.search"
+summary = "Busca recetas y paquetes de aplicaciones en el catálogo oficial local y embebido de antpkg"
+
+[params]
+query = { type = "text", optional = true }
+
+[effects]
+reads = ["recipes"]
+
+[policy]
+tier = "auto"
+reversible = "never"

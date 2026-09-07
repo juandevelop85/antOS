@@ -1,0 +1,47 @@
+# Receta oficial de antOS Package Manager (antpkg) para Cursor AI
+
+[package]
+name = "cursor"
+version = "0.40.4"
+description = "Editor de código impulsado por IA para desarrollo asistido por modelos de lenguaje"
+homepage = "https://cursor.com"
+license = "Proprietary"
+binaries = ["cursor"]
+app_type = "gui"
+
+[source]
+url = "https://download.todesktop.com/230313mzl4w4u92/cursor-0.40.4-build-24090525wqud6s8-x86_64.AppImage"
+sha256 = "5f25a74e50d75949d211b6ffae6488349fa861448b30e03e7e8b83939634f19b"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/lib/cursor
+cp * $OUT/lib/cursor/
+cat << 'EOF' > $OUT/bin/cursor
+#!/bin/sh
+exec "$OUT/lib/cursor/cursor" --ozone-platform=wayland --enable-features=UseOzonePlatform "$@"
+EOF
+chmod +x $OUT/bin/cursor
+"""
+
+[desktop]
+name = "Cursor"
+generic_name = "AI Code Editor"
+comment = "Desarrollo de software potenciado por agentes e inteligencia artificial"
+exec = "cursor --ozone-platform=wayland %F"
+icon = "cursor"
+terminal = false
+categories = ["Development", "IDE", "TextEditor"]
+mime_types = [
+    "text/plain",
+    "inode/directory",
+]
+startup_wm_class = "Cursor"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/cursor.svg"

@@ -2122,3 +2122,44 @@ use crate::*;
         let des_prog_ev: Event = serde_json::from_str(&json_prog_ev).expect("deserialize ev_prog");
         assert_eq!(ev_prog, des_prog_ev);
     }
+
+    #[test]
+    fn test_package_catalog_requests_serialization() {
+        let req_search = Request::SearchPackages { query: "browser".to_string() };
+        let json_search = serde_json::to_string(&req_search).expect("serialize req_search");
+        let des_search: Request = serde_json::from_str(&json_search).expect("deserialize req_search");
+        assert_eq!(req_search, des_search);
+
+        let req_info = Request::GetPackageInfo { recipe: "firefox".to_string() };
+        let json_info = serde_json::to_string(&req_info).expect("serialize req_info");
+        let des_info: Request = serde_json::from_str(&json_info).expect("deserialize req_info");
+        assert_eq!(req_info, des_info);
+
+        let manifest = PackageManifest {
+            name: "firefox".to_string(),
+            version: "130.0".to_string(),
+            description: "Mozilla Firefox Web Browser".to_string(),
+            homepage: Some("https://www.mozilla.org/firefox".to_string()),
+            license: Some("MPL-2.0".to_string()),
+            source_url: Some("https://download-installer.cdn.mozilla.net/pub/firefox/releases/130.0/linux-x86_64/en-US/firefox-130.0.tar.bz2".to_string()),
+            sha256: Some("c6a1e1bf88ff842d0fa5716df166412be8fbeeeae397c88b2eb60980df94a9a0".to_string()),
+            signature: None,
+            signer_public_key: None,
+            dependencies: Vec::new(),
+            build_script: Some("install".to_string()),
+            binaries: vec!["firefox".to_string()],
+            app_type: PackageAppType::Gui,
+            desktop_entry: None,
+            icons: Vec::new(),
+        };
+
+        let ev_search = Event::PackageSearchResults(vec![manifest.clone()]);
+        let json_ev_search = serde_json::to_string(&ev_search).expect("serialize ev_search");
+        let des_ev_search: Event = serde_json::from_str(&json_ev_search).expect("deserialize ev_search");
+        assert_eq!(ev_search, des_ev_search);
+
+        let ev_info = Event::PackageInfo(manifest.clone());
+        let json_ev_info = serde_json::to_string(&ev_info).expect("serialize ev_info");
+        let des_ev_info: Event = serde_json::from_str(&json_ev_info).expect("deserialize ev_info");
+        assert_eq!(ev_info, des_ev_info);
+    }

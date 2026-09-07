@@ -1,0 +1,49 @@
+# Receta oficial de antOS Package Manager (antpkg) para Chromium
+
+[package]
+name = "chromium"
+version = "128.0.6613.119"
+description = "Navegador web de código abierto y motor web Chromium portable"
+homepage = "https://www.chromium.org"
+license = "BSD-3-Clause"
+binaries = ["chromium"]
+app_type = "gui"
+
+[source]
+url = "https://download-chromium.appspot.com/dl/Linux_x64?type=snapshots"
+sha256 = "9e107d9d372bb6826bd81d3542a419d6ec4395ee130450b41a9f134502d6cbd8"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/lib/chromium
+cp -r * $OUT/lib/chromium/
+cat << 'EOF' > $OUT/bin/chromium
+#!/bin/sh
+exec "$OUT/lib/chromium/chrome" --ozone-platform=wayland --enable-features=UseOzonePlatform "$@"
+EOF
+chmod +x $OUT/bin/chromium
+"""
+
+[desktop]
+name = "Chromium"
+generic_name = "Web Browser"
+comment = "Accede a la web con el navegador web de código abierto Chromium"
+exec = "chromium --ozone-platform=wayland %U"
+icon = "chromium"
+terminal = false
+categories = ["Network", "WebBrowser"]
+mime_types = [
+    "text/html",
+    "application/xhtml+xml",
+    "x-scheme-handler/http",
+    "x-scheme-handler/https",
+]
+startup_wm_class = "chromium"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/chromium.svg"

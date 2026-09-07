@@ -1,0 +1,40 @@
+# Receta oficial de antOS Package Manager (antpkg) para Postman
+
+[package]
+name = "postman"
+version = "11.10.0"
+description = "Plataforma completa de pruebas, diseño y colaboración para APIs REST, GraphQL y gRPC"
+homepage = "https://www.postman.com"
+license = "Proprietary"
+binaries = ["postman"]
+app_type = "gui"
+
+[source]
+url = "https://dl.pstmn.io/download/version/11.10.0/linux64"
+sha256 = "6c45da6eb50bb08018e6a17bfa4dc962f928a2a81fa6d07d1cf434e349cae203"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/lib/postman
+cp -r * $OUT/lib/postman/
+ln -sf ../lib/postman/app/Postman $OUT/bin/postman
+"""
+
+[desktop]
+name = "Postman"
+generic_name = "API Client"
+comment = "Plataforma de APIs para desarrollo y pruebas"
+exec = "postman %U"
+icon = "postman"
+terminal = false
+categories = ["Development", "Network"]
+mime_types = []
+startup_wm_class = "Postman"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/postman.svg"

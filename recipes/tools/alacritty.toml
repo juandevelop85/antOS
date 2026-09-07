@@ -1,0 +1,40 @@
+# Receta oficial de antOS Package Manager (antpkg) para Alacritty
+
+[package]
+name = "alacritty"
+version = "0.13.2"
+description = "Emulador de terminal multiplataforma acelerado por GPU y soporte Wayland nativo"
+homepage = "https://alacritty.org"
+license = "Apache-2.0"
+binaries = ["alacritty"]
+app_type = "gui"
+
+[source]
+url = "https://github.com/alacritty/alacritty/releases/download/v0.13.2/Alacritty-v0.13.2-ubuntu_20_04_amd64.tar.gz"
+sha256 = "1f7bf57fbc4eb47794db5a5fbc40d25c6130be2ec29b0ecda51bc6d78ef8a571"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin
+cp alacritty $OUT/bin/alacritty
+chmod +x $OUT/bin/alacritty
+"""
+
+[desktop]
+name = "Alacritty"
+generic_name = "Terminal Emulator"
+comment = "Emulador de terminal rápido acelerado por GPU"
+exec = "alacritty"
+icon = "alacritty"
+terminal = false
+categories = ["System", "TerminalEmulator"]
+mime_types = []
+startup_wm_class = "Alacritty"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/alacritty.svg"

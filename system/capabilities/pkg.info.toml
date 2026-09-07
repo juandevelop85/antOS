@@ -1,0 +1,12 @@
+name = "pkg.info"
+summary = "Inspecciona los metadatos, dependencias, hashes SHA-256 y entradas Freedesktop de una receta o paquete de antpkg"
+
+[params]
+recipe = { type = "text", optional = false }
+
+[effects]
+reads = ["recipes", "$STATE/profiles/current"]
+
+[policy]
+tier = "auto"
+reversible = "never"

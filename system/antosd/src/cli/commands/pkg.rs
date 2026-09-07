@@ -132,13 +132,41 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
+        "search" | "find" => {
+            let term = args.get(1).map(String::as_str).unwrap_or("");
+            println!("\n{} Búsqueda en el catálogo oficial antpkg:", paint("antOS antpkg ·", BOLD));
+            let results = crate::pkg::PackageEngine::search_catalog(term)?;
+            if results.is_empty() {
+                println!("  (no se encontraron recetas coincidentes con «{}»)\n", term);
+            } else {
+                println!("  Recetas encontradas en el catálogo ({}):\n", results.len());
+                for p in &results {
+                    let type_badge = match p.app_type {
+                        antos_protocol::PackageAppType::Gui => paint("[GUI]", GREEN),
+                        antos_protocol::PackageAppType::Cli => paint("[CLI]", CYAN),
+                    };
+                    let cat = p.desktop_entry.as_ref()
+                        .map(|d| format!(" [{}]", d.categories.join(", ")))
+                        .unwrap_or_default();
+                    println!("  • {} {} v{}{}", type_badge, paint(&p.name, BOLD), p.version, paint(&cat, DIM));
+                    println!("      {}", p.description);
+                    if let Some(ref home) = p.homepage {
+                        println!("      Web: {}", paint(home, BLUE));
+                    }
+                    if !p.binaries.is_empty() {
+                        println!("      Binarios: {}", paint(&p.binaries.join(", "), CYAN));
+                    }
+                    println!();
+                }
+            }
+        }
         "info" | "show" => {
-            let pkg_name = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos pkg info <nombre_paquete>"))?;
-            let pkgs = crate::pkg::PackageEngine::list(&ctx.state)?;
+            let pkg_name = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos pkg info <nombre_paquete|receta>"))?;
+            let pkgs = crate::pkg::PackageEngine::list(&ctx.state).unwrap_or_default();
             let found = pkgs.into_iter().find(|p| p.name == *pkg_name);
 
             if let Some(p) = found {
-                println!("\n{} Información de Paquete:", paint("antOS antpkg ·", BOLD));
+                println!("\n{} Información de Paquete Instalado:", paint("antOS antpkg ·", BOLD));
                 println!("  Nombre:          {}", paint(&p.name, BOLD));
                 println!("  Versión:         {}", p.version);
                 println!("  Tipo:            {:?}", p.app_type);
@@ -166,7 +194,65 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
                 println!();
             } else {
-                println!("\n{} El paquete «{}» no se encuentra en el perfil activo.\n", paint("antOS antpkg ·", BOLD), pkg_name);
+                // If not installed, resolve recipe manifest from catalog or disk
+                match crate::pkg::PackageEngine::resolve_manifest(pkg_name) {
+                    Ok(m) => {
+                        let type_badge = match m.app_type {
+                            antos_protocol::PackageAppType::Gui => paint("[GUI / Wayland]", GREEN),
+                            antos_protocol::PackageAppType::Cli => paint("[CLI / Terminal]", CYAN),
+                        };
+                        println!("\n{} Información de Receta Oficial (Catálogo antpkg):", paint("antOS antpkg ·", BOLD));
+                        println!("  Nombre:          {} {}", paint(&m.name, BOLD), type_badge);
+                        println!("  Versión:         {}", m.version);
+                        println!("  Descripción:     {}", m.description);
+                        if let Some(ref home) = m.homepage {
+                            println!("  Sitio Web:       {}", paint(home, BLUE));
+                        }
+                        if let Some(ref lic) = m.license {
+                            println!("  Licencia:        {}", lic);
+                        }
+                        if let Some(ref url) = m.source_url {
+                            println!("  URL Origen:      {}", paint(url, CYAN));
+                        }
+                        if let Some(ref sha) = m.sha256 {
+                            println!("  Hash SHA-256:    {}", paint(sha, GREEN));
+                        }
+                        if !m.binaries.is_empty() {
+                            println!("  Binarios:        {}", m.binaries.join(", "));
+                        }
+                        if !m.dependencies.is_empty() {
+                            println!("  Dependencias:    {}", m.dependencies.join(", "));
+                        }
+                        if let Some(ref d) = m.desktop_entry {
+                            println!("  Entrada Desktop: {} (exec: {})", d.name, d.exec);
+                            if let Some(ref gn) = d.generic_name {
+                                println!("    Genérico:      {}", gn);
+                            }
+                            if let Some(ref ic) = d.icon {
+                                println!("    Icono:         {}", ic);
+                            }
+                            if !d.categories.is_empty() {
+                                println!("    Categorías:    {}", d.categories.join(", "));
+                            }
+                            if !d.mime_types.is_empty() {
+                                println!("    MIME Types:    {}", d.mime_types.join(", "));
+                            }
+                            println!("    Terminal:      {}", d.terminal);
+                            if let Some(ref wm) = d.startup_wm_class {
+                                println!("    WM Class:      {}", wm);
+                            }
+                        }
+                        if !m.icons.is_empty() {
+                            let icon_summary: Vec<String> = m.icons.iter().map(|i| format!("{}.{}", i.resolution, i.format)).collect();
+                            println!("  Iconos:          {}", icon_summary.join(", "));
+                        }
+                        println!("  Estado:          {}", paint("Disponible para instalación (no instalado en perfil activo)", YELLOW));
+                        println!("  Comando Inst.:   antos pkg install {}\n", m.name);
+                    }
+                    Err(_) => {
+                        println!("\n{} El paquete o receta «{}» no se encuentra en el perfil activo ni en el catálogo oficial.\n", paint("antOS antpkg ·", BOLD), pkg_name);
+                    }
+                }
             }
         }
         "validate" => {
@@ -226,11 +312,12 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  • Generaciones Totales:    {}", st.generations_count);
             println!("  • Espacio Ocupado Store:   {:.2} MB", mb);
             println!("\n  Uso:");
+            println!("    antos pkg search <término>                         Busca recetas en el catálogo oficial antpkg");
+            println!("    antos pkg info <paquete|receta>                    Muestra información detallada de una receta o paquete");
             println!("    antos pkg install <paquete|receta.toml> [--dry-run]  Instala un paquete en el store");
             println!("    antos pkg remove <paquete>                         Desvincula un paquete del perfil");
             println!("    antos pkg list [--gui]                             Lista paquetes (o solo apps GUI)");
             println!("    antos pkg apps                                     Lista aplicaciones de escritorio XDG");
-            println!("    antos pkg info <paquete>                           Muestra información detallada de un paquete");
             println!("    antos pkg validate <archivo.desktop>               Valida sintaxis de archivo .desktop");
             println!("    antos pkg rollback [generacion]                    Restaura una generación previa");
             println!("    antos pkg verify                                   Verifica hashes y firmas ed25519");

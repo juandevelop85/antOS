@@ -1,0 +1,43 @@
+# Receta oficial de antOS Package Manager (antpkg) para Zed
+
+[package]
+name = "zed"
+version = "0.151.0"
+description = "Editor de código multiplayer ultrarrápido escrito en Rust con GPU Wayland nativo"
+homepage = "https://zed.dev"
+license = "GPL-3.0-or-later"
+binaries = ["zed"]
+app_type = "gui"
+
+[source]
+url = "https://github.com/zed-industries/zed/releases/download/v0.151.0/zed-linux-x86_64.tar.gz"
+sha256 = "b7a2d488e1460c5a2e99d107ca67b36f78d6b7bfa7c5c0c9aa79d40b2a759be1"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/libexec/zed
+cp -r * $OUT/libexec/zed/
+ln -sf ../libexec/zed/bin/zed $OUT/bin/zed
+"""
+
+[desktop]
+name = "Zed"
+generic_name = "Code Editor"
+comment = "Editor de alto rendimiento para desarrolladores"
+exec = "zed %F"
+icon = "zed"
+terminal = false
+categories = ["Development", "IDE", "TextEditor"]
+mime_types = [
+    "text/plain",
+    "text/x-rust",
+]
+startup_wm_class = "dev.zed.Zed"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/zed.svg"

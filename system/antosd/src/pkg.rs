@@ -300,21 +300,164 @@ impl PackageEngine {
         })
     }
 
-    /// Resolves or generates a manifest from a file path or known package name.
+pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
+    ("firefox", include_str!("../../../recipes/browsers/firefox.toml")),
+    ("chromium", include_str!("../../../recipes/browsers/chromium.toml")),
+    ("vscode", include_str!("../../../recipes/editors/vscode.toml")),
+    ("cursor", include_str!("../../../recipes/editors/cursor.toml")),
+    ("zed", include_str!("../../../recipes/editors/zed.toml")),
+    ("postman", include_str!("../../../recipes/tools/postman.toml")),
+    ("alacritty", include_str!("../../../recipes/tools/alacritty.toml")),
+    ("neovim", include_str!("../../../recipes/neovim.toml")),
+    ("ollama", include_str!("../../../recipes/ollama.toml")),
+    ("opencode", include_str!("../../../recipes/opencode.toml")),
+];
+
+    /// Recursively search for a recipe file (.toml) in a directory matching the name or relative path.
+    pub fn find_recipe_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+        if !dir.is_dir() {
+            return None;
+        }
+
+        // 1. Direct path check
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        let candidate_toml = dir.join(format!("{name}.toml"));
+        if candidate_toml.is_file() {
+            return Some(candidate_toml);
+        }
+
+        // 2. Recursive search
+        let mut stack = vec![dir.to_path_buf()];
+        let target_stem = name.trim_end_matches(".toml");
+
+        while let Some(current) = stack.pop() {
+            if let Ok(entries) = fs::read_dir(&current) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            if stem.eq_ignore_ascii_case(target_stem) {
+                                return Some(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Returns embedded official recipe content if name or alias matches.
+    pub fn get_embedded_official_recipe(name: &str) -> Option<&'static str> {
+        let clean = name.trim_end_matches(".toml");
+        let normalized = match clean {
+            "code" => "vscode",
+            "nvim" => "neovim",
+            other => {
+                if let Some(pos) = other.rfind('/') {
+                    &other[pos + 1..]
+                } else {
+                    other
+                }
+            }
+        };
+
+        Self::OFFICIAL_RECIPES
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(normalized))
+            .map(|(_, content)| *content)
+    }
+
+    /// Returns all official manifests from both embedded recipes and local `recipes/` directory.
+    pub fn get_all_official_manifests() -> Result<Vec<PackageManifest>> {
+        let mut map: std::collections::HashMap<String, PackageManifest> = std::collections::HashMap::new();
+
+        // 1. Load embedded official recipes
+        for (_, content) in Self::OFFICIAL_RECIPES {
+            if let Ok(m) = Self::parse_recipe(content) {
+                map.insert(m.name.clone(), m);
+            }
+        }
+
+        // 2. Scan local recipes/ directory if present
+        let recipes_dir = Path::new("recipes");
+        if recipes_dir.is_dir() {
+            let mut stack = vec![recipes_dir.to_path_buf()];
+            while let Some(current) = stack.pop() {
+                if let Ok(entries) = fs::read_dir(&current) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_dir() {
+                            stack.push(path);
+                        } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                            if let Ok(content) = fs::read_to_string(&path) {
+                                if let Ok(m) = Self::parse_recipe(&content) {
+                                    map.insert(m.name.clone(), m);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut list: Vec<PackageManifest> = map.into_values().collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(list)
+    }
+
+    /// Searches the recipe catalog by name, description, category, binaries, or keywords.
+    pub fn search_catalog(query: &str) -> Result<Vec<PackageManifest>> {
+        let all = Self::get_all_official_manifests()?;
+        let q = query.trim().to_lowercase();
+        if q.is_empty() || q == "*" {
+            return Ok(all);
+        }
+
+        let filtered = all
+            .into_iter()
+            .filter(|p| {
+                p.name.to_lowercase().contains(&q)
+                    || p.description.to_lowercase().contains(&q)
+                    || p.binaries.iter().any(|b| b.to_lowercase().contains(&q))
+                    || p.dependencies.iter().any(|d| d.to_lowercase().contains(&q))
+                    || p.desktop_entry.as_ref().map(|d| {
+                        d.name.to_lowercase().contains(&q)
+                            || d.categories.iter().any(|c| c.to_lowercase().contains(&q))
+                            || d.generic_name.as_ref().map(|g| g.to_lowercase().contains(&q)).unwrap_or(false)
+                            || d.comment.as_ref().map(|c| c.to_lowercase().contains(&q)).unwrap_or(false)
+                    }).unwrap_or(false)
+            })
+            .collect();
+
+        Ok(filtered)
+    }
+
+    /// Resolves or generates a manifest from a file path, recipe directory, embedded catalog or known package name.
     pub fn resolve_manifest(recipe_path_or_name: &str) -> Result<PackageManifest> {
         let p = Path::new(recipe_path_or_name);
-        if p.exists() || recipe_path_or_name.ends_with(".toml") {
+        if p.exists() || (recipe_path_or_name.ends_with(".toml") && p.exists()) {
             let content = fs::read_to_string(p)
                 .with_context(|| format!("Failed to read recipe file {}", p.display()))?;
             return Self::parse_recipe(&content);
         }
 
-        // Check in recipes/ directory
-        let recipe_file = Path::new("recipes").join(format!("{recipe_path_or_name}.toml"));
-        if recipe_file.exists() {
+        // Check in recipes/ directory recursively
+        if let Some(recipe_file) = Self::find_recipe_in_dir(Path::new("recipes"), recipe_path_or_name) {
             let content = fs::read_to_string(&recipe_file)
                 .with_context(|| format!("Failed to read recipe file {}", recipe_file.display()))?;
             return Self::parse_recipe(&content);
+        }
+
+        // Check embedded official recipes
+        if let Some(content) = Self::get_embedded_official_recipe(recipe_path_or_name) {
+            return Self::parse_recipe(content);
         }
 
         // Built-in recipes for standard developer utilities and desktop applications
@@ -1490,4 +1633,49 @@ mod tests {
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_all_official_recipes_validation() {
+        let all = PackageEngine::get_all_official_manifests().expect("should load all official recipes");
+        assert!(all.len() >= 10, "Expected at least 10 official recipes, got {}", all.len());
+
+        for manifest in &all {
+            assert!(!manifest.name.is_empty(), "Recipe name must not be empty");
+            assert!(!manifest.version.is_empty(), "Recipe version must not be empty");
+            assert!(manifest.source_url.is_some(), "Official recipe {} should have a source url", manifest.name);
+            let sha = manifest.sha256.as_ref().expect("Official recipe should have a sha256");
+            assert_eq!(sha.len(), 64, "SHA-256 for {} should be 64 characters", manifest.name);
+
+            if manifest.app_type == PackageAppType::Gui {
+                assert!(manifest.desktop_entry.is_some(), "GUI package {} must have desktop entry", manifest.name);
+                let desktop_entry_content = PackageEngine::generate_desktop_entry(manifest);
+                let report = PackageEngine::validate_desktop_entry(&desktop_entry_content);
+                assert!(report.valid, "Desktop entry for {} must be valid. Errors: {:?}", manifest.name, report.errors);
+            }
+        }
+    }
+
+    #[test]
+    fn test_search_catalog() {
+        // Query browsers
+        let browsers = PackageEngine::search_catalog("browser").expect("should search catalog");
+        assert!(browsers.iter().any(|m| m.name == "firefox"));
+        assert!(browsers.iter().any(|m| m.name == "chromium"));
+
+        // Query editors
+        let editors = PackageEngine::search_catalog("editor").expect("should search catalog");
+        assert!(editors.iter().any(|m| m.name == "vscode"));
+        assert!(editors.iter().any(|m| m.name == "zed"));
+        assert!(editors.iter().any(|m| m.name == "cursor"));
+
+        // Query tools
+        let tools = PackageEngine::search_catalog("postman").expect("should search catalog");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "postman");
+
+        // Query wildcard / all
+        let all = PackageEngine::search_catalog("*").expect("should search all");
+        assert!(all.len() >= 10);
+    }
 }
+

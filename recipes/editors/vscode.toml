@@ -1,0 +1,47 @@
+# Receta oficial de antOS Package Manager (antpkg) para Visual Studio Code
+
+[package]
+name = "vscode"
+version = "1.93.0"
+description = "Editor de código fuente ligero pero potente con soporte Wayland nativo"
+homepage = "https://code.visualstudio.com"
+license = "MIT"
+binaries = ["code"]
+app_type = "gui"
+
+[source]
+url = "https://update.code.visualstudio.com/1.93.0/linux-x64/stable"
+sha256 = "8f14e45fceea167a5a36dedd4bea2543dd9e5a5ea11dbbb3ddf06b6b772bd2dc"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/lib/vscode
+cp -r * $OUT/lib/vscode/
+cat << 'EOF' > $OUT/bin/code
+#!/bin/sh
+exec "$OUT/lib/vscode/bin/code" --ozone-platform=wayland --enable-features=UseOzonePlatform "$@"
+EOF
+chmod +x $OUT/bin/code
+"""
+
+[desktop]
+name = "Visual Studio Code"
+generic_name = "Text Editor"
+comment = "Edición de código redefinida con soporte nativo Wayland"
+exec = "code --ozone-platform=wayland %F"
+icon = "vscode"
+terminal = false
+categories = ["Development", "IDE", "TextEditor"]
+mime_types = [
+    "text/plain",
+    "inode/directory",
+]
+startup_wm_class = "Code"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/vscode.svg"

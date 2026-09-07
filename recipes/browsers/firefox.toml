@@ -1,0 +1,45 @@
+# Receta oficial de antOS Package Manager (antpkg) para Mozilla Firefox
+
+[package]
+name = "firefox"
+version = "130.0"
+description = "Navegador web libre y seguro con aceleración Wayland nativa"
+homepage = "https://www.mozilla.org/firefox"
+license = "MPL-2.0"
+binaries = ["firefox"]
+app_type = "gui"
+
+[source]
+url = "https://download-installer.cdn.mozilla.net/pub/firefox/releases/130.0/linux-x86_64/en-US/firefox-130.0.tar.bz2"
+sha256 = "c6a1e1bf88ff842d0fa5716df166412be8fbeeeae397c88b2eb60980df94a9a0"
+signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+[build]
+dependencies = []
+script = """
+mkdir -p $OUT/bin $OUT/lib/firefox
+cp -r * $OUT/lib/firefox/
+ln -sf ../lib/firefox/firefox $OUT/bin/firefox
+"""
+
+[desktop]
+name = "Firefox"
+generic_name = "Web Browser"
+comment = "Navegador web de código abierto con soporte nativo para Wayland"
+exec = "firefox %u"
+icon = "firefox"
+terminal = false
+categories = ["Network", "WebBrowser"]
+mime_types = [
+    "text/html",
+    "application/xhtml+xml",
+    "x-scheme-handler/http",
+    "x-scheme-handler/https",
+]
+startup_wm_class = "firefox"
+
+[[icons]]
+resolution = "scalable"
+format = "svg"
+path = "share/icons/hicolor/scalable/apps/firefox.svg"

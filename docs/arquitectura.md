@@ -4,7 +4,7 @@ Este documento contiene los diagramas vivos de arquitectura sincronizados contin
 
 <!-- ANTOS_ARCH_START -->
 > 📐 **antOS Living Architecture (T21.3)** · Generado automáticamente a partir del código fuente.
-> *Crates: 6 | Módulos Demonio: 56 | Capacidades: 120*
+> *Crates: 6 | Módulos Demonio: 56 | Capacidades: 122*
 
 ### 1. Topología de Componentes y Límites de Seguridad
 
@@ -18,7 +18,7 @@ graph TD
   end
 
   subgraph PROTO["⚡ Protocolo IPC Tipado"]
-    Protocolo["system/protocolo (104 Peticiones, 98 Eventos)"]
+    Protocolo["system/protocolo (106 Peticiones, 100 Eventos)"]
   end
 
   subgraph DAEMON["🐜 Demonio del Sistema (system/antosd - 56 Módulos)"]
@@ -44,7 +44,7 @@ graph TD
   end
 
   subgraph CAPS["📋 Catálogo de Capacidades Declarativas"]
-    Capabilities["system/capabilities (120 capacidades: 75 auto, 41 confirm, 4 grant)"]
+    Capabilities["system/capabilities (122 capacidades: 77 auto, 41 confirm, 4 grant)"]
   end
 
   subgraph BAREMETAL["⚙️ Núcleo & Arranque Bare-Metal"]

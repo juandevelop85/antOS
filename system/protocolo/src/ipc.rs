@@ -310,6 +310,16 @@ pub enum Request {
     ValidateDesktopEntry {
         content: String,
     },
+    /// Search packages in official catalog and local recipes (T25.3).
+    #[serde(alias = "SearchPackages", alias = "search_packages")]
+    SearchPackages {
+        query: String,
+    },
+    /// Inspect package metadata, dependencies and cryptographic hashes (T25.3).
+    #[serde(alias = "GetPackageInfo", alias = "get_package_info")]
+    GetPackageInfo {
+        recipe: String,
+    },
     /// Start continuous autonomous sentinel agent daemon (T16.3).
     #[serde(alias = "IniciarAutopilot")]
     StartAutopilot(AutopilotConfig),
@@ -743,6 +753,12 @@ pub enum Event {
     /// Verification report for a Freedesktop .desktop entry (T25.1).
     #[serde(alias = "ReporteValidacionEscritorio")]
     DesktopValidationReport(DesktopValidationReport),
+    /// Search results from the official recipe catalog (T25.3).
+    #[serde(alias = "ResultadosBusquedaPaquetes")]
+    PackageSearchResults(Vec<PackageManifest>),
+    /// Detailed package manifest information (T25.3).
+    #[serde(alias = "InformacionPaquete")]
+    PackageInfo(PackageManifest),
     /// Real-time status of the Autopilot daemon (T16.3).
     #[serde(alias = "EstadoAutopilot")]
     AutopilotStatus(AutopilotStatus),
