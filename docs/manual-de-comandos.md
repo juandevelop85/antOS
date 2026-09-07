@@ -64,6 +64,8 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
    - [4.41 Sincronización con Forjas Git: Issues y Pull Requests (`antos issue` / `antos pr`)](#441-sincronización-con-forjas-git-issues-y-pull-requests-antos-issue--antos-pr)
    - [4.42 Generador y Sincronizador de Documentación Viva y Diagramas Mermaid (`antos doc`)](#442-generador-y-sincronizador-de-documentación-viva-y-diagramas-mermaid-antos-doc)
    - [4.43 Gestor y Grabador Seguro de Memorias Live USB (`antos usb`)](#443-gestor-y-grabador-seguro-de-memorias-live-usb-antos-usb)
+   - [4.44 Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`)](#444-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-gráficos-antos-app)
+   - [4.45 Abstracción de Plataforma Runtime (`antos runtime`)](#445-abstracción-de-plataforma-runtime-antos-runtime)
 5. [Recetas y Combinaciones de Uso Avanzadas](#5-recetas-y-combinaciones-de-uso-avanzadas)
 
 ---
@@ -917,6 +919,7 @@ antos profile list
 
 Servidor LSP embebido para dotar a editores externos (VS Code, Neovim, Helix, Emacs) de autocompletado semántico enriquecido con el contexto de tickets, símbolos del workspace y capacidades tipadas de antOS:
 
+```bash
 # Abrir un archivo o iniciar el editor de texto predeterminado de antOS (Neovim / Super + E)
 antos edit src/main.rs
 antos edit
@@ -978,7 +981,11 @@ antos desktop keys
 ```
 
 **Atajos de Teclado Globales Registrados:**
-* `Super + Space`: Abre o enfoca la barra de intenciones de antOS (`antos-barra`).
+* `Super + Space`: Abre o enfoca la barra de intenciones de antOS (`antos-barra`) en **modo dual**
+  (T25.4): si el texto coincide con el nombre o ejecutable de una aplicación instalada (`antpkg`,
+  Flatpak o del sistema anfitrión) se muestra una lista flotante de resultados con icono estilo
+  Spotlight/Raycast — navegable con `↑`/`↓`/`Tab` y lanzable con `Enter` (inyectando
+  `$ANTOS_WORKSPACE` si es un IDE); si no, mantiene el flujo normal de intenciones de IA.
 * `Super + A`: Despliega el Centro de Agentes y Tablero de Tickets.
 * `Super + Return`: Lanza la terminal virtual interactiva integrada (`vte`).
 * `Super + D`: Abre el visor interactivo de diffs y reversión (`diff_view`).
@@ -1199,26 +1206,49 @@ antos vm destroy uvm-abc12345
 
 ### 4.32 Gestor de Paquetes y Recetas Inmutables (`antos pkg`)
 
-Gestor de paquetes inmutable y reproducible `antpkg` basado en almacén direccionado por contenido (CAS) con rollback instantáneo por generaciones:
+Gestor de paquetes inmutable y reproducible `antpkg` basado en almacén direccionado por contenido
+(CAS) con rollback instantáneo por generaciones (T16.2). Desde la Fase 25 también entiende
+aplicaciones gráficas: entradas `.desktop` XDG (T25.1) y un catálogo oficial de recetas para
+navegadores e IDEs (T25.3, ej. `firefox`, `google-chrome`, `visual-studio-code`, `zed`).
 
 ```bash
+# Buscar recetas en el catálogo oficial (incluye navegadores e IDEs, T25.3)
+antos pkg search ripgrep
+antos pkg search chrome
+
+# Ver información detallada de un paquete o receta
+antos pkg info curl
+
 # Instalar paquete o receta declarativa TOML
 antos pkg install curl
 antos pkg install recetas/ripgrep.toml
+antos pkg install visual-studio-code       # receta GUI: genera y registra su .desktop (T25.1)
 
 # Simular instalación (Dry-Run)
 antos pkg install jq --dry-run
 
 # Listar paquetes en el perfil activo y generaciones anteriores
 antos pkg list
-antos pkg ls
+antos pkg list --gui                       # solo aplicaciones gráficas instaladas
+
+# Listar aplicaciones de escritorio con entrada XDG (.desktop) registrada (T25.1)
+antos pkg apps
+
+# Validar un archivo .desktop contra la especificación Freedesktop (T25.1)
+antos pkg validate ~/.local/share/applications/code.desktop
+
+# Verificar integridad criptográfica (SHA-256 / ed25519) del almacén
+antos pkg verify
 
 # Desinstalar un paquete del perfil activo
 antos pkg remove curl
 
 # Revertir el perfil activo a una generación previa
 antos pkg rollback
-antos pkg rollback --generation 1
+antos pkg rollback 1
+
+# Estado general del almacén y del perfil activo
+antos pkg status
 ```
 
 ---
@@ -1553,6 +1583,53 @@ antos usb verify --image target/antos-live-x86_64.iso --target /dev/sdb
 * **Streaming en Bloques de 4 MiB:** Escritura directa con buffer de alto rendimiento, cálculo de velocidad de transferencia en MB/s y barra de progreso porcentual.
 * **Sincronización a Hardware y Verificación:** Ejecuta `sync`/`fsync` al finalizar y verifica el hash SHA-256 para asegurar que no existan sectores corruptos en el pendrive.
 * **Compatibilidad Multiboot:** La imagen ISO híbrida generada es compatible directamente con herramientas como **Rufus** (modo DD y modo ISO), **BalenaEtcher** y arranque directo en **Ventoy**.
+
+---
+
+### 4.44 Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`)
+
+Capa unificada sobre `antpkg` (nativas) y Flatpak/Flathub (en sandbox) para descubrir, instalar y
+lanzar aplicaciones de escritorio con inyección automática del workspace activo (T25.2) — el mismo
+motor (`AppEngine`) que alimenta el lanzador `Super + Space` de `system/barra` (T25.4, ver
+[4.22](#422-entorno-de-escritorio-wayland-y-atajos-globales-antos-desktop)).
+
+```bash
+# Buscar aplicaciones en Flathub y en las recetas antpkg (unificado)
+antos app search visual studio code
+
+# Listar aplicaciones instaladas (opcionalmente filtradas por origen)
+antos app list
+antos app list --flatpak
+antos app list --pkg
+
+# Instalar una aplicación, forzando el origen si hace falta
+antos app install com.visualstudio.code
+antos app install org.mozilla.firefox --source flatpak
+
+# Ejecutar una aplicación inyectando el contexto Wayland y el workspace activo
+antos app run code
+antos app run code --workspace ~/proyectos/api-service
+
+# Desinstalar una aplicación y revocar sus accesos
+antos app remove com.visualstudio.code
+```
+
+---
+
+### 4.45 Abstracción de Plataforma Runtime (`antos runtime`)
+
+Diagnóstico de la capa `PlatformRuntime` (T22.4): detecta el sistema operativo anfitrión y reporta,
+por subsistema, la **fidelidad** real de aislamiento disponible — no todo backend impone lo mismo
+(p. ej. Landlock LSM aplica en Linux; en macOS `Seatbelt` cubre ese rol y Landlock aparece como no
+disponible en vez de fallar en silencio).
+
+```bash
+# Matriz de capacidades del runtime detectado (Landlock/Seatbelt, Cgroups v2, eBPF, KVM, Wayland)
+antos runtime
+
+# Salida en JSON para integraciones y scripts
+antos runtime --json
+```
 
 ---
 

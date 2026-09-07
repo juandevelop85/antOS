@@ -152,10 +152,19 @@ El sistema expone sus operaciones mediante manifiestos tipados en `system/capabi
 
 ## 6. Fases de Trabajo e Implementación
 
-El plan de trabajo se estructura en los siguientes paquetes de desarrollo:
+El plan de trabajo original se estructuró en los siguientes cinco paquetes fundacionales de desarrollo:
 
 * **Fase 1: Motor de Contexto Git & Spec Engine** (Protocolo IPC, analizador de Git y parser de tickets en `antosd`).
 * **Fase 2: Expansión del Catálogo de Capacidades** (Capacidades de Git, Worktrees, Tests y Diagnóstico de Puertos).
 * **Fase 3: Orquestación Multi-Agente Nativa (antFlow Core en Rust)** (Roles de agentes, colas de ejecución y worktrees efímeros).
 * **Fase 4: Superficie de Usuario y Centro de Agentes** (Evolución de `system/barra` y panel de control Wayland/GTK4).
 * **Fase 5: Servicios Declarativos & Bóveda de Secretos** (Nix services y grants granulares para credenciales).
+
+El plan se extendió sustancialmente más allá de esta visión fundacional: antOS ya no solo orquesta el
+desarrollo *sobre* macOS/Linux, sino que — a partir de la **Fase 18** (portado del kernel a AArch64) y,
+sobre todo, la **Fase 26** — es capaz de arrancar como **sistema operativo bare-metal soberano**, con su
+propio driver gráfico, compositor de escritorio nativo y un runtime/shell de espacio de usuario
+(`libantos` / `antos-init`) sin dependencia alguna de `glibc`/`musl` ni de un SO anfitrión. El backlog
+íntegro y actualizado de las 26 fases (85 tickets) vive en [`docs/tickets/README.md`](tickets/README.md);
+el resumen navegable por fase está en el [`README.md`](../README.md) raíz del repositorio, y el registro
+cronológico de lo entregado en cada fase, en [`CHANGELOG.md`](../CHANGELOG.md).

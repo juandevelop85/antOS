@@ -25,9 +25,17 @@ Esta guía proporciona instrucciones detalladas, actualizadas y verificadas paso
 Antes de configurar cualquier máquina virtual, es fundamental entender por dónde emite sus mensajes el kernel bare-metal de antOS según la arquitectura objetivo:
 
 * **En AArch64 (ARM64 - Apple Silicon / QEMU virt):**  
-  El kernel bare-metal utiliza el puerto serie UART estándar **PL011** (mapeado en `0x09000000`).  
+  El kernel bare-metal siempre emite su telemetría por el puerto serie UART estándar **PL011**
+  (mapeado en `0x09000000`), y desde la **Fase 26** también detecta un framebuffer gráfico —
+  `simple-framebuffer` vía DTB o un dispositivo `virtio-gpu` MMIO (T26.1) — y, si lo encuentra,
+  renderiza ahí el **Desktop Shell nativo** (compositor 2D, T26.2) además de la consola serie.
   > ⚠️ **Punto Crítico en ARM64:**  
-  > Por defecto, UTM y VirtualBox abren únicamente una ventana gráfica (*Display*). Si la máquina virtual no tiene configurado un **Puerto Serie (Terminal o archivo de log)**, la ventana gráfica permanecerá en negro o mostrará *"Guest has not initialized the display (yet)"*. **Debes habilitar siempre el puerto serie para ver el arranque de antOS en ARM64.**
+  > Por defecto, UTM y VirtualBox abren únicamente una ventana gráfica (*Display*), y no toda
+  > configuración de VM expone un dispositivo `virtio-gpu` que antOS pueda detectar. Si tu VM no
+  > tiene GPU virtual configurada, la ventana gráfica quedará en negro o mostrará *"Guest has not
+  > initialized the display (yet)"* — comportamiento esperado en modo headless/serie. **Añade
+  > siempre un Puerto Serie (Terminal o archivo de log) para ver el arranque de antOS en ARM64**,
+  > sea que tengas GPU virtual configurada o no.
 
 * **En x86_64 (Intel / AMD):**  
   antOS incorpora tanto una **Consola Gráfica Framebuffer** en pantalla con fuente bitmap y secuencias ANSI (T23.3) como salida simultánea por puerto serie **COM1** (I/O `0x3F8`).  
@@ -179,7 +187,11 @@ Si deseas probar la secuencia de arranque completa mediante firmware UEFI EDK2 y
 ### Resolución de Problemas en UTM
 
 * **La ventana se queda en negro o dice *"Guest has not initialized the display (yet)"*:**  
-  Es el comportamiento esperado en ARM64 porque antOS aún no activa el framebuffer gráfico en ARM, usando la UART PL011. Asegúrate de haber añadido un **Puerto Serie** en modo **Terminal** en la configuración de la VM y haz clic en el icono de terminal de la barra superior.
+  Comportamiento esperado si la VM no expone un `virtio-gpu` que antOS pueda detectar (T26.1): el
+  kernel sigue arrancando normalmente, solo que en modo headless por la UART PL011. Asegúrate de
+  haber añadido un **Puerto Serie** en modo **Terminal** en la configuración de la VM y haz clic
+  en el icono de terminal de la barra superior — ahí verás el arranque completo y, al final, el
+  prompt `antos>` del shell interactivo soberano (T26.5).
 * **Error *"qemu-system-aarch64: -kernel: cannot load elf"***:  
   Verifica que compilaste para el target `aarch64-unknown-none` y no para el target por defecto del host (`x86_64` o `aarch64-apple-darwin`).
 * **En la UEFI Shell no aparece `FS0:` al escribir `map -r`:**  
