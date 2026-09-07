@@ -16,6 +16,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
      - [B. Arquitectura AArch64 / ARM 64-bit (Bare Metal y UEFI)](#b-arquitectura-aarch64--arm-64-bit-bare-metal-y-uefi)
      - [C. Opciones del CLI `builder`](#c-opciones-del-cli-builder)
      - [D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)](#d-guía-paso-a-paso-para-hipervisores-utm-y-virtualbox)
+     - [E. Escritorio Nativo Bare-Metal y Shell Interactivo Soberano (Fase 26)](#e-escritorio-nativo-bare-metal-y-shell-interactivo-soberano-fase-26)
    - [Método 7: Live USB Booteable e Instalación en Hardware Real (Bare Metal)](#método-7-live-usb-booteable-e-instalación-en-hardware-real-bare-metal)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
@@ -303,6 +304,74 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
 * **Configuración en VirtualBox:**
   - Desmarcar *"Habilitar EFI"* en *Sistema -> Placa Base*.
   - Añadir `antos-x86.vdi` como disco duro SATA/IDE. Arrancará en modo BIOS MBR nativo.
+
+---
+
+#### E. Escritorio Nativo Bare-Metal y Shell Interactivo Soberano (Fase 26)
+
+A partir de la Fase 26 el kernel ya no se limita a diagnósticos por consola serie: trae su propio
+driver gráfico, un compositor 2D nativo y un runtime de espacio de usuario (`libantos`) que arranca
+como **PID 1** con un shell interactivo real, sin depender de `glibc`/`musl`.
+
+* **T26.1 — Framebuffer y VirtIO-GPU (AArch64):** detección de `simple-framebuffer` vía DTB o de un
+  dispositivo `virtio-gpu` MMIO, con doble buffer y escaneo 1024x768x32bpp.
+* **T26.2 — Desktop Shell nativo y compositor 2D:** módulo `kernel/src/ui/` (compositor, cursor,
+  HUD de intenciones, barra de estado, ventana de terminal) renderizado directamente sobre el
+  framebuffer, sin GTK/Wayland.
+* **T26.3 — Entrada VirtIO-Input:** teclado y ratón sobre la cola global de eventos tipados
+  (`kernel/src/input/`), compartida con el driver PS/2 de x86_64.
+* **T26.4 — Cargador ELF64 e initramfs/tarfs:** `kernel/src/elf.rs` carga ejecutables ELF64 de
+  usuario desde el VFS (`tarfs` montado sobre el `initrd.tar` embebido en el binario del kernel).
+* **T26.5 — `libantos` y el shell interactivo:** biblioteca de runtime de usuario (`user/libantos`)
+  con asignador de heap respaldado por `SYS_MMAP`, canales IPC, macros `print!`/`println!` y
+  `read_line()`; y `antos-init` (`user/src/main.rs`), el binario que el kernel ejecuta como PID 1.
+
+```bash
+# Arrancar x86_64 (BIOS) o AArch64 (Direct Kernel Boot) como en la sección A/B de este método.
+# El shell aparece automáticamente en la consola serie al final del arranque:
+./run.sh
+# — o —
+qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M -serial stdio -display none \
+  -kernel kernel/target/aarch64-unknown-none/debug/kernel
+```
+
+Una vez en el prompt `antos>` (consola serie), los comandos integrados (*builtins*) del shell son:
+
+| Comando | Descripción |
+| :--- | :--- |
+| `help` | Lista los comandos disponibles (tabla `BTreeMap` ordenada alfabéticamente). |
+| `info` | Arquitectura, memoria del heap del kernel usada y ticks de actividad (`SYS_SYSINFO`). |
+| `ls [ruta]` | Lista ficheros y directorios del VFS/initramfs (`SYS_FS_LIST`); por defecto `/`. |
+| `cat <ruta>` | Muestra el contenido de un fichero de texto del VFS (`SYS_FS_READFILE`). |
+| `desktop` | Renderiza el Desktop Shell (T26.2). En x86_64 lo hace bajo demanda y sin interrumpir el shell (corren en paralelo gracias al planificador preemptivo, T23.2); en AArch64 cede permanentemente el control al bucle gráfico reactivo del kernel, ya que esa arquitectura aún no tiene planificador preemptivo. |
+| `agent <intención>` | Crea un canal IPC del kernel (`SYS_CHANNEL_CREATE`/`SEND`) y encola la intención con el prefijo `antflow.intent:` para un futuro puente con el `antFlow` del host — todavía no hay conexión real entre el kernel bare-metal y `antosd`. |
+
+> ⚠️ **Nota sobre el teclado:** en modo headless (`-display none`), QEMU no entrega eventos PS/2 ni
+> VirtIO-Input, así que el prompt queda esperando indefinidamente — comportamiento esperado. Para
+> escribir comandos de verdad usa una VM con ventana gráfica (quita `-display none`) o UTM/VirtualBox
+> con la VM en primer plano.
+
+**Tabla completa de syscalls disponibles para programas de usuario** (`kernel/src/syscall/mod.rs`,
+compartida por `user/libantos/src/syscall.rs`):
+
+| # | Syscall | Arg1 | Arg2 | Arg3 | Arg4 |
+| :-: | :--- | :--- | :--- | :--- | :--- |
+| 1 | `SYS_EXIT` | código de salida | | | |
+| 2 | `SYS_WRITE` | ptr | len | | |
+| 3 | `SYS_READ` | ptr destino | max len | | |
+| 4 | `SYS_YIELD` | | | | |
+| 5 | `SYS_GETPID` | | | | |
+| 6 | `SYS_MMAP` | tamaño | | | |
+| 7 | `SYS_MUNMAP` | ptr | tamaño | | |
+| 8 | `SYS_SPAWN` | ptr ruta | len ruta | modo | |
+| 9 | `SYS_WAITPID` | pid | | | |
+| 10 | `SYS_CHANNEL_CREATE` | | | | |
+| 11 | `SYS_CHANNEL_SEND` | canal | ptr | len | |
+| 12 | `SYS_CHANNEL_RECV` | canal | ptr destino | max len | |
+| 13 | `SYS_FS_LIST` | ptr ruta | len ruta | ptr salida | len salida |
+| 14 | `SYS_FS_READFILE` | ptr ruta | len ruta | ptr salida | len salida |
+| 15 | `SYS_SYSINFO` | ptr salida | len salida | | |
+| 16 | `SYS_LAUNCH_DESKTOP` | | | | |
 
 ---
 

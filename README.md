@@ -4,10 +4,10 @@
 
 [![Version](https://img.shields.io/badge/Release-v0.1.0-brightgreen.svg)](CHANGELOG.md)
 [![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?logo=rust)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-154%2F154%20Passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-313%2F313%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-49%2F49%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-85%2F85%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 [![Guía UTM y VirtualBox](https://img.shields.io/badge/Gu%C3%ADa-UTM%20%26%20VirtualBox-blue.svg)](docs/guia-emulacion-utm-virtualbox.md)
 
@@ -65,7 +65,8 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 * **[`system/antosd`](system/antosd):** Demonio `antosd` y CLI `antos`. Contiene el planificador local/Ollama/Claude, orquestador `antFlow`, memoria semántica, gestor de cuotas, recinto sandbox y motor de ejecución.
 * **[`system/capabilities`](system/capabilities):** Manifiestos TOML tipados que definen contratos, parámetros, efectos y niveles de riesgo de cada capacidad del desarrollador.
 * **[`system/barra`](system/barra):** Shell de escritorio Wayland / GTK4 Layer Shell con barra flotante de intenciones, insignias en vivo, visor de diffs, consola VTE y centro de control Kanban.
-* **[`kernel`](kernel):** Núcleo `no_std` en Rust multi-arquitectura con soporte bare-metal para x86_64 y AArch64 (ARM 64-bit).
+* **[`kernel`](kernel):** Núcleo `no_std` en Rust multi-arquitectura con soporte bare-metal para x86_64 y AArch64 (ARM 64-bit), driver de framebuffer/VirtIO-GPU, Desktop Shell nativo con compositor 2D, entrada VirtIO-Input y cargador de ejecutables ELF64.
+* **[`user`](user):** `libantos`, la biblioteca de runtime soberana para espacio de usuario (asignador respaldado por `SYS_MMAP`, IPC por canales, `print!`/`println!`/`read_line`), y `antos-init`: el proceso PID 1 con el shell interactivo (`help`, `info`, `ls`, `cat`, `desktop`, `agent`) que arranca sobre el kernel bare-metal.
 * **[`builder`](builder):** Ensamblador de imágenes de disco arrancables BIOS (MBR), UEFI (GPT con partición FAT32 ESP) e ISOs híbridas para x86_64 y AArch64.
 * **[`docs/tickets`](docs/tickets):** Backlog y especificaciones técnicas maestro (*Spec-Driven Development*).
 
@@ -124,18 +125,19 @@ antOS autodescubre el contexto, pero puedes personalizar su comportamiento:
 
 ## 🕹️ Modos de Ejecutar e Iniciar antOS
 
-antOS cuenta con **6 métodos de arranque** adaptados a cada escenario:
+antOS cuenta con **7 métodos de arranque** adaptados a cada escenario:
 
 ```
  ┌─────────────────────────────────────────────────────────────────────────────┐
- │                       6 FORMAS DE INICIAR antOS                             │
+ │                       7 FORMAS DE INICIAR antOS                             │
  ├─────────────────────────────────────────────────────────────────────────────┤
  │ 1. CLI y Centro de Control (Host): Desarrollo diario en macOS y Linux       │
  │ 2. Demonio IPC en Segundo Plano: Escucha en socket UNIX y atiende clientes  │
  │ 3. Shell Gráfico Wayland (GTK4): HUD contextual flotante y Kanban (Super+A) │
  │ 4. Contenedor Linux (Landlock LSM): Verificación de aislamiento kernel      │
  │ 5. Máquina Virtual NixOS en QEMU: Sistema operativo completo y servicios    │
- │ 6. Kernel Bare-Metal no_std en QEMU: Arranque x86_64 y AArch64 (BIOS/UEFI) │
+ │ 6. Kernel Bare-Metal no_std en QEMU: Framebuffer, Desktop Shell y Shell PID1│
+ │ 7. Live USB e Instalación Física: Arranque autónomo en NVMe/SATA reales    │
  └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -334,6 +336,17 @@ VBoxManage convertfromraw kernel/target/aarch64-unknown-none/debug/antos-uefi-aa
 VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img antos-x86.vdi --format VDI
 ```
 
+Al llegar al arranque, la consola serie entrega el **shell interactivo soberano de antOS** (`antos-init`, PID 1, sin `glibc`/`musl` — T26.5), con memoria dinámica propia (`libantos`) y estos comandos integrados:
+
+```
+antos> help                 # lista los comandos disponibles
+antos> info                 # arquitectura, heap usado y ticks de actividad del kernel
+antos> ls /                 # contenido del VFS (initramfs/tarfs) montado en el arranque
+antos> cat /etc/antos.conf  # muestra un fichero de texto del VFS
+antos> desktop               # renderiza (x86_64) o cede el control a (AArch64) el Desktop Shell nativo (T26.2)
+antos> agent "optimiza memory.rs"  # encola una intención en un canal IPC del kernel para el puente antFlow
+```
+
 > 📖 **Para una guía detallada paso a paso con resolución de problemas y capturas, consulta la [Guía de Emulación en UTM, VirtualBox y QEMU](docs/guia-emulacion-utm-virtualbox.md).**
 
 ---
@@ -508,29 +521,42 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 18** | [T18.2](docs/tickets/T18.2-arranque-aarch64-consola-serie-pl011-y-vectores-de-excepcion-vbar-el1.md) · Arranque AArch64, Consola Serie PL011 y Vectores de Excepción VBAR_EL1 | ✅ Completado |
 | **Fase 18** | [T18.3](docs/tickets/T18.3-paginacion-aarch64-ttbr0-ttbr1-y-controlador-de-interrupciones-gic.md) · Paginación AArch64 (TTBR0/TTBR1) y Controlador de Interrupciones GIC | ✅ Completado |
 | **Fase 18** | [T18.4](docs/tickets/T18.4-llamadas-al-sistema-svc-en-aarch64-y-generacion-de-imagenes-uefi-bootaa64-efi.md) · Llamadas al Sistema (SVC) en AArch64 y Generación de Imágenes UEFI (BOOTAA64.EFI) | ✅ Completado |
-| **Fase 19** | [T19.1](docs/tickets/T19.1-entorno-de-desarrollo-tui-multipanel-para-terminales-modernas.md) · Entorno de Desarrollo TUI Multipanel para Terminales Modernas (`antos dev`) | ✅ Completado |
-| **Fase 19** | [T19.2](docs/tickets/T19.2-integracion-profunda-de-editor-neovim-con-protocolos-ipc-y-eventos.md) · Integración Profunda de Editor Neovim con Protocolos IPC y Eventos | ✅ Completado |
-| **Fase 20** | [T20.1](docs/tickets/T20.1-analizador-de-fallos-heuristico-y-extraccion-de-trazas-de-stack.md) · Analizador de Fallos Heurístico y Extracción de Trazas de Stack | ✅ Completado |
-| **Fase 20** | [T20.2](docs/tickets/T20.2-generador-autonomo-de-reproduccion-de-bugs-y-tests-de-regresion.md) · Generador Autónomo de Reproducción de Bugs y Tests de Regresión TDD | ✅ Completado |
-| **Fase 20** | [T20.3](docs/tickets/T20.3-matriz-de-integracion-continua-local-paralela-en-sandboxes.md) · Matriz de Integración Continua Local Paralela en Sandboxes (`antos ci`) | ✅ Completado |
-| **Fase 20** | [T20.4](docs/tickets/T20.4-time-machine-de-estado-de-desarrollo-y-snapshots-atomicos.md) · Time Machine de Estado de Desarrollo y Snapshots Atómicos (`antos snapshot`) | ✅ Completado |
-| **Fase 21** | [T21.1](docs/tickets/T21.1-motor-de-benchmarking-continuo-y-deteccion-de-regresiones-en-worktrees.md) · Motor de Benchmarking Continuo y Detección de Regresiones en Worktrees | ✅ Completado |
-| **Fase 21** | [T21.2](docs/tickets/T21.2-integracion-con-forges-remotos-github-gitlab-para-issues-y-prs.md) · Integración con Forges Remotos (GitHub / GitLab) para Issues y PRs | ✅ Completado |
-| **Fase 21** | [T21.3](docs/tickets/T21.3-generador-automatico-de-diagramas-de-arquitectura-vivos-mermaid-y-markdown.md) · Generador Automático de Diagramas de Arquitectura Vivos (Mermaid) | ✅ Completado |
-| **Fase 22** | [T22.1](docs/tickets/T22.1-interfaz-web-reactiva-para-la-consola-remota-y-terminal-xtermjs.md) · Interfaz Web Reactiva para Consola Remota y Terminal xterm.js | ✅ Completado |
-| **Fase 22** | [T22.2](docs/tickets/T22.2-protocolo-de-comunicacion-bidireccional-websocket-con-autenticacion-sha256.md) · Comunicación Bidireccional WebSocket con Autenticación SHA-256 | ✅ Completado |
-| **Fase 22** | [T22.3](docs/tickets/T22.3-despacho-distribuido-de-tareas-en-swarm-peer-to-peer.md) · Despacho Distribuido de Tareas en Swarm Peer-to-Peer (`antos swarm`) | ✅ Completado |
-| **Fase 22** | [T22.4](docs/tickets/T22.4-abstraccion-de-plataforma-runtime-para-darwin-macos-y-bare-metal.md) · Abstracción de Plataforma Runtime para macOS y Bare Metal (`antos runtime`) | ✅ Completado |
-| **Fase 23** | [T23.1](docs/tickets/T23.1-descriptor-de-tablas-de-interrupciones-idt-y-controlador-apic.md) · Descriptor de Tablas de Interrupciones IDT y Controlador APIC | ✅ Completado |
-| **Fase 23** | [T23.2](docs/tickets/T23.2-gestor-de-memoria-fisica-pmm-y-paginacion-virtual-vmm-en-kernel.md) · Gestor de Memoria Física (PMM) y Paginación Virtual (VMM) en Kernel | ✅ Completado |
-| **Fase 23** | [T23.3](docs/tickets/T23.3-planificador-multitarea-apropiativo-y-context-switch-tss.md) · Planificador Multitarea Apropiativo y Context Switch / TSS | ✅ Completado |
-| **Fase 23** | [T23.4](docs/tickets/T23.4-driver-de-bloque-virtio-blk-y-sistema-de-ficheros-initrd-tarfs.md) · Driver de Bloque VirtIO (`virtio-blk`) y Sistema de Ficheros Initrd/tarfs | ✅ Completado |
+| **Fase 19** | [T19.1](docs/tickets/T19.1-motor-de-inferencia-openai-compatible-y-hub-de-proveedores-gratuitos.md) · Motor de Inferencia OpenAI-Compatible y Hub de Proveedores Gratuitos | ✅ Completado |
+| **Fase 19** | [T19.2](docs/tickets/T19.2-gestion-de-configuracion-persistente-seleccion-dinamica-y-catalogo-de-llms-gratuitos.md) · Gestión de Configuración Persistente, Selección Dinámica y Catálogo de LLMs Gratuitos | ✅ Completado |
+| **Fase 19** | [T19.3](docs/tickets/T19.3-deteccion-e-instalacion-de-ollama-y-opencode-por-defecto-con-receta-antpkg.md) · Detección e Instalación de Ollama y OpenCode por Defecto con Receta antpkg | ✅ Completado |
+| **Fase 19** | [T19.4](docs/tickets/T19.4-enriquecimiento-del-equipo-multi-agente-antflow-y-asignacion-de-modelos-por-rol.md) · Enriquecimiento del Equipo Multi-Agente antFlow y Asignación de Modelos por Rol | ✅ Completado |
+| **Fase 20** | [T20.1](docs/tickets/T20.1-espacio-de-trabajo-integrado-dev-tui-con-neovim-monitor-de-agentes-y-visor-de-diffs.md) · Espacio de Trabajo Integrado Dev TUI con Neovim, Monitor de Agentes y Visor de Diffs (`antos dev`) | ✅ Completado |
+| **Fase 20** | [T20.2](docs/tickets/T20.2-reproductor-autonomo-de-bugs-y-generador-de-tests-de-regresion-tdd.md) · Reproductor Autónomo de Bugs y Generador de Tests de Regresión TDD | ✅ Completado |
+| **Fase 20** | [T20.3](docs/tickets/T20.3-matriz-de-ci-cd-local-paralela-en-sandboxes-y-pre-commit-hooks-del-auditor.md) · Matriz de CI/CD Local Paralela en Sandboxes y Pre-Commit Hooks del Auditor (`antos ci`) | ✅ Completado |
+| **Fase 20** | [T20.4](docs/tickets/T20.4-snapshots-atomicos-de-entorno-de-desarrollo-y-time-machine-de-estado.md) · Snapshots Atómicos de Entorno de Desarrollo y Time Machine de Estado (`antos snapshot`) | ✅ Completado |
+| **Fase 21** | [T21.1](docs/tickets/T21.1-benchmarking-continuo-y-deteccion-de-regresiones-de-rendimiento-en-worktrees.md) · Benchmarking Continuo y Detección de Regresiones de Rendimiento en Worktrees | ✅ Completado |
+| **Fase 21** | [T21.2](docs/tickets/T21.2-sincronizacion-bidireccional-con-forjas-git-issues-a-tickets-y-pull-requests.md) · Sincronización Bidireccional con Forjas Git: Issues a Tickets y Pull Requests | ✅ Completado |
+| **Fase 21** | [T21.3](docs/tickets/T21.3-generador-y-sincronizador-de-documentacion-viva-de-arquitectura-y-diagramas-mermaid.md) · Generador y Sincronizador de Documentación Viva de Arquitectura y Diagramas Mermaid | ✅ Completado |
+| **Fase 22** | [T22.1](docs/tickets/T22.1-modularizacion-y-desacoplamiento-de-antosd-en-cli-y-subcomandos.md) · Modularización y Desacoplamiento de `antosd` en CLI y Subcomandos | ✅ Completado |
+| **Fase 22** | [T22.2](docs/tickets/T22.2-descomposicion-modular-de-antos-protocolo-en-submodulos-tematicos.md) · Descomposición Modular de `antos-protocolo` en Submódulos Temáticos | ✅ Completado |
+| **Fase 22** | [T22.3](docs/tickets/T22.3-estandarizacion-de-nomenclatura-en-ingles-y-limpieza-de-deuda-tecnica.md) · Estandarización de Nomenclatura en Inglés y Limpieza de Deuda Técnica | ✅ Completado |
+| **Fase 22** | [T22.4](docs/tickets/T22.4-capa-de-abstraccion-de-runtime-de-plataforma-platform-runtime.md) · Capa de Abstracción de Runtime de Plataforma (`PlatformRuntime`, `antos runtime`) | ✅ Completado |
+| **Fase 22** | [T22.5](docs/tickets/T22.5-interfaz-abi-inicial-kernel-userspace-y-proceso-init-bare-metal.md) · Interfaz ABI Inicial Kernel-Userspace y Proceso Init Bare-Metal | ✅ Completado |
+| **Fase 22** | [T22.6](docs/tickets/T22.6-matriz-de-ci-cd-automatizada-y-verificacion-multiplataforma-en-github-actions.md) · Matriz de CI/CD Automatizada y Verificación Multiplataforma en GitHub Actions | ✅ Completado |
+| **Fase 23** | [T23.1](docs/tickets/T23.1-controlador-de-interrupciones-apic-lapic-ioapic-y-reemplazo-de-pic8259.md) · Controlador de Interrupciones APIC (LAPIC/IOAPIC) y Reemplazo del PIC 8259 | ✅ Completado |
+| **Fase 23** | [T23.2](docs/tickets/T23.2-planificador-preemptivo-bloques-pcb-tcb-y-conmutacion-de-contexto.md) · Planificador Preemptivo, Bloques PCB/TCB y Conmutación de Contexto | ✅ Completado |
+| **Fase 23** | [T23.3](docs/tickets/T23.3-consola-grafica-framebuffer-con-fuente-bitmap-y-secuencias-ansi.md) · Consola Gráfica Framebuffer en Pantalla con Fuente Bitmap y Secuencias ANSI | ✅ Completado |
+| **Fase 23** | [T23.4](docs/tickets/T23.4-driver-de-bloque-virtio-blk-y-sistema-de-ficheros-initrd-tarfs.md) · Driver de Bloque VirtIO (`virtio-blk`) y Sistema de Ficheros Inicial Initrd/tarfs | ✅ Completado |
 | **Fase 23** | [T23.5](docs/tickets/T23.5-ampliacion-de-llamadas-al-sistema-posix-e-ipc-por-canales-microkernel.md) · Ampliación de Llamadas al Sistema POSIX e IPC por Canales Microkernel | ✅ Completado |
 | **Fase 24** | [T24.1](docs/tickets/T24.1-integracion-de-bootloader-uefi-limine-en-builder-para-arranque-hibrido.md) · Integración de Bootloader UEFI Limine en `builder` para Arranque Híbrido | ✅ Completado |
 | **Fase 24** | [T24.2](docs/tickets/T24.2-empaquetador-de-ramdisk-initramfs-live-con-sistema-base-y-herramientas.md) · Empaquetador de Ramdisk (Initramfs) Live con Sistema Base y Herramientas | ✅ Completado |
 | **Fase 24** | [T24.3](docs/tickets/T24.3-drivers-de-almacenamiento-fisico-ahci-sata-y-nvme-para-deteccion-de-discos.md) · Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos | ✅ Completado |
 | **Fase 24** | [T24.4](docs/tickets/T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) · Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ✅ Completado |
 | **Fase 24** | [T24.5](docs/tickets/T24.5-generador-automatizado-de-live-usb-y-script-de-grabacion-antos-usb.md) · Generador Automatizado de Live USB y Script de Grabación (`antos usb flash`) | ✅ Completado |
+| **Fase 25** | [T25.1](docs/tickets/T25.1-extension-de-antpkg-para-aplicaciones-graficas-xdg-y-desktop-entries.md) · Extensión de `antpkg` para Aplicaciones Gráficas XDG y Desktop Entries | ✅ Completado |
+| **Fase 25** | [T25.2](docs/tickets/T25.2-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-graficos.md) · Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`) | ✅ Completado |
+| **Fase 25** | [T25.3](docs/tickets/T25.3-catalogo-oficial-de-recetas-antpkg-para-navegadores-e-ides.md) · Catálogo Oficial de Recetas antpkg para Navegadores e IDEs | ✅ Completado |
+| **Fase 25** | [T25.4](docs/tickets/T25.4-lanzador-de-aplicaciones-graficas-y-contexto-de-workspace-en-barra-wayland.md) · Lanzador de Aplicaciones Gráficas y Contexto de Workspace en Barra Wayland | ✅ Completado |
+| **Fase 26** | [T26.1](docs/tickets/T26.1-controlador-de-framebuffer-grafico-aarch64-y-virtio-gpu.md) · Controlador de Framebuffer Gráfico AArch64 y VirtIO-GPU en Kernel Bare-Metal | ✅ Completado |
+| **Fase 26** | [T26.2](docs/tickets/T26.2-desktop-shell-nativo-en-rust-y-compositor-2d-framebuffer.md) · Desktop Shell Nativo en Rust y Compositor 2D sobre Framebuffer | ✅ Completado |
+| **Fase 26** | [T26.3](docs/tickets/T26.3-controlador-de-entrada-virtio-input-teclado-y-raton.md) · Controlador de Entrada Nativo: VirtIO-Input, Teclado y Ratón | ✅ Completado |
+| **Fase 26** | [T26.4](docs/tickets/T26.4-cargador-de-ejecutables-elf64-y-sistema-de-ficheros-initramfs-tarfs.md) · Cargador de Ejecutables ELF64 y Sistema de Ficheros Initramfs Tarfs | ✅ Completado |
+| **Fase 26** | [T26.5](docs/tickets/T26.5-runtime-soberano-libantos-y-shell-interactivo-en-espacio-de-usuario.md) · Runtime Soberano `libantos` y Shell Interactivo en Espacio de Usuario | ✅ Completado |
 
 
 ---
