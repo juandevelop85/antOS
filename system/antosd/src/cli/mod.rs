@@ -82,6 +82,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "usb" | "liveusb" | "flash" => commands::system::cmd_usb(ctx, &rest[1..]),
         "vm" | "microvm" => commands::system::cmd_vm(ctx, &rest[1..]),
         "pkg" | "antpkg" | "package" => commands::pkg::cmd_pkg(ctx, &rest[1..]),
+        "app" | "apps" | "flatpak" => commands::app::cmd_app(ctx, &rest[1..]),
         "autopilot" | "sentinel" | "centinela" => commands::system::cmd_autopilot(ctx, &rest[1..]),
         "web" | "webconsole" | "remote-console" => commands::system::cmd_web(ctx, &rest[1..]),
         "project" | "projects" | "proyectos" => commands::tools::cmd_project(ctx, &rest[1..]),
@@ -125,6 +126,7 @@ antOS — el sistema hace lo que le pides, y puedes deshacerlo
   antos issue [list|import]  sincronización e importación de issues remotos de GitHub/GitLab (T21.2)
   antos pr [create|status]   publicación y consulta de Pull Requests / Merge Requests certificados (T21.2)
   antos doc [arch|sync|check] diagramas vivos de arquitectura y sincronización Mermaid en markdown (T21.3)
+  antos app [list|search|install|run|remove] gestor unificado de aplicaciones Flatpak y nativas (T25.2)
   antos project init <nombre> inicializa repositorio Git aislado y .gitignore en workspace
   antos project list         lista los proyectos y su estado de control de versiones
   antos grant <cap> [--minutos N]

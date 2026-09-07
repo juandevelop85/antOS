@@ -1027,4 +1027,79 @@ pub struct StorageSubsystemStatus {
     pub devices: Vec<StorageDeviceInfo>,
 }
 
+// ----------------------------------------------------------- application management subsystem (T25.2)
 
+/// Origin or packaging system of an application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AppSource {
+    Flatpak,
+    NativePkg,
+    Nix,
+}
+
+impl AppSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AppSource::Flatpak => "flatpak",
+            AppSource::NativePkg => "antpkg",
+            AppSource::Nix => "nix",
+        }
+    }
+}
+
+/// Description of a desktop application managed by antOS.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopApp {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub source: AppSource,
+    pub description: String,
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    pub installed: bool,
+    pub exec_cmd: String,
+}
+
+/// Remote search result for available applications.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppSearchResult {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub source: AppSource,
+    pub description: String,
+    pub installed: bool,
+}
+
+/// Progress report during application installation or downloading.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppProgress {
+    pub app_id: String,
+    pub percentage: f32,
+    pub status: String,
+    pub done: bool,
+}
+
+/// Result of launching an application with desktop and workspace context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppLaunchResult {
+    pub app_id: String,
+    pub pid: Option<u32>,
+    pub workspace: Option<String>,
+    pub success: bool,
+    pub message: String,
+}
+
+/// Result of an application action (install, uninstall, etc.).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppActionResult {
+    pub app_id: String,
+    pub action: String,
+    pub success: bool,
+    pub message: String,
+}

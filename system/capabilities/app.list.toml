@@ -1,0 +1,12 @@
+name = "app.list"
+summary = "Lista todas las aplicaciones de escritorio instaladas (Flatpak y antpkg)"
+
+[params]
+source = { type = "text", optional = true }
+
+[effects]
+reads = ["$STATE/apps", "$STATE/profiles/current"]
+
+[policy]
+tier = "auto"
+reversible = "never"

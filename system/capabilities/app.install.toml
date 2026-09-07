@@ -1,0 +1,13 @@
+name = "app.install"
+summary = "Descarga e instala una aplicacion grafica desde Flathub o antpkg"
+
+[params]
+id = { type = "text", optional = false }
+source = { type = "text", optional = true }
+
+[effects]
+writes = ["$STATE/apps", "$STATE/store", "$STATE/profiles"]
+
+[policy]
+tier = "confirm"
+reversible = "never"

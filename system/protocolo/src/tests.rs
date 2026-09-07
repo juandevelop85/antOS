@@ -2027,3 +2027,98 @@ use crate::*;
         assert_eq!(des_status.devices[0].interface, StorageInterfaceKind::AhciSata);
         assert_eq!(des_status.devices[1].interface, StorageInterfaceKind::Nvme);
     }
+
+    #[test]
+    fn test_app_management_serialization() {
+        let app = DesktopApp {
+            id: "com.visualstudio.code".to_string(),
+            name: "Visual Studio Code".to_string(),
+            version: "1.93.0".to_string(),
+            source: AppSource::Flatpak,
+            description: "Code editing. Redefined.".to_string(),
+            icon: Some("com.visualstudio.code".to_string()),
+            categories: vec!["Development".to_string(), "IDE".to_string()],
+            permissions: vec!["network".to_string(), "wayland".to_string()],
+            installed: true,
+            exec_cmd: "flatpak run com.visualstudio.code".to_string(),
+        };
+
+        let json_app = serde_json::to_string(&app).expect("serialize app");
+        let des_app: DesktopApp = serde_json::from_str(&json_app).expect("deserialize app");
+        assert_eq!(app, des_app);
+        assert_eq!(des_app.source, AppSource::Flatpak);
+        assert_eq!(des_app.source.as_str(), "flatpak");
+
+        let search_res = AppSearchResult {
+            id: "org.mozilla.firefox".to_string(),
+            name: "Firefox".to_string(),
+            version: "130.0".to_string(),
+            source: AppSource::Flatpak,
+            description: "Fast, Private & Safe Web Browser".to_string(),
+            installed: false,
+        };
+        let json_sr = serde_json::to_string(&search_res).expect("serialize search_res");
+        let des_sr: AppSearchResult = serde_json::from_str(&json_sr).expect("deserialize search_res");
+        assert_eq!(search_res, des_sr);
+
+        let progress = AppProgress {
+            app_id: "com.visualstudio.code".to_string(),
+            percentage: 65.5,
+            status: "Downloading runtime...".to_string(),
+            done: false,
+        };
+        let json_prog = serde_json::to_string(&progress).expect("serialize progress");
+        let des_prog: AppProgress = serde_json::from_str(&json_prog).expect("deserialize progress");
+        assert_eq!(progress.app_id, des_prog.app_id);
+        assert_eq!(progress.percentage, des_prog.percentage);
+
+        let launch_res = AppLaunchResult {
+            app_id: "com.visualstudio.code".to_string(),
+            pid: Some(12345),
+            workspace: Some("/home/developer/workspace".to_string()),
+            success: true,
+            message: "Application launched successfully".to_string(),
+        };
+        let json_launch = serde_json::to_string(&launch_res).expect("serialize launch_res");
+        let des_launch: AppLaunchResult = serde_json::from_str(&json_launch).expect("deserialize launch_res");
+        assert_eq!(launch_res, des_launch);
+
+        // Requests
+        let req_list = Request::ListApps { source: Some(AppSource::Flatpak) };
+        let json_req = serde_json::to_string(&req_list).expect("serialize req_list");
+        let des_req: Request = serde_json::from_str(&json_req).expect("deserialize req_list");
+        assert_eq!(req_list, des_req);
+
+        let req_search = Request::SearchApps { query: "code".to_string() };
+        let json_search = serde_json::to_string(&req_search).expect("serialize req_search");
+        let des_search: Request = serde_json::from_str(&json_search).expect("deserialize req_search");
+        assert_eq!(req_search, des_search);
+
+        let req_install = Request::InstallApp {
+            id: "com.visualstudio.code".to_string(),
+            source: Some(AppSource::Flatpak),
+        };
+        let json_install = serde_json::to_string(&req_install).expect("serialize req_install");
+        let des_install: Request = serde_json::from_str(&json_install).expect("deserialize req_install");
+        assert_eq!(req_install, des_install);
+
+        let req_launch = Request::LaunchApp {
+            id: "com.visualstudio.code".to_string(),
+            workspace: Some("/home/developer/workspace".to_string()),
+            args: vec![".".to_string()],
+        };
+        let json_launch_req = serde_json::to_string(&req_launch).expect("serialize req_launch");
+        let des_launch_req: Request = serde_json::from_str(&json_launch_req).expect("deserialize req_launch");
+        assert_eq!(req_launch, des_launch_req);
+
+        // Events
+        let ev_list = Event::AppList(vec![app.clone()]);
+        let json_ev = serde_json::to_string(&ev_list).expect("serialize ev_list");
+        let des_ev: Event = serde_json::from_str(&json_ev).expect("deserialize ev_list");
+        assert_eq!(ev_list, des_ev);
+
+        let ev_prog = Event::AppProgress(progress);
+        let json_prog_ev = serde_json::to_string(&ev_prog).expect("serialize ev_prog");
+        let des_prog_ev: Event = serde_json::from_str(&json_prog_ev).expect("deserialize ev_prog");
+        assert_eq!(ev_prog, des_prog_ev);
+    }

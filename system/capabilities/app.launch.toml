@@ -1,0 +1,13 @@
+name = "app.launch"
+summary = "Ejecuta una aplicacion grafica inyectando contexto de workspace y Wayland"
+
+[params]
+id = { type = "text", optional = false }
+workspace = { type = "text", optional = true }
+
+[effects]
+reads = ["$STATE/apps", "$ARG_WORKSPACE"]
+
+[policy]
+tier = "auto"
+reversible = "never"

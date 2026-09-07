@@ -1,0 +1,12 @@
+name = "app.search"
+summary = "Busca aplicaciones de escritorio disponibles en Flathub y catalogo antOS"
+
+[params]
+query = { type = "text", optional = false }
+
+[effects]
+reads = ["$STATE/apps"]
+
+[policy]
+tier = "auto"
+reversible = "never"

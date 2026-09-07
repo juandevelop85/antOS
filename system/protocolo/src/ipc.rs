@@ -445,6 +445,35 @@ pub enum Request {
     CheckArchDocs {
         target_file: Option<String>,
     },
+    /// List desktop and developer applications (Flatpak, antpkg, Nix) (T25.2).
+    #[serde(alias = "ListApps", alias = "list_apps")]
+    ListApps {
+        source: Option<AppSource>,
+    },
+    /// Search remote application registries (Flathub, recipes) (T25.2).
+    #[serde(alias = "SearchApps", alias = "search_apps")]
+    SearchApps {
+        query: String,
+    },
+    /// Install application from Flathub or package store (T25.2).
+    #[serde(alias = "InstallApp", alias = "install_app")]
+    InstallApp {
+        id: String,
+        source: Option<AppSource>,
+    },
+    /// Uninstall application and revoke permissions (T25.2).
+    #[serde(alias = "UninstallApp", alias = "uninstall_app")]
+    UninstallApp {
+        id: String,
+    },
+    /// Launch application with Wayland display and workspace context (T25.2).
+    #[serde(alias = "LaunchApp", alias = "launch_app")]
+    LaunchApp {
+        id: String,
+        workspace: Option<String>,
+        #[serde(default)]
+        args: Vec<String>,
+    },
 }
 
 /// Backwards compatibility type alias.
@@ -786,6 +815,21 @@ pub enum Event {
     /// Result of architecture documentation sync or check (T21.3).
     #[serde(alias = "SincronizacionDocumentacion")]
     DocSync(DocSyncReport),
+    /// List of desktop applications (Flatpak, antpkg, Nix) (T25.2).
+    #[serde(alias = "AppList", alias = "app_list")]
+    AppList(Vec<DesktopApp>),
+    /// Search results from remote application catalogs (T25.2).
+    #[serde(alias = "AppSearchResults", alias = "app_search_results")]
+    AppSearchResults(Vec<AppSearchResult>),
+    /// Progress update during application download or installation (T25.2).
+    #[serde(alias = "AppProgress", alias = "app_progress")]
+    AppProgress(AppProgress),
+    /// Result of an application action (install, uninstall) (T25.2).
+    #[serde(alias = "AppActionResult", alias = "app_action_result")]
+    AppActionResult(AppActionResult),
+    /// Result of launching an application (T25.2).
+    #[serde(alias = "AppLaunchResult", alias = "app_launch_result")]
+    AppLaunchResult(AppLaunchResult),
     /// General error message.
     #[serde(alias = "Error")]
     Error(String),

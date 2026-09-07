@@ -743,6 +743,37 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let report = crate::pkg::PackageEngine::validate_desktop_entry(&content);
             send(&mut writer, &Event::DesktopValidationReport(report))?;
         }
+        Request::ListApps { source } => {
+            match crate::apps::AppEngine::list_apps(&ctx.state, source) {
+                Ok(apps) => send(&mut writer, &Event::AppList(apps))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::SearchApps { query } => {
+            match crate::apps::AppEngine::search_apps(&ctx.state, &query) {
+                Ok(results) => send(&mut writer, &Event::AppSearchResults(results))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::InstallApp { id, source } => {
+            match crate::apps::AppEngine::install_app(&ctx.state, &id, source, |_| {}) {
+                Ok(res) => send(&mut writer, &Event::AppActionResult(res))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::UninstallApp { id } => {
+            match crate::apps::AppEngine::uninstall_app(&ctx.state, &id) {
+                Ok(res) => send(&mut writer, &Event::AppActionResult(res))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::LaunchApp { id, workspace, args } => {
+            let ws = workspace.as_deref().map(std::path::Path::new).unwrap_or(&ctx.workspace);
+            match crate::apps::AppEngine::launch_app(&ctx.state, &id, Some(ws), &args) {
+                Ok(res) => send(&mut writer, &Event::AppLaunchResult(res))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
         Request::StartAutopilot(config) => {
             match crate::autopilot::AutopilotEngine::start(&ctx.state, &ctx.workspace, config) {
                 Ok(st) => send(&mut writer, &Event::AutopilotStatus(st))?,
@@ -1330,6 +1361,38 @@ pub fn intencion_remota(
                 for warn in &rep.warnings {
                     term.on_note(&format!("  - [WARN] {warn}"))?;
                 }
+            }
+            Event::AppList(apps) => {
+                if apps.is_empty() {
+                    term.on_note("antOS Apps: No hay aplicaciones instaladas.")?;
+                } else {
+                    term.on_note(&format!("📦 antOS Apps · Aplicaciones Registradas ({}):", apps.len()))?;
+                    for a in apps {
+                        term.on_note(&format!("  • {:<32} [{}] v{} {}", a.id, a.source.as_str(), a.version, a.name))?;
+                    }
+                }
+            }
+            Event::AppSearchResults(results) => {
+                if results.is_empty() {
+                    term.on_note("antOS Apps: No se encontraron aplicaciones.")?;
+                } else {
+                    term.on_note(&format!("🔍 antOS Apps · Catálogo ({}) resultados:", results.len()))?;
+                    for r in results {
+                        let status = if r.installed { "[Instalada]" } else { "[Disponible]" };
+                        term.on_note(&format!("  • {:<32} [{}] {} v{} - {}", r.id, r.source.as_str(), status, r.version, r.name))?;
+                    }
+                }
+            }
+            Event::AppProgress(p) => {
+                term.on_note(&format!("  [{:>3.0}%] {}", p.percentage, p.status))?;
+            }
+            Event::AppActionResult(res) => {
+                let badge = if res.success { "✅" } else { "❌" };
+                term.on_note(&format!("{badge} antOS Apps · [{}] {}", res.action, res.message))?;
+            }
+            Event::AppLaunchResult(res) => {
+                let badge = if res.success { "🚀" } else { "❌" };
+                term.on_note(&format!("{badge} antOS Apps · {}", res.message))?;
             }
             Event::AutopilotStatus(st) => {
                 let active_badge = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };

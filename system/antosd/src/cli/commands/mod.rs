@@ -1,3 +1,4 @@
+pub mod app;
 pub mod ci;
 pub mod dev;
 pub mod flow;

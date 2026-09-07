@@ -5,6 +5,7 @@
 
 extern crate antos_protocol;
 
+pub mod apps;
 pub mod autopilot;
 pub mod barra;
 pub mod bench;

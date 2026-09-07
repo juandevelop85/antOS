@@ -1,0 +1,12 @@
+name = "app.uninstall"
+summary = "Desinstala una aplicacion grafica y revoca sus permisos de sandbox"
+
+[params]
+id = { type = "text", optional = false }
+
+[effects]
+writes = ["$STATE/apps", "$STATE/profiles"]
+
+[policy]
+tier = "confirm"
+reversible = "never"
