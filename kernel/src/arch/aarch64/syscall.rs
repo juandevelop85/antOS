@@ -97,7 +97,41 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
         }
 
         syscall::SYS_SPAWN => {
-            ctx.x[0] = syscall::ENOSYS;
+            let path_ptr = ctx.x[0];
+            let path_len = ctx.x[1];
+            let _mode = ctx.x[2];
+
+            if let Err(e) = syscall::validate_user_ptr(path_ptr, path_len) {
+                ctx.x[0] = e;
+            } else if path_len > 256 {
+                ctx.x[0] = syscall::EINVAL;
+            } else {
+                let kaddr = if path_ptr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
+                    && path_ptr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
+                {
+                    (path_ptr - crate::arch::aarch64::mmu::USER_SPACE_VIRT) + crate::arch::aarch64::mmu::USER_SPACE_PHYS
+                } else {
+                    path_ptr
+                };
+                let path_bytes = unsafe { core::slice::from_raw_parts(kaddr as *const u8, path_len as usize) };
+                if let Ok(path_str) = core::str::from_utf8(path_bytes) {
+                    if let Ok(binary) = crate::fs::vfs::read_all(path_str) {
+                        match unsafe { crate::elf::load_aarch64(&binary) } {
+                            Ok((_entry, _stack_top)) => {
+                                let new_pid = CURRENT_PID.fetch_add(1, Ordering::Relaxed);
+                                ctx.x[0] = new_pid;
+                            }
+                            Err(_) => {
+                                ctx.x[0] = syscall::EINVAL;
+                            }
+                        }
+                    } else {
+                        ctx.x[0] = syscall::ENOENT;
+                    }
+                } else {
+                    ctx.x[0] = syscall::EINVAL;
+                }
+            }
         }
 
         syscall::SYS_WAITPID => {

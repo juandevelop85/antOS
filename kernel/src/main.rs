@@ -232,6 +232,27 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     }
 
     println!();
+    println!("cargador de ejecutables ELF64 e initramfs (T26.4)");
+    let sample_elf = [
+        0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        2, 0, 0xb7, 0, 1, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 0,
+        64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 64, 0, 56, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+        1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0x40, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 0,
+        120, 0, 0, 0, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0,
+        0, 16, 0, 0, 0, 0, 0, 0,
+    ];
+    match elf::parse_elf(&sample_elf) {
+        Ok(info) => {
+            println!("  cargador     ELF64 verificado para AArch64 (entrada: {:#x}, segmentos: {})", info.entry, info.loadable_segments);
+        }
+        Err(e) => {
+            println!("  error        fallo en cargador ELF64: {}", e);
+        }
+    }
+
+    println!();
     println!("espacio de usuario (EL0) y llamadas al sistema (SVC)");
     let (user_entry, user_sp, arg0, arg1) = unsafe {
         arch::aarch64::syscall::setup_test_userspace()

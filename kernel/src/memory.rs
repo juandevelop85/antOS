@@ -44,6 +44,9 @@ pub const USER: u64 = 1 << 2;
 /// En los niveles 2 y 3 significa «aquí acaba el recorrido»: la entrada apunta
 /// directamente a una página de 2 MiB o 1 GiB en vez de a otra tabla.
 const HUGE: u64 = 1 << 7;
+/// Bit de no ejecución (NX / XD) en x86_64. Si está activo, saltar a esta
+/// página genera un fallo de protección de página.
+pub const NO_EXECUTE: u64 = 1 << 63;
 
 /// Los bits 12-51 de una entrada son la dirección física. El resto son
 /// banderas, y hay que enmascararlos para quedarse con la dirección.
@@ -197,6 +200,32 @@ impl Mapper {
         use crate::arch::traits::ArchMmu;
         crate::arch::current::mmu::CurrentMmu::flush_tlb(virtual_address);
         Ok(entry_val & ADDRESS_MASK)
+    }
+
+    /// Actualiza los bits de protección (flags) de una página virtual previamente mapeada.
+    pub unsafe fn update_flags(&mut self, virtual_address: u64, flags: u64) -> Result<(), &'static str> {
+        let mut table = self.level4_table();
+        for level in (2..=4u32).rev() {
+            let index = table_index(virtual_address, level);
+            let entry = unsafe { *self.entry(table, index) };
+            if entry & PRESENT == 0 {
+                return Err("page not mapped");
+            }
+            table = entry & ADDRESS_MASK;
+        }
+
+        let index = table_index(virtual_address, 1);
+        let entry_ptr = unsafe { self.entry(table, index) };
+        let entry_val = unsafe { *entry_ptr };
+        if entry_val & PRESENT == 0 {
+            return Err("page not mapped");
+        }
+        let frame = entry_val & ADDRESS_MASK;
+        unsafe { *entry_ptr = frame | flags | PRESENT };
+
+        use crate::arch::traits::ArchMmu;
+        crate::arch::current::mmu::CurrentMmu::flush_tlb(virtual_address);
+        Ok(())
     }
 }
 

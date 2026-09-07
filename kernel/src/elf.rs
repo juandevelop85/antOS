@@ -1,104 +1,178 @@
-//! Cargador de ELF64.
+//! Cargador y parser de ejecutables ELF64 para antOS.
 //!
-//! Es exactamente lo que el bootloader nos hizo a nosotros en la Fase 0. Si
-//! miras el log de arranque de entonces, ahí está:
-//!
-//! ```text
-//! INFO : Handling Segment: Ph64(ProgramHeader64 { type_: Ok(Load), ... })
-//! INFO : Mapping bss section
-//! INFO : Jumping to kernel entry point at VirtAddr(0x10000004170)
-//! ```
-//!
-//! Ahora nos toca hacérselo a otro. Un ELF trae dos tablas: la de secciones,
-//! que le interesa al enlazador, y la de **segmentos de programa**, que es la
-//! que dice cómo cargarlo en memoria. Solo importa la segunda.
-//!
-//! Cada segmento `PT_LOAD` dice: coge `filesz` bytes desde `offset` del
-//! fichero, ponlos en la dirección virtual `vaddr`, y rellena con ceros hasta
-//! `memsz`. Esa diferencia entre `filesz` y `memsz` es el `.bss`: variables
-//! que empiezan a cero y por eso no hace falta guardarlas en el fichero.
+//! Soporta binarios de 64 bits para arquitecturas x86_64 y AArch64,
+//! validación de cabeceras, asignación y protección de memoria virtual
+//! por segmentos (`PT_LOAD` con permisos RX / RW / NX), inicialización de
+//! la sección BSS, y preparación de la pila de usuario conforme a System V ABI.
 
-use crate::memory::{FrameAllocator, Mapper, PAGE_SIZE, PRESENT, USER, WRITABLE};
+#[cfg(target_arch = "x86_64")]
+use crate::memory::{FrameAllocator, Mapper, NO_EXECUTE, PAGE_SIZE, PRESENT, USER, WRITABLE};
 
-const MAGIC: &[u8; 4] = b"\x7fELF";
-const CLASS_64: u8 = 2;
-const MACHINE_X86_64: u16 = 0x3E;
-const PT_LOAD: u32 = 1;
+pub const MAGIC: &[u8; 4] = b"\x7fELF";
+pub const CLASS_64: u8 = 2;
+pub const DATA_2LSB: u8 = 1; // Little endian
 
-/// La cabecera, tal cual la define el estándar. Solo se usan unos pocos
-/// campos; el resto están para que los desplazamientos cuadren.
+pub const MACHINE_X86_64: u16 = 0x3E;
+pub const MACHINE_AARCH64: u16 = 0xB7;
+
+pub const ET_EXEC: u16 = 2;
+pub const ET_DYN: u16 = 3;
+
+pub const PT_LOAD: u32 = 1;
+
+pub const PF_X: u32 = 1; // Execute
+pub const PF_W: u32 = 2; // Write
+pub const PF_R: u32 = 4; // Read
+
+/// Cabecera ELF64 tal cual la define el estándar System V.
 #[repr(C)]
-struct Header {
-    identification: [u8; 16],
-    file_type: u16,
-    machine: u16,
-    version: u32,
-    entry: u64,
-    program_header_offset: u64,
-    section_header_offset: u64,
-    flags: u32,
-    header_size: u16,
-    program_header_size: u16,
-    program_header_count: u16,
-    section_header_size: u16,
-    section_header_count: u16,
-    section_name_index: u16,
+#[derive(Clone, Copy)]
+pub struct Header {
+    pub identification: [u8; 16],
+    pub file_type: u16,
+    pub machine: u16,
+    pub version: u32,
+    pub entry: u64,
+    pub program_header_offset: u64,
+    pub section_header_offset: u64,
+    pub flags: u32,
+    pub header_size: u16,
+    pub program_header_size: u16,
+    pub program_header_count: u16,
+    pub section_header_size: u16,
+    pub section_header_count: u16,
+    pub section_name_index: u16,
 }
 
+/// Cabecera de programa ELF64 (Elf64_Phdr).
 #[repr(C)]
-struct ProgramHeader {
-    segment_type: u32,
-    flags: u32,
-    offset: u64,
-    virtual_address: u64,
-    physical_address: u64,
-    file_size: u64,
-    memory_size: u64,
-    alignment: u64,
+#[derive(Clone, Copy)]
+pub struct ProgramHeader {
+    pub segment_type: u32,
+    pub flags: u32,
+    pub offset: u64,
+    pub virtual_address: u64,
+    pub physical_address: u64,
+    pub file_size: u64,
+    pub memory_size: u64,
+    pub alignment: u64,
 }
 
-/// Carga los segmentos del programa en el espacio de direcciones actual y
-/// devuelve su punto de entrada.
-///
-/// # Safety
-/// Mapea páginas nuevas y escribe en ellas. El ELF debe ser de confianza: no
-/// se comprueba que sus direcciones no pisen al kernel.
+/// Metadatos resumidos de un binario ELF64 parseado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ElfInfo {
+    pub entry: u64,
+    pub machine: u16,
+    pub is_pie: bool,
+    pub min_vaddr: u64,
+    pub max_vaddr: u64,
+    pub total_memsz: u64,
+    pub loadable_segments: usize,
+}
+
+/// Valida y parsea la imagen de un ejecutable ELF64 sin requerir asignaciones en heap.
+pub fn parse_elf(image: &[u8]) -> Result<ElfInfo, &'static str> {
+    if image.len() < core::mem::size_of::<Header>() {
+        return Err("imagen demasiado pequeña para ser un ELF");
+    }
+
+    let header: Header = unsafe { core::ptr::read_unaligned(image.as_ptr() as *const Header) };
+
+    if &header.identification[0..4] != MAGIC {
+        return Err("número mágico ELF inválido");
+    }
+    if header.identification[4] != CLASS_64 {
+        return Err("no es un binario ELF de 64 bits");
+    }
+    if header.identification[5] != DATA_2LSB {
+        return Err("no es Little Endian");
+    }
+    if header.machine != MACHINE_X86_64 && header.machine != MACHINE_AARCH64 {
+        return Err("arquitectura de máquina no soportada");
+    }
+
+    let ph_offset = header.program_header_offset as usize;
+    let ph_size = header.program_header_size as usize;
+    let ph_count = header.program_header_count as usize;
+
+    if ph_count > 0 && ph_offset + ph_count * ph_size > image.len() {
+        return Err("tabla de cabeceras de programa truncada");
+    }
+
+    let mut min_vaddr = u64::MAX;
+    let mut max_vaddr = 0u64;
+    let mut loadable_count = 0;
+
+    for i in 0..ph_count {
+        let entry_offset = ph_offset + i * ph_size;
+        if entry_offset + core::mem::size_of::<ProgramHeader>() > image.len() {
+            return Err("cabecera de programa desbordada");
+        }
+
+        let ph: ProgramHeader = unsafe {
+            core::ptr::read_unaligned(image.as_ptr().add(entry_offset) as *const ProgramHeader)
+        };
+
+        if ph.segment_type == PT_LOAD {
+            loadable_count += 1;
+            let file_off = ph.offset as usize;
+            let file_sz = ph.file_size as usize;
+
+            if file_off + file_sz > image.len() {
+                return Err("segmento PT_LOAD desborda la imagen del archivo");
+            }
+
+            let start = ph.virtual_address;
+            let end = start.saturating_add(ph.memory_size);
+
+            if start < min_vaddr {
+                min_vaddr = start;
+            }
+            if end > max_vaddr {
+                max_vaddr = end;
+            }
+        }
+    }
+
+    if loadable_count == 0 {
+        return Err("el binario no contiene segmentos cargables (PT_LOAD)");
+    }
+
+    Ok(ElfInfo {
+        entry: header.entry,
+        machine: header.machine,
+        is_pie: header.file_type == ET_DYN,
+        min_vaddr,
+        max_vaddr,
+        total_memsz: max_vaddr.saturating_sub(min_vaddr),
+        loadable_segments: loadable_count,
+    })
+}
+
+/// Extrae el punto de entrada de una imagen ELF válida si la arquitectura coincide.
+pub fn parse_entry(image: &[u8]) -> Option<u64> {
+    parse_elf(image).ok().map(|info| info.entry)
+}
+
+/// Carga los segmentos de un ELF64 en el espacio de usuario (x86_64) con permisos estrictos de página.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn load(
     image: &[u8],
     mapper: &mut Mapper,
     allocator: &mut FrameAllocator,
 ) -> Result<u64, &'static str> {
-    if image.len() < core::mem::size_of::<Header>() {
-        return Err("la imagen es demasiado pequeña para ser un ELF");
+    let info = parse_elf(image)?;
+    if info.machine != MACHINE_X86_64 {
+        return Err("el binario ELF no es para la arquitectura x86_64");
     }
 
-    // Se lee SIN alinear, y no es paranoia: `include_bytes!` produce un array
-    // de bytes con alineación 1, mientras que `Header` contiene campos de 64
-    // bits que exigen alineación 8. Castear el puntero y desreferenciarlo es
-    // comportamiento indefinido — y Rust en modo depuración lo caza.
-    //
-    // SAFETY: se acaba de comprobar que hay bytes suficientes, y Header es
-    // #[repr(C)] con la disposición exacta del estándar.
     let header: Header = unsafe { core::ptr::read_unaligned(image.as_ptr() as *const Header) };
+    let ph_offset = header.program_header_offset as usize;
+    let ph_size = header.program_header_size as usize;
+    let ph_count = header.program_header_count as usize;
 
-    if &header.identification[0..4] != MAGIC {
-        return Err("no es un ELF");
-    }
-    if header.identification[4] != CLASS_64 {
-        return Err("no es un ELF de 64 bits");
-    }
-    if header.machine != MACHINE_X86_64 {
-        return Err("no es para x86_64");
-    }
-
-    for index in 0..header.program_header_count as usize {
-        let offset =
-            header.program_header_offset as usize + index * header.program_header_size as usize;
-        if offset + core::mem::size_of::<ProgramHeader>() > image.len() {
-            return Err("tabla de segmentos truncada");
-        }
-        // SAFETY: el desplazamiento está dentro de la imagen. Sin alinear,
-        // por lo mismo que la cabecera.
+    for index in 0..ph_count {
+        let offset = ph_offset + index * ph_size;
         let segment: ProgramHeader =
             unsafe { core::ptr::read_unaligned(image.as_ptr().add(offset) as *const ProgramHeader) };
 
@@ -111,18 +185,7 @@ pub unsafe fn load(
     Ok(header.entry)
 }
 
-/// Extracts the entry point address from an ELF binary image.
-pub fn parse_entry(image: &[u8]) -> Option<u64> {
-    if image.len() < core::mem::size_of::<Header>() {
-        return None;
-    }
-    let header: Header = unsafe { core::ptr::read_unaligned(image.as_ptr() as *const Header) };
-    if &header.identification[0..4] != MAGIC || header.identification[4] != CLASS_64 {
-        return None;
-    }
-    Some(header.entry)
-}
-
+#[cfg(target_arch = "x86_64")]
 unsafe fn load_segment(
     image: &[u8],
     segment: &ProgramHeader,
@@ -135,17 +198,11 @@ unsafe fn load_segment(
     let first_page = start / PAGE_SIZE * PAGE_SIZE;
     let last_page = (end - 1) / PAGE_SIZE * PAGE_SIZE;
 
+    // 1. Mapear inicialmente como WRITABLE para copiar contenido y limpiar BSS
     let mut page = first_page;
     while page <= last_page {
-        // Dos segmentos pueden compartir página: el final de uno y el
-        // principio del siguiente caen en los mismos 4 KiB. Mapear la segunda
-        // vez sería un error, así que se comprueba antes.
         if mapper.translate(page).is_none() {
-            let frame = allocator.allocate().ok_or("sin marcos para el programa")?;
-            // SIMPLIFICACIÓN: todo se mapea escribible, ignorando los permisos
-            // que declara el segmento. Un cargador serio dejaría el código de
-            // solo lectura y los datos sin ejecutar. Aquí haría falta además
-            // poder escribirlos primero, así que se pospone.
+            let frame = allocator.allocate().ok_or("sin marcos físicos para el programa")?;
             unsafe {
                 mapper.map(page, frame, PRESENT | WRITABLE | USER, allocator)?;
                 core::ptr::write_bytes(page as *mut u8, 0, PAGE_SIZE as usize);
@@ -154,17 +211,100 @@ unsafe fn load_segment(
         page += PAGE_SIZE;
     }
 
-    // Copiar la parte que sí viene en el fichero. Lo que queda hasta memsz ya
-    // está a cero de haber limpiado las páginas: eso es el .bss.
+    // 2. Copiar los bytes del archivo al espacio virtual
     let from = segment.offset as usize;
     let length = segment.file_size as usize;
     if from + length > image.len() {
         return Err("segmento fuera de la imagen");
     }
-    // SAFETY: las páginas de destino acaban de mapearse y son escribibles.
     unsafe {
         core::ptr::copy_nonoverlapping(image.as_ptr().add(from), start as *mut u8, length);
     }
 
+    // 3. Ajustar permisos de protección estrictos de página según flags del segmento
+    // PF_R | PF_X -> Solo Lectura / Ejecutable (código .text)
+    // PF_R | PF_W -> Lectura / Escritura / No Ejecutable (datos .data / .bss)
+    let is_writable = (segment.flags & PF_W) != 0;
+    let is_executable = (segment.flags & PF_X) != 0;
+
+    let mut final_flags = PRESENT | USER;
+    if is_writable {
+        final_flags |= WRITABLE;
+    }
+    if !is_executable {
+        final_flags |= NO_EXECUTE;
+    }
+
+    let mut page = first_page;
+    while page <= last_page {
+        unsafe {
+            let _ = mapper.update_flags(page, final_flags);
+        }
+        page += PAGE_SIZE;
+    }
+
     Ok(())
+}
+
+/// Carga un binario ELF64 en AArch64 dentro del área de usuario de 2 MiB.
+#[cfg(target_arch = "aarch64")]
+pub unsafe fn load_aarch64(image: &[u8]) -> Result<(u64, u64), &'static str> {
+    let info = parse_elf(image)?;
+    if info.machine != MACHINE_AARCH64 {
+        return Err("el binario ELF no es para la arquitectura AArch64");
+    }
+
+    let virt_base = crate::arch::aarch64::mmu::USER_SPACE_VIRT;
+    let phys_base = crate::arch::aarch64::mmu::USER_SPACE_PHYS;
+    let user_limit = virt_base + 0x0020_0000; // 2 MiB
+
+    if info.min_vaddr < virt_base || info.max_vaddr > user_limit {
+        return Err("el binario excede el rango de espacio de usuario AArch64");
+    }
+
+    let header: Header = unsafe { core::ptr::read_unaligned(image.as_ptr() as *const Header) };
+    let ph_offset = header.program_header_offset as usize;
+    let ph_size = header.program_header_size as usize;
+    let ph_count = header.program_header_count as usize;
+
+    for i in 0..ph_count {
+        let entry_offset = ph_offset + i * ph_size;
+        let ph: ProgramHeader = unsafe {
+            core::ptr::read_unaligned(image.as_ptr().add(entry_offset) as *const ProgramHeader)
+        };
+
+        if ph.segment_type == PT_LOAD {
+            let vaddr = ph.virtual_address;
+            let offset_in_user = (vaddr - virt_base) as usize;
+            let paddr = (phys_base as usize + offset_in_user) as *mut u8;
+
+            let file_off = ph.offset as usize;
+            let file_sz = ph.file_size as usize;
+            let mem_sz = ph.memory_size as usize;
+
+            // Limpiar con ceros toda la extensión en memoria
+            core::ptr::write_bytes(paddr, 0, mem_sz);
+
+            // Copiar datos del archivo
+            if file_sz > 0 {
+                core::ptr::copy_nonoverlapping(image.as_ptr().add(file_off), paddr, file_sz);
+            }
+
+            // Limpiar caché de datos y refrescar caché de instrucciones para código cargado
+            core::arch::asm!(
+                "dc cvau, {dst}",
+                "dsb ish",
+                "ic iallu",
+                "dsb ish",
+                "isb",
+                dst = in(reg) paddr,
+                options(nostack)
+            );
+        }
+    }
+
+    // Pila de usuario ubicada al final del área de usuario con página de guarda
+    let stack_top = user_limit - 4096;
+
+    Ok((header.entry, stack_top))
 }

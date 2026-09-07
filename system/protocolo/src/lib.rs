@@ -10,6 +10,7 @@
 //! design—a client capable of computing its own tier could simply choose it.
 
 pub mod dev;
+pub mod elf;
 pub mod flow;
 pub mod git;
 pub mod input;
@@ -28,6 +29,7 @@ pub mod wasm;
 mod tests;
 
 pub use dev::*;
+pub use elf::*;
 pub use flow::*;
 pub use git::*;
 pub use input::*;
