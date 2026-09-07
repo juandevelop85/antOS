@@ -80,5 +80,5 @@ el1_entry:
 
 #[no_mangle]
 pub extern "C" fn kernel_entry(dtb_ptr: u64) -> ! {
-    crate::kmain_arm64(dtb_ptr);
+    crate::kmain_arm64(dtb_ptr, false);
 }

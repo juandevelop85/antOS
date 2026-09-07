@@ -93,3 +93,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 26** | [T26.3](T26.3-controlador-de-entrada-virtio-input-teclado-y-raton.md) | Controlador de Entrada Nativo: VirtIO-Input, Teclado y Ratón | ✅ Completado |
 | **Fase 26** | [T26.4](T26.4-cargador-de-ejecutables-elf64-y-sistema-de-ficheros-initramfs-tarfs.md) | Cargador de Ejecutables ELF64 y Sistema de Ficheros Initramfs Tarfs | ✅ Completado |
 | **Fase 26** | [T26.5](T26.5-runtime-soberano-libantos-y-shell-interactivo-en-espacio-de-usuario.md) | Runtime Soberano `libantos` y Shell Interactivo en Espacio de Usuario | ✅ Completado |
+| **Fase 27** | [T27.1](T27.1-soporte-real-del-protocolo-de-arranque-limine-en-el-kernel.md) | Soporte Real del Protocolo de Arranque Limine (Mitad Alta y Boot Requests) en el Kernel | ✅ Completado |

@@ -61,16 +61,26 @@ antOS soporta dos arquitecturas bare-metal (`no_std`) y genera los siguientes ar
 
 ## 3. Comandos de Compilación y Generación de Imágenes
 
+> ⚠️ **Toda imagen UEFI (disco GPT, ISO) exige compilar el kernel con `--features limine` (T27.1).**
+> El binario por defecto se enlaza en la mitad baja del espacio de direcciones — le basta al
+> arranque directo de QEMU, pero el Limine real embebido en las imágenes UEFI lo rechaza con
+> `PANIC: elf: Lower half PHDRs are not allowed` (el pánico típico al arrancar en UTM Método B o
+> en VirtualBox). Este flag no afecta ni hace falta para el arranque directo de kernel (Método A).
+
 ### A. Para Arquitectura ARM64 (AArch64 - Mac Apple Silicon)
 
 ```bash
 # 1. Asegurar el target cruzado en Rust
 rustup target add aarch64-unknown-none
 
-# 2. Compilar el kernel AArch64 bare-metal
+# 2a. Compilar el kernel AArch64 para arranque directo de QEMU (Método A más abajo)
 (cd kernel && cargo build --target aarch64-unknown-none)
 
+# 2b. — o — compilarlo hablando el protocolo Limine, para generar una imagen UEFI (Método B)
+(cd kernel && cargo build --target aarch64-unknown-none --features limine)
+
 # 3. Generar el disco GPT con partición ESP FAT32 (/EFI/BOOT/BOOTAA64.EFI) y la Live ISO
+# a partir del binario que hayas compilado en el paso 2a o 2b
 cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
 ```
 
@@ -80,10 +90,14 @@ cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch a
 # 1. Asegurar el target cruzado en Rust
 rustup target add x86_64-unknown-none
 
-# 2. Compilar el kernel x86_64 bare-metal
+# 2a. Compilar el kernel x86_64 para BIOS (crate `bootloader`, ./run.sh usa este mismo binario)
 (cd kernel && cargo build)
 
-# 3. Generar imagen BIOS MBR, disco UEFI GPT y Live ISO híbrida
+# 2b. — o — compilarlo hablando el protocolo Limine, para generar una imagen UEFI
+(cd kernel && cargo build --features limine)
+
+# 3. Generar imagen BIOS MBR, disco UEFI GPT y Live ISO híbrida a partir de ese binario
+# (--format all asume que ya elegiste 2a o 2b según qué imágenes necesitas realmente)
 cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format all
 ```
 

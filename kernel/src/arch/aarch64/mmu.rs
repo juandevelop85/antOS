@@ -163,6 +163,97 @@ pub fn init() {
     }
 }
 
+/// TTBR0-only counterpart to [`init`], for booting under Limine (T27.1).
+///
+/// Limine hands off with the MMU **already enabled** (`SCTLR_EL1.M = 1`) and
+/// `TTBR1_EL1` already pointing at *its own* page tables, which map this
+/// kernel at its higher-half link address — the very code executing this
+/// function lives there. [`init`] was written for the opposite situation
+/// (direct-QEMU-boot, MMU off) and reflects that: it overwrites the whole of
+/// `TCR_EL1`, including `EPD1` (bit 23), which disables translation walks
+/// for `TTBR1_EL1` — the moment that write retires, the next instruction
+/// fetch from this same higher-half code has nothing left to translate it
+/// and the machine dies. Limine's protocol explicitly leaves `TTBR0_EL1`
+/// (and, before base revision 6, always `TCR_EL1`'s `TTBR0`-related fields)
+/// "unspecified, free for the kernel to use" — so this function only ever
+/// touches that half: `TCR_EL1` bits `[15:0]` (`T0SZ`/`EPD0`/`IRGN0`/
+/// `ORGN0`/`SH0`/`TG0`) and `TTBR0_EL1` itself. `TTBR1_EL1`, `TCR_EL1` bits
+/// `[23:16]` (`T1SZ`/`A1`/`EPD1`) and above, and `SCTLR_EL1` are left
+/// exactly as Limine configured them.
+///
+/// The peripheral, user-space and RAM mappings this installs into
+/// `TTBR0_EL1` are identical to the ones [`init`] installs — GIC, PL011,
+/// VirtIO MMIO and the user-space ELF window all live at the same low
+/// addresses either way, only how the kernel itself got mapped differs
+/// between the two boot paths.
+#[cfg(not(feature = "limine"))]
+pub fn init_ttbr0_under_limine() {
+    unreachable!("kmain_arm64 only takes this branch when booted_via_limine is true, which requires the `limine` feature that gates the real implementation below");
+}
+
+#[cfg(feature = "limine")]
+pub fn init_ttbr0_under_limine() {
+    // `L0_TABLE`, `L1_TABLE` and `L2_TABLE_PERIPHERALS` are statics inside
+    // this very kernel image, so `addr_of!` only ever gives their *virtual*
+    // address — under direct-QEMU-boot's `init` that happened to equal their
+    // physical address too, because the MMU was off, but under Limine the
+    // kernel runs at a virtual higher-half address a slide away from where
+    // it was physically loaded. TTBR0_EL1 and every table entry below need
+    // the physical address, so every one of these gets run through this
+    // conversion — skipping even one is exactly the bug this comment is
+    // here to keep from recurring (found by reading a QEMU exception trace:
+    // a Data Abort writing PL011's UARTCR shortly after enabling TTBR0).
+    let response_ptr = crate::limine::EXECUTABLE_ADDRESS_REQUEST.response;
+    if response_ptr.is_null() {
+        panic!("limine: no executable-address response (unsupported base revision?)");
+    }
+    let response = unsafe { &*response_ptr };
+    let slide_virtual_to_physical =
+        |vaddr: u64| vaddr.wrapping_sub(response.virtual_base).wrapping_add(response.physical_base);
+
+    unsafe {
+        let l1_addr = slide_virtual_to_physical(core::ptr::addr_of!(L1_TABLE) as u64);
+        L0_TABLE.entries[0] = l1_addr | DESC_TABLE;
+
+        let l2_addr = slide_virtual_to_physical(core::ptr::addr_of!(L2_TABLE_PERIPHERALS) as u64);
+        L1_TABLE.entries[0] = l2_addr | DESC_TABLE;
+
+        L1_TABLE.entries[1] = 0x4000_0000 | NORMAL_BLOCK_FLAGS;
+
+        L2_TABLE_PERIPHERALS.entries[2] = USER_SPACE_PHYS | USER_BLOCK_FLAGS;
+        L2_TABLE_PERIPHERALS.entries[64] = 0x0800_0000 | DEVICE_BLOCK_FLAGS;
+        L2_TABLE_PERIPHERALS.entries[72] = 0x0900_0000 | DEVICE_BLOCK_FLAGS;
+        L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
+
+        let mair: u64 = (0x00 << 0) | (0xFF << 8) | (0x44 << 16);
+        core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
+
+        let mut mmfr0: u64;
+        core::arch::asm!("mrs {}, id_aa64mmfr0_el1", out(reg) mmfr0, options(nomem, nostack));
+        let pa_range = (mmfr0 & 0x7).min(5);
+        // Same T0SZ/IRGN0/ORGN0/SH0/TG0 recipe as `init`, but folded into
+        // whatever TCR_EL1 Limine already left behind instead of replacing
+        // it outright — and with IPS left untouched, since it is shared
+        // between both translation regimes and Limine already set it.
+        let t0_bits: u64 = 16 | (1 << 8) | (1 << 10) | (3 << 12);
+        let mut tcr: u64;
+        core::arch::asm!("mrs {}, tcr_el1", out(reg) tcr, options(nomem, nostack));
+        tcr = (tcr & !0xFFFF) | t0_bits;
+        let _ = pa_range; // IPS intentionally left as Limine set it.
+        core::arch::asm!("msr tcr_el1, {}", in(reg) tcr, options(nomem, nostack));
+
+        let l0_addr = slide_virtual_to_physical(core::ptr::addr_of!(L0_TABLE) as u64);
+        core::arch::asm!("msr ttbr0_el1, {}", in(reg) l0_addr, options(nomem, nostack));
+
+        core::arch::asm!("isb", options(nomem, nostack));
+        // Global, not just TTBR0-scoped: safe even so, because TTBR1's
+        // walks stay enabled (EPD1 untouched) and its tables are untouched
+        // in memory, so any evicted TTBR1 translation is simply re-walked
+        // on next use.
+        core::arch::asm!("tlbi vmalle1is", "dsb ish", "isb", options(nomem, nostack));
+    }
+}
+
 /// Dynamically maps a physical framebuffer memory range into the AArch64 page tables
 /// using Normal Non-Cacheable memory attributes (Attr 2).
 ///

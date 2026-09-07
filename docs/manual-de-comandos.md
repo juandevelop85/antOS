@@ -17,6 +17,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
      - [C. Opciones del CLI `builder`](#c-opciones-del-cli-builder)
      - [D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)](#d-guía-paso-a-paso-para-hipervisores-utm-y-virtualbox)
      - [E. Escritorio Nativo Bare-Metal y Shell Interactivo Soberano (Fase 26)](#e-escritorio-nativo-bare-metal-y-shell-interactivo-soberano-fase-26)
+     - [F. Soporte Real del Protocolo de Arranque Limine (Fase 27)](#f-soporte-real-del-protocolo-de-arranque-limine-fase-27)
    - [Método 7: Live USB Booteable e Instalación en Hardware Real (Bare Metal)](#método-7-live-usb-booteable-e-instalación-en-hardware-real-bare-metal)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
@@ -183,17 +184,29 @@ Construye una imagen de máquina virtual con NixOS y antOS completamente integra
 
 antOS cuenta con un kernel bare-metal `no_std` unificado bajo una Capa de Abstracción de Hardware (HAL) que soporta tanto **x86_64** (BIOS Legacy y UEFI GPT) como **AArch64 / ARM 64-bit** (QEMU `virt`, UEFI EDK2, Apple Silicon y Raspberry Pi).
 
+> ⚠️ **UEFI real (VirtualBox, hardware físico, OVMF/EDK2) exige `--features limine` (T27.1).**
+> El binario por defecto (`cargo build`, sin flags) se enlaza en la mitad **baja** del espacio de
+> direcciones — funciona con el crate `bootloader` (BIOS, `run.sh`) y con el arranque directo de
+> QEMU (`-kernel`, sin bootloader), pero el Limine real embebido en `antos-uefi-*.img` lo rechaza
+> con `PANIC: elf: Lower half PHDRs are not allowed`. Compila **con** `--features limine`
+> específicamente para generar la imagen que vas a arrancar por UEFI; los pasos 3 y 4 de A, y 3 de
+> B, lo indican explícitamente. Ver la sección [E](#e-escritorio-nativo-bare-metal-y-shell-interactivo-soberano-fase-26)
+> de este método para el detalle técnico completo.
+
 #### A. Arquitectura x86_64 (BIOS Legacy y UEFI GPT)
 
 ```bash
-# 1. Compilación y arranque rápido en QEMU (BIOS Legacy vía run.sh)
+# 1. Compilación y arranque rápido en QEMU (BIOS Legacy vía run.sh) — sin --features limine
 ./run.sh
 
-# 2. Generación manual de imágenes con el builder:
+# 2. Imagen BIOS (crate `bootloader`, sin --features limine)
 cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format bios
+
+# 3. Imagen UEFI real (Limine) — requiere recompilar el kernel con --features limine antes
+cargo build --features limine
 cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format uefi
 
-# 3. Ejecución directa en QEMU x86_64:
+# 4. Ejecución directa en QEMU x86_64 (BIOS):
 qemu-system-x86_64 -drive format=raw,file=kernel/target/x86_64-unknown-none/debug/antos-bios.img -serial stdio
 ```
 
@@ -203,20 +216,19 @@ qemu-system-x86_64 -drive format=raw,file=kernel/target/x86_64-unknown-none/debu
 # 1. Instalar target de compilación si no está presente
 rustup target add aarch64-unknown-none
 
-# 2. Compilar el kernel para AArch64
+# 2. Arranque directo de QEMU virt (Direct Kernel Boot) — sin --features limine
 cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml
-
-# 3. Arrancar directamente el kernel AArch64 en QEMU virt (Direct Kernel Boot)
 # Valida: consola serie PL011 MMIO, tabla VBAR_EL1 de 16 vectores, MMU (L0/L1/L2),
 # heap dinámico, temporizador virtual ARM a 100 Hz, transición a EL0 y syscalls svc #0.
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
   -kernel kernel/target/aarch64-unknown-none/debug/kernel \
   -serial stdio -monitor none
 
-# 4. Generar imágenes UEFI GPT (ESP FAT32 BOOTAA64.EFI) e ISO híbrida con builder:
-cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel
+# 3. Imagen UEFI real (Limine) — recompila el kernel con --features limine antes:
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --features limine
+cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64 --format uefi
 
-# 5. Arrancar con firmware UEFI EDK2 en QEMU AArch64:
+# 4. Arrancar con firmware UEFI EDK2 en QEMU AArch64:
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
   -bios QEMU_EFI.fd \
   -drive format=raw,file=kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img \
@@ -283,9 +295,12 @@ UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitect
 ##### 2. Ejecución en VirtualBox
 
 ###### A. VirtualBox en macOS Apple Silicon (ARM64 / AArch64):
-VirtualBox en Mac M1/M2/M3/M4 **solo permite crear VMs ARM64** y requiere firmware UEFI ARM64:
+VirtualBox en Mac M1/M2/M3/M4 **solo permite crear VMs ARM64** y requiere firmware UEFI ARM64 —
+por lo que también exige el kernel compilado con `--features limine` (T27.1). Sin ese flag verás
+`PANIC: elf: Lower half PHDRs are not allowed` nada más arrancar:
 ```bash
-# 1. Compilar kernel y generar disco UEFI GPT para ARM64
+# 1. Compilar el kernel hablando el protocolo Limine, y generar el disco UEFI GPT para ARM64
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --features limine
 cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
 
 # 2. Convertir la imagen RAW generada a disco virtual VDI nativo
@@ -374,6 +389,32 @@ compartida por `user/libantos/src/syscall.rs`):
 | 14 | `SYS_FS_READFILE` | ptr ruta | len ruta | ptr salida | len salida |
 | 15 | `SYS_SYSINFO` | ptr salida | len salida | | |
 | 16 | `SYS_LAUNCH_DESKTOP` | | | | |
+
+---
+
+#### F. Soporte Real del Protocolo de Arranque Limine (Fase 27)
+
+La imagen UEFI (`antos-uefi-x86_64.img` / `antos-uefi-aarch64.img`) embebe el bootloader Limine
+real (T24.1) desde el principio, pero hasta T27.1 el kernel nunca hablaba su protocolo de
+arranque — solo el crate `bootloader` (BIOS) y el arranque directo de QEMU. Limine exige un
+ejecutable enlazado en la mitad alta del espacio de direcciones; el binario por defecto no lo
+está, y Limine lo rechazaba con `PANIC: elf: Lower half PHDRs are not allowed` (el mismo pánico
+que ves al intentar arrancar en VirtualBox, que solo soporta UEFI).
+
+```bash
+# Compilar el kernel hablando el protocolo Limine (mitad alta + boot requests)
+cargo build --features limine                                          # x86_64
+cargo build --target aarch64-unknown-none --features limine            # AArch64
+
+# Generar la imagen UEFI a partir de ese binario (igual que en A/B, pero con el kernel correcto)
+cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format uefi
+cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64 --format uefi
+```
+
+Sin `--features limine`, `antos-uefi-*.img` sigue conteniendo un kernel no apto para Limine y el
+arranque por UEFI (VirtualBox, hardware físico, OVMF/EDK2) fallará con el mismo pánico — este
+flag **no** es necesario para `run.sh` (BIOS) ni para el arranque directo de QEMU AArch64
+(`-kernel`), que siguen funcionando exactamente igual que siempre.
 
 ---
 

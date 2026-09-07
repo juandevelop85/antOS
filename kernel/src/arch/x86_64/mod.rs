@@ -3,6 +3,8 @@
 pub mod apic;
 pub mod gdt;
 pub mod interrupts;
+#[cfg(feature = "limine")]
+pub mod limine_boot;
 pub mod mmu;
 pub mod port;
 pub mod serial;

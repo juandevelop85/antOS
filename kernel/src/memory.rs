@@ -30,9 +30,22 @@
 //! una dirección — de ahí que exista la TLB, la caché que evita repetirlos.
 
 use crate::println;
-use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
 
 pub const PAGE_SIZE: u64 = 4096;
+
+/// A physical memory region, deliberately decoupled from any one
+/// bootloader's own representation. `FrameAllocator` used to require
+/// `&'static bootloader_api::info::MemoryRegions` directly — fine when the
+/// `bootloader` crate is the only source of a memory map, but Limine
+/// (T27.1) hands back its own `limine::MemmapEntry` array instead, and nothing
+/// downstream of `FrameAllocator` actually cares which bootloader produced
+/// the map, only that it can be filtered to "usable" and walked page by page.
+#[derive(Clone, Copy)]
+pub struct Region {
+    pub start: u64,
+    pub end: u64,
+    pub usable: bool,
+}
 
 // Banderas de una entrada de tabla de páginas.
 pub const PRESENT: u64 = 1 << 0;
@@ -242,7 +255,7 @@ fn table_index(virtual_address: u64, level: u32) -> usize {
 /// Un asignador de marcos completo —con mapa de bits o listas de bloques—
 /// hace falta cuando existan procesos que nazcan y mueran.
 pub struct FrameAllocator {
-    regions: &'static MemoryRegions,
+    regions: &'static [Region],
     next: usize,
 }
 
@@ -250,14 +263,14 @@ impl FrameAllocator {
     /// # Safety
     /// Las regiones marcadas como utilizables deben serlo de verdad: entregar
     /// un marco que ya está en uso corrompe lo que hubiera allí.
-    pub unsafe fn new(regions: &'static MemoryRegions) -> Self {
+    pub unsafe fn new(regions: &'static [Region]) -> Self {
         FrameAllocator { regions, next: 0 }
     }
 
     fn usable_frames(&self) -> impl Iterator<Item = u64> + '_ {
         self.regions
             .iter()
-            .filter(|region| region.kind == MemoryRegionKind::Usable)
+            .filter(|region| region.usable)
             .flat_map(|region| {
                 // Los extremos de una región no tienen por qué caer en un
                 // límite de página; se recorta hacia dentro.

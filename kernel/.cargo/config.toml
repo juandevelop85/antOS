@@ -2,5 +2,7 @@
 [build]
 target = "x86_64-unknown-none"
 
-[target.aarch64-unknown-none]
-rustflags = ["-C", "link-arg=-Tsrc/arch/aarch64/linker.ld"]
+# El script de enlazado de AArch64 (linker.ld o, bajo --features limine,
+# linker_limine.ld — T27.1) lo añade build.rs vía cargo:rustc-link-arg,
+# porque cuál de los dos depende de esa feature y Cargo no soporta
+# rustflags condicionados por feature en este archivo.

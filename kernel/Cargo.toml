@@ -28,3 +28,9 @@ default = []
 # Cambia el asignador global por el de puntero, para reproducir su defecto:
 #   cargo build --features bump
 bump = []
+# Compila un punto de entrada distinto, enlazado en la mitad alta, que habla
+# el protocolo de arranque de Limine en vez de la convención propia del
+# crate `bootloader` (x86_64) o el arranque directo de QEMU sin bootloader
+# (AArch64). Necesario para arrancar antos-uefi-{x86_64,aarch64}.img — la
+# imagen UEFI que genera `builder` — en un firmware UEFI real (T27.1).
+limine = []

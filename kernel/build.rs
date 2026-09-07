@@ -111,10 +111,29 @@ fn main() {
     println!("cargo:rustc-env=USER_BINARY={}", binary.display());
     println!("cargo:rustc-env=INITRD_TAR={}", initrd_path.display());
 
+    // Building with `--features limine` (T27.1) links a completely different
+    // entry point (`arch::<arch>::limine_boot::_start`, gated on the same
+    // feature) that speaks the Limine boot protocol instead of either the
+    // `bootloader` crate's own convention (x86_64) or the from-scratch
+    // direct-QEMU-boot sequence (AArch64) — and Limine refuses to load an
+    // executable whose segments sit in the lower half of the address space
+    // ("Lower half PHDRs are not allowed"), so this build also needs a
+    // different base address.
+    let limine_build = std::env::var("CARGO_FEATURE_LIMINE").is_ok();
+
     if kernel_target.contains("aarch64") {
-        let linker_script = Path::new(&manifest).join("src").join("arch").join("aarch64").join("linker.ld");
+        let linker_script_name = if limine_build { "linker_limine.ld" } else { "linker.ld" };
+        let linker_script = Path::new(&manifest).join("src").join("arch").join("aarch64").join(linker_script_name);
         println!("cargo:rustc-link-arg=-T{}", linker_script.display());
         println!("cargo:rerun-if-changed={}", linker_script.display());
+    } else if limine_build {
+        // No custom linker script exists for x86_64 today — the `bootloader`
+        // crate's own loader stage places the kernel wherever lld's default
+        // (low, non-PIE) layout puts it and reads that address straight from
+        // the ELF headers, so nothing has ever needed to control it. Limine
+        // does care: `0xffffffff80000000` is the exact boundary its protocol
+        // specification names as the start of the higher half.
+        println!("cargo:rustc-link-arg=--image-base=0xffffffff80000000");
     }
 
     println!("cargo:rerun-if-changed={}", user_dir.join("src/main.rs").display());

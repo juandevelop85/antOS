@@ -1,9 +1,15 @@
 //! AArch64 (ARM 64-bit) architecture support for antOS Kernel.
 
 pub mod dtb;
+// `entry` and `limine_boot` both define an `_start` — the direct-QEMU-boot
+// sequence and the Limine boot protocol handshake, respectively (T27.1).
+// Exactly one may be linked in per build, selected by the `limine` feature.
+#[cfg(not(feature = "limine"))]
 pub mod entry;
 pub mod exceptions;
 pub mod gic;
+#[cfg(feature = "limine")]
+pub mod limine_boot;
 pub mod mmu;
 pub mod pl011;
 pub mod syscall;

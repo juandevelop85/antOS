@@ -21,6 +21,8 @@ pub mod fs;
 pub mod input;
 #[allow(dead_code)]
 mod elf;
+#[cfg(feature = "limine")]
+pub mod limine;
 #[allow(dead_code)]
 mod memory;
 #[allow(dead_code)]
@@ -38,18 +40,22 @@ pub static EMBEDDED_INITRD: &[u8] = include_bytes!(env!("INITRD_TAR"));
 #[cfg(target_arch = "x86_64")]
 pub use arch::current::{gdt, interrupts, port, serial, userspace};
 
+#[cfg(all(target_arch = "aarch64", not(feature = "limine")))]
+pub use arch::current::entry;
 #[cfg(target_arch = "aarch64")]
-pub use arch::current::{entry, exceptions, mmu, pl011, serial};
+pub use arch::current::{exceptions, mmu, pl011, serial};
 
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
 use bootloader_api::config::{BootloaderConfig, Mapping};
 #[cfg(target_arch = "x86_64")]
 use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
+#[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
+use bootloader_api::entry_point;
 #[cfg(target_arch = "x86_64")]
-use bootloader_api::{entry_point, BootInfo};
+use bootloader_api::BootInfo;
 #[cfg(target_arch = "x86_64")]
 use task::Task;
 use core::fmt::Write;
@@ -67,18 +73,29 @@ const AARCH64_HEAP_SIZE: usize = 4 * 1024 * 1024;
 #[link_section = ".bss.heap"]
 static mut AARCH64_HEAP: [u8; AARCH64_HEAP_SIZE] = [0; AARCH64_HEAP_SIZE];
 
-#[cfg(target_arch = "x86_64")]
+// Under `--features limine` (T27.1), `arch::x86_64::limine_boot::_start`
+// becomes the linked entry point instead — Limine's boot protocol is a
+// different contract from the `bootloader` crate's own (see that module's
+// docs), so the two `_start`s can never coexist in the same binary. Both
+// ultimately call this same `kernel_main`.
+#[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
 const CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
     config.mappings.physical_memory = Some(Mapping::Dynamic);
     config
 };
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
 entry_point!(kernel_main, config = &CONFIG);
 
+/// `booted_via_limine`: when `true`, the MMU is already on and `TTBR1_EL1`
+/// already maps this kernel — entered via `arch::aarch64::limine_boot`
+/// (T27.1) instead of the direct-QEMU-boot path in `arch::aarch64::entry`.
+/// The only thing that actually changes below is which `mmu` initializer
+/// runs; see `mmu::init_ttbr0_under_limine`'s docs for why the other one
+/// would crash here.
 #[cfg(target_arch = "aarch64")]
-pub fn kmain_arm64(dtb_ptr: u64) -> ! {
+pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     arch::aarch64::SERIAL.lock().init();
 
     println!();
@@ -96,6 +113,9 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     println!("  arquitectura AArch64 (ARM 64-bit)");
     println!("  nivel        EL{} (supervisor)", current_el);
     println!("  dtb          apuntado en {dtb_ptr:#x}");
+    if booted_via_limine {
+        println!("  bootloader   Limine (protocolo UEFI real, T27.1)");
+    }
 
     println!();
     println!("excepciones");
@@ -105,8 +125,19 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
 
     println!();
     println!("memoria virtual (MMU)");
-    arch::aarch64::mmu::init();
-    println!("  mmu          activa · gránulos de 4 KiB, tablas L0/L1/L2");
+    if booted_via_limine {
+        // Already installed by `limine_boot::_start`, *before* this function's
+        // very first line (`SERIAL.lock().init()`) touches the PL011 UART's
+        // MMIO registers — under Limine the MMU is on from the first
+        // instruction, so that touch needs a working TTBR0 mapping to not
+        // fault, and faulting this early (before `exceptions::init()` below
+        // has installed a vector table) hangs the machine with no message
+        // at all. Doing it here instead would be too late.
+        println!("  mmu          TTBR1 de Limine intacta · TTBR0 propia instalada (T27.1)");
+    } else {
+        arch::aarch64::mmu::init();
+        println!("  mmu          activa · gránulos de 4 KiB, tablas L0/L1/L2");
+    }
     println!("  caches       d-cache e i-cache habilitadas");
 
     // Inicializar asignador dinámico de memoria sobre RAM mapeada por la MMU
@@ -373,7 +404,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .physical_memory_offset
         .into_option()
         .expect("bootloader must map physical memory");
-    let regions: &'static MemoryRegions = &boot_info.memory_regions;
+    let regions = regions_from_bootloader_api(&boot_info.memory_regions);
 
     // SAFETY: offset set by the bootloader, and usable regions are valid.
     let mut mapper = unsafe { memory::Mapper::new(physical_offset) };
@@ -618,6 +649,41 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // No vuelve: a partir de aquí el kernel es su bucle de eventos.
     executor.run()
+}
+
+/// Generous enough for any memory map QEMU or real firmware hands back;
+/// `bootloader_api`'s own regions and Limine's memmap entries both convert
+/// into this fixed buffer since neither source's count is known at compile
+/// time and the frame allocator needs it before the heap exists to allocate
+/// anything bigger (T27.1).
+#[cfg(target_arch = "x86_64")]
+const MAX_MEMORY_REGIONS: usize = 64;
+
+#[cfg(target_arch = "x86_64")]
+static mut REGION_BUF: [memory::Region; MAX_MEMORY_REGIONS] = [memory::Region {
+    start: 0,
+    end: 0,
+    usable: false,
+}; MAX_MEMORY_REGIONS];
+
+/// Converts the `bootloader` crate's own memory map into the
+/// bootloader-agnostic `memory::Region` shape `FrameAllocator` now expects.
+#[cfg(target_arch = "x86_64")]
+fn regions_from_bootloader_api(regions: &MemoryRegions) -> &'static [memory::Region] {
+    let count = regions.len().min(MAX_MEMORY_REGIONS);
+    // SAFETY: called once, early in boot, before any other code touches
+    // REGION_BUF.
+    unsafe {
+        let buf = &mut *core::ptr::addr_of_mut!(REGION_BUF);
+        for (i, region) in regions.iter().take(count).enumerate() {
+            buf[i] = memory::Region {
+                start: region.start,
+                end: region.end,
+                usable: region.kind == MemoryRegionKind::Usable,
+            };
+        }
+        &buf[..count]
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
