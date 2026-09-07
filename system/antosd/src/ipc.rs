@@ -733,6 +733,16 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
+        Request::ListDesktopApps => {
+            match crate::pkg::PackageEngine::list_desktop_apps(&ctx.state) {
+                Ok(apps) => send(&mut writer, &Event::DesktopAppList(apps))?,
+                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+            }
+        }
+        Request::ValidateDesktopEntry { content } => {
+            let report = crate::pkg::PackageEngine::validate_desktop_entry(&content);
+            send(&mut writer, &Event::DesktopValidationReport(report))?;
+        }
         Request::StartAutopilot(config) => {
             match crate::autopilot::AutopilotEngine::start(&ctx.state, &ctx.workspace, config) {
                 Ok(st) => send(&mut writer, &Event::AutopilotStatus(st))?,
@@ -1296,6 +1306,29 @@ pub fn intencion_remota(
                 term.on_note(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
                 for d in details {
                     term.on_note(&format!("  {d}"))?;
+                }
+            }
+            Event::DesktopAppList(apps) => {
+                if apps.is_empty() {
+                    term.on_note("antpkg: No hay aplicaciones de escritorio registradas.")?;
+                } else {
+                    term.on_note(&format!("antpkg · Aplicaciones de escritorio ({}):", apps.len()))?;
+                    for a in apps {
+                        term.on_note(&format!("  • {} ({}) [exec: {}]", a.name, a.package_name, a.exec))?;
+                    }
+                }
+            }
+            Event::DesktopValidationReport(rep) => {
+                if rep.valid {
+                    term.on_note("antpkg: El archivo .desktop es VÁLIDO según especificación Freedesktop.")?;
+                } else {
+                    term.on_note("antpkg: El archivo .desktop contiene ERRORES:")?;
+                    for err in &rep.errors {
+                        term.on_note(&format!("  - [ERROR] {err}"))?;
+                    }
+                }
+                for warn in &rep.warnings {
+                    term.on_note(&format!("  - [WARN] {warn}"))?;
                 }
             }
             Event::AutopilotStatus(st) => {

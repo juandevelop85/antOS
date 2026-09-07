@@ -84,7 +84,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 24** | [T24.3](T24.3-drivers-de-almacenamiento-fisico-ahci-sata-y-nvme-para-deteccion-de-discos.md) | Drivers de Almacenamiento Físico (AHCI/SATA y NVMe) para Detección de Discos | ✅ Completado |
 | **Fase 24** | [T24.4](T24.4-asistente-de-instalacion-guiado-cli-y-particionamiento-en-vivo-antos-install.md) | Asistente de Instalación Guiado CLI y Particionamiento en Vivo (`antos install`) | ✅ Completado |
 | **Fase 24** | [T24.5](T24.5-generador-automatizado-de-live-usb-y-script-de-grabacion-antos-usb.md) | Generador Automatizado de Live USB y Script de Grabación (`antos usb flash`) | ✅ Completado |
-| **Fase 25** | [T25.1](T25.1-extension-de-antpkg-para-aplicaciones-graficas-xdg-y-desktop-entries.md) | Extensión de `antpkg` para Aplicaciones Gráficas XDG y Desktop Entries | ⏳ Pendiente |
+| **Fase 25** | [T25.1](T25.1-extension-de-antpkg-para-aplicaciones-graficas-xdg-y-desktop-entries.md) | Extensión de `antpkg` para Aplicaciones Gráficas XDG y Desktop Entries | ✅ Completado |
 | **Fase 25** | [T25.2](T25.2-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-graficos.md) | Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`) | ⏳ Pendiente |
 | **Fase 25** | [T25.3](T25.3-catalogo-oficial-de-recetas-antpkg-para-navegadores-e-ides.md) | Catálogo Oficial de Recetas antpkg para Navegadores e IDEs | ⏳ Pendiente |
 | **Fase 25** | [T25.4](T25.4-lanzador-de-aplicaciones-graficas-y-contexto-de-workspace-en-barra-wayland.md) | Lanzador de Aplicaciones Gráficas y Contexto de Workspace en Barra Wayland | ⏳ Pendiente |

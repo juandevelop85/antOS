@@ -112,11 +112,17 @@ pub fn init() {
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         // 3. Configure TCR_EL1:
-        // T0SZ = 16 (48-bit address space)
+        // Query hardware physical address range to set IPS properly
+        let mut mmfr0: u64;
+        core::arch::asm!("mrs {}, id_aa64mmfr0_el1", out(reg) mmfr0, options(nomem, nostack));
+        let pa_range = (mmfr0 & 0x7).min(5);
+
+        // T0SZ = 16 (48-bit address space for TTBR0)
         // TG0 = 4KB (0b00)
-        // IRGN0 = Normal WB (0b01), ORGN0 = Normal WB (0b01), SH0 = Inner (0b11)
-        // IPS = 48-bit PA (0b101)
-        let tcr: u64 = 16 | (1 << 8) | (1 << 10) | (3 << 12) | (5u64 << 32);
+        // IRGN0 = Normal WB (0b01), ORGN0 = Normal WB (0b01), SH0 = Inner Shareable (0b11)
+        // EPD1 = 1 (disable translation walks for TTBR1)
+        // IPS = pa_range
+        let tcr: u64 = 16 | (1 << 8) | (1 << 10) | (3 << 12) | (1 << 23) | (pa_range << 32);
         core::arch::asm!("msr tcr_el1, {}", in(reg) tcr, options(nomem, nostack));
 
         // 4. Set TTBR0_EL1 to root L0 table
@@ -137,6 +143,8 @@ pub fn init() {
         // 5. Enable MMU (M bit = 1), Data Cache (C bit = 1), Instruction Cache (I bit = 1) in SCTLR_EL1
         let mut sctlr: u64;
         core::arch::asm!("mrs {}, sctlr_el1", out(reg) sctlr, options(nomem, nostack));
+        // Clear WXN (bit 19) and UWXN (bit 20) so EL0 can execute code on writable user pages
+        sctlr &= !((1 << 19) | (1 << 20));
         sctlr |= (1 << 0) | (1 << 2) | (1 << 12);
         core::arch::asm!(
             "dsb sy",

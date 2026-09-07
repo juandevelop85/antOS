@@ -6,6 +6,7 @@
 
 use anyhow::{bail, Context, Result};
 use antos_protocol::{
+    DesktopAppSummary, DesktopEntryManifest, DesktopValidationReport, IconAsset, PackageAppType,
     PackageGeneration, PackageInstallReport, PackageManifest, PackageStoreStatus, PackageSummary,
 };
 use serde::{Deserialize, Serialize};
@@ -110,8 +111,10 @@ pub mod crypto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawRecipe {
     pub package: RawPackageSection,
+    pub desktop: Option<RawDesktopSection>,
     pub source: Option<RawSourceSection>,
     pub build: Option<RawBuildSection>,
+    pub icons: Option<Vec<RawIconSection>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +125,27 @@ pub struct RawPackageSection {
     pub homepage: Option<String>,
     pub license: Option<String>,
     pub binaries: Option<Vec<String>>,
+    pub app_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawDesktopSection {
+    pub name: Option<String>,
+    pub generic_name: Option<String>,
+    pub comment: Option<String>,
+    pub exec: Option<String>,
+    pub icon: Option<String>,
+    pub categories: Option<Vec<String>>,
+    pub mime_types: Option<Vec<String>>,
+    pub terminal: Option<bool>,
+    pub startup_wm_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawIconSection {
+    pub resolution: Option<String>,
+    pub format: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,13 +196,78 @@ impl PackageEngine {
         Self::current_dir(state_dir).join("bin")
     }
 
+    /// Returns the path to the current share directory for desktop entries and assets (T25.1).
+    pub fn current_share_dir(state_dir: &Path) -> PathBuf {
+        Self::current_dir(state_dir).join("share")
+    }
+
+    /// Returns the path to the active XDG applications directory (T25.1).
+    pub fn current_applications_dir(state_dir: &Path) -> PathBuf {
+        Self::current_share_dir(state_dir).join("applications")
+    }
+
+    /// Returns the path to the active XDG icons directory (T25.1).
+    pub fn current_icons_dir(state_dir: &Path) -> PathBuf {
+        Self::current_share_dir(state_dir).join("icons")
+    }
+
     /// Parses a package recipe from a TOML string.
     pub fn parse_recipe(content: &str) -> Result<PackageManifest> {
         let raw: RawRecipe = toml::from_str(content)
             .context("Failed to parse package recipe TOML (antpkg.toml)")?;
 
         let binaries = raw.package.binaries.unwrap_or_else(|| vec![raw.package.name.clone()]);
-        let description = raw.package.description.unwrap_or_else(|| format!("antOS package {}", raw.package.name));
+        let description = raw.package.description.clone().unwrap_or_else(|| format!("antOS package {}", raw.package.name));
+
+        let app_type = match raw.package.app_type.as_deref() {
+            Some(t) if t.eq_ignore_ascii_case("gui") => PackageAppType::Gui,
+            _ if raw.desktop.is_some() => PackageAppType::Gui,
+            _ => PackageAppType::Cli,
+        };
+
+        let desktop_entry = if let Some(d) = raw.desktop {
+            Some(DesktopEntryManifest {
+                name: d.name.unwrap_or_else(|| raw.package.name.clone()),
+                generic_name: d.generic_name,
+                comment: d.comment.or_else(|| raw.package.description.clone()),
+                exec: d.exec.unwrap_or_else(|| binaries.first().cloned().unwrap_or_else(|| raw.package.name.clone())),
+                icon: d.icon.or_else(|| Some(raw.package.name.clone())),
+                categories: d.categories.unwrap_or_default(),
+                mime_types: d.mime_types.unwrap_or_default(),
+                terminal: d.terminal.unwrap_or(false),
+                startup_wm_class: d.startup_wm_class,
+            })
+        } else if app_type == PackageAppType::Gui {
+            Some(DesktopEntryManifest {
+                name: raw.package.name.clone(),
+                generic_name: None,
+                comment: raw.package.description.clone(),
+                exec: binaries.first().cloned().unwrap_or_else(|| raw.package.name.clone()),
+                icon: Some(raw.package.name.clone()),
+                categories: vec!["Utility".to_string()],
+                mime_types: Vec::new(),
+                terminal: false,
+                startup_wm_class: None,
+            })
+        } else {
+            None
+        };
+
+        let icons = if let Some(raw_icons) = raw.icons {
+            raw_icons.into_iter().map(|i| IconAsset {
+                resolution: i.resolution.unwrap_or_else(|| "scalable".to_string()),
+                format: i.format.unwrap_or_else(|| "svg".to_string()),
+                path: i.path.unwrap_or_else(|| format!("share/icons/hicolor/scalable/apps/{}.svg", raw.package.name)),
+            }).collect()
+        } else if app_type == PackageAppType::Gui {
+            vec![IconAsset {
+                resolution: "scalable".to_string(),
+                format: "svg".to_string(),
+                path: format!("share/icons/hicolor/scalable/apps/{}.svg", raw.package.name),
+            }]
+        } else {
+            Vec::new()
+        };
 
         let (source_url, sha256, signature, signer_public_key) = if let Some(src) = raw.source {
             (src.url, src.sha256, src.signature, src.signer_public_key)
@@ -205,6 +294,9 @@ impl PackageEngine {
             dependencies,
             build_script,
             binaries,
+            app_type,
+            desktop_entry,
+            icons,
         })
     }
 
@@ -225,20 +317,91 @@ impl PackageEngine {
             return Self::parse_recipe(&content);
         }
 
-        // Built-in recipes for standard developer utilities
-        let (version, desc, bins) = match recipe_path_or_name {
-            "ollama" => ("0.5.7", "Local LLM inference daemon for CPUs and GPUs", vec!["ollama".to_string()]),
-            "opencode" => ("1.0.0", "Local OpenAI-compatible inference server", vec!["opencode".to_string()]),
-            "ripgrep" | "rg" => ("14.1.0", "Fast line-oriented search tool", vec!["rg".to_string()]),
-            "fd" => ("9.0.0", "Fast user-friendly find alternative", vec!["fd".to_string()]),
-            "bat" => ("0.24.0", "Cat clone with syntax highlighting and git integration", vec!["bat".to_string()]),
-            "jq" => ("1.7.1", "Command-line JSON processor", vec!["jq".to_string()]),
-            "git" => ("2.44.0", "Fast, scalable, distributed revision control system", vec!["git".to_string()]),
-            "curl" => ("8.6.0", "Command line tool for transferring data with URLs", vec!["curl".to_string()]),
-            "tree" => ("2.1.1", "Recursive directory indentation listing program", vec!["tree".to_string()]),
-            "htop" => ("3.3.0", "Interactive process viewer and process manager", vec!["htop".to_string()]),
-            "neovim" | "nvim" => ("0.10.0", "Vim-fork focused on extensibility and usability", vec!["nvim".to_string()]),
-            name => ("1.0.0", "antOS declarative package", vec![name.to_string()]),
+        // Built-in recipes for standard developer utilities and desktop applications
+        let (version, desc, bins, app_type, desktop_entry, icons) = match recipe_path_or_name {
+            "firefox" => (
+                "130.0",
+                "Mozilla Firefox Web Browser",
+                vec!["firefox".to_string()],
+                PackageAppType::Gui,
+                Some(DesktopEntryManifest {
+                    name: "Firefox".to_string(),
+                    generic_name: Some("Web Browser".to_string()),
+                    comment: Some("Navegador web libre y seguro".to_string()),
+                    exec: "firefox %u".to_string(),
+                    icon: Some("firefox".to_string()),
+                    categories: vec!["Network".to_string(), "WebBrowser".to_string()],
+                    mime_types: vec![
+                        "text/html".to_string(),
+                        "application/xhtml+xml".to_string(),
+                        "x-scheme-handler/http".to_string(),
+                        "x-scheme-handler/https".to_string(),
+                    ],
+                    terminal: false,
+                    startup_wm_class: Some("firefox".to_string()),
+                }),
+                vec![IconAsset {
+                    resolution: "scalable".to_string(),
+                    format: "svg".to_string(),
+                    path: "share/icons/hicolor/scalable/apps/firefox.svg".to_string(),
+                }],
+            ),
+            "code" | "vscode" => (
+                "1.93.0",
+                "Visual Studio Code Editor",
+                vec!["code".to_string()],
+                PackageAppType::Gui,
+                Some(DesktopEntryManifest {
+                    name: "Visual Studio Code".to_string(),
+                    generic_name: Some("Code Editor".to_string()),
+                    comment: Some("Editor de código extensible".to_string()),
+                    exec: "code %F".to_string(),
+                    icon: Some("code".to_string()),
+                    categories: vec!["Development".to_string(), "IDE".to_string()],
+                    mime_types: vec!["text/plain".to_string()],
+                    terminal: false,
+                    startup_wm_class: Some("Code".to_string()),
+                }),
+                vec![IconAsset {
+                    resolution: "scalable".to_string(),
+                    format: "svg".to_string(),
+                    path: "share/icons/hicolor/scalable/apps/code.svg".to_string(),
+                }],
+            ),
+            "alacritty" => (
+                "0.13.2",
+                "GPU-accelerated terminal emulator",
+                vec!["alacritty".to_string()],
+                PackageAppType::Gui,
+                Some(DesktopEntryManifest {
+                    name: "Alacritty".to_string(),
+                    generic_name: Some("Terminal".to_string()),
+                    comment: Some("Emulador de terminal acelerado por GPU".to_string()),
+                    exec: "alacritty".to_string(),
+                    icon: Some("alacritty".to_string()),
+                    categories: vec!["System".to_string(), "TerminalEmulator".to_string()],
+                    mime_types: Vec::new(),
+                    terminal: false,
+                    startup_wm_class: Some("Alacritty".to_string()),
+                }),
+                vec![IconAsset {
+                    resolution: "scalable".to_string(),
+                    format: "svg".to_string(),
+                    path: "share/icons/hicolor/scalable/apps/alacritty.svg".to_string(),
+                }],
+            ),
+            "ollama" => ("0.5.7", "Local LLM inference daemon for CPUs and GPUs", vec!["ollama".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "opencode" => ("1.0.0", "Local OpenAI-compatible inference server", vec!["opencode".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "ripgrep" | "rg" => ("14.1.0", "Fast line-oriented search tool", vec!["rg".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "fd" => ("9.0.0", "Fast user-friendly find alternative", vec!["fd".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "bat" => ("0.24.0", "Cat clone with syntax highlighting and git integration", vec!["bat".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "jq" => ("1.7.1", "Command-line JSON processor", vec!["jq".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "git" => ("2.44.0", "Fast, scalable, distributed revision control system", vec!["git".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "curl" => ("8.6.0", "Command line tool for transferring data with URLs", vec!["curl".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "tree" => ("2.1.1", "Recursive directory indentation listing program", vec!["tree".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "htop" => ("3.3.0", "Interactive process viewer and process manager", vec!["htop".to_string()], PackageAppType::Cli, None, Vec::new()),
+            "neovim" | "nvim" => ("0.10.0", "Vim-fork focused on extensibility and usability", vec!["nvim".to_string()], PackageAppType::Cli, None, Vec::new()),
+            name => ("1.0.0", "antOS declarative package", vec![name.to_string()], PackageAppType::Cli, None, Vec::new()),
         };
 
         let manifest = PackageManifest {
@@ -254,8 +417,176 @@ impl PackageEngine {
             dependencies: Vec::new(),
             build_script: Some("true".to_string()),
             binaries: bins,
+            app_type,
+            desktop_entry,
+            icons,
         };
         Ok(manifest)
+    }
+
+    /// Generates a valid Freedesktop .desktop entry conforming to Desktop Entry Specification (T25.1).
+    pub fn generate_desktop_entry(manifest: &PackageManifest) -> String {
+        let entry = match &manifest.desktop_entry {
+            Some(d) => d.clone(),
+            None => DesktopEntryManifest {
+                name: manifest.name.clone(),
+                generic_name: None,
+                comment: Some(manifest.description.clone()),
+                exec: manifest.binaries.first().cloned().unwrap_or_else(|| manifest.name.clone()),
+                icon: Some(manifest.name.clone()),
+                categories: vec!["Utility".to_string()],
+                mime_types: Vec::new(),
+                terminal: false,
+                startup_wm_class: None,
+            },
+        };
+
+        let mut lines = Vec::new();
+        lines.push("[Desktop Entry]".to_string());
+        lines.push("Version=1.5".to_string());
+        lines.push("Type=Application".to_string());
+        lines.push(format!("Name={}", entry.name));
+        if let Some(gn) = &entry.generic_name {
+            lines.push(format!("GenericName={gn}"));
+        }
+        if let Some(comment) = &entry.comment {
+            lines.push(format!("Comment={comment}"));
+        }
+        lines.push(format!("Exec={}", entry.exec));
+        if let Some(icon) = &entry.icon {
+            lines.push(format!("Icon={icon}"));
+        }
+        lines.push(format!("Terminal={}", entry.terminal));
+        if !entry.categories.is_empty() {
+            lines.push(format!("Categories={};", entry.categories.join(";")));
+        }
+        if !entry.mime_types.is_empty() {
+            lines.push(format!("MimeType={};", entry.mime_types.join(";")));
+        }
+        if let Some(wm) = &entry.startup_wm_class {
+            lines.push(format!("StartupWMClass={wm}"));
+        }
+        lines.push("StartupNotify=true".to_string());
+        lines.push(format!("X-antOS-Package={}", manifest.name));
+        lines.push(format!("X-antOS-Version={}", manifest.version));
+        lines.push("".to_string());
+
+        lines.join("\n")
+    }
+
+    /// Validates syntax and required keys of a Freedesktop .desktop entry (T25.1).
+    pub fn validate_desktop_entry(content: &str) -> DesktopValidationReport {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        let mut has_group_header = false;
+        let mut has_name = false;
+        let mut has_type = false;
+        let mut has_exec = false;
+
+        for (line_no, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            if trimmed == "[Desktop Entry]" {
+                has_group_header = true;
+                continue;
+            } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                continue;
+            }
+
+            if !has_group_header {
+                errors.push(format!("Línea {}: entrada previa al encabezado '[Desktop Entry]'", line_no + 1));
+                continue;
+            }
+
+            if let Some((key, value)) = trimmed.split_once('=') {
+                let key = key.trim();
+                let value = value.trim();
+
+                match key {
+                    "Name" => {
+                        if value.is_empty() {
+                            errors.push("Campo 'Name' está vacío".to_string());
+                        } else {
+                            has_name = true;
+                        }
+                    }
+                    "Type" => {
+                        if value != "Application" && value != "Link" && value != "Directory" {
+                            errors.push(format!("Valor no soportado para 'Type': '{}' (debe ser Application)", value));
+                        } else {
+                            has_type = true;
+                        }
+                    }
+                    "Exec" => {
+                        if value.is_empty() {
+                            errors.push("Campo 'Exec' está vacío".to_string());
+                        } else {
+                            has_exec = true;
+                        }
+                    }
+                    "Terminal" => {
+                        if value != "true" && value != "false" {
+                            errors.push(format!("Campo 'Terminal' debe ser booleano ('true' o 'false'), encontrado: '{}'", value));
+                        }
+                    }
+                    "Categories" => {
+                        if !value.ends_with(';') {
+                            warnings.push("Campo 'Categories' debería terminar con punto y coma ';' según especificación XDG".to_string());
+                        }
+                    }
+                    "MimeType" => {
+                        if !value.ends_with(';') {
+                            warnings.push("Campo 'MimeType' debería terminar con punto y coma ';' según especificación XDG".to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            } else {
+                warnings.push(format!("Línea {} no contiene un par clave=valor válido: '{}'", line_no + 1, trimmed));
+            }
+        }
+
+        if !has_group_header {
+            errors.push("Falta el encabezado obligatorio '[Desktop Entry]'".to_string());
+        }
+        if !has_type {
+            errors.push("Falta la clave obligatoria 'Type=Application'".to_string());
+        }
+        if !has_name {
+            errors.push("Falta la clave obligatoria 'Name'".to_string());
+        }
+        if !has_exec {
+            errors.push("Falta la clave obligatoria 'Exec'".to_string());
+        }
+
+        let valid = errors.is_empty();
+        DesktopValidationReport {
+            valid,
+            errors,
+            warnings,
+        }
+    }
+
+    /// Generates a clean high-resolution SVG icon vector for an application (T25.1).
+    pub fn generate_default_icon_svg(name: &str) -> String {
+        let initial = name.chars().next().unwrap_or('A').to_ascii_uppercase();
+        format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="antOSGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D2FF"/>
+      <stop offset="100%" stop-color="#3A7BD5"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#antOSGrad)"/>
+  <text x="64" y="82" font-family="system-ui, -apple-system, sans-serif" font-size="64" font-weight="bold" fill="#ffffff" text-anchor="middle">{}</text>
+</svg>"##,
+            initial
+        )
     }
 
     /// Installs a package into the immutable store and updates the profile generation.
@@ -278,11 +609,12 @@ impl PackageEngine {
 
         // Calculate store hash
         let hash_input = format!(
-            "{}:{}:{}:{:?}:{}",
+            "{}:{}:{}:{:?}:{:?}:{}",
             manifest.name,
             manifest.version,
             manifest.description,
             manifest.binaries,
+            manifest.app_type,
             manifest.sha256.as_deref().unwrap_or("")
         );
         let full_hash = crypto::sha256(hash_input.as_bytes());
@@ -292,12 +624,20 @@ impl PackageEngine {
         let pkg_bin_dir = pkg_dir.join("bin");
 
         if dry_run {
+            let mut dt_linked = Vec::new();
+            let mut ic_linked = Vec::new();
+            if manifest.app_type == PackageAppType::Gui || manifest.desktop_entry.is_some() {
+                dt_linked.push(format!("{}.desktop", manifest.name));
+                ic_linked.push(format!("{}.svg", manifest.name));
+            }
             return Ok(PackageInstallReport {
                 name: manifest.name,
                 version: manifest.version,
                 store_path: pkg_dir.display().to_string(),
                 generation: Self::get_current_generation(state_dir).unwrap_or(0) + 1,
                 binaries_linked: manifest.binaries,
+                desktop_entries_linked: dt_linked,
+                icons_linked: ic_linked,
                 checksum_verified: true,
                 signature_verified: sig_ok,
                 success: true,
@@ -332,6 +672,46 @@ impl PackageEngine {
             binaries_linked.push(bin.clone());
         }
 
+        // Materialize XDG Desktop Entry and Icons for GUI applications (T25.1)
+        let mut desktop_entries_linked = Vec::new();
+        let mut icons_linked = Vec::new();
+        let mut desktop_file_name = None;
+
+        if manifest.app_type == PackageAppType::Gui || manifest.desktop_entry.is_some() {
+            let store_apps_dir = pkg_dir.join("share").join("applications");
+            fs::create_dir_all(&store_apps_dir)
+                .with_context(|| format!("Failed to create applications directory {}", store_apps_dir.display()))?;
+
+            let desktop_content = Self::generate_desktop_entry(&manifest);
+            let desktop_name = format!("{}.desktop", manifest.name);
+            let desktop_path = store_apps_dir.join(&desktop_name);
+            fs::write(&desktop_path, desktop_content.as_bytes())
+                .with_context(|| format!("Failed to write desktop entry {}", desktop_path.display()))?;
+
+            installed_size += desktop_content.len() as u64;
+            desktop_entries_linked.push(desktop_name.clone());
+            desktop_file_name = Some(desktop_name);
+
+            let icon_name = manifest
+                .desktop_entry
+                .as_ref()
+                .and_then(|d| d.icon.clone())
+                .unwrap_or_else(|| manifest.name.clone());
+
+            let store_icons_dir = pkg_dir.join("share").join("icons").join("hicolor").join("scalable").join("apps");
+            fs::create_dir_all(&store_icons_dir)
+                .with_context(|| format!("Failed to create icons directory {}", store_icons_dir.display()))?;
+
+            let icon_file = format!("{}.svg", icon_name);
+            let icon_path = store_icons_dir.join(&icon_file);
+            let svg_content = Self::generate_default_icon_svg(&manifest.name);
+            fs::write(&icon_path, svg_content.as_bytes())
+                .with_context(|| format!("Failed to write icon asset {}", icon_path.display()))?;
+
+            installed_size += svg_content.len() as u64;
+            icons_linked.push(icon_file);
+        }
+
         let now = chrono::Local::now().to_rfc3339();
 
         let summary = PackageSummary {
@@ -343,6 +723,10 @@ impl PackageEngine {
             installed_at: now.clone(),
             binaries: binaries_linked.clone(),
             generation: 0, // Assigned when recording profile
+            app_type: manifest.app_type,
+            desktop_entry: manifest.desktop_entry.clone(),
+            desktop_file: desktop_file_name,
+            icons_linked: icons_linked.clone(),
         };
 
         // Save package metadata in the store
@@ -359,6 +743,8 @@ impl PackageEngine {
             store_path: pkg_dir.display().to_string(),
             generation: new_gen,
             binaries_linked,
+            desktop_entries_linked,
+            icons_linked,
             checksum_verified: true,
             signature_verified: sig_ok,
             success: true,
@@ -393,6 +779,8 @@ impl PackageEngine {
             store_path: String::new(),
             generation: new_gen,
             binaries_linked: Vec::new(),
+            desktop_entries_linked: Vec::new(),
+            icons_linked: Vec::new(),
             checksum_verified: true,
             signature_verified: true,
             success: true,
@@ -483,8 +871,17 @@ impl PackageEngine {
         let current_file = profiles_dir.join("current_generation");
         fs::write(&current_file, target.to_string())?;
 
-        // Re-link active binaries for target generation
-        Self::relink_profile_binaries(state_dir, &data.packages)?;
+        // Re-link active binaries and desktop artifacts for target generation
+        Self::relink_profile_artifacts(state_dir, &data.packages)?;
+
+        let mut all_dt = Vec::new();
+        let mut all_ic = Vec::new();
+        for p in &data.packages {
+            if let Some(df) = &p.desktop_file {
+                all_dt.push(df.clone());
+            }
+            all_ic.extend(p.icons_linked.clone());
+        }
 
         Ok(PackageInstallReport {
             name: "profile".to_string(),
@@ -492,6 +889,8 @@ impl PackageEngine {
             store_path: target_file.display().to_string(),
             generation: target,
             binaries_linked: data.packages.iter().flat_map(|p| p.binaries.clone()).collect(),
+            desktop_entries_linked: all_dt,
+            icons_linked: all_ic,
             checksum_verified: true,
             signature_verified: true,
             success: true,
@@ -617,24 +1016,41 @@ impl PackageEngine {
         let current_file = profiles_dir.join("current_generation");
         fs::write(&current_file, generation.to_string())?;
 
-        // Re-link binaries into `$ANTOS_STATE/current/bin/`
-        Self::relink_profile_binaries(state_dir, &packages)?;
+        // Re-link binaries and desktop artifacts into `$ANTOS_STATE/current/`
+        Self::relink_profile_artifacts(state_dir, &packages)?;
         Ok(())
     }
 
-    fn relink_profile_binaries(state_dir: &Path, packages: &[PackageSummary]) -> Result<()> {
+    /// Relinks all binaries, desktop entries and icons for the active profile (T16.2 / T25.1).
+    pub fn relink_profile_artifacts(state_dir: &Path, packages: &[PackageSummary]) -> Result<()> {
         let current_bin = Self::current_bin_dir(state_dir);
+        let current_apps = Self::current_applications_dir(state_dir);
+        let current_icons = Self::current_icons_dir(state_dir);
         let store_dir = Self::store_dir(state_dir);
 
-        // Remove and recreate current_bin cleanly
+        // 1. Remove and recreate current_bin cleanly
         if current_bin.exists() {
             let _ = fs::remove_dir_all(&current_bin);
         }
         fs::create_dir_all(&current_bin)?;
 
+        // 2. Remove and recreate current_applications cleanly (drops uninstalled desktop entries)
+        if current_apps.exists() {
+            let _ = fs::remove_dir_all(&current_apps);
+        }
+        fs::create_dir_all(&current_apps)?;
+
+        // 3. Remove and recreate current_icons cleanly (drops uninstalled icons)
+        if current_icons.exists() {
+            let _ = fs::remove_dir_all(&current_icons);
+        }
+        fs::create_dir_all(&current_icons)?;
+
         for p in packages {
             let prefix = format!("{}-{}", &p.store_hash[..16], p.name);
             let pkg_dir = store_dir.join(format!("{prefix}-{}", p.version));
+
+            // Link Binaries
             for bin in &p.binaries {
                 let src_bin = pkg_dir.join("bin").join(bin);
                 let link_bin = current_bin.join(bin);
@@ -643,7 +1059,6 @@ impl PackageEngine {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::symlink;
-                        // Try symlink first; fall back to copy if symlinks fail
                         if symlink(&src_bin, &link_bin).is_err() {
                             let _ = fs::copy(&src_bin, &link_bin);
                         }
@@ -654,8 +1069,124 @@ impl PackageEngine {
                     }
                 }
             }
+
+            // Link XDG Desktop Entries
+            if let Some(desktop_file) = &p.desktop_file {
+                let src_desktop = pkg_dir.join("share").join("applications").join(desktop_file);
+                let link_desktop = current_apps.join(desktop_file);
+
+                if src_desktop.exists() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        if symlink(&src_desktop, &link_desktop).is_err() {
+                            let _ = fs::copy(&src_desktop, &link_desktop);
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = fs::copy(&src_desktop, &link_desktop);
+                    }
+                }
+            }
+
+            // Link XDG Icons
+            for icon_file in &p.icons_linked {
+                let src_icon = pkg_dir
+                    .join("share")
+                    .join("icons")
+                    .join("hicolor")
+                    .join("scalable")
+                    .join("apps")
+                    .join(icon_file);
+                let target_icon_dir = current_icons.join("hicolor").join("scalable").join("apps");
+                let _ = fs::create_dir_all(&target_icon_dir);
+                let link_icon = target_icon_dir.join(icon_file);
+
+                if src_icon.exists() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        if symlink(&src_icon, &link_icon).is_err() {
+                            let _ = fs::copy(&src_icon, &link_icon);
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = fs::copy(&src_icon, &link_icon);
+                    }
+                }
+            }
         }
         Ok(())
+    }
+
+    /// Backwards-compatible alias for relinking active profile artifacts.
+    pub fn relink_profile_binaries(state_dir: &Path, packages: &[PackageSummary]) -> Result<()> {
+        Self::relink_profile_artifacts(state_dir, packages)
+    }
+
+    /// Lists all active graphical desktop applications registered in the current profile (T25.1).
+    pub fn list_desktop_apps(state_dir: &Path) -> Result<Vec<DesktopAppSummary>> {
+        let pkgs = Self::list(state_dir)?;
+        let current_apps_dir = Self::current_applications_dir(state_dir);
+        let mut apps = Vec::new();
+
+        for p in pkgs {
+            if p.app_type == PackageAppType::Gui || p.desktop_entry.is_some() {
+                let desktop_filename = p.desktop_file.clone().unwrap_or_else(|| format!("{}.desktop", p.name));
+                let desktop_path = current_apps_dir.join(&desktop_filename);
+
+                let (name, generic_name, comment, exec, icon, categories, mime_types) = if let Some(d) = &p.desktop_entry {
+                    (
+                        d.name.clone(),
+                        d.generic_name.clone(),
+                        d.comment.clone(),
+                        d.exec.clone(),
+                        d.icon.clone(),
+                        d.categories.clone(),
+                        d.mime_types.clone(),
+                    )
+                } else {
+                    (
+                        p.name.clone(),
+                        None,
+                        Some(p.description.clone()),
+                        p.binaries.first().cloned().unwrap_or_else(|| p.name.clone()),
+                        Some(p.name.clone()),
+                        vec!["Utility".to_string()],
+                        Vec::new(),
+                    )
+                };
+
+                let icon_path = p.icons_linked.first().map(|icon_file| {
+                    Self::current_icons_dir(state_dir)
+                        .join("hicolor")
+                        .join("scalable")
+                        .join("apps")
+                        .join(icon_file)
+                        .display()
+                        .to_string()
+                });
+
+                apps.push(DesktopAppSummary {
+                    id: p.name.clone(),
+                    name,
+                    generic_name,
+                    comment,
+                    exec,
+                    icon,
+                    icon_path,
+                    categories,
+                    mime_types,
+                    desktop_file_path: desktop_path.display().to_string(),
+                    package_name: p.name,
+                    package_version: p.version,
+                });
+            }
+        }
+
+        Ok(apps)
     }
 
     fn compute_dir_size(path: &Path) -> Result<u64> {
@@ -804,6 +1335,158 @@ mod tests {
         assert_eq!(remove_rep.generation, 3);
         assert_eq!(PackageEngine::list(&temp_dir).unwrap().len(), 1);
         assert!(!PackageEngine::current_bin_dir(&temp_dir).join("curl").exists());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_parse_gui_recipe_toml() {
+        let toml_str = r##"
+            [package]
+            name = "zed-editor"
+            version = "0.140.0"
+            description = "High-performance, multiplayer code editor"
+            homepage = "https://zed.dev"
+            license = "GPL-3.0"
+            binaries = ["zed"]
+            app_type = "gui"
+
+            [source]
+            url = "https://github.com/zed-industries/zed/archive/v0.140.0.tar.gz"
+            sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+            [desktop]
+            name = "Zed"
+            generic_name = "Code Editor"
+            comment = "A high-performance code editor"
+            exec = "zed %F"
+            icon = "zed"
+            terminal = false
+            categories = ["Development", "TextEditor", "IDE"]
+            mime_types = ["text/plain", "text/x-rust"]
+            startup_notify = true
+            startup_wm_class = "dev.zed.Zed"
+            keywords = ["editor", "code", "rust"]
+
+            [[icons]]
+            name = "zed"
+            theme = "hicolor"
+            size = "scalable"
+            context = "apps"
+            format = "svg"
+            data = "<svg viewBox=\"0 0 100 100\"><circle cx=\"50\" cy=\"50\" r=\"40\" fill=\"#3b82f6\"/></svg>"
+        "##;
+
+        let manifest = PackageEngine::parse_recipe(toml_str).expect("Failed to parse GUI recipe");
+        assert_eq!(manifest.name, "zed-editor");
+        assert_eq!(manifest.app_type, PackageAppType::Gui);
+        assert!(manifest.desktop_entry.is_some());
+
+        let desktop = manifest.desktop_entry.as_ref().unwrap();
+        assert_eq!(desktop.name, "Zed");
+        assert_eq!(desktop.generic_name, Some("Code Editor".to_string()));
+        assert_eq!(desktop.exec, "zed %F");
+        assert_eq!(desktop.icon, Some("zed".to_string()));
+        assert!(!desktop.terminal);
+        assert!(desktop.categories.contains(&"Development".to_string()));
+        assert!(desktop.mime_types.contains(&"text/plain".to_string()));
+        assert_eq!(desktop.startup_wm_class, Some("dev.zed.Zed".to_string()));
+
+        assert_eq!(manifest.icons.len(), 1);
+        let icon = &manifest.icons[0];
+        assert_eq!(icon.resolution, "scalable");
+        assert_eq!(icon.format, "svg");
+    }
+
+    #[test]
+    fn test_desktop_entry_generation_and_validation() {
+        let manifest = PackageEngine::resolve_manifest("firefox").expect("should resolve firefox");
+        assert!(manifest.desktop_entry.is_some());
+
+        let content = PackageEngine::generate_desktop_entry(&manifest);
+        assert!(content.contains("[Desktop Entry]"));
+        assert!(content.contains("Type=Application"));
+        assert!(content.contains("Name=Firefox"));
+        assert!(content.contains("Exec=firefox %u"));
+        assert!(content.contains("Icon=firefox"));
+        assert!(content.contains("Categories=Network;WebBrowser;"));
+        assert!(content.contains("StartupNotify=true"));
+
+        let report = PackageEngine::validate_desktop_entry(&content);
+        assert!(report.valid, "Generated desktop entry must be valid. Errors: {:?}", report.errors);
+        assert!(report.errors.is_empty());
+
+        // Validate invalid desktop entry
+        let invalid_content = "[Desktop Entry]\nComment=No name or exec or type\n";
+        let invalid_report = PackageEngine::validate_desktop_entry(invalid_content);
+        assert!(!invalid_report.valid);
+        assert!(invalid_report.errors.iter().any(|e| e.contains("Type")));
+        assert!(invalid_report.errors.iter().any(|e| e.contains("Name")));
+        assert!(invalid_report.errors.iter().any(|e| e.contains("Exec")));
+    }
+
+    #[test]
+    fn test_gui_package_lifecycle_install_rollback_and_remove() {
+        let temp_dir = std::env::temp_dir().join("antos_pkg_gui_test_lifecycle");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        // 1. Install Firefox (GUI)
+        let rep1 = PackageEngine::install(&temp_dir, "firefox", false).unwrap();
+        assert_eq!(rep1.generation, 1);
+        assert!(rep1.success);
+        assert_eq!(rep1.desktop_entries_linked, vec!["firefox.desktop".to_string()]);
+        assert_eq!(rep1.icons_linked, vec!["firefox.svg".to_string()]);
+
+        // Check symlinks
+        let current_apps = PackageEngine::current_applications_dir(&temp_dir);
+        let current_icons = PackageEngine::current_icons_dir(&temp_dir).join("hicolor/scalable/apps");
+        let firefox_desktop_symlink = current_apps.join("firefox.desktop");
+        let firefox_icon_symlink = current_icons.join("firefox.svg");
+
+        assert!(firefox_desktop_symlink.exists(), "firefox.desktop symlink must exist");
+        assert!(firefox_icon_symlink.exists(), "firefox.svg icon symlink must exist");
+
+        // Verify desktop entry content from symlink
+        let desktop_raw = fs::read_to_string(&firefox_desktop_symlink).unwrap();
+        assert!(desktop_raw.contains("Name=Firefox"));
+
+        // 2. Query desktop apps
+        let apps1 = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
+        assert_eq!(apps1.len(), 1);
+        assert_eq!(apps1[0].name, "Firefox");
+        assert_eq!(apps1[0].exec, "firefox %u");
+        assert_eq!(apps1[0].package_name, "firefox");
+        assert!(apps1[0].icon_path.is_some());
+
+        // 3. Install Alacritty (GUI)
+        let rep2 = PackageEngine::install(&temp_dir, "alacritty", false).unwrap();
+        assert_eq!(rep2.generation, 2);
+        assert_eq!(rep2.desktop_entries_linked, vec!["alacritty.desktop".to_string()]);
+
+        let apps2 = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
+        assert_eq!(apps2.len(), 2);
+        assert!(current_apps.join("alacritty.desktop").exists());
+        assert!(current_icons.join("alacritty.svg").exists());
+
+        // 4. Rollback to generation 1
+        let rollback_rep = PackageEngine::rollback(&temp_dir, None).unwrap();
+        assert_eq!(rollback_rep.generation, 1);
+
+        let apps_after_rollback = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
+        assert_eq!(apps_after_rollback.len(), 1);
+        assert_eq!(apps_after_rollback[0].name, "Firefox");
+        assert!(!current_apps.join("alacritty.desktop").exists(), "Alacritty desktop entry should be removed after rollback");
+        assert!(!current_icons.join("alacritty.svg").exists(), "Alacritty icon should be removed after rollback");
+        assert!(current_apps.join("firefox.desktop").exists());
+
+        // 5. Remove Firefox
+        let remove_rep = PackageEngine::remove(&temp_dir, "firefox").unwrap();
+        assert_eq!(remove_rep.generation, 2);
+        let apps_after_remove = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
+        assert_eq!(apps_after_remove.len(), 0);
+        assert!(!current_apps.join("firefox.desktop").exists());
+        assert!(!current_icons.join("firefox.svg").exists());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

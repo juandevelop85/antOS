@@ -542,7 +542,46 @@ pub struct UsbFlashReport {
 // ------------------------------------------------------------- packages (antpkg)
 
 
-/// Declarative package recipe specification (T16.2).
+/// Application type classification for an antOS package (T25.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageAppType {
+    Cli,
+    Gui,
+}
+
+impl Default for PackageAppType {
+    fn default() -> Self {
+        Self::Cli
+    }
+}
+
+/// Freedesktop XDG desktop entry specification metadata (T25.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopEntryManifest {
+    pub name: String,
+    pub generic_name: Option<String>,
+    pub comment: Option<String>,
+    pub exec: String,
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub categories: Vec<String>,
+    #[serde(default)]
+    pub mime_types: Vec<String>,
+    #[serde(default)]
+    pub terminal: bool,
+    pub startup_wm_class: Option<String>,
+}
+
+/// Icon asset definition for desktop applications (T25.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IconAsset {
+    pub resolution: String,
+    pub format: String,
+    pub path: String,
+}
+
+/// Declarative package recipe specification (T16.2 / T25.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageManifest {
     pub name: String,
@@ -559,9 +598,15 @@ pub struct PackageManifest {
     pub build_script: Option<String>,
     #[serde(default)]
     pub binaries: Vec<String>,
+    #[serde(default)]
+    pub app_type: PackageAppType,
+    #[serde(default)]
+    pub desktop_entry: Option<DesktopEntryManifest>,
+    #[serde(default)]
+    pub icons: Vec<IconAsset>,
 }
 
-/// Summary of an installed package in the immutable store (T16.2).
+/// Summary of an installed package in the immutable store (T16.2 / T25.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageSummary {
     pub name: String,
@@ -572,9 +617,17 @@ pub struct PackageSummary {
     pub installed_at: String,
     pub binaries: Vec<String>,
     pub generation: u64,
+    #[serde(default)]
+    pub app_type: PackageAppType,
+    #[serde(default)]
+    pub desktop_entry: Option<DesktopEntryManifest>,
+    #[serde(default)]
+    pub desktop_file: Option<String>,
+    #[serde(default)]
+    pub icons_linked: Vec<String>,
 }
 
-/// Installation or compilation report for an immutable package (T16.2).
+/// Installation or compilation report for an immutable package (T16.2 / T25.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageInstallReport {
     pub name: String,
@@ -582,10 +635,39 @@ pub struct PackageInstallReport {
     pub store_path: String,
     pub generation: u64,
     pub binaries_linked: Vec<String>,
+    #[serde(default)]
+    pub desktop_entries_linked: Vec<String>,
+    #[serde(default)]
+    pub icons_linked: Vec<String>,
     pub checksum_verified: bool,
     pub signature_verified: bool,
     pub success: bool,
     pub message: String,
+}
+
+/// Summary of a registered desktop graphical application (T25.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopAppSummary {
+    pub id: String,
+    pub name: String,
+    pub generic_name: Option<String>,
+    pub comment: Option<String>,
+    pub exec: String,
+    pub icon: Option<String>,
+    pub icon_path: Option<String>,
+    pub categories: Vec<String>,
+    pub mime_types: Vec<String>,
+    pub desktop_file_path: String,
+    pub package_name: String,
+    pub package_version: String,
+}
+
+/// Verification report for Freedesktop .desktop files (T25.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopValidationReport {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 /// Global status of the immutable package store and profile generations (T16.2).

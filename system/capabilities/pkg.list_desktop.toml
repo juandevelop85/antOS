@@ -1,0 +1,11 @@
+name = "pkg.list_desktop"
+summary = "Lista las aplicaciones gráficas registradas en el perfil activo con sus entradas XDG Desktop y rutas de iconos"
+
+[params]
+
+[effects]
+reads = ["$STATE/profiles/current/share/applications", "$STATE/profiles/current/share/icons"]
+
+[policy]
+tier = "auto"
+reversible = "never"

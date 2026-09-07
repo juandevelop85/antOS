@@ -1010,10 +1010,49 @@ use crate::*;
             dependencies: vec!["pcre2".into()],
             build_script: Some("cargo build --release".into()),
             binaries: vec!["rg".into()],
+            app_type: PackageAppType::Cli,
+            desktop_entry: None,
+            icons: Vec::new(),
         };
         let json_manifest = serde_json::to_string(&manifest).expect("serialize manifest");
         let des_manifest: PackageManifest = serde_json::from_str(&json_manifest).expect("deserialize manifest");
         assert_eq!(manifest, des_manifest);
+
+        // GUI package manifest with desktop entry and icons (T25.1)
+        let gui_manifest = PackageManifest {
+            name: "firefox".into(),
+            version: "130.0".into(),
+            description: "Mozilla Firefox Web Browser".into(),
+            homepage: Some("https://mozilla.org/firefox".into()),
+            license: Some("MPL-2.0".into()),
+            source_url: Some("https://packages.antos.dev/sources/firefox-130.0.tar.gz".into()),
+            sha256: Some("abcdef123456".into()),
+            signature: None,
+            signer_public_key: None,
+            dependencies: vec!["gtk4".into(), "wayland".into()],
+            build_script: None,
+            binaries: vec!["firefox".into()],
+            app_type: PackageAppType::Gui,
+            desktop_entry: Some(DesktopEntryManifest {
+                name: "Mozilla Firefox".into(),
+                generic_name: Some("Web Browser".into()),
+                comment: Some("Navegador web libre y seguro".into()),
+                exec: "firefox %u".into(),
+                icon: Some("firefox".into()),
+                categories: vec!["Network".into(), "WebBrowser".into()],
+                mime_types: vec!["text/html".into(), "x-scheme-handler/http".into()],
+                terminal: false,
+                startup_wm_class: Some("firefox".into()),
+            }),
+            icons: vec![IconAsset {
+                resolution: "scalable".into(),
+                format: "svg".into(),
+                path: "share/icons/hicolor/scalable/apps/firefox.svg".into(),
+            }],
+        };
+        let json_gui = serde_json::to_string(&gui_manifest).expect("serialize gui manifest");
+        let des_gui: PackageManifest = serde_json::from_str(&json_gui).expect("deserialize gui manifest");
+        assert_eq!(gui_manifest, des_gui);
 
         let req_install = Request::InstallPackage {
             recipe_path_or_name: "ripgrep".into(),
@@ -1022,6 +1061,16 @@ use crate::*;
         let json_install = serde_json::to_string(&req_install).expect("serialize install req");
         let des_install: Request = serde_json::from_str(&json_install).expect("deserialize install req");
         assert_eq!(req_install, des_install);
+
+        let req_desktop = Request::ListDesktopApps;
+        let json_desktop_req = serde_json::to_string(&req_desktop).expect("serialize list desktop req");
+        let des_desktop_req: Request = serde_json::from_str(&json_desktop_req).expect("deserialize list desktop req");
+        assert_eq!(req_desktop, des_desktop_req);
+
+        let req_validate = Request::ValidateDesktopEntry { content: "[Desktop Entry]\nType=Application\nName=App\nExec=app\n".into() };
+        let json_val_req = serde_json::to_string(&req_validate).expect("serialize val req");
+        let des_val_req: Request = serde_json::from_str(&json_val_req).expect("deserialize val req");
+        assert_eq!(req_validate, des_val_req);
 
         let summary = PackageSummary {
             name: "ripgrep".into(),
@@ -1032,11 +1081,34 @@ use crate::*;
             installed_at: "2026-09-03T08:00:00Z".into(),
             binaries: vec!["rg".into()],
             generation: 1,
+            app_type: PackageAppType::Cli,
+            desktop_entry: None,
+            desktop_file: None,
+            icons_linked: Vec::new(),
         };
         let ev_list = Event::PackageList(vec![summary.clone()]);
         let json_list = serde_json::to_string(&ev_list).expect("serialize package list ev");
         let des_list: Event = serde_json::from_str(&json_list).expect("deserialize package list ev");
         assert_eq!(ev_list, des_list);
+
+        let app_summary = DesktopAppSummary {
+            id: "firefox".into(),
+            name: "Mozilla Firefox".into(),
+            generic_name: Some("Web Browser".into()),
+            comment: Some("Navegador web libre".into()),
+            exec: "firefox %u".into(),
+            icon: Some("firefox".into()),
+            icon_path: Some("/var/antos/current/share/icons/hicolor/scalable/apps/firefox.svg".into()),
+            categories: vec!["Network".into(), "WebBrowser".into()],
+            mime_types: vec!["text/html".into()],
+            desktop_file_path: "/var/antos/current/share/applications/firefox.desktop".into(),
+            package_name: "firefox".into(),
+            package_version: "130.0".into(),
+        };
+        let ev_apps = Event::DesktopAppList(vec![app_summary.clone()]);
+        let json_apps = serde_json::to_string(&ev_apps).expect("serialize apps list ev");
+        let des_apps: Event = serde_json::from_str(&json_apps).expect("deserialize apps list ev");
+        assert_eq!(ev_apps, des_apps);
 
         let report = PackageInstallReport {
             name: "ripgrep".into(),
@@ -1044,6 +1116,8 @@ use crate::*;
             store_path: "/var/antos/store/a1b2c3d4e5f6-ripgrep-14.1.0".into(),
             generation: 1,
             binaries_linked: vec!["rg".into()],
+            desktop_entries_linked: Vec::new(),
+            icons_linked: Vec::new(),
             checksum_verified: true,
             signature_verified: true,
             success: true,

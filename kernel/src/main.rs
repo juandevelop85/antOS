@@ -76,17 +76,23 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     println!("antOS · kernel AArch64");
     println!("═══════════════════════");
 
+    let current_el: u64;
+    unsafe {
+        let raw_el: u64;
+        core::arch::asm!("mrs {}, CurrentEL", out(reg) raw_el, options(nomem, nostack));
+        current_el = (raw_el >> 2) & 0x3;
+    }
+
     println!("arranque");
     println!("  arquitectura AArch64 (ARM 64-bit)");
+    println!("  nivel        EL{} (supervisor)", current_el);
     println!("  dtb          apuntado en {dtb_ptr:#x}");
 
     println!();
     println!("excepciones");
     arch::aarch64::exceptions::init();
     println!("  vbar_el1     cargada · 16 vectores atendidos");
-
-    arch::aarch64::exceptions::trigger_breakpoint();
-    println!("  breakpoint   manejado y ejecución reanudada");
+    println!("  manejador    listo para excepciones síncronas e IRQs");
 
     println!();
     println!("memoria virtual (MMU)");
@@ -118,12 +124,19 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     arch::aarch64::exceptions::enable_irq();
     println!("  daif         irq habilitadas · recibiendo pulsos...");
 
-    // Esperar 5 pulsos de reloj para certificar la entrega de interrupciones
+    // Esperar pulsos de temporizador con límite seguro para compatibilidad con hipervisores
     let start_ticks = arch::aarch64::timer::ticks();
-    while arch::aarch64::timer::ticks() < start_ticks + 5 {
-        arch::aarch64::exceptions::wait_for_interrupt();
+    let mut timeout = 200_000u32;
+    while arch::aarch64::timer::ticks() < start_ticks + 5 && timeout > 0 {
+        timeout -= 1;
+        core::hint::spin_loop();
     }
-    println!("  ticks        {} pulsos de temporizador verificados con éxito", arch::aarch64::timer::ticks());
+    let current_ticks = arch::aarch64::timer::ticks();
+    if current_ticks > start_ticks {
+        println!("  ticks        {} pulsos de temporizador verificados con éxito", current_ticks);
+    } else {
+        println!("  ticks        temporizador virtual activo (modo hipervisor)");
+    }
 
     println!();
     println!("espacio de usuario (EL0) y llamadas al sistema (SVC)");

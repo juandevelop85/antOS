@@ -1,0 +1,12 @@
+name = "pkg.validate_desktop"
+summary = "Valida la sintaxis y especificacion Freedesktop XDG Desktop Entry de un archivo .desktop"
+
+[params]
+path = { type = "text", optional = false }
+
+[effects]
+reads = ["$ARG_PATH"]
+
+[policy]
+tier = "auto"
+reversible = "never"

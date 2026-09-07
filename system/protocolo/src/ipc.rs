@@ -302,6 +302,14 @@ pub enum Request {
     /// Query global immutable package store status (T16.2).
     #[serde(alias = "QueryPackageStoreStatus")]
     QueryPackageStoreStatus,
+    /// List graphical desktop applications registered in current active profile (T25.1).
+    #[serde(alias = "ListDesktopApps", alias = "list_desktop_apps")]
+    ListDesktopApps,
+    /// Validate Freedesktop .desktop entry syntax (T25.1).
+    #[serde(alias = "ValidateDesktopEntry", alias = "validate_desktop_entry")]
+    ValidateDesktopEntry {
+        content: String,
+    },
     /// Start continuous autonomous sentinel agent daemon (T16.3).
     #[serde(alias = "IniciarAutopilot")]
     StartAutopilot(AutopilotConfig),
@@ -700,6 +708,12 @@ pub enum Event {
         verified_packages: usize,
         details: Vec<String>,
     },
+    /// List of registered graphical desktop applications (T25.1).
+    #[serde(alias = "ListaAplicacionesEscritorio")]
+    DesktopAppList(Vec<DesktopAppSummary>),
+    /// Verification report for a Freedesktop .desktop entry (T25.1).
+    #[serde(alias = "ReporteValidacionEscritorio")]
+    DesktopValidationReport(DesktopValidationReport),
     /// Real-time status of the Autopilot daemon (T16.3).
     #[serde(alias = "EstadoAutopilot")]
     AutopilotStatus(AutopilotStatus),

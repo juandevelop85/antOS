@@ -97,6 +97,14 @@ fn main() {
 
     println!("cargo:rustc-env=USER_BINARY={}", binary.display());
     println!("cargo:rustc-env=INITRD_TAR={}", initrd_path.display());
+
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("aarch64") {
+        let linker_script = Path::new(&manifest).join("src").join("arch").join("aarch64").join("linker.ld");
+        println!("cargo:rustc-link-arg=-T{}", linker_script.display());
+        println!("cargo:rerun-if-changed={}", linker_script.display());
+    }
+
     println!("cargo:rerun-if-changed={}", user_dir.join("src/main.rs").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("Cargo.toml").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/lib.rs").display());

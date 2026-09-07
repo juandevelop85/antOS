@@ -49,11 +49,20 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
         }
 
         syscall::SYS_WRITE => {
-            let ptr = ctx.x[0] as *const u8;
+            let uaddr = ctx.x[0];
             let len = ctx.x[1] as usize;
 
-            if !ptr.is_null() && len > 0 && syscall::validate_user_buffer(ctx.x[0], len as u64) {
-                // Safety: buffer is located in mapped user space
+            if uaddr != 0 && len > 0 && syscall::validate_user_buffer(uaddr, len as u64) {
+                // Safely translate user virtual address to kernel-mapped physical RAM
+                // to avoid PAN (Privileged Access Never) hardware faults on Apple Silicon / ARMv8.1+
+                let kaddr = if uaddr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
+                    && uaddr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
+                {
+                    (uaddr - crate::arch::aarch64::mmu::USER_SPACE_VIRT) + crate::arch::aarch64::mmu::USER_SPACE_PHYS
+                } else {
+                    uaddr
+                };
+                let ptr = kaddr as *const u8;
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
                 if let Ok(s) = core::str::from_utf8(slice) {
                     for b in s.bytes() {
@@ -168,8 +177,9 @@ pub unsafe fn enter_user_mode(entry_point: u64, stack_top: u64, arg0: u64, arg1:
         // Pass arguments to user function
         "mov x0, {arg0}",
         "mov x1, {arg1}",
-        // SPSR_EL1: Mode EL0t (0b0000), unmask IRQ
-        "msr spsr_el1, xzr",
+        // SPSR_EL1: Mode EL0t (0b0000), mask DAIF (0x3c0) during standalone test to prevent spurious interrupts
+        "mov x2, #0x3c0",
+        "msr spsr_el1, x2",
         "isb",
 
         // 4. Drop to EL0!
@@ -218,29 +228,32 @@ pub unsafe fn return_to_kernel(exit_code: u64) -> ! {
 
 /// Prepares user space at `USER_SPACE_VIRT` with test user code and message.
 pub unsafe fn setup_test_userspace() -> (u64, u64, u64, u64) {
-    let entry_addr = crate::arch::aarch64::mmu::USER_SPACE_VIRT;
-    let msg_addr = entry_addr + 0x1000;
-    let stack_top = entry_addr + 0x0010_0000;
+    let virt_entry = crate::arch::aarch64::mmu::USER_SPACE_VIRT;
+    let virt_msg = virt_entry + 0x1000;
+    let stack_top = virt_entry + 0x0010_0000;
+
+    let phys_entry = crate::arch::aarch64::mmu::USER_SPACE_PHYS;
+    let phys_msg = phys_entry + 0x1000;
 
     let msg = b"  userspace    antOS init running in EL0 via svc #0!\n";
-    core::ptr::copy_nonoverlapping(msg.as_ptr(), msg_addr as *mut u8, msg.len());
+    // Write through EL1 physical alias to avoid PAN (Privileged Access Never) faults
+    core::ptr::copy_nonoverlapping(msg.as_ptr(), phys_msg as *mut u8, msg.len());
 
     let src = user_test_entry as *const u8;
-    let dst = entry_addr as *mut u8;
-    core::ptr::copy_nonoverlapping(src, dst, 64);
+    core::ptr::copy_nonoverlapping(src, phys_entry as *mut u8, 64);
 
-    // Invalidate instruction cache for the copied code
+    // Clean data cache to Point of Unification and invalidate instruction caches
     core::arch::asm!(
         "dc cvau, {dst}",
         "dsb ish",
-        "ic ivau, {dst}",
+        "ic iallu",
         "dsb ish",
         "isb",
-        dst = in(reg) dst,
+        dst = in(reg) phys_entry,
         options(nostack)
     );
 
-    (entry_addr, stack_top, msg_addr, msg.len() as u64)
+    (virt_entry, stack_top, virt_msg, msg.len() as u64)
 }
 
 /// Standalone assembly routine executed by EL0.

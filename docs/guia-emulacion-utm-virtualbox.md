@@ -109,16 +109,21 @@ Este método es el más rápido y directo para desarrollo y pruebas en Macs con 
      * **Sistema / Máquina:** `QEMU ARM Virtual Machine (virt)` (versión virt estándar o recomendada).
      * **Memoria RAM:** `1024 MB`.
    * **Pestaña QEMU:**
-     * ⚠️ **Desmarcar la casilla "UEFI Boot"** (*Arranque UEFI*). Al desmarcarla, se habilita el cargador de kernel de bajo nivel de QEMU.
-   * **Sección Arranque / Kernel (visible con UEFI Boot desmarcado):**
-     * En el campo **Kernel (Núcleo)**: pulsa *Explorar...* y selecciona:
-       ```text
-       <ruta-del-repo>/kernel/target/aarch64-unknown-none/debug/kernel
-       ```
-   * **Pestaña Dispositivos (Devices) (Crucial para ver la salida):**
-     * En la barra lateral de dispositivos, pulsa **Nuevo... (New...)** -> **Puerto serie (Serial)**.
+     * ⚠️ **Desmarcar la casilla "Arranque UEFI"** (en la sección *Retoques* de la pestaña QEMU).
+   * **Carga del Kernel en UTM 4.5+ (QEMU 10):**
+     En las versiones actuales de UTM (con QEMU 10), UTM ha retirado el selector gráfico de archivos de kernel. Para pasar el binario del kernel:
+     * En la barra lateral izquierda, haz clic en **`[A] Argument...`** (justo debajo de **QEMU**).
+     * Pulsa el botón **`+`** (o *Nuevo argumento*).
+     * Introduce dos entradas (o el flag y el valor):
+       1. Argumento: `-kernel`
+       2. Valor / siguiente argumento: `/Users/juandevelop/Develop/antOS/kernel/target/aarch64-unknown-none/debug/kernel`
+   * **Pestaña Dispositivos (Crucial para ver la salida de pantalla):**
+     * En la barra lateral izquierda, bajo **Dispositivos**, pulsa **+ Nuevo...** -> **Puerto serie**.
      * Modo: **Terminal** (Consola integrada).
-     * *(Opcional recomendado)*: Si eliminas el dispositivo de pantalla (**Display**), la VM abrirá automáticamente la terminal de texto serie al arrancar.
+     * *(Opcional)*: Si eliminas el dispositivo **Monitor**, la VM abrirá automáticamente la terminal de texto serie al arrancar.
+
+> 💡 **Recomendación (El Camino Más Sencillo en UTM):**  
+> Debido a que UTM 4.5+ no tiene selector gráfico de kernel, el **[Método B (Disco UEFI)](#método-b-arranque-con-imagen-de-disco-uefi-gpt--limine)** es hoy el método 100% gráfico y más cómodo: mantienes *Arranque UEFI* activado e importas el archivo `.img` en *Unidades de disco*.
 
 3. **Iniciar la Máquina Virtual:**
    * Pulsa **Play (▶️)**.
