@@ -92,8 +92,42 @@ pub const SYS_CHANNEL_SEND: u64 = 11;
 /// Returns: number of bytes received, or error code (`EAGAIN` if empty).
 pub const SYS_CHANNEL_RECV: u64 = 12;
 
+/// Lists directory entries from the mounted VFS (T26.5 — `libantos`/shell).
+///
+/// Arguments: `arg1` = pointer to path string, `arg2` = path length,
+/// `arg3` = pointer to output buffer, `arg4` = output buffer capacity.
+/// Returns: bytes written to the output buffer (one `"KIND  SIZE  name\n"` line
+/// per entry), or an error code (`ENOENT` if the path does not exist).
+pub const SYS_FS_LIST: u64 = 13;
+
+/// Reads a whole file from the mounted VFS into a user buffer (T26.5).
+///
+/// Arguments: `arg1` = pointer to path string, `arg2` = path length,
+/// `arg3` = pointer to output buffer, `arg4` = output buffer capacity.
+/// Returns: bytes copied (truncated to the buffer capacity), or `ENOENT`.
+pub const SYS_FS_READFILE: u64 = 14;
+
+/// Reports basic system information (architecture, heap usage, uptime) as text (T26.5).
+///
+/// Arguments: `arg1` = pointer to output buffer, `arg2` = output buffer capacity.
+/// Returns: bytes written to the output buffer.
+pub const SYS_SYSINFO: u64 = 15;
+
+/// Requests that the kernel render or hand off control to the native Desktop
+/// Shell compositor (T26.2/T26.5 bridge).
+///
+/// Arguments: none.
+/// Returns: `0` if a graphical session was rendered/is active, or an error
+/// code if no framebuffer session is available this boot.
+pub const SYS_LAUNCH_DESKTOP: u64 = 16;
+
 /// Total number of defined syscalls (for bounds checking).
-pub const SYSCALL_COUNT: u64 = 13;
+pub const SYSCALL_COUNT: u64 = 17;
+
+// `SYS_FS_LIST`, `SYS_FS_READFILE` and `SYS_SYSINFO` are the first syscalls to
+// need a fourth argument. It travels in `R10` on x86_64 (Linux's own
+// convention: `RCX` is clobbered by the `syscall` instruction itself) and in
+// `x3` on AArch64, where `svc` leaves `x0`..`x7` untouched.
 
 // ────────────────────────────────────────────── Standard POSIX Error Codes
 

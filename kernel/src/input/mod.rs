@@ -254,6 +254,34 @@ impl KeyboardState {
     }
 }
 
+/// Tracks modifier state (shift/caps/ctrl) for the ASCII bridge below. Shared
+/// by whichever driver fed `GLOBAL_INPUT_QUEUE` — PS/2 (x86_64) or
+/// VirtIO-Input (AArch64) — since both funnel through the same typed queue.
+static ASCII_BRIDGE_STATE: crate::sync::SpinLock<KeyboardState> =
+    crate::sync::SpinLock::new(KeyboardState::new());
+
+/// Drains as many queued key-press events as fit in `buf`, decoding them to
+/// ASCII via [`KeyboardState::key_to_char`]. Non-blocking: returns `0`
+/// immediately if nothing is queued. Used by `SYS_READ` (T26.5) so the
+/// userspace shell can poll `fd 0` the same way on every architecture.
+pub fn drain_ascii(buf: &mut [u8]) -> usize {
+    let mut state = ASCII_BRIDGE_STATE.lock();
+    let mut written = 0usize;
+    while written < buf.len() {
+        let Some(event) = pop_event() else { break };
+        state.update(&event);
+        if let InputEvent::KeyPress(key) = event {
+            if let Some(ch) = state.key_to_char(key) {
+                if ch.is_ascii() {
+                    buf[written] = ch as u8;
+                    written += 1;
+                }
+            }
+        }
+    }
+    written
+}
+
 /// Linux Input Subsystem Event Types.
 pub const EV_SYN: u16 = 0x00;
 pub const EV_KEY: u16 = 0x01;

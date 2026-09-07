@@ -12,6 +12,10 @@ pub const SYS_WAITPID: u64 = 9;
 pub const SYS_CHANNEL_CREATE: u64 = 10;
 pub const SYS_CHANNEL_SEND: u64 = 11;
 pub const SYS_CHANNEL_RECV: u64 = 12;
+pub const SYS_FS_LIST: u64 = 13;
+pub const SYS_FS_READFILE: u64 = 14;
+pub const SYS_SYSINFO: u64 = 15;
+pub const SYS_LAUNCH_DESKTOP: u64 = 16;
 
 pub const EPERM: u64 = (-1i64) as u64;
 pub const ENOENT: u64 = (-2i64) as u64;
@@ -23,9 +27,18 @@ pub const EFAULT: u64 = (-14i64) as u64;
 pub const EINVAL: u64 = (-22i64) as u64;
 pub const ENOSYS: u64 = (-38i64) as u64;
 
+/// Raw 3-argument syscall. Kept for call sites that never need a 4th
+/// argument; forwards to [`raw_syscall4`] with `arg4 = 0`.
+#[inline(always)]
+pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+    unsafe { raw_syscall4(number, arg1, arg2, arg3, 0) }
+}
+
+/// Raw 4-argument syscall. `SYS_FS_LIST`, `SYS_FS_READFILE` and `SYS_SYSINFO`
+/// are the only ones that use the 4th slot today (T26.5).
 #[cfg(target_arch = "x86_64")]
 #[inline]
-pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+pub unsafe fn raw_syscall4(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
     let result: u64;
     core::arch::asm!(
         "syscall",
@@ -33,6 +46,7 @@ pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
         in("rdi") arg1,
         in("rsi") arg2,
         in("rdx") arg3,
+        in("r10") arg4,
         lateout("rcx") _,
         lateout("r11") _,
         clobber_abi("sysv64"),
@@ -42,7 +56,7 @@ pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
 
 #[cfg(target_arch = "aarch64")]
 #[inline]
-pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+pub unsafe fn raw_syscall4(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
     let result: u64;
     core::arch::asm!(
         "svc #0",
@@ -50,6 +64,7 @@ pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
         inlateout("x0") arg1 => result,
         in("x1") arg2,
         in("x2") arg3,
+        in("x3") arg4,
         options(nomem, nostack),
     );
     result
@@ -88,6 +103,13 @@ pub fn yield_cpu() {
     unsafe {
         raw_syscall(SYS_YIELD, 0, 0, 0);
     }
+}
+
+/// Voluntarily yields the remaining time quantum. Same syscall as
+/// [`yield_cpu`]; this is the name used by the rest of `libantos` (T26.5).
+#[inline(always)]
+pub fn yield_now() {
+    yield_cpu()
 }
 
 #[inline(always)]
@@ -158,5 +180,70 @@ pub fn channel_recv(channel_id: u64, buf: &mut [u8]) -> Result<usize, u64> {
         Err(res)
     } else {
         Ok(res as usize)
+    }
+}
+
+/// Lists VFS directory entries under `path`, formatted as `"KIND  SIZE  name\n"`
+/// lines, into `out`. Returns the number of bytes written (T26.5).
+#[inline(always)]
+pub fn fs_list(path: &str, out: &mut [u8]) -> Result<usize, u64> {
+    let res = unsafe {
+        raw_syscall4(
+            SYS_FS_LIST,
+            path.as_ptr() as u64,
+            path.len() as u64,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+        )
+    };
+    if res == ENOENT || res == EINVAL || res == EFAULT {
+        Err(res)
+    } else {
+        Ok(res as usize)
+    }
+}
+
+/// Reads the whole file at `path` from the VFS into `out`, truncating if it
+/// does not fit. Returns the number of bytes copied (T26.5).
+#[inline(always)]
+pub fn fs_read_file(path: &str, out: &mut [u8]) -> Result<usize, u64> {
+    let res = unsafe {
+        raw_syscall4(
+            SYS_FS_READFILE,
+            path.as_ptr() as u64,
+            path.len() as u64,
+            out.as_mut_ptr() as u64,
+            out.len() as u64,
+        )
+    };
+    if res == ENOENT || res == EINVAL || res == EFAULT {
+        Err(res)
+    } else {
+        Ok(res as usize)
+    }
+}
+
+/// Fills `out` with basic system information text (architecture, heap usage,
+/// uptime). Returns the number of bytes written (T26.5).
+#[inline(always)]
+pub fn sysinfo(out: &mut [u8]) -> Result<usize, u64> {
+    let res = unsafe { raw_syscall(SYS_SYSINFO, out.as_mut_ptr() as u64, out.len() as u64, 0) };
+    if res == EFAULT || res == EINVAL {
+        Err(res)
+    } else {
+        Ok(res as usize)
+    }
+}
+
+/// Asks the kernel to render (or hand off to) the native Desktop Shell
+/// compositor. `Ok(())` means a graphical session is active; `Err` means
+/// no framebuffer session is available this boot (T26.5).
+#[inline(always)]
+pub fn launch_desktop() -> Result<(), u64> {
+    let res = unsafe { raw_syscall(SYS_LAUNCH_DESKTOP, 0, 0, 0) };
+    if res == 0 {
+        Ok(())
+    } else {
+        Err(res)
     }
 }

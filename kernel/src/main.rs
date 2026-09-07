@@ -31,7 +31,8 @@ pub mod syscall;
 mod task;
 pub mod ui;
 
-#[cfg(target_arch = "x86_64")]
+// Built by `build.rs` for whichever architecture the kernel itself targets
+// (T26.5): both AArch64 and x86_64 mount this same way, via `fs::tarfs`.
 pub static EMBEDDED_INITRD: &[u8] = include_bytes!(env!("INITRD_TAR"));
 
 #[cfg(target_arch = "x86_64")]
@@ -54,9 +55,17 @@ use task::Task;
 use core::fmt::Write;
 use core::panic::PanicInfo;
 
+// 512 KiB was enough before T26.5: nothing in the AArch64 boot path held more
+// than a few kilobytes of heap data at once. Loading a real userspace ELF
+// through `fs::vfs::read_all` — the antos-init binary is ~1.6 MiB — needs
+// room for that whole buffer plus the TarFs index and the usual Box/Vec/
+// String demos, so this now matches x86_64's 4 MiB kernel heap (`memory::HEAP_SIZE`).
+#[cfg(target_arch = "aarch64")]
+const AARCH64_HEAP_SIZE: usize = 4 * 1024 * 1024;
+
 #[cfg(target_arch = "aarch64")]
 #[link_section = ".bss.heap"]
-static mut AARCH64_HEAP: [u8; 512 * 1024] = [0; 512 * 1024];
+static mut AARCH64_HEAP: [u8; AARCH64_HEAP_SIZE] = [0; AARCH64_HEAP_SIZE];
 
 #[cfg(target_arch = "x86_64")]
 const CONFIG: BootloaderConfig = {
@@ -102,7 +111,7 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
 
     // Inicializar asignador dinámico de memoria sobre RAM mapeada por la MMU
     unsafe {
-        allocator::init(core::ptr::addr_of_mut!(AARCH64_HEAP) as usize, 512 * 1024);
+        allocator::init(core::ptr::addr_of_mut!(AARCH64_HEAP) as usize, AARCH64_HEAP_SIZE);
     }
     let boxed = Box::new(42u64);
     let mut numbers = Vec::new();
@@ -190,7 +199,7 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     if graphical_fb_active {
         ui::init("AArch64 / Cortex-A72");
         if let Some(c) = console::CONSOLE.lock().as_mut() {
-            ui::render_desktop(c.framebuffer_mut(), allocator::used(), 512 * 1024, 0);
+            ui::render_desktop(c.framebuffer_mut(), allocator::used(), AARCH64_HEAP_SIZE, 0);
         }
         println!("  compositor   desktop shell nativo renderizado (doble buffer)");
     } else {
@@ -262,6 +271,51 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
         arch::aarch64::syscall::enter_user_mode(user_entry, user_sp, arg0, arg1)
     };
     println!("  retorno      el programa EL0 finalizó limpiamente con código de salida {exit_code}");
+
+    // ── Sovereign interactive shell, libantos + antos-init (T26.5) ────────
+    // The hand-crafted probe above only proves the EL0/SVC round trip works.
+    // Everything below runs the *real* userspace binary — the same ELF the
+    // x86_64 boot path spawns as PID 1 — this time built for AArch64 by
+    // `build.rs` and loaded through the actual VFS instead of being poked
+    // into memory by hand.
+    println!();
+    println!("initramfs y VFS (T26.5)");
+    if let Ok(tfs) = fs::tarfs::TarFs::from_memory(EMBEDDED_INITRD) {
+        println!("  vfs          raíz montada · {} ficheros indexados", tfs.entry_count());
+        fs::vfs::mount_root(tfs);
+    } else {
+        println!("  vfs          no se pudo montar initramfs · shell no disponible");
+    }
+
+    println!();
+    println!("shell interactivo soberano en espacio de usuario (T26.5)");
+    if fs::vfs::is_mounted() {
+        match fs::vfs::read_all("/bin/init") {
+            Ok(shell_elf) => match unsafe { elf::load_aarch64(&shell_elf) } {
+                Ok((shell_entry, shell_stack)) => {
+                    println!("  cargador     shell en {shell_entry:#x} · pila {shell_stack:#x}");
+                    println!("  consola      escribe en la serie: PID 1 atendiendo antos>");
+                    // Blocks here until the shell exits — either by handing
+                    // off to the desktop compositor (`DESKTOP_HANDOFF_CODE`,
+                    // kept in sync with `user/src/main.rs`) or, in a
+                    // headless/serial-only session, never: AArch64 has no
+                    // preemptive scheduler yet (T23.2 is x86_64-only) to run
+                    // it alongside `halt_loop`'s reactive redraw.
+                    const DESKTOP_HANDOFF_CODE: u64 = 42;
+                    let code = unsafe {
+                        arch::aarch64::syscall::enter_user_mode(shell_entry, shell_stack, 4, 0)
+                    };
+                    if code == DESKTOP_HANDOFF_CODE {
+                        println!("  shell        cedió el control al compositor gráfico");
+                    } else {
+                        println!("  shell        terminó con código {code} · volviendo al bucle del kernel");
+                    }
+                }
+                Err(e) => println!("  cargador     fallo al cargar /bin/init: {e}"),
+            },
+            Err(_) => println!("  vfs          /bin/init no encontrado en el initramfs"),
+        }
+    }
 
     println!();
     println!("sistema operativo listo (AArch64 bare metal)");
@@ -469,6 +523,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames)
     }.expect("no pude mapear pila para proceso 2");
 
+    // Separate user stack for process 3: the interactive shell (T26.5)
+    let user_stack_shell = unsafe {
+        userspace::map_user_stack_at(0x5000_0000, &mut mapper, &mut frames)
+    }.expect("no pude mapear pila para el shell");
+
     // Initialize global memory controller for dynamic syscalls (mmap, munmap, spawn)
     memory::init_memory_controller(mapper, frames);
 
@@ -520,6 +579,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     );
     println!("  proceso 2    spawned PID {pid2} (TID {tid2}) · worker preemptivo");
 
+    // Spawn Process 3: the sovereign interactive shell (T26.5), mode 4.
+    // Unlike processes 1 and 2 it never exits — the scheduler keeps it in
+    // its round-robin rotation for the lifetime of the machine, which is
+    // exactly what makes it PID 1 in spirit: the process everything else
+    // runs alongside, not one more demo that finishes and gets reaped.
+    let (pid3, tid3) = task::scheduler::spawn_process(
+        "antos-shell",
+        cr3_root,
+        entry,
+        user_stack_shell,
+        0, // auto-allocate kernel stack
+        true,
+        4, // mode 4: interactive shell
+    );
+    println!("  proceso 3    spawned PID {pid3} (TID {tid3}) · shell interactivo (PID 1 soberano)");
+
     let metrics = task::scheduler::metrics();
     println!(
         "  metricas     {} procesos, {} hilos en cola de listos",
@@ -529,11 +604,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!();
     println!("\x1b[1;33mmultitarea cooperativa\x1b[0m");
 
+    // `task::keyboard::keyboard_task` (its own kernel-side echo loop) is
+    // intentionally not spawned here anymore: the shell process above now
+    // owns real keyboard input via `SYS_READ` → `input::drain_ascii`, and
+    // running both would consume the same keystrokes for two different,
+    // confusing echoes. The task is kept in `task::keyboard` for reference.
     let mut executor = task::executor::Executor::new();
     executor.spawn(Task::new(example_task()));
     executor.spawn(Task::new(heartbeat_task()));
-    executor.spawn(Task::new(task::keyboard::keyboard_task()));
-    println!("  3 tareas encoladas · el ejecutor toma el control");
+    println!("  2 tareas cooperativas encoladas · el ejecutor toma el control");
+    println!("  shell        listo en la consola serie — PID {pid3} atendiendo antos>");
     println!();
 
     // No vuelve: a partir de aquí el kernel es su bucle de eventos.
@@ -684,7 +764,7 @@ fn halt_loop() -> ! {
                         ui::render_desktop(
                             c.framebuffer_mut(),
                             allocator::used(),
-                            512 * 1024,
+                            AARCH64_HEAP_SIZE,
                             arch::aarch64::timer::ticks(),
                         );
                     }

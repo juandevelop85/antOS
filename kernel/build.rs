@@ -44,9 +44,22 @@ fn main() {
     let user_dir = Path::new(&manifest).join("..").join("user");
     let target_dir = Path::new(&out_dir).join("user-target");
 
+    // The bundled `antos-init` must match the kernel's own architecture: an
+    // x86_64 binary is meaningless to `elf::load_aarch64`'s `e_machine`
+    // check, and vice versa. Both `USER_SPACE_VIRT` (AArch64) and the x86_64
+    // loader's own convention agree on the same numeric image base
+    // (`0x400000`), so the one RUSTFLAGS recipe below works for either
+    // target — only the `--target` triple needs to track the kernel's.
+    let kernel_target = std::env::var("TARGET").unwrap_or_else(|_| "x86_64-unknown-none".into());
+    let user_target = if kernel_target.contains("aarch64") {
+        "aarch64-unknown-none"
+    } else {
+        "x86_64-unknown-none"
+    };
+
     let status = Command::new(std::env::var("CARGO").unwrap())
         .current_dir(&user_dir)
-        .args(["build", "--target", "x86_64-unknown-none", "--target-dir"])
+        .args(["build", "--target", user_target, "--target-dir"])
         .arg(&target_dir)
         .env("RUSTFLAGS", "-C relocation-model=static -C link-arg=--image-base=0x400000")
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
@@ -60,7 +73,7 @@ fn main() {
 
     assert!(status.success(), "userspace binary compilation failed");
 
-    let binary = target_dir.join("x86_64-unknown-none/debug/antos-init");
+    let binary = target_dir.join(user_target).join("debug/antos-init");
     let binary_bytes = std::fs::read(&binary).expect("could not read compiled user binary");
 
     // Construct USTAR archive containing live userspace hierarchy (T24.2)
@@ -89,8 +102,8 @@ fn main() {
     let initrd_path = Path::new(&out_dir).join("initrd.tar");
     std::fs::write(&initrd_path, &tar).expect("could not write initrd.tar");
 
-    // Also write copy to debug target directory if it exists
-    let debug_dir = Path::new(&manifest).join("target/x86_64-unknown-none/debug");
+    // Also write a copy to the kernel's own debug target directory, if it exists
+    let debug_dir = Path::new(&manifest).join("target").join(&kernel_target).join("debug");
     if debug_dir.exists() {
         let _ = std::fs::write(debug_dir.join("initrd.tar"), &tar);
     }
@@ -98,8 +111,7 @@ fn main() {
     println!("cargo:rustc-env=USER_BINARY={}", binary.display());
     println!("cargo:rustc-env=INITRD_TAR={}", initrd_path.display());
 
-    let target = std::env::var("TARGET").unwrap_or_default();
-    if target.contains("aarch64") {
+    if kernel_target.contains("aarch64") {
         let linker_script = Path::new(&manifest).join("src").join("arch").join("aarch64").join("linker.ld");
         println!("cargo:rustc-link-arg=-T{}", linker_script.display());
         println!("cargo:rerun-if-changed={}", linker_script.display());
@@ -109,6 +121,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", user_dir.join("Cargo.toml").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/lib.rs").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/syscall.rs").display());
+    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/io.rs").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/allocator.rs").display());
     println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/channel.rs").display());
 }

@@ -185,7 +185,11 @@ unsafe extern "C" fn syscall_entry() {
         "push rcx",
         "push r11",
 
-        // Translate our ABI (RAX = number, RDI/RSI/RDX = args) to the C ABI.
+        // Translate our ABI (RAX = number, RDI/RSI/RDX/R10 = args) to the C
+        // ABI (RDI/RSI/RDX/RCX/R8). R10 stands in for the 4th argument
+        // because RCX is already spoken for by `syscall` itself — the same
+        // trick Linux uses.
+        "mov r8, r10",
         "mov rcx, rdx",
         "mov rdx, rsi",
         "mov rsi, rdi",
@@ -204,7 +208,7 @@ unsafe extern "C" fn syscall_entry() {
     )
 }
 
-extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
+extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
     match number {
         syscall::SYS_EXIT => {
             if crate::task::scheduler::is_active() {
@@ -226,6 +230,10 @@ extern "C" fn handle_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u6
         syscall::SYS_CHANNEL_CREATE => sys_channel_create(),
         syscall::SYS_CHANNEL_SEND => sys_channel_send(arg1, arg2, arg3),
         syscall::SYS_CHANNEL_RECV => sys_channel_recv(arg1, arg2, arg3),
+        syscall::SYS_FS_LIST => sys_fs_list(arg1, arg2, arg3, arg4),
+        syscall::SYS_FS_READFILE => sys_fs_readfile(arg1, arg2, arg3, arg4),
+        syscall::SYS_SYSINFO => sys_sysinfo(arg1, arg2),
+        syscall::SYS_LAUNCH_DESKTOP => sys_launch_desktop(),
         _ => {
             println!("  unknown syscall: {number}");
             syscall::EINVAL
@@ -255,7 +263,9 @@ fn sys_read(pointer: u64, max_length: u64) -> u64 {
     if let Err(e) = syscall::validate_user_ptr(pointer, max_length) {
         return e;
     }
-    0
+    let len = (max_length as usize).min(syscall::MAX_BUFFER_SIZE as usize);
+    let buf = unsafe { core::slice::from_raw_parts_mut(pointer as *mut u8, len) };
+    crate::input::drain_ascii(buf) as u64
 }
 
 fn sys_yield() -> u64 {
@@ -379,6 +389,94 @@ fn sys_channel_recv(channel_id: u64, buf_ptr: u64, max_len: u64) -> u64 {
     match crate::ipc::recv_message(channel_id, current_pid, slice) {
         Ok(recv_bytes) => recv_bytes as u64,
         Err(e) => e,
+    }
+}
+
+/// Reads a validated user-space path string, bounded to a sane length.
+fn read_user_path(ptr: u64, len: u64) -> Result<&'static str, u64> {
+    syscall::validate_user_ptr(ptr, len)?;
+    if len == 0 || len > 256 {
+        return Err(syscall::EINVAL);
+    }
+    let bytes = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
+    core::str::from_utf8(bytes).map_err(|_| syscall::EINVAL)
+}
+
+/// Copies `text` into a validated user-space output buffer, truncating to
+/// its capacity. Shared by `SYS_FS_LIST`, `SYS_FS_READFILE` and `SYS_SYSINFO`.
+fn copy_out(out_ptr: u64, out_len: u64, bytes: &[u8]) -> u64 {
+    if let Err(e) = syscall::validate_user_ptr(out_ptr, out_len) {
+        return e;
+    }
+    let out = unsafe { core::slice::from_raw_parts_mut(out_ptr as *mut u8, out_len as usize) };
+    let n = bytes.len().min(out.len());
+    out[..n].copy_from_slice(&bytes[..n]);
+    n as u64
+}
+
+/// `SYS_FS_LIST` — lists VFS directory entries as `"KIND  SIZE  name\n"` lines (T26.5).
+fn sys_fs_list(path_ptr: u64, path_len: u64, out_ptr: u64, out_len: u64) -> u64 {
+    let path = match read_user_path(path_ptr, path_len) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let entries = match crate::fs::vfs::list_dir(path) {
+        Ok(e) => e,
+        Err(_) => return syscall::ENOENT,
+    };
+    let mut listing = alloc::string::String::new();
+    for entry in &entries {
+        let kind = if entry.is_dir { "DIR " } else { "FILE" };
+        let _ = core::fmt::write(
+            &mut listing,
+            format_args!("{kind}  {:>8}  {}\n", entry.size, entry.name),
+        );
+    }
+    copy_out(out_ptr, out_len, listing.as_bytes())
+}
+
+/// `SYS_FS_READFILE` — reads a whole file from the VFS into a user buffer (T26.5).
+fn sys_fs_readfile(path_ptr: u64, path_len: u64, out_ptr: u64, out_len: u64) -> u64 {
+    let path = match read_user_path(path_ptr, path_len) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match crate::fs::vfs::read_all(path) {
+        Ok(bytes) => copy_out(out_ptr, out_len, &bytes),
+        Err(_) => syscall::ENOENT,
+    }
+}
+
+/// `SYS_SYSINFO` — reports architecture, heap usage and uptime as text (T26.5).
+fn sys_sysinfo(out_ptr: u64, out_len: u64) -> u64 {
+    let text = alloc::format!(
+        "arch: x86_64\nheap_used: {} B\nuptime_ticks: {}\n",
+        crate::allocator::used(),
+        crate::task::timer::ticks(),
+    );
+    copy_out(out_ptr, out_len, text.as_bytes())
+}
+
+/// `SYS_LAUNCH_DESKTOP` — renders one frame of the native Desktop Shell
+/// compositor (T26.2) onto the boot framebuffer, initializing it on first use
+/// (T26.5 bridge between the userspace shell and the kernel-space compositor).
+fn sys_launch_desktop() -> u64 {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static COMPOSITOR_READY: AtomicBool = AtomicBool::new(false);
+
+    if !COMPOSITOR_READY.swap(true, Ordering::Relaxed) {
+        crate::ui::init("x86_64");
+    }
+    if let Some(console) = crate::console::CONSOLE.lock().as_mut() {
+        crate::ui::render_desktop(
+            console.framebuffer_mut(),
+            crate::allocator::used(),
+            crate::memory::HEAP_SIZE,
+            crate::task::timer::ticks(),
+        );
+        0
+    } else {
+        syscall::ENOSYS
     }
 }
 

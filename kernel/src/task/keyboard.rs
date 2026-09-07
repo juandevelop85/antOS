@@ -120,6 +120,11 @@ fn decode(scancode: u8) -> Option<u8> {
 /// Fíjate en que es una `async fn` corriente: sin cerrojos, sin pensar en
 /// interrupciones, y con estado propio (`line`) que sobrevive a cada `.await`
 /// sin necesidad de una pila para ella sola.
+/// Superseded as the interactive entry point by the userspace shell
+/// (T26.5, `antos-init` mode 4, driven via `SYS_READ`/`input::drain_ascii`).
+/// Kept unspawned but intact: it is still the clearest, dependency-free demo
+/// of the async keyboard queue for anyone extending the kernel-side executor.
+#[allow(dead_code)]
 pub async fn keyboard_task() {
     let mut line = String::new();
 

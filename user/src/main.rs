@@ -12,13 +12,15 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use alloc::string::ToString;
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::panic::PanicInfo;
 
 use libantos::allocator::UserHeapAllocator;
 use libantos::channel::Channel;
 use libantos::syscall::*;
+use libantos::{print, println};
 
 #[global_allocator]
 static ALLOCATOR: UserHeapAllocator = UserHeapAllocator::new();
@@ -51,6 +53,11 @@ pub extern "C" fn _start(mode: u64) -> ! {
             let _ = write("[init] protection test not implemented for this arch\n");
             exit(0xFF);
         }
+    }
+
+    // ── Mode 4: antOS interactive shell — the sovereign PID 1 (T26.5) ────
+    if mode == 4 {
+        run_shell()
     }
 
     // ── Mode 2: background worker task with IPC communication ───────────
@@ -212,6 +219,176 @@ pub extern "C" fn _start(mode: u64) -> ! {
     exit(0)
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// antOS interactive shell (T26.5) — the sovereign PID 1
+// ═══════════════════════════════════════════════════════════════════════
+
+const SHELL_BANNER: &str = "\
+     ╔══════════════════════════════════════════╗\n\
+     ║              antOS · shell                ║\n\
+     ║   sovereign userspace, PID 1, no libc     ║\n\
+     ╚══════════════════════════════════════════╝\n\
+     escribe 'help' para ver los comandos disponibles\n";
+
+/// Exit code `SYS_EXIT` reports when the AArch64 shell hands control off to
+/// the kernel's own graphical desktop loop (`halt_loop`, T26.2/T26.3). Only
+/// meaningful there: on x86_64 the scheduler runs the shell *alongside* the
+/// desktop compositor instead, so `desktop` never needs to exit the shell —
+/// hence the `cfg`-gated dead-code allowance on that architecture.
+#[cfg_attr(target_arch = "x86_64", allow(dead_code))]
+const DESKTOP_HANDOFF_CODE: u64 = 42;
+
+/// Builtin command table: name → one-line description. A `BTreeMap` keeps
+/// `help` output alphabetically sorted for free, and doubles as this file's
+/// demonstration that `libantos`'s allocator backs ordered collections too,
+/// not just `Vec`/`String`/`Box` (T26.5 acceptance criterion).
+fn builtins() -> BTreeMap<&'static str, &'static str> {
+    let mut table = BTreeMap::new();
+    table.insert("help", "muestra esta lista de comandos");
+    table.insert("info", "arquitectura, versión y memoria libre del kernel");
+    table.insert("ls", "lista ficheros del VFS/ramdisk — uso: ls [ruta]");
+    table.insert("cat", "muestra un fichero de texto — uso: cat <ruta>");
+    table.insert("desktop", "lanza o conmuta a la sesión gráfica del Desktop Shell");
+    table.insert("agent", "encola una intención de antFlow en el canal IPC — uso: agent <texto>");
+    table
+}
+
+/// Runs the antOS shell forever. Never returns: this is PID 1, and the
+/// machine has nothing more sovereign to fall back to than its own prompt.
+fn run_shell() -> ! {
+    print!("{SHELL_BANNER}");
+
+    let commands = builtins();
+    let mut line_buf = [0u8; 256];
+
+    loop {
+        print!("antos> ");
+        let n = libantos::io::read_line(&mut line_buf);
+        let Ok(line) = core::str::from_utf8(&line_buf[..n]) else {
+            println!("[shell] entrada no es UTF-8 válido");
+            continue;
+        };
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut parts = line.splitn(2, ' ');
+        let cmd = parts.next().unwrap_or("");
+        let arg = parts.next().unwrap_or("").trim();
+
+        match cmd {
+            "help" => cmd_help(&commands),
+            "info" => cmd_info(),
+            "ls" => cmd_ls(if arg.is_empty() { "/" } else { arg }),
+            "cat" => cmd_cat(arg),
+            "desktop" => cmd_desktop(),
+            "agent" => cmd_agent(arg),
+            other => println!("[shell] comando desconocido: '{other}' (escribe 'help')"),
+        }
+    }
+}
+
+fn cmd_help(commands: &BTreeMap<&'static str, &'static str>) {
+    println!("comandos disponibles:");
+    for (name, description) in commands.iter() {
+        println!("  {name:<10} {description}");
+    }
+}
+
+fn cmd_info() {
+    let mut buf = [0u8; 256];
+    match sysinfo(&mut buf) {
+        Ok(n) => {
+            if let Ok(text) = core::str::from_utf8(&buf[..n]) {
+                print!("{text}");
+            }
+        }
+        Err(_) => println!("[shell] sysinfo no disponible"),
+    }
+}
+
+fn cmd_ls(path: &str) {
+    let mut buf = [0u8; 2048];
+    match fs_list(path, &mut buf) {
+        Ok(0) => println!("(vacío)"),
+        Ok(n) => {
+            if let Ok(text) = core::str::from_utf8(&buf[..n]) {
+                print!("{text}");
+            }
+        }
+        Err(_) => println!("[shell] ls: no se pudo listar '{path}'"),
+    }
+}
+
+fn cmd_cat(path: &str) {
+    if path.is_empty() {
+        println!("[shell] uso: cat <ruta>");
+        return;
+    }
+    let mut buf = [0u8; 4096];
+    match fs_read_file(path, &mut buf) {
+        Ok(n) => match core::str::from_utf8(&buf[..n]) {
+            Ok(text) => {
+                print!("{text}");
+                if !text.ends_with('\n') {
+                    println!();
+                }
+            }
+            Err(_) => println!("[shell] cat: '{path}' no es texto UTF-8"),
+        },
+        Err(_) => println!("[shell] cat: no se pudo leer '{path}'"),
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+fn cmd_desktop() {
+    // The preemptive scheduler (T23.2) already round-robins this shell
+    // against the rest of the system, so rendering one frame of the
+    // compositor and returning to the prompt is enough: nothing here blocks
+    // the desktop from being re-rendered on the next `desktop` call, or by
+    // whatever eventually drives its own redraw loop.
+    match launch_desktop() {
+        Ok(()) => println!("[shell] sesión gráfica renderizada (compositor 2D activo)"),
+        Err(_) => println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)"),
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn cmd_desktop() {
+    // AArch64 has no preemptive scheduler yet (T23.2 is x86_64-only): this
+    // shell and the kernel's reactive desktop redraw loop (`halt_loop`)
+    // cannot run at the same time. Render one confirmation frame, then hand
+    // control off permanently — `kernel_main` resumes into `halt_loop` right
+    // where the boot sequence left it.
+    let _ = launch_desktop();
+    println!("[shell] cediendo el control al compositor gráfico...");
+    exit(DESKTOP_HANDOFF_CODE)
+}
+
+fn cmd_agent(intent: &str) {
+    if intent.is_empty() {
+        println!("[shell] uso: agent <texto de la intención>");
+        return;
+    }
+    match Channel::create() {
+        Ok(chan) => {
+            let mut message = String::from("antflow.intent:");
+            message.push_str(intent);
+            match chan.send(message.as_bytes()) {
+                Ok(sent) => println!(
+                    "[shell] intención encolada en el canal IPC {} ({} bytes) — \
+                     el puente antFlow del host puede escucharla cuando estén conectados",
+                    chan.id(),
+                    sent
+                ),
+                Err(_) => println!("[shell] no se pudo enviar la intención al canal IPC"),
+            }
+        }
+        Err(_) => println!("[shell] no se pudo crear el canal IPC"),
+    }
+}
+
 fn write_u64(mut n: u64) {
     if n == 0 {
         let _ = write("0");
@@ -248,8 +425,21 @@ fn write_hex(mut n: u64) {
     }
 }
 
+/// Prints the panic message and source location before exiting — the same
+/// contract `libantos`'s `_start` documents for every program built on it
+/// (T26.5): a userspace crash should say what happened and where, not just
+/// vanish.
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    let _ = write("[init] PANIC!\n");
+fn panic(info: &PanicInfo) -> ! {
+    let _ = write("[init] PANIC");
+    if let Some(location) = info.location() {
+        let _ = write(" at ");
+        let _ = write(location.file());
+        let _ = write(":");
+        write_u64(location.line() as u64);
+    }
+    let _ = write(": ");
+    print!("{}", info.message());
+    let _ = write("\n");
     exit(1)
 }

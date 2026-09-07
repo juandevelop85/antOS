@@ -15,6 +15,18 @@ static KERNEL_LR: AtomicU64 = AtomicU64::new(0);
 /// Current process ID (always 1 for init).
 static CURRENT_PID: AtomicU64 = AtomicU64::new(1);
 
+/// `SYS_MMAP` on AArch64 (T26.5) hands out pages from a bump region 1 MiB
+/// into the same pre-mapped 2 MiB user window that the ELF loader and stack
+/// already live in (`USER_SPACE_VIRT`, see `arch::aarch64::mmu`) — there is
+/// no per-process page table yet on this architecture, so "mapping" a page
+/// means claiming a slice of the one window the CPU already trusts EL0 with.
+const AARCH64_MMAP_BASE_OFFSET: u64 = 0x0010_0000;
+/// Stop 8 KiB before the window ends: the last 4 KiB are the process stack
+/// (`elf::load_aarch64`) and the 4 KiB before that are a guard gap.
+const AARCH64_MMAP_LIMIT_OFFSET: u64 = 0x0020_0000 - 0x2000;
+static AARCH64_MMAP_NEXT: AtomicU64 =
+    AtomicU64::new(crate::arch::aarch64::mmu::USER_SPACE_VIRT + AARCH64_MMAP_BASE_OFFSET);
+
 pub struct ArmSyscall;
 
 impl ArchSyscall for ArmSyscall {
@@ -28,6 +40,22 @@ impl ArchSyscall for ArmSyscall {
             core::arch::asm!("msr cpacr_el1, {}", in(reg) cpacr, options(nomem, nostack));
             core::arch::asm!("isb", options(nomem, nostack));
         }
+    }
+}
+
+/// Translates a validated user-space address inside the small pre-mapped
+/// 2 MiB window into the kernel's own view of the same physical memory,
+/// sidestepping PAN (Privileged Access Never) faults on real ARMv8.1+ CPUs.
+/// Addresses outside that window are returned unchanged (they will already
+/// have failed `validate_user_ptr`/`validate_user_buffer` by the time this
+/// runs, or belong to future, more general mappings).
+#[inline]
+fn translate(uaddr: u64) -> u64 {
+    let virt = crate::arch::aarch64::mmu::USER_SPACE_VIRT;
+    if uaddr >= virt && uaddr < virt + 0x0020_0000 {
+        (uaddr - virt) + crate::arch::aarch64::mmu::USER_SPACE_PHYS
+    } else {
+        uaddr
     }
 }
 
@@ -65,17 +93,28 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                 let ptr = kaddr as *const u8;
                 let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
                 if let Ok(s) = core::str::from_utf8(slice) {
-                    for b in s.bytes() {
-                        crate::arch::aarch64::pl011::_print(format_args!("{}", b as char));
-                    }
+                    // Write the already-validated UTF-8 bytes straight to the
+                    // wire. The previous per-byte `b as char` reinterpreted
+                    // each byte of a multi-byte sequence as its own code
+                    // point and re-encoded it, mangling anything outside
+                    // ASCII (T26.5's box-drawing shell banner exposed this).
+                    use core::fmt::Write as _;
+                    let _ = crate::arch::aarch64::SERIAL.lock().write_str(s);
                 }
             }
             ctx.x[0] = len as u64;
         }
 
         syscall::SYS_READ => {
-            // Non-blocking: return 0 if no input available.
-            ctx.x[0] = 0;
+            let uaddr = ctx.x[0];
+            let len = (ctx.x[1] as usize).min(syscall::MAX_BUFFER_SIZE as usize);
+            if let Err(e) = syscall::validate_user_ptr(uaddr, len as u64) {
+                ctx.x[0] = e;
+            } else {
+                let kaddr = translate(uaddr);
+                let buf = unsafe { core::slice::from_raw_parts_mut(kaddr as *mut u8, len) };
+                ctx.x[0] = crate::input::drain_ascii(buf) as u64;
+            }
         }
 
         syscall::SYS_YIELD => {
@@ -88,8 +127,21 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
         }
 
         syscall::SYS_MMAP => {
-            // TODO: implement real page allocation for AArch64.
-            ctx.x[0] = u64::MAX;
+            let requested = ctx.x[0];
+            if requested == 0 || requested > AARCH64_MMAP_LIMIT_OFFSET - AARCH64_MMAP_BASE_OFFSET {
+                ctx.x[0] = syscall::EINVAL;
+            } else {
+                let size = (requested + 0xFFF) & !0xFFF;
+                let limit = crate::arch::aarch64::mmu::USER_SPACE_VIRT + AARCH64_MMAP_LIMIT_OFFSET;
+                let addr = AARCH64_MMAP_NEXT.fetch_add(size, Ordering::Relaxed);
+                if addr + size > limit {
+                    ctx.x[0] = syscall::ENOMEM;
+                } else {
+                    let phys = translate(addr);
+                    unsafe { core::ptr::write_bytes(phys as *mut u8, 0, size as usize) };
+                    ctx.x[0] = addr;
+                }
+            }
         }
 
         syscall::SYS_MUNMAP => {
@@ -175,11 +227,93 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             }
         }
 
+        syscall::SYS_FS_LIST => {
+            let (path_ptr, path_len, out_ptr, out_len) = (ctx.x[0], ctx.x[1], ctx.x[2], ctx.x[3]);
+            ctx.x[0] = match read_user_path(path_ptr, path_len) {
+                Ok(path) => match crate::fs::vfs::list_dir(path) {
+                    Ok(entries) => {
+                        let mut listing = alloc::string::String::new();
+                        for entry in &entries {
+                            let kind = if entry.is_dir { "DIR " } else { "FILE" };
+                            let _ = core::fmt::write(
+                                &mut listing,
+                                format_args!("{kind}  {:>8}  {}\n", entry.size, entry.name),
+                            );
+                        }
+                        copy_out(out_ptr, out_len, listing.as_bytes())
+                    }
+                    Err(_) => syscall::ENOENT,
+                },
+                Err(e) => e,
+            };
+        }
+
+        syscall::SYS_FS_READFILE => {
+            let (path_ptr, path_len, out_ptr, out_len) = (ctx.x[0], ctx.x[1], ctx.x[2], ctx.x[3]);
+            ctx.x[0] = match read_user_path(path_ptr, path_len) {
+                Ok(path) => match crate::fs::vfs::read_all(path) {
+                    Ok(bytes) => copy_out(out_ptr, out_len, &bytes),
+                    Err(_) => syscall::ENOENT,
+                },
+                Err(e) => e,
+            };
+        }
+
+        syscall::SYS_SYSINFO => {
+            let text = alloc::format!(
+                "arch: aarch64\nheap_used: {} B\nuptime_ticks: {}\n",
+                crate::allocator::used(),
+                crate::arch::aarch64::timer::ticks(),
+            );
+            ctx.x[0] = copy_out(ctx.x[0], ctx.x[1], text.as_bytes());
+        }
+
+        syscall::SYS_LAUNCH_DESKTOP => {
+            if crate::ui::COMPOSITOR.lock().is_some() {
+                if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+                    crate::ui::render_desktop(
+                        c.framebuffer_mut(),
+                        crate::allocator::used(),
+                        crate::AARCH64_HEAP_SIZE,
+                        crate::arch::aarch64::timer::ticks(),
+                    );
+                }
+                ctx.x[0] = 0;
+            } else {
+                ctx.x[0] = syscall::ENOSYS;
+            }
+        }
+
         _ => {
             println!("  unknown syscall: {}", syscall_no);
             ctx.x[0] = syscall::EINVAL;
         }
     }
+}
+
+/// Reads a validated user-space path string out of the small AArch64 user
+/// window, bounded to a sane length. Shared by `SYS_FS_LIST`/`SYS_FS_READFILE`.
+fn read_user_path(ptr: u64, len: u64) -> Result<&'static str, u64> {
+    syscall::validate_user_ptr(ptr, len)?;
+    if len == 0 || len > 256 {
+        return Err(syscall::EINVAL);
+    }
+    let kaddr = translate(ptr);
+    let bytes = unsafe { core::slice::from_raw_parts(kaddr as *const u8, len as usize) };
+    core::str::from_utf8(bytes).map_err(|_| syscall::EINVAL)
+}
+
+/// Copies `bytes` into a validated user-space output buffer inside the
+/// AArch64 user window, truncating to its capacity.
+fn copy_out(out_ptr: u64, out_len: u64, bytes: &[u8]) -> u64 {
+    if let Err(e) = syscall::validate_user_ptr(out_ptr, out_len) {
+        return e;
+    }
+    let kaddr = translate(out_ptr);
+    let out = unsafe { core::slice::from_raw_parts_mut(kaddr as *mut u8, out_len as usize) };
+    let n = bytes.len().min(out.len());
+    out[..n].copy_from_slice(&bytes[..n]);
+    n as u64
 }
 
 /// Transitions the CPU to EL0 (userspace) and executes `entry_point`.
