@@ -21,6 +21,33 @@ pub fn counter_frequency() -> u64 {
     freq
 }
 
+/// Reads the current virtual counter value from `CNTVCT_EL0`.
+#[inline]
+pub fn current_counter() -> u64 {
+    let count: u64;
+    unsafe {
+        core::arch::asm!("mrs {}, cntvct_el0", out(reg) count, options(nomem, nostack));
+    }
+    count
+}
+
+/// Precise busy-wait delay in milliseconds using the hardware timer counter.
+pub fn delay_ms(ms: u64) {
+    let freq = counter_frequency();
+    if freq == 0 {
+        for _ in 0..(ms * 5_000) {
+            core::hint::spin_loop();
+        }
+        return;
+    }
+    let ticks = (ms * freq) / 1000;
+    let start = current_counter();
+    while current_counter().wrapping_sub(start) < ticks {
+        core::hint::spin_loop();
+    }
+}
+
+
 /// Initializes the ARM Generic Virtual Timer for periodic interrupts (100 Hz).
 pub fn init() {
     let freq = counter_frequency();

@@ -48,12 +48,13 @@ pub mod iman {
     pub const IE: u32 = 1 << 1;     // Interrupt Enable
 }
 
-/// Decoded capability parameters from HCSPARAMS1.
+/// Decoded capability parameters from HCSPARAMS1 and HCCPARAMS1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HcParams {
     pub max_slots: u8,
     pub max_intrs: u16,
     pub max_ports: u8,
+    pub csz_64: bool,
 }
 
 /// Represents the MMIO register interface of an xHCI controller.
@@ -84,6 +85,9 @@ impl XhciRegisters {
         let max_intrs = ((hcsparams1 >> 8) & 0x7FF) as u16;
         let max_ports = ((hcsparams1 >> 24) & 0xFF) as u8;
 
+        let hccparams1 = core::ptr::read_volatile((base + 0x10) as *const u32);
+        let csz_64 = (hccparams1 & (1 << 2)) != 0;
+
         let dboff = (core::ptr::read_volatile((base + 0x14) as *const u32) & !0x3) as usize;
         let rtsoff = (core::ptr::read_volatile((base + 0x18) as *const u32) & !0x1F) as usize;
 
@@ -91,6 +95,7 @@ impl XhciRegisters {
             max_slots,
             max_intrs,
             max_ports,
+            csz_64,
         };
 
         let _ = hciversion;

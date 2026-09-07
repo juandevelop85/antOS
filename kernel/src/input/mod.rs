@@ -265,6 +265,7 @@ static ASCII_BRIDGE_STATE: crate::sync::SpinLock<KeyboardState> =
 /// immediately if nothing is queued. Used by `SYS_READ` (T26.5) so the
 /// userspace shell can poll `fd 0` the same way on every architecture.
 pub fn drain_ascii(buf: &mut [u8]) -> usize {
+    crate::drivers::usb::poll();
     let mut state = ASCII_BRIDGE_STATE.lock();
     let mut written = 0usize;
     while written < buf.len() {

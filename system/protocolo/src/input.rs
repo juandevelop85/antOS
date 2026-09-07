@@ -509,6 +509,184 @@ pub fn decode_ps2_set1(scancode: u8) -> Option<InputEvent> {
     }
 }
 
+/// Maps USB HID Usage IDs (Usage Page 0x07) to `KeyCode`.
+pub fn hid_usage_to_key(usage: u8) -> KeyCode {
+    match usage {
+        0x04 => KeyCode::KeyA,
+        0x05 => KeyCode::KeyB,
+        0x06 => KeyCode::KeyC,
+        0x07 => KeyCode::KeyD,
+        0x08 => KeyCode::KeyE,
+        0x09 => KeyCode::KeyF,
+        0x0A => KeyCode::KeyG,
+        0x0B => KeyCode::KeyH,
+        0x0C => KeyCode::KeyI,
+        0x0D => KeyCode::KeyJ,
+        0x0E => KeyCode::KeyK,
+        0x0F => KeyCode::KeyL,
+        0x10 => KeyCode::KeyM,
+        0x11 => KeyCode::KeyN,
+        0x12 => KeyCode::KeyO,
+        0x13 => KeyCode::KeyP,
+        0x14 => KeyCode::KeyQ,
+        0x15 => KeyCode::KeyR,
+        0x16 => KeyCode::KeyS,
+        0x17 => KeyCode::KeyT,
+        0x18 => KeyCode::KeyU,
+        0x19 => KeyCode::KeyV,
+        0x1A => KeyCode::KeyW,
+        0x1B => KeyCode::KeyX,
+        0x1C => KeyCode::KeyY,
+        0x1D => KeyCode::KeyZ,
+
+        0x1E => KeyCode::Num1,
+        0x1F => KeyCode::Num2,
+        0x20 => KeyCode::Num3,
+        0x21 => KeyCode::Num4,
+        0x22 => KeyCode::Num5,
+        0x23 => KeyCode::Num6,
+        0x24 => KeyCode::Num7,
+        0x25 => KeyCode::Num8,
+        0x26 => KeyCode::Num9,
+        0x27 => KeyCode::Num0,
+
+        0x28 => KeyCode::Enter,
+        0x29 => KeyCode::Escape,
+        0x2A => KeyCode::Backspace,
+        0x2B => KeyCode::Tab,
+        0x2C => KeyCode::Space,
+        0x2D => KeyCode::Minus,
+        0x2E => KeyCode::Equal,
+        0x2F => KeyCode::LeftBracket,
+        0x30 => KeyCode::RightBracket,
+        0x31 => KeyCode::Backslash,
+        0x33 => KeyCode::Semicolon,
+        0x34 => KeyCode::Apostrophe,
+        0x35 => KeyCode::Grave,
+        0x36 => KeyCode::Comma,
+        0x37 => KeyCode::Dot,
+        0x38 => KeyCode::Slash,
+        0x39 => KeyCode::CapsLock,
+
+        0x3A => KeyCode::F1,
+        0x3B => KeyCode::F2,
+        0x3C => KeyCode::F3,
+        0x3D => KeyCode::F4,
+        0x3E => KeyCode::F5,
+        0x3F => KeyCode::F6,
+        0x40 => KeyCode::F7,
+        0x41 => KeyCode::F8,
+        0x42 => KeyCode::F9,
+        0x43 => KeyCode::F10,
+        0x44 => KeyCode::F11,
+        0x45 => KeyCode::F12,
+
+        0x49 => KeyCode::Insert,
+        0x4A => KeyCode::Home,
+        0x4B => KeyCode::PageUp,
+        0x4C => KeyCode::Delete,
+        0x4D => KeyCode::End,
+        0x4E => KeyCode::PageDown,
+        0x4F => KeyCode::Right,
+        0x50 => KeyCode::Left,
+        0x51 => KeyCode::Down,
+        0x52 => KeyCode::Up,
+
+        other => KeyCode::Unknown(other as u16),
+    }
+}
+
+/// Decodes an 8-byte USB HID Boot Keyboard report into `InputEvent`s comparing against `prev_report`.
+pub fn decode_usb_hid_keyboard(new_report: &[u8; 8], prev_report: &[u8; 8]) -> Vec<InputEvent> {
+    let mut events = Vec::new();
+    let old_mods = prev_report[0];
+    let new_mods = new_report[0];
+
+    const MOD_MAP: [(u8, KeyCode); 8] = [
+        (0x01, KeyCode::LeftCtrl),
+        (0x02, KeyCode::LeftShift),
+        (0x04, KeyCode::LeftAlt),
+        (0x08, KeyCode::LeftSuper),
+        (0x10, KeyCode::RightCtrl),
+        (0x20, KeyCode::RightShift),
+        (0x40, KeyCode::RightAlt),
+        (0x80, KeyCode::RightSuper),
+    ];
+
+    for (mask, key) in MOD_MAP {
+        let was_pressed = (old_mods & mask) != 0;
+        let is_pressed = (new_mods & mask) != 0;
+        if !was_pressed && is_pressed {
+            events.push(InputEvent::KeyPress(key));
+        } else if was_pressed && !is_pressed {
+            events.push(InputEvent::KeyRelease(key));
+        }
+    }
+
+    let old_keys = &prev_report[2..8];
+    let new_keys = &new_report[2..8];
+
+    for &k in old_keys {
+        if k != 0 && !new_keys.contains(&k) {
+            events.push(InputEvent::KeyRelease(hid_usage_to_key(k)));
+        }
+    }
+
+    for &k in new_keys {
+        if k != 0 && !old_keys.contains(&k) {
+            events.push(InputEvent::KeyPress(hid_usage_to_key(k)));
+        }
+    }
+
+    events
+}
+
+/// Decodes a USB HID Mouse / Tablet report into `InputEvent`s.
+pub fn decode_usb_hid_mouse(report: &[u8], prev_buttons: u8) -> (Vec<InputEvent>, u8) {
+    let mut events = Vec::new();
+    if report.is_empty() {
+        return (events, prev_buttons);
+    }
+
+    let buttons = report[0];
+    const BUTTON_MAP: [(u8, MouseButton); 3] = [
+        (0x01, MouseButton::Left),
+        (0x02, MouseButton::Right),
+        (0x04, MouseButton::Middle),
+    ];
+
+    for (mask, btn) in BUTTON_MAP {
+        let was = (prev_buttons & mask) != 0;
+        let is_now = (buttons & mask) != 0;
+        if !was && is_now {
+            events.push(InputEvent::MouseButtonPress(btn));
+        } else if was && !is_now {
+            events.push(InputEvent::MouseButtonRelease(btn));
+        }
+    }
+
+    if report.len() >= 5 {
+        // Absolute tablet
+        let x = u16::from_le_bytes([report[1], report[2]]) as u32;
+        let y = u16::from_le_bytes([report[3], report[4]]) as u32;
+        events.push(InputEvent::MouseAbsolute { x, y });
+    } else if report.len() >= 3 {
+        let dx = report[1] as i8 as i32;
+        let dy = report[2] as i8 as i32;
+        if dx != 0 || dy != 0 {
+            events.push(InputEvent::MouseMove { dx, dy });
+        }
+        if report.len() >= 4 {
+            let wheel = report[3] as i8 as i32;
+            if wheel != 0 {
+                events.push(InputEvent::Scroll { delta_x: 0, delta_y: wheel });
+            }
+        }
+    }
+
+    (events, buttons)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,5 +807,66 @@ mod tests {
         let serialized = serde_json::to_string(&event).unwrap();
         let deserialized: InputEvent = serde_json::from_str(&serialized).unwrap();
         assert_eq!(event, deserialized);
+    }
+
+    #[test]
+    fn test_usb_hid_keyboard_decoder() {
+        let empty = [0u8; 8];
+        // Press 'A' (Usage 0x04)
+        let report_a = [0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let events = decode_usb_hid_keyboard(&report_a, &empty);
+        assert_eq!(events, vec![InputEvent::KeyPress(KeyCode::KeyA)]);
+
+        // Release 'A'
+        let events_rel = decode_usb_hid_keyboard(&empty, &report_a);
+        assert_eq!(events_rel, vec![InputEvent::KeyRelease(KeyCode::KeyA)]);
+
+        // Shift + 'Z' (Usage 0x1D)
+        let report_shift_z = [0x02, 0x00, 0x1D, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let events_sz = decode_usb_hid_keyboard(&report_shift_z, &empty);
+        assert_eq!(
+            events_sz,
+            vec![
+                InputEvent::KeyPress(KeyCode::LeftShift),
+                InputEvent::KeyPress(KeyCode::KeyZ)
+            ]
+        );
+
+        // Enter (0x28), Space (0x2C), Backspace (0x2A)
+        assert_eq!(hid_usage_to_key(0x28), KeyCode::Enter);
+        assert_eq!(hid_usage_to_key(0x2A), KeyCode::Backspace);
+        assert_eq!(hid_usage_to_key(0x2C), KeyCode::Space);
+    }
+
+    #[test]
+    fn test_usb_hid_mouse_and_tablet_decoder() {
+        // Relative mouse: Left click + move dx = 10, dy = -5
+        let report_rel = [0x01, 10, (-5i8) as u8, 0];
+        let (events, buttons) = decode_usb_hid_mouse(&report_rel, 0);
+        assert_eq!(buttons, 0x01);
+        assert_eq!(
+            events,
+            vec![
+                InputEvent::MouseButtonPress(MouseButton::Left),
+                InputEvent::MouseMove { dx: 10, dy: -5 },
+            ]
+        );
+
+        // Release button
+        let report_rel_rel = [0x00, 0, 0, 0];
+        let (events_rel, buttons2) = decode_usb_hid_mouse(&report_rel_rel, buttons);
+        assert_eq!(buttons2, 0x00);
+        assert_eq!(events_rel, vec![InputEvent::MouseButtonRelease(MouseButton::Left)]);
+
+        // Absolute tablet report: x = 16384, y = 8192
+        let report_tab = [0x02, 0x00, 0x40, 0x00, 0x20];
+        let (tab_events, _) = decode_usb_hid_mouse(&report_tab, 0);
+        assert_eq!(
+            tab_events,
+            vec![
+                InputEvent::MouseButtonPress(MouseButton::Right),
+                InputEvent::MouseAbsolute { x: 16384, y: 8192 },
+            ]
+        );
     }
 }

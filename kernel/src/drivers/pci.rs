@@ -32,15 +32,20 @@ static ACTIVE_ECAM_BASE: core::sync::atomic::AtomicUsize =
 
 #[cfg(target_arch = "aarch64")]
 pub fn probe_ecam_base() -> usize {
-    unsafe {
-        let vbox_vendor = core::ptr::read_volatile(VBOX_ECAM_BASE as *const u32) & 0xFFFF;
+    // VBOX_ECAM_BASE only exists as real hardware under VirtualBox; reading
+    // it on QEMU raises a synchronous external abort (nothing answers the
+    // bus there), and it may not even be mapped in every page-table setup.
+    // Use the fault-tolerant probe instead of a raw read_volatile (T27.2 /
+    // VirtualBox-vs-QEMU hardware discovery, see docs/tickets/T27.1 y T27.2).
+    if let Some(word) = crate::arch::aarch64::exceptions::safe_probe_read_u32(VBOX_ECAM_BASE) {
+        let vbox_vendor = word & 0xFFFF;
         if vbox_vendor != 0xFFFF && vbox_vendor != 0 {
             ACTIVE_ECAM_BASE.store(VBOX_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
             return VBOX_ECAM_BASE;
         }
-        ACTIVE_ECAM_BASE.store(QEMU_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
-        QEMU_ECAM_BASE
     }
+    ACTIVE_ECAM_BASE.store(QEMU_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
+    QEMU_ECAM_BASE
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -162,7 +167,18 @@ pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
-    core::ptr::read_volatile(addr as *const u32)
+    // The active ECAM window may not be mapped/backed under every
+    // emulator/hypervisor (see probe_ecam_base); a fault here just means
+    // "no device", matching the 0xFFFF_FFFF convention callers already
+    // treat as an absent vendor/device id.
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::aarch64::exceptions::safe_probe_read_u32(addr).unwrap_or(0xFFFF_FFFF)
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        core::ptr::read_volatile(addr as *const u32)
+    }
 }
 
 /// Writes a 32-bit dword to PCI configuration space.
@@ -199,7 +215,20 @@ pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
-    core::ptr::read_volatile(addr as *const u16)
+    #[cfg(target_arch = "aarch64")]
+    {
+        // Read the containing aligned dword through the fault-tolerant
+        // probe (see read_config_u32) and extract the requested halfword.
+        let aligned = addr & !0b11;
+        let shift = (addr & 0b10) * 8;
+        let word = crate::arch::aarch64::exceptions::safe_probe_read_u32(aligned)
+            .unwrap_or(0xFFFF_FFFF);
+        ((word >> shift) & 0xFFFF) as u16
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        core::ptr::read_volatile(addr as *const u16)
+    }
 }
 
 /// Writes a 16-bit word to PCI configuration space.

@@ -5,6 +5,33 @@
 
 use core::arch::global_asm;
 use core::fmt::Write;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+/// Set while a "safe probe" access is in flight; the dispatcher checks this
+/// before deciding to panic on a Data/Instruction Abort.
+static PROBE_ARMED: AtomicBool = AtomicBool::new(false);
+/// Set by the dispatcher when a guarded probe access actually aborted.
+static PROBE_FAULTED: AtomicBool = AtomicBool::new(false);
+
+/// Reads a 32-bit value from a possibly-nonexistent MMIO/physical address
+/// without crashing the kernel if the access raises a Data or Instruction
+/// Abort (translation fault *or* synchronous external abort).
+///
+/// Needed for hardware discovery (T27.2 PCIe ECAM probing) that must try
+/// addresses which differ between emulators/hypervisors (QEMU vs
+/// VirtualBox) and may simply not exist under the one currently running.
+/// Returns `None` if the read aborted, `Some(value)` otherwise.
+pub fn safe_probe_read_u32(addr: usize) -> Option<u32> {
+    PROBE_FAULTED.store(false, Ordering::SeqCst);
+    PROBE_ARMED.store(true, Ordering::SeqCst);
+    let value = unsafe { core::ptr::read_volatile(addr as *const u32) };
+    PROBE_ARMED.store(false, Ordering::SeqCst);
+    if PROBE_FAULTED.swap(false, Ordering::SeqCst) {
+        None
+    } else {
+        Some(value)
+    }
+}
 
 #[repr(C)]
 pub struct ExceptionContext {
@@ -226,6 +253,7 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         let irq_id = crate::arch::aarch64::gic::acknowledge();
         if irq_id == crate::arch::aarch64::timer::TIMER_IRQ {
             crate::arch::aarch64::timer::handle_timer_interrupt();
+            crate::drivers::usb::poll();
             // Preemption hook: check quantum and switch context if needed
             let cpu_ctx = unsafe {
                 &mut *(ctx as *mut ExceptionContext as *mut crate::task::pcb::CpuContext)
@@ -245,6 +273,16 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
 
     let ec = (esr >> 26) & 0x3f;
     let iss = esr & 0x01ff_ffff;
+
+    // Recover from a guarded "safe probe" access instead of panicking.
+    // Hardware discovery may target an address that doesn't exist on the
+    // emulator/hypervisor currently running it (see safe_probe_read_u32).
+    if PROBE_ARMED.load(Ordering::SeqCst) && matches!(ec, 0x20 | 0x21 | 0x24 | 0x25) {
+        PROBE_FAULTED.store(true, Ordering::SeqCst);
+        PROBE_ARMED.store(false, Ordering::SeqCst);
+        ctx.elr_el1 += 4;
+        return;
+    }
 
     // Handle software breakpoint (BRK #0, EC == 0x3c)
     if ec == 0x3c {

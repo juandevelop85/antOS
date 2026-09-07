@@ -67,12 +67,61 @@ impl Trb {
         Self::new(0, 0, control)
     }
 
+    /// Constructs an Address Device command TRB.
+    pub fn make_address_device(input_ctx_phys: u64, slot_id: u8, bsr: bool) -> Self {
+        let mut control = ((TRB_TYPE_ADDRESS_DEVICE as u32) << 10) | ((slot_id as u32) << 24);
+        if bsr {
+            control |= 1 << 9;
+        }
+        Self::new(input_ctx_phys, 0, control)
+    }
+
+    /// Constructs a Configure Endpoint command TRB.
+    pub fn make_configure_endpoint(input_ctx_phys: u64, slot_id: u8) -> Self {
+        let control = ((TRB_TYPE_CONFIGURE_ENDPOINT as u32) << 10) | ((slot_id as u32) << 24);
+        Self::new(input_ctx_phys, 0, control)
+    }
+
+    /// Constructs a Setup Stage TRB for Control Transfers on Endpoint 0.
+    pub fn make_setup_stage(setup_bytes: [u8; 8], trt: u8) -> Self {
+        let param = u64::from_le_bytes(setup_bytes);
+        let control = ((TRB_TYPE_SETUP_STAGE as u32) << 10) | ((trt as u32) << 16) | (1 << 6); // IDT = 1
+        Self::new(param, 8, control)
+    }
+
+    /// Constructs a Data Stage TRB for Control Transfers.
+    pub fn make_data_stage(buf_phys: u64, len: u32, is_in: bool) -> Self {
+        let mut control = ((TRB_TYPE_DATA_STAGE as u32) << 10) | (1 << 2); // ISP = 1
+        if is_in {
+            control |= 1 << 16; // Dir = IN
+        }
+        Self::new(buf_phys, len, control)
+    }
+
+    /// Constructs a Status Stage TRB for Control Transfers.
+    pub fn make_status_stage(is_in: bool) -> Self {
+        let mut control = ((TRB_TYPE_STATUS_STAGE as u32) << 10) | (1 << 5); // IOC = 1
+        if is_in {
+            control |= 1 << 16; // Dir = IN
+        }
+        Self::new(0, 0, control)
+    }
+
+    /// Constructs a Normal TRB for Interrupt / Bulk transfers.
+    pub fn make_normal(buf_phys: u64, len: u32) -> Self {
+        let control = ((TRB_TYPE_NORMAL as u32) << 10) | (1 << 5) | (1 << 2); // IOC = 1, ISP = 1
+        Self::new(buf_phys, len, control)
+    }
+
     /// Constructs a No-Op command TRB.
     pub fn make_noop(cycle_bit: bool) -> Self {
         let control = (23 << 10) | (if cycle_bit { 1 } else { 0 });
         Self::new(0, 0, control)
     }
 }
+
+/// Transfer Ring alias sharing identical ring mechanics with CommandRing.
+pub type TransferRing = CommandRing;
 
 /// Event Ring Segment Table (ERST) Entry aligned to 64 bytes.
 #[repr(C, align(64))]

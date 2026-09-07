@@ -302,6 +302,17 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         for p in connected_ports {
             println!("    puerto {}  conectado · velocidad: {}", p.port_number, p.speed_name);
         }
+        for dev in &xhci.devices {
+            let dev_type = if dev.is_keyboard {
+                "teclado USB HID (boot)"
+            } else if dev.is_mouse {
+                "raton/tablet USB HID"
+            } else {
+                "dispositivo USB HID"
+            };
+            println!("    usb-hid    slot {} · puerto {} · {} (EP {})",
+                dev.slot_id, dev.port, dev_type, dev.ep_int_dci / 2);
+        }
     }
 
     println!();
