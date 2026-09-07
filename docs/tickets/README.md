@@ -88,3 +88,8 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 25** | [T25.2](T25.2-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-graficos.md) | Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`) | ✅ Completado |
 | **Fase 25** | [T25.3](T25.3-catalogo-oficial-de-recetas-antpkg-para-navegadores-e-ides.md) | Catálogo Oficial de Recetas antpkg para Navegadores e IDEs | ✅ Completado |
 | **Fase 25** | [T25.4](T25.4-lanzador-de-aplicaciones-graficas-y-contexto-de-workspace-en-barra-wayland.md) | Lanzador de Aplicaciones Gráficas y Contexto de Workspace en Barra Wayland | ✅ Completado |
+| **Fase 26** | [T26.1](T26.1-controlador-de-framebuffer-grafico-aarch64-y-virtio-gpu.md) | Controlador de Framebuffer Gráfico AArch64 y VirtIO-GPU en Kernel Bare-Metal | ✅ Completado |
+| **Fase 26** | [T26.2](T26.2-desktop-shell-nativo-en-rust-y-compositor-2d-framebuffer.md) | Desktop Shell Nativo en Rust y Compositor 2D sobre Framebuffer | ⏳ Pendiente |
+| **Fase 26** | [T26.3](T26.3-controlador-de-entrada-virtio-input-teclado-y-raton.md) | Controlador de Entrada Nativo: VirtIO-Input, Teclado y Ratón | ⏳ Pendiente |
+| **Fase 26** | [T26.4](T26.4-cargador-de-ejecutables-elf64-y-sistema-de-ficheros-initramfs-tarfs.md) | Cargador de Ejecutables ELF64 y Sistema de Ficheros Initramfs Tarfs | ⏳ Pendiente |
+| **Fase 26** | [T26.5](T26.5-runtime-soberano-libantos-y-shell-interactivo-en-espacio-de-usuario.md) | Runtime Soberano `libantos` y Shell Interactivo en Espacio de Usuario | ⏳ Pendiente |

@@ -1,5 +1,6 @@
 //! AArch64 (ARM 64-bit) architecture support for antOS Kernel.
 
+pub mod dtb;
 pub mod entry;
 pub mod exceptions;
 pub mod gic;
@@ -7,6 +8,7 @@ pub mod mmu;
 pub mod pl011;
 pub mod syscall;
 pub mod timer;
+pub mod virtio_gpu;
 
 pub use pl011 as serial;
 

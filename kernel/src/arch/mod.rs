@@ -42,6 +42,5 @@ macro_rules! kprintln {
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
     current::serial::_print(args);
-    #[cfg(target_arch = "x86_64")]
     crate::console::_print(args);
 }

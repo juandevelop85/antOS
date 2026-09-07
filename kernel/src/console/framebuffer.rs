@@ -87,6 +87,30 @@ impl Framebuffer {
         }
     }
 
+    /// Constructs a `Framebuffer` directly from raw geometry and layout parameters.
+    ///
+    /// # Safety
+    /// `buffer` must point to valid framebuffer memory of at least `buffer_len` bytes.
+    pub unsafe fn new_raw(
+        buffer: *mut u8,
+        buffer_len: usize,
+        width: usize,
+        height: usize,
+        stride: usize,
+        bytes_per_pixel: usize,
+        pixel_format: PixelFormat,
+    ) -> Self {
+        Framebuffer {
+            buffer,
+            buffer_len,
+            width,
+            height,
+            stride,
+            bytes_per_pixel,
+            pixel_format,
+        }
+    }
+
     #[inline]
     pub fn width(&self) -> usize {
         self.width
@@ -164,27 +188,37 @@ impl Framebuffer {
     ///
     /// Newly exposed rows at the bottom are filled with `bg_color`.
     pub fn scroll_up(&mut self, pixels: usize, bg_color: Color) {
-        if pixels == 0 {
+        self.scroll_up_region(0, pixels, bg_color);
+    }
+
+    /// Scrolls a vertical subregion of the display by `pixels` rows, shifting contents upward.
+    ///
+    /// The region from `0..top_y` remains untouched (useful for pinned status bars / headers).
+    /// Newly exposed rows at the bottom of the region are filled with `bg_color`.
+    pub fn scroll_up_region(&mut self, top_y: usize, pixels: usize, bg_color: Color) {
+        if top_y >= self.height || pixels == 0 {
             return;
         }
-        if pixels >= self.height {
-            self.clear(bg_color);
+        let region_height = self.height - top_y;
+        if pixels >= region_height {
+            self.draw_rect(0, top_y, self.width, region_height, bg_color);
             return;
         }
 
         let bytes_per_row = self.stride * self.bytes_per_pixel;
-        let rows_to_copy = self.height - pixels;
+        let rows_to_copy = region_height - pixels;
         let bytes_to_copy = rows_to_copy * bytes_per_row;
 
         unsafe {
-            let src = self.buffer.add(pixels * bytes_per_row);
-            let dst = self.buffer;
+            let src = self.buffer.add((top_y + pixels) * bytes_per_row);
+            let dst = self.buffer.add(top_y * bytes_per_row);
             core::ptr::copy(src, dst, bytes_to_copy);
         }
 
         // Clear the bottom rows with fast memset when black
+        let clear_y = self.height - pixels;
         if bg_color == Color::BLACK {
-            let offset = (self.height - pixels) * bytes_per_row;
+            let offset = clear_y * bytes_per_row;
             let clear_bytes = pixels * bytes_per_row;
             if offset + clear_bytes <= self.buffer_len {
                 unsafe {
@@ -192,7 +226,7 @@ impl Framebuffer {
                 }
             }
         } else {
-            self.draw_rect(0, self.height - pixels, self.width, pixels, bg_color);
+            self.draw_rect(0, clear_y, self.width, pixels, bg_color);
         }
     }
 

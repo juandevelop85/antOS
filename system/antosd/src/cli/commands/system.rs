@@ -1294,19 +1294,22 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
 
             let config = antos_protocol::WebConsoleConfig {
-                bind_addr: bind,
+                bind_addr: bind.clone(),
                 port,
                 auth_required: true,
                 ws_ping_interval_secs: 30,
             };
 
             println!("\n{} Iniciando consola web remota y bridge WebSocket...", paint("antOS Web Console ·", BOLD));
-            let st = crate::web::WebEngine::start(&ctx.state, &ctx.workspace, config)?;
             let token_sess = crate::web::WebEngine::generate_token(&ctx.state, Some("admin".into()), Some(86400))?;
+            let url = format!("http://{}:{}", bind, port);
             println!("  Estado:               {}", paint("ACTIVO (En línea)", GREEN));
-            println!("  URL de Acceso:        {}", paint(&st.url, CYAN));
-            println!("  URL con Token:        {}", paint(&format!("{}?token={}", st.url, token_sess.token), BOLD));
-            println!("  WebSocket Bridge:     {}/ws/events\n", st.url);
+            println!("  URL de Acceso:        {}", paint(&url, CYAN));
+            println!("  URL con Token:        {}", paint(&format!("{}?token={}", url, token_sess.token), BOLD));
+            println!("  WebSocket Bridge:     {}/ws/events", url);
+            println!("  Presiona Ctrl+C para detener el servidor.\n");
+
+            crate::web::WebEngine::serve_blocking(&ctx.state, &ctx.workspace, config)?;
         }
 
         "stop" => {

@@ -15,7 +15,6 @@ extern crate alloc;
 #[allow(dead_code)]
 mod allocator;
 pub mod arch;
-#[cfg(target_arch = "x86_64")]
 pub mod console;
 #[cfg(target_arch = "x86_64")]
 pub mod drivers;
@@ -112,6 +111,84 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
     let text = String::from("antOS heap dinámico en AArch64");
     println!("  asignador    {} B usados · Box({boxed}), Vec({numbers:?}), String('{}')",
         allocator::used(), text);
+
+    println!();
+    println!("controlador gráfico y framebuffer (T26.1)");
+
+    let mut graphical_fb_active = false;
+
+    // 1. Introspección del DTB para simple-framebuffer
+    if let Some(fb) = arch::aarch64::dtb::find_framebuffer(dtb_ptr) {
+        println!("  dtb          nodo simple-framebuffer descubierto");
+        println!("  resolución   {}x{} · formato {:?} ({} bytes/px)", fb.width, fb.height, fb.format, fb.bytes_per_pixel);
+        println!("  memoria      base física {:#x} ({} KiB)", fb.phys_addr, fb.size / 1024);
+
+        if let Ok(mapped_addr) = arch::aarch64::mmu::map_framebuffer_range(fb.phys_addr, fb.size) {
+            println!("  mmu          mapeado en {:#x} (Normal Non-Cacheable)", mapped_addr);
+            unsafe {
+                console::init_raw(
+                    mapped_addr as *mut u8,
+                    fb.size,
+                    fb.width,
+                    fb.height,
+                    fb.stride,
+                    fb.bytes_per_pixel,
+                    fb.format,
+                );
+            }
+            if let Some(c) = console::CONSOLE.lock().as_mut() {
+                c.draw_header_banner("antOS · AArch64", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+            }
+            println!("  consola      activa en pantalla gráfica y serie simultáneamente");
+            graphical_fb_active = true;
+        } else {
+            println!("  error        fallo al mapear el framebuffer en la MMU");
+        }
+    }
+
+    // 2. Si no hay simple-framebuffer en DTB, buscar dispositivo VirtIO-GPU MMIO
+    if !graphical_fb_active {
+        let virtio_gpu_base = arch::aarch64::dtb::find_virtio_gpu(dtb_ptr)
+            .or_else(arch::aarch64::virtio_gpu::probe_virtio_gpu);
+
+        if let Some(gpu_base) = virtio_gpu_base {
+            println!("  virtio-gpu   dispositivo MMIO detectado en {:#x}", gpu_base);
+            match unsafe { arch::aarch64::virtio_gpu::VirtioGpu::init(gpu_base, 1024, 768) } {
+                Ok(gpu) => {
+                    let buf_ptr = gpu.buffer_ptr();
+                    let buf_len = gpu.buffer_len();
+                    let w = gpu.width();
+                    let h = gpu.height();
+                    let stride = gpu.stride();
+                    *arch::aarch64::virtio_gpu::VIRTIO_GPU.lock() = Some(gpu);
+                    unsafe {
+                        console::init_raw(
+                            buf_ptr,
+                            buf_len,
+                            w,
+                            h,
+                            stride,
+                            4,
+                            bootloader_api::info::PixelFormat::Bgr,
+                        );
+                    }
+                    if let Some(c) = console::CONSOLE.lock().as_mut() {
+                        c.draw_header_banner("antOS · VirtIO-GPU", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                    }
+                    println!("  virtio-gpu   recurso 2D creado · escaneo 1024x768x32bpp enlazado");
+                    println!("  consola      activa en monitor VirtIO-GPU y serie simultáneamente");
+                    graphical_fb_active = true;
+                }
+                Err(_) => {
+                    println!("  error        fallo al inicializar VirtIO-GPU MMIO");
+                }
+            }
+        }
+    }
+
+    if !graphical_fb_active {
+        println!("  framebuffer  no detectado en DTB/VirtIO (modo headless / UART serie activo)");
+    }
 
     println!();
     println!("controlador de interrupciones y temporizador");

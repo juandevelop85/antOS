@@ -324,6 +324,49 @@ impl WebEngine {
         Ok(status)
     }
 
+    /// Runs the web console server loop blocking the current thread.
+    pub fn serve_blocking(
+        state_dir: &Path,
+        workspace_dir: &Path,
+        config: WebConsoleConfig,
+    ) -> Result<()> {
+        let addr = format!("{}:{}", config.bind_addr, config.port);
+        let listener = TcpListener::bind(&addr)
+            .with_context(|| format!("Failed to bind web console on {addr}"))?;
+
+        let status = WebConsoleStatus {
+            running: true,
+            bind_addr: config.bind_addr.clone(),
+            port: config.port,
+            connected_clients: 0,
+            active_sessions_count: Self::load_sessions(state_dir).sessions.len(),
+            url: format!("http://{}", addr),
+        };
+
+        let dir = Self::web_dir(state_dir);
+        fs::create_dir_all(&dir)?;
+        fs::write(Self::status_path(state_dir), serde_json::to_string_pretty(&status)?)?;
+
+        let state_dir_buf = state_dir.to_path_buf();
+        let ws_dir_buf = workspace_dir.to_path_buf();
+
+        for stream_res in listener.incoming() {
+            match stream_res {
+                Ok(mut stream) => {
+                    let s_dir = state_dir_buf.clone();
+                    let w_dir = ws_dir_buf.clone();
+                    thread::spawn(move || {
+                        let _ = Self::handle_client(&mut stream, &s_dir, &w_dir);
+                    });
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Stops the web console server.
     pub fn stop(state_dir: &Path) -> Result<WebConsoleStatus> {
         let mut st = Self::status(state_dir)?;

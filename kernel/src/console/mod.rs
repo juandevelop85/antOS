@@ -17,6 +17,7 @@ pub struct Console {
     framebuffer: Framebuffer,
     cursor_col: usize,
     cursor_row: usize,
+    header_rows: usize,
     max_cols: usize,
     max_rows: usize,
     fg_color: Color,
@@ -38,6 +39,7 @@ impl Console {
             framebuffer,
             cursor_col: 0,
             cursor_row: 0,
+            header_rows: 0,
             max_cols,
             max_rows,
             fg_color: Color::LIGHT_GRAY,
@@ -55,11 +57,60 @@ impl Console {
         (self.max_cols, self.max_rows)
     }
 
-    /// Clears the entire console screen with current background color and resets cursor.
+    /// Clears the console screen, keeping the pinned header bar intact if present.
     pub fn clear(&mut self) {
-        self.framebuffer.clear(self.bg_color);
+        if self.header_rows > 0 {
+            let top_y = self.header_rows * font::FONT_HEIGHT;
+            let h = self.framebuffer.height().saturating_sub(top_y);
+            self.framebuffer.draw_rect(0, top_y, self.framebuffer.width(), h, self.bg_color);
+            self.cursor_col = 0;
+            self.cursor_row = self.header_rows;
+        } else {
+            self.framebuffer.clear(self.bg_color);
+            self.cursor_col = 0;
+            self.cursor_row = 0;
+        }
+        #[cfg(target_arch = "aarch64")]
+        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, self.framebuffer.width(), self.framebuffer.height());
+    }
+
+    /// Draws a styled antOS graphical header banner pinned at the top of the display.
+    pub fn draw_header_banner(&mut self, logo: &str, cpu_info: &str, mem_info: &str) {
+        self.header_rows = 2;
+        let bar_height = 2 * font::FONT_HEIGHT;
+        let width = self.framebuffer.width();
+
+        // Background bar: Deep navy / slate
+        self.framebuffer.draw_rect(0, 0, width, bar_height, Color::new(20, 30, 48));
+        // Accent bottom line: Cyan
+        self.framebuffer.draw_rect(0, bar_height - 2, width, 2, Color::CYAN);
+
+        // Render logo in bright cyan
+        let mut x = 12;
+        for c in logo.chars() {
+            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_CYAN, Color::new(20, 30, 48));
+            x += font::FONT_WIDTH;
+        }
+
+        // Render CPU info in bright green
+        x += font::FONT_WIDTH * 2;
+        for c in cpu_info.chars() {
+            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_GREEN, Color::new(20, 30, 48));
+            x += font::FONT_WIDTH;
+        }
+
+        // Render Mem info in bright yellow
+        x += font::FONT_WIDTH * 2;
+        for c in mem_info.chars() {
+            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_YELLOW, Color::new(20, 30, 48));
+            x += font::FONT_WIDTH;
+        }
+
+        self.cursor_row = self.header_rows;
         self.cursor_col = 0;
-        self.cursor_row = 0;
+
+        #[cfg(target_arch = "aarch64")]
+        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, width, bar_height);
     }
 
     /// Advances the cursor to the next row, scrolling the framebuffer if needed.
@@ -67,9 +118,12 @@ impl Console {
         if self.cursor_row + 1 < self.max_rows {
             self.cursor_row += 1;
         } else {
-            self.framebuffer.scroll_up(font::FONT_HEIGHT, self.bg_color);
+            let top_y = self.header_rows * font::FONT_HEIGHT;
+            self.framebuffer.scroll_up_region(top_y, font::FONT_HEIGHT, self.bg_color);
             self.cursor_row = self.max_rows.saturating_sub(1);
         }
+        #[cfg(target_arch = "aarch64")]
+        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, self.framebuffer.width(), self.framebuffer.height());
     }
 
     /// Writes a single Unicode character, interpreting ANSI escape sequences.
@@ -178,6 +232,32 @@ pub unsafe fn init(
     info: bootloader_api::info::FrameBufferInfo,
 ) {
     let fb = Framebuffer::new(buffer, buffer_len, info);
+    let console = Console::new(fb);
+    *CONSOLE.lock() = Some(console);
+}
+
+/// Initializes the global framebuffer text console with raw geometry and format parameters.
+///
+/// # Safety
+/// `buffer` must point to valid framebuffer memory of at least `buffer_len` bytes.
+pub unsafe fn init_raw(
+    buffer: *mut u8,
+    buffer_len: usize,
+    width: usize,
+    height: usize,
+    stride: usize,
+    bytes_per_pixel: usize,
+    pixel_format: bootloader_api::info::PixelFormat,
+) {
+    let fb = Framebuffer::new_raw(
+        buffer,
+        buffer_len,
+        width,
+        height,
+        stride,
+        bytes_per_pixel,
+        pixel_format,
+    );
     let console = Console::new(fb);
     *CONSOLE.lock() = Some(console);
 }

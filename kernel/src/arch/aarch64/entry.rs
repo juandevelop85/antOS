@@ -57,6 +57,11 @@ drop_from_el2:
     eret
 
 el1_entry:
+    // Enable FP/SIMD (NEON) registers at EL1 and EL0 (CPACR_EL1.FPEN = 0b11)
+    mov  x0, #(3 << 20)
+    msr  cpacr_el1, x0
+    isb
+
     // Ensure CPU uses SP_EL1 when executing in EL1
     msr  spsel, #1
     // Configure stack pointer to end of BOOT_STACK

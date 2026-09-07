@@ -30,8 +30,10 @@ const DESC_BLOCK: u64 = 0b01;
 // Memory Attributes indexes in MAIR_EL1:
 // Attr 0 = Device-nGnRnE (0x00)
 // Attr 1 = Normal Write-Back Cacheable (0xFF)
+// Attr 2 = Normal Non-Cacheable (0x44)
 const ATTR_DEVICE: u64 = 0 << 2;
 const ATTR_NORMAL: u64 = 1 << 2;
+const ATTR_NON_CACHEABLE: u64 = 2 << 2;
 
 // Access Permissions and flags:
 // AP[2:1]: 0b00 = EL1 only, 0b01 = EL1 and EL0 Read/Write
@@ -49,6 +51,7 @@ pub const USER_SPACE_PHYS: u64 = 0x4100_0000;
 const NORMAL_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_EL1 | SH_INNER | ACCESS_FLAG | UXN_FLAG;
 const USER_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_USER | SH_INNER | ACCESS_FLAG | PXN_FLAG;
 const DEVICE_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_DEVICE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
+const FRAMEBUFFER_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NON_CACHEABLE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
 
 pub struct ArmMmu;
 
@@ -105,10 +108,14 @@ pub fn init() {
         // PL011 UART at 0x0900_0000..0x0920_0000 (Index 72 = 0x0900_0000 / 2MiB)
         L2_TABLE_PERIPHERALS.entries[72] = 0x0900_0000 | DEVICE_BLOCK_FLAGS;
 
+        // VirtIO MMIO at 0x0a00_0000..0x0a20_0000 (Index 80 = 0x0a00_0000 / 2MiB)
+        L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
+
         // 2. Configure MAIR_EL1:
         // Attr 0: 0x00 = Device-nGnRnE
         // Attr 1: 0xFF = Normal Memory Write-Back
-        let mair: u64 = (0x00 << 0) | (0xFF << 8);
+        // Attr 2: 0x44 = Normal Memory Non-Cacheable (for linear framebuffer display)
+        let mair: u64 = (0x00 << 0) | (0xFF << 8) | (0x44 << 16);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         // 3. Configure TCR_EL1:
@@ -155,3 +162,40 @@ pub fn init() {
         );
     }
 }
+
+/// Dynamically maps a physical framebuffer memory range into the AArch64 page tables
+/// using Normal Non-Cacheable memory attributes (Attr 2).
+///
+/// Returns the virtual address where the framebuffer is mapped (identity mapped).
+pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> Result<u64, ()> {
+    unsafe {
+        if phys_addr < 0x4000_0000 {
+            // First 1 GiB peripheral space: map 2 MiB blocks in L2_TABLE_PERIPHERALS
+            let start_2m = phys_addr & !(0x20_0000 - 1);
+            let end_2m = (phys_addr + size as u64 + 0x1f_ffff) & !(0x20_0000 - 1);
+            let mut cur = start_2m;
+            while cur < end_2m && cur < 0x4000_0000 {
+                let idx = (cur / 0x20_0000) as usize;
+                if idx < 512 {
+                    L2_TABLE_PERIPHERALS.entries[idx] = cur | FRAMEBUFFER_BLOCK_FLAGS;
+                    ArmMmu::flush_tlb(cur);
+                }
+                cur += 0x20_0000;
+            }
+        } else if phys_addr >= 0x4000_0000 && phys_addr < 0x8000_0000 {
+            // Already identity mapped in L1_TABLE[1] (0x4000_0000..0x8000_0000)
+        } else if phys_addr >= 0x8000_0000 && phys_addr < 0xc000_0000 {
+            // 2 GiB..3 GiB: install 1 GiB block in L1_TABLE[2]
+            L1_TABLE.entries[2] = 0x8000_0000 | FRAMEBUFFER_BLOCK_FLAGS;
+            ArmMmu::flush_tlb(0x8000_0000);
+        } else if phys_addr >= 0xc000_0000 && phys_addr < 0x1_0000_0000 {
+            // 3 GiB..4 GiB: install 1 GiB block in L1_TABLE[3]
+            L1_TABLE.entries[3] = 0xc000_0000 | FRAMEBUFFER_BLOCK_FLAGS;
+            ArmMmu::flush_tlb(0xc000_0000);
+        }
+
+        core::arch::asm!("isb", options(nomem, nostack));
+    }
+    Ok(phys_addr)
+}
+
