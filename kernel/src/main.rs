@@ -16,9 +16,9 @@ extern crate alloc;
 mod allocator;
 pub mod arch;
 pub mod console;
-#[cfg(target_arch = "x86_64")]
 pub mod drivers;
 pub mod fs;
+pub mod input;
 #[allow(dead_code)]
 mod elf;
 #[allow(dead_code)]
@@ -195,6 +195,15 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
         println!("  compositor   desktop shell nativo renderizado (doble buffer)");
     } else {
         println!("  framebuffer  no detectado en DTB/VirtIO (modo headless / UART serie activo)");
+    }
+
+    println!();
+    println!("controlador de entrada y periféricos (T26.3)");
+    let input_devs = drivers::virtio_input::probe_and_init_virtio_inputs();
+    if input_devs > 0 {
+        println!("  virtio-input {} dispositivos (teclado/ratón) detectados y activos", input_devs);
+    } else {
+        println!("  virtio-input no detectado (usando consola serie estándar)");
     }
 
     println!();
@@ -646,6 +655,21 @@ async fn heartbeat_task() {
 fn halt_loop() -> ! {
     use crate::arch::traits::ArchInterrupts;
     loop {
+        #[cfg(target_arch = "aarch64")]
+        {
+            if drivers::virtio_input::poll_virtio_inputs() > 0 || input::has_events() {
+                if ui::dispatch_pending_inputs(1024, 768) {
+                    if let Some(c) = console::CONSOLE.lock().as_mut() {
+                        ui::render_desktop(
+                            c.framebuffer_mut(),
+                            allocator::used(),
+                            512 * 1024,
+                            arch::aarch64::timer::ticks(),
+                        );
+                    }
+                }
+            }
+        }
         crate::arch::current::Interrupts::halt();
     }
 }

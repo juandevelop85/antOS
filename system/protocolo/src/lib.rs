@@ -12,6 +12,7 @@
 pub mod dev;
 pub mod flow;
 pub mod git;
+pub mod input;
 pub mod ipc;
 pub mod launcher;
 pub mod mesh;
@@ -29,6 +30,7 @@ mod tests;
 pub use dev::*;
 pub use flow::*;
 pub use git::*;
+pub use input::*;
 pub use ipc::*;
 pub use launcher::*;
 pub use mesh::*;

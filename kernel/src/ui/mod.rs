@@ -5,6 +5,7 @@
 
 pub mod color;
 pub mod compositor;
+pub mod cursor;
 pub mod hud;
 pub mod rect;
 pub mod statusbar;
@@ -12,7 +13,8 @@ pub mod surface;
 pub mod terminal_window;
 
 pub use color::{palette, Color};
-pub use compositor::{init, render_desktop, DesktopCompositor, COMPOSITOR};
+pub use compositor::{dispatch_pending_inputs, init, render_desktop, DesktopCompositor, FocusTarget, COMPOSITOR};
+pub use cursor::MouseCursor;
 pub use hud::IntentHud;
 pub use rect::{Point, Rect, Size};
 pub use statusbar::StatusBar;

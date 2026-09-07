@@ -62,6 +62,9 @@ static WAKER: SpinLock<Option<Waker>> = SpinLock::new(None);
 ///
 /// No asigna, no imprime y no se queda con ningún cerrojo mientras despierta.
 pub fn add_scancode(scancode: u8) {
+    if let Some(event) = crate::input::decode_ps2_set1(scancode) {
+        crate::input::push_event(event);
+    }
     if !SCANCODES.lock().push(scancode) {
         return;
     }
