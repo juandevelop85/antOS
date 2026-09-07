@@ -395,16 +395,25 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                 Ok((shell_entry, shell_stack)) => {
                     println!("  cargador     shell en {shell_entry:#x} · pila {shell_stack:#x}");
                     println!("  consola      escribe en la serie: PID 1 atendiendo antos>");
-                    // Blocks here until the shell exits — either by handing
-                    // off to the desktop compositor (`DESKTOP_HANDOFF_CODE`,
-                    // kept in sync with `user/src/main.rs`) or, in a
-                    // headless/serial-only session, never: AArch64 has no
-                    // preemptive scheduler yet (T23.2 is x86_64-only) to run
-                    // it alongside `halt_loop`'s reactive redraw.
+
+                    if graphical_fb_active {
+                        ui::compositor::set_desktop_active(true);
+                        if let Some(c) = console::CONSOLE.lock().as_mut() {
+                            ui::render_desktop(
+                                c.framebuffer_mut(),
+                                allocator::used(),
+                                AARCH64_HEAP_SIZE,
+                                arch::aarch64::timer::ticks(),
+                            );
+                        }
+                    }
+
                     const DESKTOP_HANDOFF_CODE: u64 = 42;
                     let code = unsafe {
                         arch::aarch64::syscall::enter_user_mode(shell_entry, shell_stack, 4, 0)
                     };
+
+
                     if code == DESKTOP_HANDOFF_CODE {
                         println!("  shell        cedió el control al compositor gráfico");
                         if let Some(c) = console::CONSOLE.lock().as_mut() {
@@ -919,8 +928,10 @@ fn halt_loop() -> ! {
 
 /// Lo que se ejecuta tras un panic. Ya no se limita a parar la máquina:
 /// ahora dice qué pasó y dónde, que es la mitad del trabajo de depurar.
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
+
     // Callar las interrupciones antes de nada.
     use crate::arch::traits::ArchInterrupts;
     crate::arch::current::Interrupts::disable();

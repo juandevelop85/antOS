@@ -252,12 +252,28 @@ fn sys_write(pointer: u64, length: u64) -> u64 {
     let bytes = unsafe { core::slice::from_raw_parts(pointer as *const u8, length as usize) };
     match core::str::from_utf8(bytes) {
         Ok(text) => {
-            print!("     [user] {text}");
+            if crate::ui::compositor::is_desktop_active() {
+                let mut guard = crate::ui::COMPOSITOR.lock();
+                if let Some(comp) = guard.as_mut() {
+                    comp.terminal_mut().write_str(text);
+                    if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+                        comp.render_to_framebuffer(
+                            c.framebuffer_mut(),
+                            crate::allocator::used(),
+                            crate::memory::HEAP_SIZE,
+                            crate::task::timer::ticks(),
+                        );
+                    }
+                }
+            } else {
+                print!("     [user] {text}");
+            }
             length
         }
         Err(_) => syscall::EINVAL,
     }
 }
+
 
 fn sys_read(pointer: u64, max_length: u64) -> u64 {
     if let Err(e) = syscall::validate_user_ptr(pointer, max_length) {
@@ -461,12 +477,14 @@ fn sys_sysinfo(out_ptr: u64, out_len: u64) -> u64 {
 /// compositor (T26.2) onto the boot framebuffer, initializing it on first use
 /// (T26.5 bridge between the userspace shell and the kernel-space compositor).
 fn sys_launch_desktop() -> u64 {
+    crate::ui::compositor::set_desktop_active(true);
     use core::sync::atomic::{AtomicBool, Ordering};
     static COMPOSITOR_READY: AtomicBool = AtomicBool::new(false);
 
     if !COMPOSITOR_READY.swap(true, Ordering::Relaxed) {
         crate::ui::init("x86_64");
     }
+
     if let Some(console) = crate::console::CONSOLE.lock().as_mut() {
         crate::ui::render_desktop(
             console.framebuffer_mut(),

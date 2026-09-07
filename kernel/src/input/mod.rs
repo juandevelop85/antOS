@@ -260,6 +260,33 @@ impl KeyboardState {
 static ASCII_BRIDGE_STATE: crate::sync::SpinLock<KeyboardState> =
     crate::sync::SpinLock::new(KeyboardState::new());
 
+#[cfg(target_arch = "aarch64")]
+#[inline]
+fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
+    if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+        comp.render_to_framebuffer(
+            c.framebuffer_mut(),
+            crate::allocator::used(),
+            crate::AARCH64_HEAP_SIZE,
+            crate::arch::aarch64::timer::ticks(),
+        );
+    }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
+    #[cfg(target_arch = "x86_64")]
+    if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+        comp.render_to_framebuffer(
+            c.framebuffer_mut(),
+            crate::allocator::used(),
+            crate::memory::HEAP_SIZE,
+            crate::task::timer::ticks(),
+        );
+    }
+}
+
 /// Drains as many queued key-press events as fit in `buf`, decoding them to
 /// ASCII via [`KeyboardState::key_to_char`]. Non-blocking: returns `0`
 /// immediately if nothing is queued. Used by `SYS_READ` (T26.5) so the
@@ -271,6 +298,49 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
     while written < buf.len() {
         let Some(event) = pop_event() else { break };
         state.update(&event);
+
+        if crate::ui::compositor::is_desktop_active() {
+            let mut comp_guard = crate::ui::COMPOSITOR.lock();
+            if let Some(comp) = comp_guard.as_mut() {
+                match event {
+                    InputEvent::MouseMove { .. }
+                    | InputEvent::MouseAbsolute { .. }
+                    | InputEvent::MouseButtonPress(_)
+                    | InputEvent::MouseButtonRelease(_)
+                    | InputEvent::Scroll { .. } => {
+
+                        let dirty = comp.handle_event(event, 1024, 768);
+                        if dirty {
+                            render_compositor_if_active(comp);
+                        }
+                        continue;
+                    }
+                    InputEvent::KeyPress(key) => {
+                        if key == KeyCode::LeftSuper
+                            || key == KeyCode::RightSuper
+                            || (key == KeyCode::KeyK && comp.keyboard_state().modifiers.ctrl)
+                            || (key == KeyCode::Escape && comp.hud().is_visible())
+                        {
+                            let dirty = comp.handle_event(event, 1024, 768);
+                            if dirty {
+                                render_compositor_if_active(comp);
+                            }
+                            continue;
+                        }
+
+                        if comp.focus() == crate::ui::FocusTarget::Hud {
+                            let dirty = comp.handle_event(event, 1024, 768);
+                            if dirty {
+                                render_compositor_if_active(comp);
+                            }
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         if let InputEvent::KeyPress(key) = event {
             if let Some(ch) = state.key_to_char(key) {
                 if ch.is_ascii() {

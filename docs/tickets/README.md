@@ -96,4 +96,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 27** | [T27.1](T27.1-soporte-real-del-protocolo-de-arranque-limine-en-el-kernel.md) | Soporte Real del Protocolo de Arranque Limine (Mitad Alta y Boot Requests) en el Kernel | ✅ Completado |
 | **Fase 27** | [T27.2](T27.2-controlador-pcie-ecam-y-host-usb-xhci.md) | Controlador PCIe ECAM y Host Controller USB 3.0 xHCI | ✅ Completado |
 | **Fase 27** | [T27.3](T27.3-pila-usb-y-subclase-hid-para-teclado-y-raton.md) | Pila USB y Subclase HID para Teclado y Ratón en Bare-Metal | ✅ Completado |
-| **Fase 27** | [T27.4](T27.4-terminal-grafico-activo-en-compositor-y-multiplexacion.md) | Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio | ⏳ Pendiente |
+| **Fase 27** | [T27.4](T27.4-terminal-grafico-activo-en-compositor-y-multiplexacion.md) | Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio | ✅ Completado |

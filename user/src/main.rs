@@ -356,15 +356,12 @@ fn cmd_desktop() {
 
 #[cfg(target_arch = "aarch64")]
 fn cmd_desktop() {
-    // AArch64 has no preemptive scheduler yet (T23.2 is x86_64-only): this
-    // shell and the kernel's reactive desktop redraw loop (`halt_loop`)
-    // cannot run at the same time. Render one confirmation frame, then hand
-    // control off permanently — `kernel_main` resumes into `halt_loop` right
-    // where the boot sequence left it.
-    let _ = launch_desktop();
-    println!("[shell] cediendo el control al compositor gráfico...");
-    exit(DESKTOP_HANDOFF_CODE)
+    match launch_desktop() {
+        Ok(()) => println!("[shell] sesión gráfica del Compositor 2D activada"),
+        Err(_) => println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)"),
+    }
 }
+
 
 fn cmd_agent(intent: &str) {
     if intent.is_empty() {

@@ -5,6 +5,7 @@
 //! with double buffering to eliminate screen tearing.
 //! Routes user input events and manages focus between HUD and Terminal.
 
+use core::sync::atomic::{AtomicBool, Ordering};
 use super::color::palette;
 use super::cursor::MouseCursor;
 use super::hud::IntentHud;
@@ -14,6 +15,21 @@ use super::terminal_window::TerminalWindow;
 use crate::console::Framebuffer;
 use crate::input::{pop_event, InputEvent, KeyCode, KeyboardState, MouseButton};
 use crate::sync::SpinLock;
+
+/// Tracks whether the graphical Desktop Compositor session is currently active.
+static DESKTOP_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Returns true if the Desktop Compositor is currently active.
+#[inline]
+pub fn is_desktop_active() -> bool {
+    DESKTOP_ACTIVE.load(Ordering::Relaxed)
+}
+
+/// Sets the Desktop Compositor active state.
+#[inline]
+pub fn set_desktop_active(active: bool) {
+    DESKTOP_ACTIVE.store(active, Ordering::Relaxed);
+}
 
 /// Represents which UI component currently owns keyboard input focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,14 +59,17 @@ impl DesktopCompositor {
         let term_h = 540;
 
         let mut hud = IntentHud::new();
-        hud.set_focused(true);
+        hud.set_focused(false);
+
+        let mut term = TerminalWindow::new(term_x, term_y, term_w, term_h);
+        term.set_focused(true);
 
         DesktopCompositor {
             status_bar: StatusBar::new(),
             hud,
-            terminal: TerminalWindow::new(term_x, term_y, term_w, term_h),
+            terminal: term,
             cursor: MouseCursor::new(512, 384),
-            focus: FocusTarget::Hud,
+            focus: FocusTarget::Terminal,
             keyboard_state: KeyboardState::new(),
             arch_name,
             workspace_name: "[ws: default]",
@@ -79,8 +98,20 @@ impl DesktopCompositor {
         self.terminal.set_focused(target == FocusTarget::Terminal);
     }
 
+    pub fn keyboard_state(&self) -> &KeyboardState {
+        &self.keyboard_state
+    }
+
+    pub fn hud(&self) -> &IntentHud {
+        &self.hud
+    }
+
     pub fn hud_mut(&mut self) -> &mut IntentHud {
         &mut self.hud
+    }
+
+    pub fn terminal(&self) -> &TerminalWindow {
+        &self.terminal
     }
 
     pub fn terminal_mut(&mut self) -> &mut TerminalWindow {
@@ -158,7 +189,10 @@ impl DesktopCompositor {
                         } else if key == KeyCode::Enter {
                             let text = self.hud.text();
                             if !text.is_empty() {
-                                self.terminal.submit_command();
+                                let _ = crate::ipc::channel::send_message(1, 0, text.as_bytes());
+                                self.terminal.write_str("\n\x1b[1;36m[agent] intención encolada en canal IPC: \"\x1b[1;37m");
+                                self.terminal.write_str(text);
+                                self.terminal.write_str("\x1b[1;36m\"\x1b[0m\n");
                                 self.hud.clear();
                             }
                         } else if let Some(ch) = self.keyboard_state.key_to_char(key) {
@@ -167,14 +201,9 @@ impl DesktopCompositor {
                         true
                     }
                     FocusTarget::Terminal => {
-                        if key == KeyCode::Backspace {
-                            self.terminal.delete_char();
-                        } else if key == KeyCode::Enter {
-                            self.terminal.submit_command();
-                        } else if let Some(ch) = self.keyboard_state.key_to_char(key) {
-                            self.terminal.insert_char(ch);
-                        }
-                        true
+                        // Terminal keystrokes are returned through drain_ascii to SYS_READ
+                        // and echoed back by the shell via SYS_WRITE -> terminal.write_str
+                        false
                     }
                     FocusTarget::None => false,
                 }
@@ -183,9 +212,18 @@ impl DesktopCompositor {
                 self.keyboard_state.update(&event);
                 true
             }
+            InputEvent::Scroll { delta_y, .. } => {
+                if delta_y > 0 {
+                    self.terminal.scroll_up();
+                } else if delta_y < 0 {
+                    self.terminal.scroll_down();
+                }
+                true
+            }
             _ => false,
         }
     }
+
 
     /// Renders the complete desktop environment into `surface`.
     pub fn render(

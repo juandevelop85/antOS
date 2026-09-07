@@ -100,7 +100,23 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                     // ASCII (T26.5's box-drawing shell banner exposed this).
                     use core::fmt::Write as _;
                     let _ = crate::arch::aarch64::SERIAL.lock().write_str(s);
-                    crate::console::_print(format_args!("{}", s));
+
+                    if crate::ui::compositor::is_desktop_active() {
+                        let mut comp_guard = crate::ui::COMPOSITOR.lock();
+                        if let Some(comp) = comp_guard.as_mut() {
+                            comp.terminal_mut().write_str(s);
+                            if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+                                comp.render_to_framebuffer(
+                                    c.framebuffer_mut(),
+                                    crate::allocator::used(),
+                                    crate::AARCH64_HEAP_SIZE,
+                                    crate::arch::aarch64::timer::ticks(),
+                                );
+                            }
+                        }
+                    } else {
+                        crate::console::_print(format_args!("{}", s));
+                    }
                 }
             }
             ctx.x[0] = len as u64;
@@ -131,9 +147,22 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
         }
 
         syscall::SYS_YIELD => {
+            if crate::ui::compositor::is_desktop_active() {
+                if crate::ui::dispatch_pending_inputs(1024, 768) {
+                    if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
+                        crate::ui::render_desktop(
+                            c.framebuffer_mut(),
+                            crate::allocator::used(),
+                            crate::AARCH64_HEAP_SIZE,
+                            crate::arch::aarch64::timer::ticks(),
+                        );
+                    }
+                }
+            }
             crate::arch::aarch64::exceptions::wait_for_interrupt();
             ctx.x[0] = 0;
         }
+
 
         syscall::SYS_GETPID => {
             ctx.x[0] = CURRENT_PID.load(Ordering::Relaxed);
@@ -283,6 +312,7 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
 
         syscall::SYS_LAUNCH_DESKTOP => {
             if crate::ui::COMPOSITOR.lock().is_some() {
+                crate::ui::compositor::set_desktop_active(true);
                 if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
                     crate::ui::render_desktop(
                         c.framebuffer_mut(),
@@ -296,6 +326,7 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                 ctx.x[0] = syscall::ENOSYS;
             }
         }
+
 
         _ => {
             println!("  unknown syscall: {}", syscall_no);
