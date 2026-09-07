@@ -57,6 +57,14 @@ impl Console {
         (self.max_cols, self.max_rows)
     }
 
+    pub fn framebuffer(&self) -> &Framebuffer {
+        &self.framebuffer
+    }
+
+    pub fn framebuffer_mut(&mut self) -> &mut Framebuffer {
+        &mut self.framebuffer
+    }
+
     /// Clears the console screen, keeping the pinned header bar intact if present.
     pub fn clear(&mut self) {
         if self.header_rows > 0 {

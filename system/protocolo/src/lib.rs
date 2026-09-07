@@ -19,6 +19,7 @@ pub mod plan;
 pub mod runtime;
 pub mod spec;
 pub mod system;
+pub mod ui;
 pub mod vm;
 pub mod wasm;
 
@@ -35,5 +36,6 @@ pub use plan::*;
 pub use runtime::*;
 pub use spec::*;
 pub use system::*;
+pub use ui::*;
 pub use vm::*;
 pub use wasm::*;

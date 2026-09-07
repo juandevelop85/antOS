@@ -29,6 +29,7 @@ pub mod ipc;
 pub mod syscall;
 #[allow(dead_code)]
 mod task;
+pub mod ui;
 
 #[cfg(target_arch = "x86_64")]
 pub static EMBEDDED_INITRD: &[u8] = include_bytes!(env!("INITRD_TAR"));
@@ -186,7 +187,13 @@ pub fn kmain_arm64(dtb_ptr: u64) -> ! {
         }
     }
 
-    if !graphical_fb_active {
+    if graphical_fb_active {
+        ui::init("AArch64 / Cortex-A72");
+        if let Some(c) = console::CONSOLE.lock().as_mut() {
+            ui::render_desktop(c.framebuffer_mut(), allocator::used(), 512 * 1024, 0);
+        }
+        println!("  compositor   desktop shell nativo renderizado (doble buffer)");
+    } else {
         println!("  framebuffer  no detectado en DTB/VirtIO (modo headless / UART serie activo)");
     }
 
