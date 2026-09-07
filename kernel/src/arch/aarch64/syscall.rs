@@ -100,6 +100,7 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                     // ASCII (T26.5's box-drawing shell banner exposed this).
                     use core::fmt::Write as _;
                     let _ = crate::arch::aarch64::SERIAL.lock().write_str(s);
+                    crate::console::_print(format_args!("{}", s));
                 }
             }
             ctx.x[0] = len as u64;
@@ -113,7 +114,19 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             } else {
                 let kaddr = translate(uaddr);
                 let buf = unsafe { core::slice::from_raw_parts_mut(kaddr as *mut u8, len) };
-                ctx.x[0] = crate::input::drain_ascii(buf) as u64;
+                let mut n = crate::input::drain_ascii(buf);
+                if n == 0 && len > 0 {
+                    let mut serial = crate::arch::aarch64::SERIAL.lock();
+                    while n < len {
+                        if let Some(b) = serial.read_byte() {
+                            buf[n] = b;
+                            n += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                ctx.x[0] = n as u64;
             }
         }
 

@@ -28,12 +28,14 @@ const DESC_TABLE: u64 = 0b11;
 const DESC_BLOCK: u64 = 0b01;
 
 // Memory Attributes indexes in MAIR_EL1:
-// Attr 0 = Device-nGnRnE (0x00)
-// Attr 1 = Normal Write-Back Cacheable (0xFF)
-// Attr 2 = Normal Non-Cacheable (0x44)
-const ATTR_DEVICE: u64 = 0 << 2;
+// Attr 0 = Normal Write-Back Cacheable (0xFF) - Required by Limine for TTBR1 kernel mappings
+// Attr 1 = Normal Write-Back Cacheable (0xFF) - Used by antOS NORMAL_BLOCK_FLAGS
+// Attr 2 = Normal Non-Cacheable (0x44)        - Used by antOS FRAMEBUFFER_BLOCK_FLAGS
+// Attr 3 = Device-nGnRnE (0x00)               - Used by antOS DEVICE_BLOCK_FLAGS
+const _ATTR_NORMAL_0: u64 = 0 << 2;
 const ATTR_NORMAL: u64 = 1 << 2;
 const ATTR_NON_CACHEABLE: u64 = 2 << 2;
+const ATTR_DEVICE: u64 = 3 << 2;
 
 // Access Permissions and flags:
 // AP[2:1]: 0b00 = EL1 only, 0b01 = EL1 and EL0 Read/Write
@@ -97,6 +99,12 @@ pub fn init() {
         // L1[1] -> 1 GiB Block mapping RAM (0x4000_0000..0x8000_0000) as Normal Cacheable memory
         L1_TABLE.entries[1] = 0x4000_0000 | NORMAL_BLOCK_FLAGS;
 
+        // L1[2] -> 1 GiB Block mapping PCI MMIO32 (0x8000_0000..0xc000_0000) for PCI BARs
+        L1_TABLE.entries[2] = 0x8000_0000 | DEVICE_BLOCK_FLAGS;
+
+        // L1[3] -> 1 GiB Block mapping high peripherals (0xc000_0000..0x1_0000_0000) for VirtualBox MMIO (e.g. PL011 at 0xffdde000)
+        L1_TABLE.entries[3] = 0xc000_0000 | DEVICE_BLOCK_FLAGS;
+
         // User Space mapping: 0x0040_0000..0x0060_0000 (Index 2 = 0x0040_0000 / 2MiB)
         // Mapped to physical RAM with EL0 Read/Write/Execute permissions
         L2_TABLE_PERIPHERALS.entries[2] = USER_SPACE_PHYS | USER_BLOCK_FLAGS;
@@ -112,10 +120,11 @@ pub fn init() {
         L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
 
         // 2. Configure MAIR_EL1:
-        // Attr 0: 0x00 = Device-nGnRnE
+        // Attr 0: 0xFF = Normal Memory Write-Back (preserves Limine TTBR1 mappings)
         // Attr 1: 0xFF = Normal Memory Write-Back
         // Attr 2: 0x44 = Normal Memory Non-Cacheable (for linear framebuffer display)
-        let mair: u64 = (0x00 << 0) | (0xFF << 8) | (0x44 << 16);
+        // Attr 3: 0x00 = Device-nGnRnE
+        let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         // 3. Configure TCR_EL1:
@@ -191,6 +200,21 @@ pub fn init_ttbr0_under_limine() {
     unreachable!("kmain_arm64 only takes this branch when booted_via_limine is true, which requires the `limine` feature that gates the real implementation below");
 }
 
+/// Translates a kernel virtual address to its underlying physical address.
+/// Under direct-boot (identity-mapped), this is an identity function.
+/// Under Limine (higher-half), this subtracts virtual_base and adds physical_base.
+pub fn kernel_virt_to_phys(vaddr: u64) -> u64 {
+    #[cfg(feature = "limine")]
+    {
+        let response_ptr = crate::limine::EXECUTABLE_ADDRESS_REQUEST.response;
+        if !response_ptr.is_null() {
+            let resp = unsafe { &*response_ptr };
+            return vaddr.wrapping_sub(resp.virtual_base).wrapping_add(resp.physical_base);
+        }
+    }
+    vaddr
+}
+
 #[cfg(feature = "limine")]
 pub fn init_ttbr0_under_limine() {
     // `L0_TABLE`, `L1_TABLE` and `L2_TABLE_PERIPHERALS` are statics inside
@@ -219,13 +243,15 @@ pub fn init_ttbr0_under_limine() {
         L1_TABLE.entries[0] = l2_addr | DESC_TABLE;
 
         L1_TABLE.entries[1] = 0x4000_0000 | NORMAL_BLOCK_FLAGS;
+        L1_TABLE.entries[2] = 0x8000_0000 | DEVICE_BLOCK_FLAGS;
+        L1_TABLE.entries[3] = 0xc000_0000 | DEVICE_BLOCK_FLAGS;
 
         L2_TABLE_PERIPHERALS.entries[2] = USER_SPACE_PHYS | USER_BLOCK_FLAGS;
         L2_TABLE_PERIPHERALS.entries[64] = 0x0800_0000 | DEVICE_BLOCK_FLAGS;
         L2_TABLE_PERIPHERALS.entries[72] = 0x0900_0000 | DEVICE_BLOCK_FLAGS;
         L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
 
-        let mair: u64 = (0x00 << 0) | (0xFF << 8) | (0x44 << 16);
+        let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         let mut mmfr0: u64;

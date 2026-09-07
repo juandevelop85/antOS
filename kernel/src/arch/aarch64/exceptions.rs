@@ -313,6 +313,18 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
     let _ = writeln!(serial, "╚════════════════════════════════════════════════════════");
     let _ = writeln!(serial, "CPU detenida por pánico en AArch64.");
 
+    crate::console::_print(format_args!(
+        "\n\x1b[1;31m╔════════════════════════════════════════════════════════\n\
+         ║ antOS AArch64 EXCEPTION / PANIC\n\
+         ╠════════════════════════════════════════════════════════\n\
+         ║ Vector:   [{}] {}\n\
+         ║ ESR_EL1:  {:#018x} (EC: {:#04x} [{}], ISS: {:#08x})\n\
+         ║ FAR_EL1:  {:#018x}\n\
+         ║ ELR_EL1:  {:#018x}\n\
+         ╚════════════════════════════════════════════════════════\x1b[0m\n",
+        vector_id, vector_name, esr, ec, ec_name, iss, far, ctx.elr_el1
+    ));
+
     loop {
         wait_for_interrupt();
     }

@@ -67,7 +67,7 @@ use core::panic::PanicInfo;
 // room for that whole buffer plus the TarFs index and the usual Box/Vec/
 // String demos, so this now matches x86_64's 4 MiB kernel heap (`memory::HEAP_SIZE`).
 #[cfg(target_arch = "aarch64")]
-const AARCH64_HEAP_SIZE: usize = 4 * 1024 * 1024;
+const AARCH64_HEAP_SIZE: usize = 8 * 1024 * 1024;
 
 #[cfg(target_arch = "aarch64")]
 #[link_section = ".bss.heap"]
@@ -96,6 +96,43 @@ entry_point!(kernel_main, config = &CONFIG);
 /// would crash here.
 #[cfg(target_arch = "aarch64")]
 pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
+    #[cfg(feature = "limine")]
+    let mut limine_fb_active = false;
+    #[cfg(feature = "limine")]
+    if booted_via_limine {
+        let fb_resp = crate::limine::FRAMEBUFFER_REQUEST.response;
+        if !fb_resp.is_null() && unsafe { (*fb_resp).framebuffer_count } > 0 {
+            let limine_fb = unsafe { *(*fb_resp).framebuffers };
+            let fb = unsafe { &*limine_fb };
+            let bpp = fb.bpp as usize;
+            let bytes_per_pixel = (bpp / 8).max(1);
+            let stride = fb.pitch as usize / bytes_per_pixel;
+            let width = fb.width as usize;
+            let height = fb.height as usize;
+            let size = fb.pitch as usize * height;
+            let format = if fb.red_mask_shift == 16 {
+                bootloader_api::info::PixelFormat::Bgr
+            } else {
+                bootloader_api::info::PixelFormat::Rgb
+            };
+            unsafe {
+                console::init_raw(
+                    fb.address,
+                    size,
+                    width,
+                    height,
+                    stride,
+                    bytes_per_pixel,
+                    format,
+                );
+            }
+            if let Some(c) = console::CONSOLE.lock().as_mut() {
+                c.draw_header_banner("antOS · Limine UEFI (AArch64)", "CPU: Cortex-A72 / VirtualBox", "RAM: 8 MiB Heap");
+            }
+            limine_fb_active = true;
+        }
+    }
+
     arch::aarch64::SERIAL.lock().init();
 
     println!();
@@ -156,10 +193,19 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!();
     println!("controlador gráfico y framebuffer (T26.1)");
 
+    #[cfg(feature = "limine")]
+    let mut graphical_fb_active = limine_fb_active;
+    #[cfg(not(feature = "limine"))]
     let mut graphical_fb_active = false;
 
+    #[cfg(feature = "limine")]
+    if limine_fb_active {
+        println!("  limine       framebuffer UEFI (GOP) activo vía protocolo Limine");
+    }
+
     // 1. Introspección del DTB para simple-framebuffer
-    if let Some(fb) = arch::aarch64::dtb::find_framebuffer(dtb_ptr) {
+    if !graphical_fb_active {
+        if let Some(fb) = arch::aarch64::dtb::find_framebuffer(dtb_ptr) {
         println!("  dtb          nodo simple-framebuffer descubierto");
         println!("  resolución   {}x{} · formato {:?} ({} bytes/px)", fb.width, fb.height, fb.format, fb.bytes_per_pixel);
         println!("  memoria      base física {:#x} ({} KiB)", fb.phys_addr, fb.size / 1024);
@@ -185,6 +231,7 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         } else {
             println!("  error        fallo al mapear el framebuffer en la MMU");
         }
+    }
     }
 
     // 2. Si no hay simple-framebuffer en DTB, buscar dispositivo VirtIO-GPU MMIO
@@ -229,21 +276,32 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     if graphical_fb_active {
         ui::init("AArch64 / Cortex-A72");
-        if let Some(c) = console::CONSOLE.lock().as_mut() {
-            ui::render_desktop(c.framebuffer_mut(), allocator::used(), AARCH64_HEAP_SIZE, 0);
-        }
-        println!("  compositor   desktop shell nativo renderizado (doble buffer)");
+        println!("  compositor   desktop shell 2D listo (disponible con el comando 'desktop')");
     } else {
         println!("  framebuffer  no detectado en DTB/VirtIO (modo headless / UART serie activo)");
     }
 
     println!();
-    println!("controlador de entrada y periféricos (T26.3)");
+    println!("controlador de entrada y periféricos (T26.3 / T27.2)");
     let input_devs = drivers::virtio_input::probe_and_init_virtio_inputs();
     if input_devs > 0 {
         println!("  virtio-input {} dispositivos (teclado/ratón) detectados y activos", input_devs);
     } else {
-        println!("  virtio-input no detectado (usando consola serie estándar)");
+        println!("  virtio-input no detectado (probando PCIe xHCI y consola serie)");
+    }
+
+    // Inicializar bus PCIe y controlador host USB 3.0 xHCI (T27.2)
+    drivers::usb::init();
+    if let Some(xhci) = drivers::usb::XHCI.lock().as_ref() {
+        println!("  pcie-xhci    controlador USB 3.0 activo en bus {} dev {} fn {}",
+            xhci.pci_device.bus, xhci.pci_device.slot, xhci.pci_device.func);
+        let ports = xhci.inspect_ports();
+        let connected_ports: alloc::vec::Vec<_> = ports.iter().filter(|p| p.connected).collect();
+        println!("  roothub      {} puertos totales · {} dispositivos conectados",
+            ports.len(), connected_ports.len());
+        for p in connected_ports {
+            println!("    puerto {}  conectado · velocidad: {}", p.port_number, p.speed_name);
+        }
     }
 
     println!();
@@ -338,8 +396,18 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                     };
                     if code == DESKTOP_HANDOFF_CODE {
                         println!("  shell        cedió el control al compositor gráfico");
+                        if let Some(c) = console::CONSOLE.lock().as_mut() {
+                            ui::render_desktop(
+                                c.framebuffer_mut(),
+                                allocator::used(),
+                                AARCH64_HEAP_SIZE,
+                                arch::aarch64::timer::ticks(),
+                            );
+                        }
                     } else {
                         println!("  shell        terminó con código {code} · volviendo al bucle del kernel");
+                        println!();
+                        println!("sistema operativo listo (AArch64 bare metal)");
                     }
                 }
                 Err(e) => println!("  cargador     fallo al cargar /bin/init: {e}"),
@@ -347,9 +415,6 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             Err(_) => println!("  vfs          /bin/init no encontrado en el initramfs"),
         }
     }
-
-    println!();
-    println!("sistema operativo listo (AArch64 bare metal)");
 
     halt_loop()
 }

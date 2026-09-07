@@ -45,6 +45,9 @@ pub extern "C" fn _start() -> ! {
         );
     }
 
+    // Install exception vector table immediately so any fault is caught and decoded
+    crate::arch::aarch64::exceptions::init();
+
     if limine::BASE_REVISION[2] != 0 {
         panic!("limine: unsupported base revision (bootloader too old?)");
     }

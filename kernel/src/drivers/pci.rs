@@ -4,10 +4,50 @@
 //! and 0xCFC (CONFIG_DATA), BAR decoding, and bus mastering configuration.
 
 use alloc::vec::Vec;
+#[cfg(target_arch = "x86_64")]
 use crate::arch::x86_64::port::{inl, inw, outl, outw};
 
+#[cfg(target_arch = "x86_64")]
 const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
+#[cfg(target_arch = "x86_64")]
 const PCI_CONFIG_DATA: u16 = 0xCFC;
+
+/// VirtualBox 7 Apple Silicon PCIe ECAM MMIO window base
+pub const VBOX_ECAM_BASE: usize = 0xfedd_c000;
+/// QEMU `virt` PCIe ECAM MMIO window base
+pub const QEMU_ECAM_BASE: usize = 0x3f00_0000;
+
+/// Calculates the PCIe ECAM memory-mapped offset for a given bus, slot, function, and register offset.
+#[inline]
+pub fn ecam_offset(bus: u8, slot: u8, func: u8, offset: u8) -> usize {
+    ((bus as usize) << 20)
+        | ((slot as usize) << 15)
+        | ((func as usize) << 12)
+        | ((offset as usize) & 0xFFF)
+}
+
+#[cfg(target_arch = "aarch64")]
+static ACTIVE_ECAM_BASE: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(VBOX_ECAM_BASE);
+
+#[cfg(target_arch = "aarch64")]
+pub fn probe_ecam_base() -> usize {
+    unsafe {
+        let vbox_vendor = core::ptr::read_volatile(VBOX_ECAM_BASE as *const u32) & 0xFFFF;
+        if vbox_vendor != 0xFFFF && vbox_vendor != 0 {
+            ACTIVE_ECAM_BASE.store(VBOX_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
+            return VBOX_ECAM_BASE;
+        }
+        ACTIVE_ECAM_BASE.store(QEMU_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
+        QEMU_ECAM_BASE
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline]
+pub fn get_ecam_base() -> usize {
+    ACTIVE_ECAM_BASE.load(core::sync::atomic::Ordering::Relaxed)
+}
 
 /// Type and decoded location of a PCI Base Address Register (BAR).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,9 +140,15 @@ impl PciDevice {
     pub fn is_ide_controller(&self) -> bool {
         self.class == 0x01 && self.subclass == 0x01
     }
+
+    /// Returns true if this PCI device is an xHCI USB 3.0 Controller (0x0C, 0x03, 0x30).
+    pub fn is_xhci_controller(&self) -> bool {
+        self.class == 0x0C && self.subclass == 0x03 && self.prog_if == 0x30
+    }
 }
 
 /// Reads a 32-bit dword from PCI configuration space.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let address = 0x8000_0000u32
         | ((bus as u32) << 16)
@@ -113,7 +159,14 @@ pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     inl(PCI_CONFIG_DATA)
 }
 
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
+    let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
+    core::ptr::read_volatile(addr as *const u32)
+}
+
 /// Writes a 32-bit dword to PCI configuration space.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
     let address = 0x8000_0000u32
         | ((bus as u32) << 16)
@@ -124,7 +177,14 @@ pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u
     outl(PCI_CONFIG_DATA, value);
 }
 
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
+    let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
+    core::ptr::write_volatile(addr as *mut u32, value);
+}
+
 /// Reads a 16-bit word from PCI configuration space.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let address = 0x8000_0000u32
         | ((bus as u32) << 16)
@@ -136,7 +196,14 @@ pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     inw(port)
 }
 
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+    let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
+    core::ptr::read_volatile(addr as *const u16)
+}
+
 /// Writes a 16-bit word to PCI configuration space.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u16) {
     let address = 0x8000_0000u32
         | ((bus as u32) << 16)
@@ -146,6 +213,12 @@ pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u
     outl(PCI_CONFIG_ADDRESS, address);
     let port = PCI_CONFIG_DATA + ((offset & 2) as u16);
     outw(port, value);
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u16) {
+    let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
+    core::ptr::write_volatile(addr as *mut u16, value);
 }
 
 /// Probes a specific PCI device function and extracts its configuration.

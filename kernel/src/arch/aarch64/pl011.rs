@@ -9,6 +9,22 @@ use crate::arch::traits::ArchConsole;
 /// Default PL011 base address on QEMU `virt` board.
 pub const DEFAULT_PL011_BASE: usize = 0x0900_0000;
 
+/// VirtualBox ARM64 MMIO base address for arm-pl011.
+pub const VBOX_PL011_BASE: usize = 0xffdd_e000;
+
+/// Probes whether PL011 is located at QEMU base (0x0900_0000)
+/// or VirtualBox base (0xffdd_e000) by inspecting PrimeCell identification registers.
+pub fn probe_pl011_base() -> usize {
+    unsafe {
+        let qemu_id0 = core::ptr::read_volatile((DEFAULT_PL011_BASE + 0xFF0) as *const u32);
+        let qemu_id1 = core::ptr::read_volatile((DEFAULT_PL011_BASE + 0xFF4) as *const u32);
+        if (qemu_id0 & 0xFF) == 0x0D && (qemu_id1 & 0xFF) == 0xF0 {
+            return DEFAULT_PL011_BASE;
+        }
+    }
+    VBOX_PL011_BASE
+}
+
 // Register offsets from PL011 Technical Reference Manual:
 const UARTDR: usize = 0x000;  // Data Register
 const UARTFR: usize = 0x018;  // Flag Register
@@ -18,6 +34,7 @@ const UARTLCR_H: usize = 0x02C;// Line Control Register
 const UARTCR: usize = 0x030;  // Control Register
 
 // Flag register bits:
+const FR_RXFE: u32 = 1 << 4; // Receive FIFO empty
 const FR_TXFF: u32 = 1 << 5; // Transmit FIFO full
 
 pub struct Pl011Uart {
@@ -41,6 +58,7 @@ impl Pl011Uart {
 
     /// Initializes the PL011 UART: disables UART, sets 8N1 FIFO mode, and re-enables.
     pub fn init(&mut self) {
+        self.base_address = probe_pl011_base();
         unsafe {
             // Disable UART before configuration
             self.write_reg(UARTCR, 0x0);
@@ -58,14 +76,28 @@ impl Pl011Uart {
         }
     }
 
-    /// Sends a single byte over the UART. Blocks if transmit FIFO is full.
+    /// Sends a single byte over the UART. Blocks if transmit FIFO is full (with safety timeout).
     pub fn write_byte(&mut self, byte: u8) {
         unsafe {
-            // Wait until transmit FIFO is not full
-            while (self.read_reg(UARTFR) & FR_TXFF) != 0 {
+            // Wait until transmit FIFO is not full, bounded by timeout to prevent hangs
+            let mut timeout = 100_000u32;
+            while (self.read_reg(UARTFR) & FR_TXFF) != 0 && timeout > 0 {
+                timeout -= 1;
                 core::hint::spin_loop();
             }
             self.write_reg(UARTDR, byte as u32);
+        }
+    }
+
+    /// Reads a single byte from the UART receive FIFO if available.
+    /// Non-blocking: returns None if the receive FIFO is empty.
+    pub fn read_byte(&mut self) -> Option<u8> {
+        unsafe {
+            if (self.read_reg(UARTFR) & FR_RXFE) == 0 {
+                Some((self.read_reg(UARTDR) & 0xFF) as u8)
+            } else {
+                None
+            }
         }
     }
 }
