@@ -87,4 +87,4 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 25** | [T25.1](T25.1-extension-de-antpkg-para-aplicaciones-graficas-xdg-y-desktop-entries.md) | Extensión de `antpkg` para Aplicaciones Gráficas XDG y Desktop Entries | ✅ Completado |
 | **Fase 25** | [T25.2](T25.2-gestor-y-puente-de-aplicaciones-flatpak-y-contenedores-graficos.md) | Gestor y Puente de Aplicaciones Flatpak y Contenedores Gráficos (`antos app`) | ✅ Completado |
 | **Fase 25** | [T25.3](T25.3-catalogo-oficial-de-recetas-antpkg-para-navegadores-e-ides.md) | Catálogo Oficial de Recetas antpkg para Navegadores e IDEs | ✅ Completado |
-| **Fase 25** | [T25.4](T25.4-lanzador-de-aplicaciones-graficas-y-contexto-de-workspace-en-barra-wayland.md) | Lanzador de Aplicaciones Gráficas y Contexto de Workspace en Barra Wayland | ⏳ Pendiente |
+| **Fase 25** | [T25.4](T25.4-lanzador-de-aplicaciones-graficas-y-contexto-de-workspace-en-barra-wayland.md) | Lanzador de Aplicaciones Gráficas y Contexto de Workspace en Barra Wayland | ✅ Completado |

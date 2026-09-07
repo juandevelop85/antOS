@@ -473,10 +473,13 @@ impl FlatpakClient {
             c
         };
 
+        let launcher_item = antos_protocol::LauncherAppItem::from_desktop_app(&app);
+        let effective_args = antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
+
         if Self::is_available() {
             cmd.arg("run");
             cmd.arg(&app.id);
-            for a in args {
+            for a in &effective_args {
                 cmd.arg(a);
             }
         }

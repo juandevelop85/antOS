@@ -516,3 +516,83 @@ button.notif-btn-reject:hover {
   background: #792727;
   color: #FFFFFF;
 }
+
+/* ==========================================================================
+   Application Launcher Floating Results (T25.4)
+   ========================================================================== */
+
+.launcher-box {
+  margin-top: 4px;
+  margin-bottom: 6px;
+}
+
+.launcher-card {
+  padding: 8px 12px;
+  background-color: #141C24;
+  border: 1px solid #23303C;
+  border-radius: 8px;
+  transition: all 150ms ease-in-out;
+}
+
+.launcher-card:hover {
+  background-color: #1A2530;
+  border-color: #3B4B5A;
+}
+
+.launcher-card.selected {
+  background-color: #192C26;
+  border-color: #56BCA0;
+  box-shadow: 0 0 12px rgba(86, 188, 160, 0.15);
+}
+
+.launcher-icon-box {
+  min-width: 32px;
+  min-height: 32px;
+  margin-right: 6px;
+}
+
+.launcher-icon-emoji {
+  font-size: 20px;
+}
+
+.launcher-title {
+  font-weight: bold;
+  font-size: 13px;
+  color: #DEE6EE;
+}
+
+.launcher-card.selected .launcher-title {
+  color: #56BCA0;
+}
+
+.launcher-source {
+  font-size: 10px;
+  color: #8195A7;
+  font-family: monospace;
+}
+
+.launcher-ws-badge {
+  font-size: 10px;
+  color: #DBA451;
+  background-color: #2D2314;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #5C431F;
+}
+
+.launcher-subtitle {
+  font-size: 11px;
+  color: #8195A7;
+}
+
+.launcher-hint {
+  font-size: 11px;
+  color: #556677;
+  font-family: monospace;
+}
+
+.launcher-hint.active {
+  color: #56BCA0;
+  font-weight: bold;
+}
+

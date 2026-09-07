@@ -200,7 +200,10 @@ impl AppEngine {
                 c
             };
 
-            for a in args {
+            let launcher_item = antos_protocol::LauncherAppItem::from_desktop_summary(&app);
+            let effective_args = antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
+
+            for a in &effective_args {
                 cmd.arg(a);
             }
 
