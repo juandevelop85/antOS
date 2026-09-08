@@ -504,6 +504,97 @@ fn scan_dtb_for_gic(addr: u64) -> Option<GicInfo> {
     None
 }
 
+/// Locates the `qemu,fw-cfg-mmio` node and returns its MMIO base, so `ramfb`
+/// bring-up does not hardcode the QEMU `-M virt` address.
+pub fn find_fw_cfg() -> Option<u64> {
+    let base = dtb_base();
+    if let Some(b) = scan_dtb_for_compatible_reg(base, "qemu,fw-cfg-mmio") {
+        return Some(b);
+    }
+    if base != 0x4000_0000 {
+        return scan_dtb_for_compatible_reg(0x4000_0000, "qemu,fw-cfg-mmio");
+    }
+    None
+}
+
+/// Generic helper: first node whose `compatible` contains `needle`, returning
+/// the address cell of its `reg` property.
+fn scan_dtb_for_compatible_reg(addr: u64, needle: &str) -> Option<u64> {
+    if addr == 0 {
+        return None;
+    }
+    let ptr = addr as *const u8;
+    let header = unsafe { FdtHeader::from_ptr(ptr)? };
+    if header.totalsize < 40 || header.totalsize > 16 * 1024 * 1024 {
+        return None;
+    }
+    let dtb_bytes = unsafe { core::slice::from_raw_parts(ptr, header.totalsize as usize) };
+    let struct_start = header.off_dt_struct as usize;
+    let struct_end = struct_start.checked_add(header.size_dt_struct as usize)?;
+    let strings_start = header.off_dt_strings as usize;
+    let strings_end = strings_start.checked_add(header.size_dt_strings as usize)?;
+    if struct_end > dtb_bytes.len() || strings_end > dtb_bytes.len() {
+        return None;
+    }
+    let struct_block = &dtb_bytes[struct_start..struct_end];
+    let strings_block = &dtb_bytes[strings_start..strings_end];
+
+    let mut cursor = 0;
+    while cursor + 4 <= struct_block.len() {
+        let tag = read_u32_be(struct_block, cursor)?;
+        cursor += 4;
+        if tag == FDT_BEGIN_NODE {
+            while cursor < struct_block.len() && struct_block[cursor] != 0 {
+                cursor += 1;
+            }
+            cursor += 1;
+            cursor = (cursor + 3) & !3;
+
+            let mut matched = false;
+            let mut reg_base = 0u64;
+
+            while cursor + 4 <= struct_block.len() {
+                let next_tag = read_u32_be(struct_block, cursor)?;
+                if next_tag == FDT_PROP {
+                    cursor += 4;
+                    let prop_len = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+                    let nameoff = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+                    let prop_val_end = cursor + prop_len;
+                    if prop_val_end > struct_block.len() {
+                        break;
+                    }
+                    let prop_val = &struct_block[cursor..prop_val_end];
+                    cursor = (prop_val_end + 3) & !3;
+
+                    let prop_name = get_string(strings_block, nameoff);
+                    if prop_name == "compatible" && contains_str(prop_val, needle) {
+                        matched = true;
+                    } else if prop_name == "reg" && prop_len >= 16 {
+                        let hi = read_u32_be(prop_val, 0)? as u64;
+                        let lo = read_u32_be(prop_val, 4)? as u64;
+                        reg_base = (hi << 32) | lo;
+                    } else if prop_name == "reg" && prop_len >= 8 {
+                        reg_base = read_u32_be(prop_val, 0)? as u64;
+                    }
+                } else if next_tag == FDT_NOP {
+                    cursor += 4;
+                } else {
+                    break;
+                }
+            }
+
+            if matched && reg_base != 0 {
+                return Some(reg_base);
+            }
+        } else if tag == FDT_END {
+            break;
+        }
+    }
+    None
+}
+
 fn scan_dtb_for_virtio_gpu(addr: u64) -> Option<u64> {
     if addr == 0 {
         return None;

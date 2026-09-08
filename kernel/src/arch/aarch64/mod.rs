@@ -7,6 +7,7 @@ pub mod dtb;
 #[cfg(not(feature = "limine"))]
 pub mod entry;
 pub mod exceptions;
+pub mod fw_cfg;
 pub mod gic;
 #[cfg(feature = "limine")]
 pub mod limine_boot;
@@ -15,6 +16,8 @@ pub mod pl011;
 pub mod syscall;
 pub mod timer;
 pub mod virtio_gpu;
+pub mod virtio_gpu_pci;
+pub mod virtio_pci;
 
 pub use pl011 as serial;
 

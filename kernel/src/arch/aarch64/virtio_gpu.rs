@@ -45,16 +45,16 @@ const STATUS_DRIVER_OK: u32 = 4;
 const STATUS_FEATURES_OK: u32 = 8;
 
 // VirtIO GPU Command Types
-const VIRTIO_GPU_CMD_RESOURCE_CREATE_2D: u32 = 0x0101;
+pub const VIRTIO_GPU_CMD_RESOURCE_CREATE_2D: u32 = 0x0101;
 #[allow(dead_code)]
 const VIRTIO_GPU_CMD_RESOURCE_UNREF: u32 = 0x0102;
-const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x0103;
-const VIRTIO_GPU_CMD_RESOURCE_FLUSH: u32 = 0x0104;
-const VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0105;
-const VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING: u32 = 0x0106;
+pub const VIRTIO_GPU_CMD_SET_SCANOUT: u32 = 0x0103;
+pub const VIRTIO_GPU_CMD_RESOURCE_FLUSH: u32 = 0x0104;
+pub const VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0105;
+pub const VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING: u32 = 0x0106;
 
-const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
-const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 1;
+pub const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
+pub const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 1;
 
 const QUEUE_SIZE: usize = 16;
 
@@ -480,12 +480,16 @@ impl VirtioGpu {
     }
 }
 
-/// Flushes the entire screen or a modified rectangle if VirtIO GPU is active.
+/// Flushes the entire screen or a modified rectangle to whichever VirtIO-GPU
+/// transport is active (MMIO or PCIe).
 pub fn flush_screen(x: usize, y: usize, width: usize, height: usize) {
-    let mut guard = VIRTIO_GPU.lock();
-    if let Some(gpu) = guard.as_mut() {
-        gpu.flush(x as u32, y as u32, width as u32, height as u32);
+    {
+        let mut guard = VIRTIO_GPU.lock();
+        if let Some(gpu) = guard.as_mut() {
+            gpu.flush(x as u32, y as u32, width as u32, height as u32);
+        }
     }
+    super::virtio_gpu_pci::flush_screen_pci(x, y, width, height);
 }
 
 /// Scans standard AArch64 VirtIO MMIO slots (0x0a00_0000..0x0a00_4000) for a GPU device.

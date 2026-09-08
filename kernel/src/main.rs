@@ -278,11 +278,58 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         }
     }
 
+    // 3. VirtIO-GPU sobre PCIe (virtio-gpu-pci, requiere el bus PCIe de T28.2)
+    if !graphical_fb_active {
+        if let Some(dev) = arch::aarch64::virtio_gpu_pci::probe() {
+            println!("  virtio-gpu   virtio-gpu-pci {:04x}:{:04x} en bus {} dev {}",
+                dev.vendor_id, dev.device_id, dev.bus, dev.slot);
+            match unsafe { arch::aarch64::virtio_gpu_pci::VirtioGpuPci::init(&dev, 1024, 768) } {
+                Ok(gpu) => {
+                    let (bp, bl, w, h, st) =
+                        (gpu.buffer_ptr(), gpu.buffer_len(), gpu.width(), gpu.height(), gpu.stride());
+                    *arch::aarch64::virtio_gpu_pci::VIRTIO_GPU_PCI.lock() = Some(gpu);
+                    unsafe {
+                        console::init_raw(bp, bl, w, h, st, 4,
+                            bootloader_api::info::PixelFormat::Bgr);
+                    }
+                    if let Some(c) = console::CONSOLE.lock().as_mut() {
+                        c.draw_header_banner("antOS · VirtIO-GPU PCIe", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                    }
+                    println!("  consola      activa en virtio-gpu-pci ({}x{}) y serie", w, h);
+                    graphical_fb_active = true;
+                }
+                Err(_) => println!("  error        fallo al inicializar virtio-gpu-pci"),
+            }
+        }
+    }
+
+    // 4. ramfb vía fw_cfg (QEMU/UTM sin UEFI ni virtio-gpu)
+    if !graphical_fb_active {
+        let fw_cfg_base = arch::aarch64::dtb::find_fw_cfg()
+            .unwrap_or(arch::aarch64::fw_cfg::FW_CFG_MMIO_DEFAULT);
+        match unsafe { arch::aarch64::fw_cfg::init_ramfb(fw_cfg_base, 1024, 768) } {
+            Some(fb) => {
+                unsafe {
+                    console::init_raw(fb.ptr, fb.len, fb.width, fb.height,
+                        fb.stride_bytes / 4, 4, bootloader_api::info::PixelFormat::Bgr);
+                }
+                if let Some(c) = console::CONSOLE.lock().as_mut() {
+                    c.draw_header_banner("antOS · ramfb", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                }
+                println!("  ramfb        fw_cfg en {:#x} · framebuffer {}x{} enlazado",
+                    fw_cfg_base, fb.width, fb.height);
+                println!("  consola      activa en ramfb y serie simultáneamente");
+                graphical_fb_active = true;
+            }
+            None => println!("  ramfb        no disponible (fw_cfg {:#x} sin etc/ramfb)", fw_cfg_base),
+        }
+    }
+
     if graphical_fb_active {
         ui::init("AArch64 / Cortex-A72");
         println!("  compositor   desktop shell 2D listo (disponible con el comando 'desktop')");
     } else {
-        println!("  framebuffer  no detectado en DTB/VirtIO (modo headless / UART serie activo)");
+        println!("  framebuffer  cadena agotada (GOP → DTB → virtio-gpu MMIO → virtio-gpu-pci → ramfb) · modo headless / UART serie");
     }
 
     println!();
