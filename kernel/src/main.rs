@@ -206,11 +206,16 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     #[cfg(feature = "limine")]
     if limine_fb_active {
         println!("  limine       framebuffer UEFI (GOP) activo vía protocolo Limine");
-        if let Some(c) = console::CONSOLE.lock().as_ref() {
+        // Snapshot the geometry, then drop the CONSOLE lock *before* println!
+        // (which re-locks CONSOLE — holding it across the print self-deadlocks).
+        let geom = console::CONSOLE.lock().as_ref().map(|c| {
             let fb = c.framebuffer();
+            (fb.width(), fb.height(), fb.stride_pixels(), fb.bytes_per_pixel())
+        });
+        if let Some((w, h, stride_px, bpp)) = geom {
             println!("  fb-geom      {}x{} · stride {} px · {} B/px{}",
-                fb.width(), fb.height(), fb.stride_pixels(), fb.bytes_per_pixel(),
-                if fb.stride_pixels() != fb.width() { " (pitch con relleno)" } else { "" });
+                w, h, stride_px, bpp,
+                if stride_px != w { " (pitch con relleno)" } else { "" });
         }
     }
 

@@ -348,13 +348,16 @@ impl DesktopCompositor {
 
         let full_area = (screen_w as u64) * (screen_h as u64);
         let damage_area = (damage.width as u64) * (damage.height as u64);
-        // A partial (span) blit into a framebuffer whose row pitch is padded
-        // (VirtualBox GOP) has been observed to smear the cursor trail a few
-        // pixels vertically; a full-frame present is exact, so fall back to it
-        // there. Tightly-packed framebuffers (QEMU, UTM) keep the fast path.
-        let padded_pitch = fb.stride_pixels() != fb.width();
-        let must_full =
-            self.full_redraw_pending || padded_pitch || damage_area * 2 >= full_area;
+        // The cursor-damage fast path writes a partial region straight into the
+        // framebuffer. That is reliable only when a GPU transport (VirtIO-GPU
+        // MMIO/PCIe) then flushes the exact rectangle to the host. On a raw
+        // memory-mapped GOP/ramfb scanout — VirtualBox in particular — partial
+        // writes to the Non-Cacheable framebuffer smear the cursor trail a few
+        // pixels; there a full-frame present is the only exact option.
+        let has_gpu_flush = raw_framebuffer_has_gpu_transport();
+        let must_full = self.full_redraw_pending
+            || !has_gpu_flush
+            || damage_area * 2 >= full_area;
 
         if must_full {
             self.render_to_framebuffer(fb, heap_used, heap_total, ticks);
@@ -367,6 +370,24 @@ impl DesktopCompositor {
         surface.reset_clip();
         surface.present_rect(fb, damage);
         self.last_cursor_bounds = cursor_now;
+    }
+}
+
+/// `true` when a VirtIO-GPU transport (MMIO or PCIe) is bound, so a partial
+/// framebuffer update can be flushed to the host as an exact rectangle. On a
+/// raw GOP/ramfb scanout there is no such channel and only full-frame presents
+/// are reliable.
+fn raw_framebuffer_has_gpu_transport() -> bool {
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::aarch64::virtio_gpu::VIRTIO_GPU.lock().is_some()
+            || crate::arch::aarch64::virtio_gpu_pci::VIRTIO_GPU_PCI
+                .lock()
+                .is_some()
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        true
     }
 }
 
