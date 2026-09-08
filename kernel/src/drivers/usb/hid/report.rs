@@ -306,6 +306,63 @@ pub fn parse_report_descriptor(data: &[u8]) -> Vec<ReportField> {
     fields
 }
 
+/// Scans a Report Descriptor for the usage attached to the first
+/// `Collection (Application)` item — this is where a keyboard declares
+/// `Generic Desktop / Keyboard` and a mouse `Generic Desktop / Mouse`, and the
+/// parser above drops it because it precedes (and is cleared by) the Collection
+/// Main item. Returns `(usage_page, usage_id)`.
+pub fn application_collection_usage(data: &[u8]) -> Option<(u16, u16)> {
+    let mut usage_page = 0u16;
+    let mut last_usage: Option<u32> = None;
+
+    let mut i = 0usize;
+    while i < data.len() {
+        let prefix = data[i];
+        i += 1;
+        if prefix == 0xFE {
+            if i >= data.len() {
+                break;
+            }
+            i += 2 + data[i] as usize;
+            continue;
+        }
+        let b_size = match prefix & 0x03 {
+            0 => 0,
+            1 => 1,
+            2 => 2,
+            _ => 4,
+        };
+        let b_type = (prefix >> 2) & 0x03;
+        let b_tag = (prefix >> 4) & 0x0F;
+        if i + b_size > data.len() {
+            break;
+        }
+        let val = item_data_unsigned(&data[i..i + b_size]);
+        i += b_size;
+
+        match (b_type, b_tag) {
+            (ITEM_TYPE_GLOBAL, GLOBAL_USAGE_PAGE) => usage_page = val as u16,
+            (ITEM_TYPE_LOCAL, LOCAL_USAGE) => last_usage = Some(val),
+            (ITEM_TYPE_MAIN, MAIN_COLLECTION) => {
+                // Collection data 0x01 == Application.
+                if val == 0x01 {
+                    let u = last_usage.unwrap_or(0);
+                    let (page, id) = if u > 0xFFFF {
+                        ((u >> 16) as u16, u as u16)
+                    } else {
+                        (usage_page, u as u16)
+                    };
+                    return Some((page, id));
+                }
+                last_usage = None;
+            }
+            (ITEM_TYPE_MAIN, _) => last_usage = None,
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Device role inferred from the top-level Application collection usage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HidRole {
@@ -330,7 +387,14 @@ impl HidDevice {
     pub fn from_descriptor(data: &[u8]) -> Self {
         let fields = parse_report_descriptor(data);
         let uses_report_id = fields.iter().any(|f| f.report_id != 0);
-        let role = classify(&fields);
+        // The Application-collection usage is the authoritative role signal;
+        // fall back to inspecting the fields when a device omits it.
+        let role = match application_collection_usage(data) {
+            Some((PAGE_GENERIC_DESKTOP, USAGE_KEYBOARD)) => HidRole::Keyboard,
+            Some((PAGE_GENERIC_DESKTOP, USAGE_MOUSE))
+            | Some((PAGE_GENERIC_DESKTOP, USAGE_POINTER)) => HidRole::Mouse,
+            _ => classify(&fields),
+        };
         Self {
             fields,
             uses_report_id,
@@ -722,6 +786,27 @@ mod tests {
         assert_eq!(normalize_abs(0, 4095), 0);
         // Identity when the device already uses the canonical range.
         assert_eq!(normalize_abs(1234, 32767), 1234);
+    }
+
+    #[test]
+    fn application_usage_survives_the_collection_that_clears_it() {
+        // 05 01 09 06 a1 01 ... -> Generic Desktop / Keyboard.
+        assert_eq!(
+            application_collection_usage(&boot_keyboard_descriptor()),
+            Some((PAGE_GENERIC_DESKTOP, USAGE_KEYBOARD))
+        );
+        // Tablet descriptor: Generic Desktop / Mouse.
+        assert_eq!(
+            application_collection_usage(&tablet_descriptor()),
+            Some((PAGE_GENERIC_DESKTOP, USAGE_MOUSE))
+        );
+        assert_eq!(application_collection_usage(&[]), None);
+    }
+
+    #[test]
+    fn keyboard_role_comes_from_the_application_usage_even_without_boot_protocol() {
+        let dev = HidDevice::from_descriptor(&boot_keyboard_descriptor());
+        assert_eq!(dev.role, HidRole::Keyboard);
     }
 
     #[test]

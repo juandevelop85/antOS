@@ -874,6 +874,18 @@ impl XhciController {
                 crate::drivers::usb::hid::HidDevice::from_descriptor(&desc_buf[..rd_valid]);
             let use_generic = !boot_ok && !hid_model.is_empty();
 
+            // T28.4 diagnostics: dump what the parser made of this interface so a
+            // mis-classified keyboard is visible in the boot log.
+            crate::println!(
+                "    usb-debug  slot {} iface {}: rd_len={:?} role={:?} empty={} rid={} boot_ok={} heur(k={},m={})",
+                slot_id, iface.interface_number, rd_len, hid_model.role,
+                hid_model.is_empty(), hid_model.uses_report_id(), boot_ok, rd_kbd, rd_mouse,
+            );
+            {
+                let n = rd_valid.min(48);
+                crate::println!("    usb-debug  rdesc[{}]: {:02x?}", rd_valid, &desc_buf[..n]);
+            }
+
             let ep_slot = match alloc_ep_slot(used_mask) {
                 Some(s) => s,
                 None => {
