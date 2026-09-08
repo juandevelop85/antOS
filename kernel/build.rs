@@ -90,7 +90,7 @@ fn main() {
     add_tar_file(&mut tar, "etc/hostname", b"antos-live\n");
     add_tar_file(&mut tar, "etc/os-release", b"NAME=\"antOS\"\nID=antos\nPRETTY_NAME=\"antOS Live Developer OS\"\nVERSION=\"0.1.0-alpha\"\n");
     add_tar_file(&mut tar, "etc/fstab", b"rootfs / tmpfs rw 0 0\nproc /proc proc defaults 0 0\nsysfs /sys sysfs defaults 0 0\n");
-    let conf = b"# antOS System Configuration\nhostname=antos-live\nversion=0.1.0-alpha\nscheduler=round-robin\nquantum_ms=20\nvfs=tarfs\nroot_device=initrd\n";
+    let conf = b"# antOS System Configuration\nhostname=antos-live\nversion=0.1.0-alpha\nscheduler=round-robin\nquantum_ms=20\nvfs=tarfs\nroot_device=initrd\nkeyboard_layout=us\npointer_sensitivity=100\npointer_accel=40\nrepeat_delay_ms=500\nrepeat_rate_hz=30\n";
     add_tar_file(&mut tar, "etc/antos.conf", conf);
 
     let readme = b"Welcome to antOS - Native AI & Multi-Agent Operating System\nVFS initialized with Live Ramdisk backing.\n";

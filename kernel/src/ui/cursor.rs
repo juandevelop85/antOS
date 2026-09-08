@@ -62,8 +62,14 @@ impl MouseCursor {
         Point::new(self.x, self.y)
     }
 
-    /// Displaces the cursor by relative amounts `(dx, dy)`, clamping to `(0..max_w, 0..max_h)`.
+    /// Displaces the cursor by relative amounts `(dx, dy)` after applying the
+    /// global pointer sensitivity / acceleration curve, clamping to
+    /// `(0..max_w, 0..max_h)`. Absolute positioning ([`Self::move_abs`]) is
+    /// deliberately left untouched by the curve.
     pub fn move_rel(&mut self, dx: i32, dy: i32, max_w: i32, max_h: i32) {
+        let accel = crate::input::pointer_accel();
+        let dx = accel.apply(dx);
+        let dy = accel.apply(dy);
         self.x = (self.x + dx).clamp(0, (max_w - 1).max(0));
         self.y = (self.y + dy).clamp(0, (max_h - 1).max(0));
     }

@@ -3,8 +3,12 @@
 //! Provides typed input events, modifier tracking, ASCII decoding,
 //! circular lock-protected event queue, and scancode decoders.
 
+pub mod ergonomics;
 pub mod queue;
+pub use ergonomics::{AutoRepeat, KeyboardLayout, PointerAccel};
 pub use queue::*;
+
+use core::sync::atomic::{AtomicU8, Ordering};
 
 /// Identifiers for keyboard physical keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -92,6 +96,8 @@ pub enum KeyCode {
     LeftSuper,
     RightSuper,
     CapsLock,
+    NumLock,
+    ScrollLock,
 
     // Punctuation & Symbols
     Minus,
@@ -137,8 +143,12 @@ pub struct Modifiers {
     pub shift: bool,
     pub ctrl: bool,
     pub alt: bool,
+    /// Right Alt held — the AltGr third-level shift, tracked apart from `alt`.
+    pub altgr: bool,
     pub super_key: bool,
     pub caps_lock: bool,
+    pub num_lock: bool,
+    pub scroll_lock: bool,
 }
 
 impl Modifiers {
@@ -147,8 +157,11 @@ impl Modifiers {
             shift: false,
             ctrl: false,
             alt: false,
+            altgr: false,
             super_key: false,
             caps_lock: false,
+            num_lock: false,
+            scroll_lock: false,
         }
     }
 }
@@ -157,12 +170,15 @@ impl Modifiers {
 #[derive(Debug, Clone, Default)]
 pub struct KeyboardState {
     pub modifiers: Modifiers,
+    /// A dead key awaiting its base letter (Spanish layout accents).
+    pending_dead: Option<ergonomics::DeadKey>,
 }
 
 impl KeyboardState {
     pub const fn new() -> Self {
         Self {
             modifiers: Modifiers::empty(),
+            pending_dead: None,
         }
     }
 
@@ -172,15 +188,34 @@ impl KeyboardState {
             InputEvent::KeyPress(key) => match key {
                 KeyCode::LeftShift | KeyCode::RightShift => self.modifiers.shift = true,
                 KeyCode::LeftCtrl | KeyCode::RightCtrl => self.modifiers.ctrl = true,
-                KeyCode::LeftAlt | KeyCode::RightAlt => self.modifiers.alt = true,
+                KeyCode::LeftAlt => self.modifiers.alt = true,
+                KeyCode::RightAlt => {
+                    self.modifiers.alt = true;
+                    self.modifiers.altgr = true;
+                }
                 KeyCode::LeftSuper | KeyCode::RightSuper => self.modifiers.super_key = true,
-                KeyCode::CapsLock => self.modifiers.caps_lock = !self.modifiers.caps_lock,
+                KeyCode::CapsLock => {
+                    self.modifiers.caps_lock = !self.modifiers.caps_lock;
+                    publish_led_state(self.modifiers);
+                }
+                KeyCode::NumLock => {
+                    self.modifiers.num_lock = !self.modifiers.num_lock;
+                    publish_led_state(self.modifiers);
+                }
+                KeyCode::ScrollLock => {
+                    self.modifiers.scroll_lock = !self.modifiers.scroll_lock;
+                    publish_led_state(self.modifiers);
+                }
                 _ => {}
             },
             InputEvent::KeyRelease(key) => match key {
                 KeyCode::LeftShift | KeyCode::RightShift => self.modifiers.shift = false,
                 KeyCode::LeftCtrl | KeyCode::RightCtrl => self.modifiers.ctrl = false,
-                KeyCode::LeftAlt | KeyCode::RightAlt => self.modifiers.alt = false,
+                KeyCode::LeftAlt => self.modifiers.alt = false,
+                KeyCode::RightAlt => {
+                    self.modifiers.alt = false;
+                    self.modifiers.altgr = false;
+                }
                 KeyCode::LeftSuper | KeyCode::RightSuper => self.modifiers.super_key = false,
                 _ => {}
             },
@@ -188,68 +223,37 @@ impl KeyboardState {
         }
     }
 
-    /// Converts a key code to an ASCII char given the current modifier state.
-    pub fn key_to_char(&self, key: KeyCode) -> Option<char> {
-        let is_upper = self.modifiers.shift ^ self.modifiers.caps_lock;
-        let shift = self.modifiers.shift;
+    /// Converts a key code to a character for the active keyboard layout,
+    /// resolving Spanish dead-key accent sequences across two presses.
+    pub fn key_to_char(&mut self, key: KeyCode) -> Option<char> {
+        use ergonomics::KeyResolve;
+        let layout = keyboard_layout();
+        let m = self.modifiers;
+        let resolved = ergonomics::resolve_key(layout, key, m.shift, m.caps_lock, m.altgr);
 
-        match key {
-            KeyCode::KeyA => Some(if is_upper { 'A' } else { 'a' }),
-            KeyCode::KeyB => Some(if is_upper { 'B' } else { 'b' }),
-            KeyCode::KeyC => Some(if is_upper { 'C' } else { 'c' }),
-            KeyCode::KeyD => Some(if is_upper { 'D' } else { 'd' }),
-            KeyCode::KeyE => Some(if is_upper { 'E' } else { 'e' }),
-            KeyCode::KeyF => Some(if is_upper { 'F' } else { 'f' }),
-            KeyCode::KeyG => Some(if is_upper { 'G' } else { 'g' }),
-            KeyCode::KeyH => Some(if is_upper { 'H' } else { 'h' }),
-            KeyCode::KeyI => Some(if is_upper { 'I' } else { 'i' }),
-            KeyCode::KeyJ => Some(if is_upper { 'J' } else { 'j' }),
-            KeyCode::KeyK => Some(if is_upper { 'K' } else { 'k' }),
-            KeyCode::KeyL => Some(if is_upper { 'L' } else { 'l' }),
-            KeyCode::KeyM => Some(if is_upper { 'M' } else { 'm' }),
-            KeyCode::KeyN => Some(if is_upper { 'N' } else { 'n' }),
-            KeyCode::KeyO => Some(if is_upper { 'O' } else { 'o' }),
-            KeyCode::KeyP => Some(if is_upper { 'P' } else { 'p' }),
-            KeyCode::KeyQ => Some(if is_upper { 'Q' } else { 'q' }),
-            KeyCode::KeyR => Some(if is_upper { 'R' } else { 'r' }),
-            KeyCode::KeyS => Some(if is_upper { 'S' } else { 's' }),
-            KeyCode::KeyT => Some(if is_upper { 'T' } else { 't' }),
-            KeyCode::KeyU => Some(if is_upper { 'U' } else { 'u' }),
-            KeyCode::KeyV => Some(if is_upper { 'V' } else { 'v' }),
-            KeyCode::KeyW => Some(if is_upper { 'W' } else { 'w' }),
-            KeyCode::KeyX => Some(if is_upper { 'X' } else { 'x' }),
-            KeyCode::KeyY => Some(if is_upper { 'Y' } else { 'y' }),
-            KeyCode::KeyZ => Some(if is_upper { 'Z' } else { 'z' }),
+        if let Some(dead) = self.pending_dead.take() {
+            return match resolved {
+                KeyResolve::Char(base) => {
+                    Some(ergonomics::combine_dead(dead, base).unwrap_or(base))
+                }
+                // A second dead key or a non-printing key: emit the standalone
+                // accent glyph and let this press resolve on the next call.
+                _ => {
+                    if let KeyResolve::Dead(next) = resolved {
+                        self.pending_dead = Some(next);
+                    }
+                    Some(ergonomics::dead_key_glyph(dead))
+                }
+            };
+        }
 
-            KeyCode::Num0 => Some(if shift { ')' } else { '0' }),
-            KeyCode::Num1 => Some(if shift { '!' } else { '1' }),
-            KeyCode::Num2 => Some(if shift { '@' } else { '2' }),
-            KeyCode::Num3 => Some(if shift { '#' } else { '3' }),
-            KeyCode::Num4 => Some(if shift { '$' } else { '4' }),
-            KeyCode::Num5 => Some(if shift { '%' } else { '5' }),
-            KeyCode::Num6 => Some(if shift { '^' } else { '6' }),
-            KeyCode::Num7 => Some(if shift { '&' } else { '7' }),
-            KeyCode::Num8 => Some(if shift { '*' } else { '8' }),
-            KeyCode::Num9 => Some(if shift { '(' } else { '9' }),
-
-            KeyCode::Space => Some(' '),
-            KeyCode::Tab => Some('\t'),
-            KeyCode::Enter => Some('\n'),
-            KeyCode::Backspace => Some('\x08'),
-
-            KeyCode::Minus => Some(if shift { '_' } else { '-' }),
-            KeyCode::Equal => Some(if shift { '+' } else { '=' }),
-            KeyCode::LeftBracket => Some(if shift { '{' } else { '[' }),
-            KeyCode::RightBracket => Some(if shift { '}' } else { ']' }),
-            KeyCode::Backslash => Some(if shift { '|' } else { '\\' }),
-            KeyCode::Semicolon => Some(if shift { ':' } else { ';' }),
-            KeyCode::Apostrophe => Some(if shift { '"' } else { '\'' }),
-            KeyCode::Grave => Some(if shift { '~' } else { '`' }),
-            KeyCode::Comma => Some(if shift { '<' } else { ',' }),
-            KeyCode::Dot => Some(if shift { '>' } else { '.' }),
-            KeyCode::Slash => Some(if shift { '?' } else { '/' }),
-
-            _ => None,
+        match resolved {
+            KeyResolve::Char(c) => Some(c),
+            KeyResolve::Dead(dead) => {
+                self.pending_dead = Some(dead);
+                None
+            }
+            KeyResolve::None => None,
         }
     }
 }
@@ -287,12 +291,218 @@ fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
     }
 }
 
+// ── Runtime input settings (layout, pointer curve, typematic timing) ────────
+
+/// Live, mutable input ergonomics configuration. Written by `/etc/antos.conf`
+/// parsing at boot and by the settings syscall; read by the decode/cursor path.
+#[derive(Debug, Clone, Copy)]
+pub struct InputSettings {
+    pub layout: KeyboardLayout,
+    pub pointer: PointerAccel,
+    pub repeat_delay_ticks: u64,
+    pub repeat_interval_ticks: u64,
+}
+
+impl InputSettings {
+    pub const DEFAULT: Self = Self {
+        layout: KeyboardLayout::Us,
+        pointer: PointerAccel::DEFAULT,
+        // 100 Hz timer: ~500 ms initial delay, ~30 repeats/s.
+        repeat_delay_ticks: 50,
+        repeat_interval_ticks: 3,
+    };
+}
+
+pub static INPUT_SETTINGS: crate::sync::SpinLock<InputSettings> =
+    crate::sync::SpinLock::new(InputSettings::DEFAULT);
+
+static AUTO_REPEAT: crate::sync::SpinLock<AutoRepeat> =
+    crate::sync::SpinLock::new(AutoRepeat::new(50, 3));
+
+/// LED bitmap the keyboard *should* show, and the last one actually pushed to
+/// the devices. `0xFF` forces the first real sync.
+static KEYBOARD_LEDS_DESIRED: AtomicU8 = AtomicU8::new(0);
+static KEYBOARD_LEDS_SYNCED: AtomicU8 = AtomicU8::new(0xFF);
+
+/// Current keyboard layout.
+pub fn keyboard_layout() -> KeyboardLayout {
+    INPUT_SETTINGS.lock().layout
+}
+
+/// Selects the active keyboard layout at runtime (no reboot).
+pub fn set_keyboard_layout(layout: KeyboardLayout) {
+    INPUT_SETTINGS.lock().layout = layout;
+}
+
+/// Current pointer acceleration curve.
+pub fn pointer_accel() -> PointerAccel {
+    INPUT_SETTINGS.lock().pointer
+}
+
+/// Adjusts the global pointer sensitivity in percent (`100` = 1.0x). The change
+/// takes effect on the next relative motion.
+pub fn set_pointer_sensitivity(pct: u32) {
+    INPUT_SETTINGS.lock().pointer.sensitivity_pct = pct.clamp(10, 1000);
+}
+
+/// Applies `key = value` lines from `/etc/antos.conf` that concern input:
+/// `keyboard_layout`, `pointer_sensitivity`, `repeat_delay_ms`, `repeat_rate_hz`.
+pub fn apply_config(conf: &str) {
+    let mut s = INPUT_SETTINGS.lock();
+    for line in conf.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        match key {
+            "keyboard_layout" => {
+                if let Some(l) = KeyboardLayout::from_name(value) {
+                    s.layout = l;
+                }
+            }
+            "pointer_sensitivity" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    s.pointer.sensitivity_pct = v.clamp(10, 1000);
+                }
+            }
+            "pointer_accel" => {
+                if let Ok(v) = value.parse::<u32>() {
+                    s.pointer.accel_pct = v.min(1000);
+                }
+            }
+            "repeat_delay_ms" => {
+                if let Ok(v) = value.parse::<u64>() {
+                    s.repeat_delay_ticks = (v / 10).max(1);
+                }
+            }
+            "repeat_rate_hz" => {
+                if let Ok(v) = value.parse::<u64>() {
+                    s.repeat_interval_ticks = (100 / v.max(1)).max(1);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Recomputes the desired keyboard-LED bitmap from the lock latches.
+fn publish_led_state(m: Modifiers) {
+    let bitmap = ergonomics::led_bitmap(m.num_lock, m.caps_lock, m.scroll_lock);
+    KEYBOARD_LEDS_DESIRED.store(bitmap, Ordering::Relaxed);
+}
+
+/// Pushes the keyboard-LED state to every keyboard (USB HID and VirtIO-Input)
+/// when it has changed. Cheap no-op otherwise. Safe to call from any poll loop;
+/// must not hold `ASCII_BRIDGE_STATE`.
+pub fn sync_keyboard_leds() {
+    let desired = KEYBOARD_LEDS_DESIRED.load(Ordering::Relaxed);
+    if desired == KEYBOARD_LEDS_SYNCED.swap(desired, Ordering::Relaxed) {
+        return;
+    }
+    #[cfg(target_arch = "aarch64")]
+    crate::drivers::virtio_input::set_keyboard_leds(
+        desired & ergonomics::led_bit::CAPS_LOCK != 0,
+        desired & ergonomics::led_bit::NUM_LOCK != 0,
+        desired & ergonomics::led_bit::SCROLL_LOCK != 0,
+    );
+    crate::drivers::usb::set_keyboard_leds(desired);
+}
+
+/// Whether a key participates in typematic auto-repeat (everything except bare
+/// modifiers and the lock keys).
+fn is_repeatable(key: KeyCode) -> bool {
+    !matches!(
+        key,
+        KeyCode::LeftShift
+            | KeyCode::RightShift
+            | KeyCode::LeftCtrl
+            | KeyCode::RightCtrl
+            | KeyCode::LeftAlt
+            | KeyCode::RightAlt
+            | KeyCode::LeftSuper
+            | KeyCode::RightSuper
+            | KeyCode::CapsLock
+            | KeyCode::NumLock
+            | KeyCode::ScrollLock
+    )
+}
+
+/// Feeds a key event into the auto-repeat state machine.
+fn note_key_for_repeat(event: &InputEvent, now: u64) {
+    match *event {
+        InputEvent::KeyPress(key) if is_repeatable(key) => {
+            AUTO_REPEAT.lock().on_press(key, now);
+        }
+        InputEvent::KeyRelease(key) => {
+            AUTO_REPEAT.lock().on_release(key);
+        }
+        _ => {}
+    }
+}
+
+/// Emits a synthetic `KeyPress` for the held key when a typematic repeat is due.
+/// Call from the input poll and/or the timer tick.
+pub fn service_auto_repeat(now: u64) {
+    let repeat = {
+        let mut ar = AUTO_REPEAT.lock();
+        let s = INPUT_SETTINGS.lock();
+        ar.set_timing(s.repeat_delay_ticks, s.repeat_interval_ticks);
+        ar.tick(now)
+    };
+    if let Some(key) = repeat {
+        push_event(InputEvent::KeyPress(key));
+    }
+}
+
+/// Current tick count on whichever timer this architecture runs.
+#[inline]
+fn now_ticks() -> u64 {
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::aarch64::timer::ticks()
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        crate::task::timer::ticks()
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        0
+    }
+}
+
+/// Human-readable snapshot of the input ergonomics settings for `SYS_SYSINFO`.
+pub fn settings_report() -> alloc::string::String {
+    use core::fmt::Write as _;
+    let s = *INPUT_SETTINGS.lock();
+    let leds = KEYBOARD_LEDS_DESIRED.load(Ordering::Relaxed);
+    let mut out = alloc::string::String::new();
+    let _ = write!(
+        out,
+        "input: layout={} sens={}% accel={}%/u thr={} repeat={}t/{}t leds={:03b}",
+        s.layout.name(),
+        s.pointer.sensitivity_pct,
+        s.pointer.accel_pct,
+        s.pointer.threshold,
+        s.repeat_delay_ticks,
+        s.repeat_interval_ticks,
+        leds
+    );
+    out
+}
+
 /// Drains as many queued key-press events as fit in `buf`, decoding them to
-/// ASCII via [`KeyboardState::key_to_char`]. Non-blocking: returns `0`
+/// UTF-8 via [`KeyboardState::key_to_char`]. Non-blocking: returns `0`
 /// immediately if nothing is queued. Used by `SYS_READ` (T26.5) so the
 /// userspace shell can poll `fd 0` the same way on every architecture.
 pub fn drain_ascii(buf: &mut [u8]) -> usize {
     crate::drivers::usb::poll();
+    let now = now_ticks();
+    service_auto_repeat(now);
     let mut state = ASCII_BRIDGE_STATE.lock();
     let mut written = 0usize;
     let mut desktop_dirty = false;
@@ -302,6 +512,7 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
     while written < buf.len() {
         let Some(event) = pop_event() else { break };
         state.update(&event);
+        note_key_for_repeat(&event, now);
 
         if crate::ui::compositor::is_desktop_active() {
             let mut comp_guard = crate::ui::COMPOSITOR.lock();
@@ -343,13 +554,19 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
 
         if let InputEvent::KeyPress(key) = event {
             if let Some(ch) = state.key_to_char(key) {
-                if ch.is_ascii() {
-                    buf[written] = ch as u8;
-                    written += 1;
+                let mut utf8 = [0u8; 4];
+                for &byte in ch.encode_utf8(&mut utf8).as_bytes() {
+                    if written < buf.len() {
+                        buf[written] = byte;
+                        written += 1;
+                    }
                 }
             }
         }
     }
+
+    drop(state);
+    sync_keyboard_leds();
 
     if desktop_dirty {
         let mut comp_guard = crate::ui::COMPOSITOR.lock();
@@ -656,6 +873,8 @@ pub fn linux_code_to_key(code: u16) -> KeyCode {
         68 => KeyCode::F10,
         87 => KeyCode::F11,
         88 => KeyCode::F12,
+        69 => KeyCode::NumLock,
+        70 => KeyCode::ScrollLock,
         97 => KeyCode::RightCtrl,
         100 => KeyCode::RightAlt,
         103 => KeyCode::Up,
@@ -879,5 +1098,37 @@ mod evdev_tests {
     fn led_event_encoding() {
         assert_eq!(encode_led_event(LED_CAPSL, true), (EV_LED, LED_CAPSL, 1));
         assert_eq!(encode_led_event(LED_NUML, false), (EV_LED, LED_NUML, 0));
+    }
+
+    #[test]
+    fn config_parsing_updates_input_settings() {
+        apply_config(
+            "# comment\nkeyboard_layout = es\npointer_sensitivity=175\nrepeat_delay_ms=300\nrepeat_rate_hz=25\nunknown=1\n",
+        );
+        let s = *INPUT_SETTINGS.lock();
+        assert_eq!(s.layout, KeyboardLayout::Es);
+        assert_eq!(s.pointer.sensitivity_pct, 175);
+        assert_eq!(s.repeat_delay_ticks, 30); // 300 ms / 10 ms per tick
+        assert_eq!(s.repeat_interval_ticks, 4); // 100 Hz / 25 Hz
+        // Restore the default so other tests see a clean layout.
+        apply_config("keyboard_layout=us\npointer_sensitivity=100\n");
+    }
+
+    #[test]
+    fn led_bitmap_tracks_lock_latches() {
+        let mut m = Modifiers::empty();
+        m.caps_lock = true;
+        publish_led_state(m);
+        assert_eq!(
+            KEYBOARD_LEDS_DESIRED.load(Ordering::Relaxed),
+            ergonomics::led_bit::CAPS_LOCK
+        );
+        m.num_lock = true;
+        publish_led_state(m);
+        assert_eq!(
+            KEYBOARD_LEDS_DESIRED.load(Ordering::Relaxed),
+            ergonomics::led_bit::CAPS_LOCK | ergonomics::led_bit::NUM_LOCK
+        );
+        publish_led_state(Modifiers::empty());
     }
 }

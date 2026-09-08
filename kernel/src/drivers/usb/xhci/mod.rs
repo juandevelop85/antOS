@@ -172,6 +172,8 @@ pub struct SlotDevice {
     /// When set, decode interrupt reports with [`Self::hid`] instead of the
     /// fixed boot decoders.
     pub use_generic: bool,
+    /// Interface number this endpoint belongs to (for `SET_REPORT` LED writes).
+    pub iface_number: u8,
     /// Diagnostics: interface class/protocol as reported by the device and a
     /// snapshot of the last interrupt report, surfaced through `SYS_SYSINFO`.
     pub iface_class: u8,
@@ -782,6 +784,7 @@ impl XhciController {
                 mouse: UsbHidMouse::new(),
                 hid: None,
                 use_generic: false,
+                iface_number: 0,
                 iface_class: hub::CLASS_HUB,
                 iface_protocol: 0,
                 report_events: 0,
@@ -927,6 +930,7 @@ impl XhciController {
                         mouse,
                         hid: if use_generic { Some(hid_model) } else { None },
                         use_generic,
+                        iface_number: iface.interface_number,
                         iface_class: iface.interface_class,
                         iface_protocol: iface.interface_protocol,
                         report_events: 0,
@@ -1263,5 +1267,24 @@ impl XhciController {
         }
 
         self.devices.retain(|d| d.port != port);
+    }
+
+    /// Writes the keyboard-LED bitmap (`Num`/`Caps`/`Scroll` Lock) to every
+    /// enumerated keyboard via `SET_REPORT(Output)` on EP0.
+    pub fn push_keyboard_leds(&mut self, bitmap: u8) {
+        let targets: Vec<(u8, u8)> = self
+            .devices
+            .iter()
+            .filter(|d| d.is_keyboard && !d.is_hub)
+            .map(|d| (d.slot_id, d.iface_number))
+            .collect();
+
+        for (slot_id, iface) in targets {
+            // bmRequestType 0x21 (Host->Dev | Class | Interface),
+            // bRequest 0x09 SET_REPORT, wValue 0x0200 (Output report, ID 0).
+            let setup = [0x21, 0x09, 0x00, 0x02, iface, 0x00, 0x01, 0x00];
+            let mut data = [bitmap];
+            let _ = self.control_transfer(slot_id, setup, Some(&mut data), false);
+        }
     }
 }

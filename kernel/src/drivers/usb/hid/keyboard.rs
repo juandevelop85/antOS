@@ -67,6 +67,8 @@ pub fn hid_usage_to_key(usage: u8) -> KeyCode {
         0x37 => KeyCode::Dot,
         0x38 => KeyCode::Slash,
         0x39 => KeyCode::CapsLock,
+        0x47 => KeyCode::ScrollLock,
+        0x53 => KeyCode::NumLock,
 
         // Function Keys F1 - F12 (0x3A - 0x45)
         0x3A => KeyCode::F1,

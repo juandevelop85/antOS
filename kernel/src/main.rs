@@ -628,7 +628,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     if let Ok(conf_str) = fs::vfs::read_to_string("/etc/antos.conf") {
-        println!("  config       /etc/antos.conf cargado ({} B)", conf_str.len());
+        input::apply_config(&conf_str);
+        println!("  config       /etc/antos.conf cargado ({} B) · {}",
+            conf_str.len(), input::settings_report());
     }
 
     println!();
@@ -931,6 +933,8 @@ fn halt_loop() -> ! {
         #[cfg(target_arch = "aarch64")]
         {
             drivers::usb::poll();
+            input::service_auto_repeat(arch::aarch64::timer::ticks());
+            input::sync_keyboard_leds();
             let (screen_w, screen_h) = console::resolution();
             if drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0 || input::has_events() {
                 if ui::dispatch_pending_inputs(screen_w, screen_h) {

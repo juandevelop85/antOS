@@ -31,6 +31,14 @@ pub fn poll() {
     }
 }
 
+/// Pushes the keyboard-LED bitmap (`Num`/`Caps`/`Scroll` Lock, HID LED bits) to
+/// every enumerated USB keyboard. No-op when there is no xHCI controller.
+pub fn set_keyboard_leds(bitmap: u8) {
+    if let Some(ref mut controller) = *XHCI.lock() {
+        controller.push_keyboard_leds(bitmap);
+    }
+}
+
 /// Renders a compact, human-readable dump of the enumerated USB HID devices and
 /// their live interrupt-report counters. Wired into `SYS_SYSINFO` so the
 /// sovereign shell's `info` command can show it without access to the boot log.
