@@ -224,6 +224,15 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
   -kernel kernel/target/aarch64-unknown-none/debug/kernel \
   -serial stdio -monitor none
 
+# 2b. Con teclado y ratón/tablet nativos por VirtIO-Input MMIO (T28.1):
+#     añade -device virtio-keyboard-device y -device virtio-tablet-device
+#     (transporte MMIO en -M virt; usa un display, p.ej. -display cocoa, para
+#     poder teclear en la ventana).
+qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
+  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -device virtio-keyboard-device -device virtio-tablet-device \
+  -serial mon:stdio -display cocoa
+
 # 3. Imagen UEFI real (Limine) — recompila el kernel con --features limine antes:
 cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --features limine
 cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64 --format uefi

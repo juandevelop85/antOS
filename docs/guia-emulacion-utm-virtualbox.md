@@ -327,6 +327,18 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
 ```
 *(Para salir de QEMU presiona `Ctrl+A` y luego `X`)*.
 
+Con teclado y ratón/tablet nativos por **VirtIO-Input MMIO** (T28.1) y ventana gráfica:
+```bash
+qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
+  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -device virtio-keyboard-device -device virtio-tablet-device \
+  -serial mon:stdio -display cocoa
+```
+El sufijo `-device` (no `-pci`) coloca los dispositivos en el bus `virtio-mmio` de
+`-M virt`, que es donde el kernel los busca (`0x0a00_0000..0x0a00_4000`). El
+arranque debe listar `virtio-input N dispositivo(s) de entrada activos` con una
+línea por dispositivo (`teclado` / `tablet`).
+
 ### B. QEMU ARM64 con Firmware UEFI (EDK2)
 ```bash
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \

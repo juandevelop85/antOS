@@ -297,6 +297,8 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
     let mut written = 0usize;
     let mut desktop_dirty = false;
     let (screen_w, screen_h) = crate::console::resolution();
+    #[cfg(target_arch = "aarch64")]
+    crate::drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h);
     while written < buf.len() {
         let Some(event) = pop_event() else { break };
         state.update(&event);
@@ -364,10 +366,15 @@ pub const EV_SYN: u16 = 0x00;
 pub const EV_KEY: u16 = 0x01;
 pub const EV_REL: u16 = 0x02;
 pub const EV_ABS: u16 = 0x03;
+pub const EV_LED: u16 = 0x11;
+
+/// `EV_SYN` codes.
+pub const SYN_REPORT: u16 = 0x00;
 
 pub const REL_X: u16 = 0x00;
 pub const REL_Y: u16 = 0x01;
 pub const REL_WHEEL: u16 = 0x08;
+pub const REL_HWHEEL: u16 = 0x06;
 
 pub const ABS_X: u16 = 0x00;
 pub const ABS_Y: u16 = 0x01;
@@ -375,63 +382,206 @@ pub const ABS_Y: u16 = 0x01;
 pub const BTN_LEFT: u16 = 0x110;
 pub const BTN_RIGHT: u16 = 0x111;
 pub const BTN_MIDDLE: u16 = 0x112;
+pub const BTN_SIDE: u16 = 0x113;
+pub const BTN_EXTRA: u16 = 0x114;
 
-/// Decodes Linux EV_* events (standard VirtIO-Input format) into `InputEvent`.
+/// `EV_LED` codes (used on the VirtIO-Input status queue).
+pub const LED_NUML: u16 = 0x00;
+pub const LED_CAPSL: u16 = 0x01;
+pub const LED_SCROLLL: u16 = 0x02;
+
+/// Decodes a single Linux `EV_KEY` code/value into the matching `InputEvent`
+/// (mouse button transitions or key press/release). `value` follows evdev
+/// semantics: `0` = release, `1` = press, `2` = auto-repeat (treated as press).
+pub fn decode_key_or_button(code: u16, value: u32) -> Option<InputEvent> {
+    let pressed = value != 0;
+    let button = match code {
+        BTN_LEFT => Some(MouseButton::Left),
+        BTN_RIGHT => Some(MouseButton::Right),
+        BTN_MIDDLE => Some(MouseButton::Middle),
+        BTN_SIDE => Some(MouseButton::Other(3)),
+        BTN_EXTRA => Some(MouseButton::Other(4)),
+        _ => None,
+    };
+
+    if let Some(btn) = button {
+        return Some(if pressed {
+            InputEvent::MouseButtonPress(btn)
+        } else {
+            InputEvent::MouseButtonRelease(btn)
+        });
+    }
+
+    let key = linux_code_to_key(code);
+    Some(if pressed {
+        InputEvent::KeyPress(key)
+    } else {
+        InputEvent::KeyRelease(key)
+    })
+}
+
+/// Decodes Linux `EV_*` events (standard VirtIO-Input format) into a single
+/// `InputEvent`. Kept for callers that want an event-at-a-time view; the
+/// coalescing [`EvdevAccumulator`] is the path VirtIO-Input actually uses,
+/// since relative motion and absolute position must be aggregated per
+/// `SYN_REPORT` packet rather than emitted axis-by-axis.
 pub fn decode_linux_ev(event_type: u16, code: u16, value: u32) -> Option<InputEvent> {
     match event_type {
-        EV_KEY => {
-            if code == BTN_LEFT {
-                return if value != 0 {
-                    Some(InputEvent::MouseButtonPress(MouseButton::Left))
-                } else {
-                    Some(InputEvent::MouseButtonRelease(MouseButton::Left))
-                };
-            } else if code == BTN_RIGHT {
-                return if value != 0 {
-                    Some(InputEvent::MouseButtonPress(MouseButton::Right))
-                } else {
-                    Some(InputEvent::MouseButtonRelease(MouseButton::Right))
-                };
-            } else if code == BTN_MIDDLE {
-                return if value != 0 {
-                    Some(InputEvent::MouseButtonPress(MouseButton::Middle))
-                } else {
-                    Some(InputEvent::MouseButtonRelease(MouseButton::Middle))
-                };
-            }
-
-            let key = linux_code_to_key(code);
-            if value == 0 {
-                Some(InputEvent::KeyRelease(key))
-            } else {
-                Some(InputEvent::KeyPress(key))
-            }
-        }
+        EV_KEY => decode_key_or_button(code, value),
         EV_REL => {
             let val = value as i32;
             match code {
                 REL_X => Some(InputEvent::MouseMove { dx: val, dy: 0 }),
                 REL_Y => Some(InputEvent::MouseMove { dx: 0, dy: val }),
-                REL_WHEEL => Some(InputEvent::Scroll {
-                    delta_x: 0,
-                    delta_y: val,
-                }),
+                REL_WHEEL => Some(InputEvent::Scroll { delta_x: 0, delta_y: val }),
+                REL_HWHEEL => Some(InputEvent::Scroll { delta_x: val, delta_y: 0 }),
                 _ => None,
             }
         }
         EV_ABS => match code {
-            ABS_X => Some(InputEvent::MouseAbsolute {
-                x: value,
-                y: 0,
-            }),
-            ABS_Y => Some(InputEvent::MouseAbsolute {
-                x: 0,
-                y: value,
-            }),
+            ABS_X => Some(InputEvent::MouseAbsolute { x: value, y: 0 }),
+            ABS_Y => Some(InputEvent::MouseAbsolute { x: 0, y: value }),
             _ => None,
         },
         _ => None,
     }
+}
+
+/// Calibration for one absolute axis, taken from a VirtIO-Input
+/// `VIRTIO_INPUT_CFG_ABS_INFO` block. Defaults to the 0..32767 range that
+/// QEMU's `virtio-tablet` and the VirtualBox USB tablet both report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AbsAxisInfo {
+    pub min: i32,
+    pub max: i32,
+}
+
+impl Default for AbsAxisInfo {
+    fn default() -> Self {
+        Self { min: 0, max: 32767 }
+    }
+}
+
+impl AbsAxisInfo {
+    /// Maps a raw absolute reading onto `0..screen_dim` pixels, clamped.
+    pub fn to_screen(&self, raw: i32, screen_dim: u32) -> u32 {
+        if screen_dim == 0 {
+            return 0;
+        }
+        let span = (self.max - self.min).max(1) as i64;
+        let rel = i64::from((raw - self.min).max(0)).min(span);
+        ((rel * i64::from(screen_dim - 1)) / span) as u32
+    }
+}
+
+/// Aggregates the Linux evdev stream of one device between `SYN_REPORT`
+/// barriers. Relative motion, wheel deltas and absolute position each surface
+/// as a *single* coalesced `InputEvent` per packet; key and button
+/// transitions pass through in order. This mirrors how evdev groups a
+/// complete input state change between synchronisation points and prevents
+/// the cursor from jumping to `(x, 0)` then `(0, y)` on absolute devices.
+#[derive(Default)]
+pub struct EvdevAccumulator {
+    keys: alloc::vec::Vec<InputEvent>,
+    rel_dx: i32,
+    rel_dy: i32,
+    wheel: i32,
+    hwheel: i32,
+    abs_x: Option<i32>,
+    abs_y: Option<i32>,
+    last_abs_x: i32,
+    last_abs_y: i32,
+    pub abs_x_info: AbsAxisInfo,
+    pub abs_y_info: AbsAxisInfo,
+}
+
+impl EvdevAccumulator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feeds one raw evdev triple. Returns the coalesced events when the
+    /// triple is a `SYN_REPORT`; otherwise `None` while it keeps aggregating.
+    /// `screen` is the current framebuffer resolution, used to scale absolute
+    /// coordinates.
+    pub fn feed(
+        &mut self,
+        event_type: u16,
+        code: u16,
+        value: u32,
+        screen: (u32, u32),
+    ) -> Option<alloc::vec::Vec<InputEvent>> {
+        match event_type {
+            EV_KEY => {
+                if let Some(ev) = decode_key_or_button(code, value) {
+                    self.keys.push(ev);
+                }
+                None
+            }
+            EV_REL => {
+                let v = value as i32;
+                match code {
+                    REL_X => self.rel_dx += v,
+                    REL_Y => self.rel_dy += v,
+                    REL_WHEEL => self.wheel += v,
+                    REL_HWHEEL => self.hwheel += v,
+                    _ => {}
+                }
+                None
+            }
+            EV_ABS => {
+                match code {
+                    ABS_X => self.abs_x = Some(value as i32),
+                    ABS_Y => self.abs_y = Some(value as i32),
+                    _ => {}
+                }
+                None
+            }
+            EV_SYN if code == SYN_REPORT => Some(self.flush(screen)),
+            _ => None,
+        }
+    }
+
+    fn flush(&mut self, screen: (u32, u32)) -> alloc::vec::Vec<InputEvent> {
+        let mut out = core::mem::take(&mut self.keys);
+
+        if self.rel_dx != 0 || self.rel_dy != 0 {
+            out.push(InputEvent::MouseMove {
+                dx: self.rel_dx,
+                dy: self.rel_dy,
+            });
+        }
+        if self.wheel != 0 || self.hwheel != 0 {
+            out.push(InputEvent::Scroll {
+                delta_x: self.hwheel,
+                delta_y: self.wheel,
+            });
+        }
+        if self.abs_x.is_some() || self.abs_y.is_some() {
+            let rx = self.abs_x.unwrap_or(self.last_abs_x);
+            let ry = self.abs_y.unwrap_or(self.last_abs_y);
+            self.last_abs_x = rx;
+            self.last_abs_y = ry;
+            out.push(InputEvent::MouseAbsolute {
+                x: self.abs_x_info.to_screen(rx, screen.0),
+                y: self.abs_y_info.to_screen(ry, screen.1),
+            });
+        }
+
+        self.rel_dx = 0;
+        self.rel_dy = 0;
+        self.wheel = 0;
+        self.hwheel = 0;
+        self.abs_x = None;
+        self.abs_y = None;
+        out
+    }
+}
+
+/// Encodes an `EV_LED` evdev triple for the VirtIO-Input status queue.
+/// `on` lights the LED, `!on` clears it.
+pub fn encode_led_event(led: u16, on: bool) -> (u16, u16, u32) {
+    (EV_LED, led, if on { 1 } else { 0 })
 }
 
 /// Converts Linux input event codes (`KEY_*`) to `KeyCode`.
@@ -606,5 +756,128 @@ pub fn decode_ps2_set1(scancode: u8) -> Option<InputEvent> {
         Some(InputEvent::KeyRelease(key))
     } else {
         Some(InputEvent::KeyPress(key))
+    }
+}
+
+#[cfg(test)]
+mod evdev_tests {
+    use super::*;
+
+    const SCREEN: (u32, u32) = (1280, 720);
+
+    #[test]
+    fn abs_axis_info_scales_and_clamps() {
+        let info = AbsAxisInfo { min: 0, max: 32767 };
+        assert_eq!(info.to_screen(0, 1280), 0);
+        assert_eq!(info.to_screen(32767, 1280), 1279);
+        assert_eq!(info.to_screen(16384, 1280), 639); // ~midpoint
+        assert_eq!(info.to_screen(-50, 1280), 0); // below min -> clamped
+        assert_eq!(info.to_screen(999_999, 1280), 1279); // above max -> clamped
+        assert_eq!(info.to_screen(100, 0), 0); // zero screen dimension
+    }
+
+    #[test]
+    fn abs_axis_info_honours_nonzero_min() {
+        let info = AbsAxisInfo { min: 100, max: 1124 }; // span 1024
+        assert_eq!(info.to_screen(100, 1025), 0);
+        assert_eq!(info.to_screen(1124, 1025), 1024);
+        assert_eq!(info.to_screen(612, 1025), 512);
+    }
+
+    #[test]
+    fn key_and_button_transitions() {
+        assert_eq!(
+            decode_key_or_button(BTN_LEFT, 1),
+            Some(InputEvent::MouseButtonPress(MouseButton::Left))
+        );
+        assert_eq!(
+            decode_key_or_button(BTN_LEFT, 0),
+            Some(InputEvent::MouseButtonRelease(MouseButton::Left))
+        );
+        assert_eq!(
+            decode_key_or_button(BTN_EXTRA, 1),
+            Some(InputEvent::MouseButtonPress(MouseButton::Other(4)))
+        );
+        // KEY_A == 30 in the Linux keymap
+        assert_eq!(
+            decode_key_or_button(30, 1),
+            Some(InputEvent::KeyPress(KeyCode::KeyA))
+        );
+        // value 2 is auto-repeat -> still a press
+        assert_eq!(
+            decode_key_or_button(30, 2),
+            Some(InputEvent::KeyPress(KeyCode::KeyA))
+        );
+        assert_eq!(
+            decode_key_or_button(30, 0),
+            Some(InputEvent::KeyRelease(KeyCode::KeyA))
+        );
+    }
+
+    #[test]
+    fn accumulator_coalesces_relative_motion_on_syn() {
+        let mut acc = EvdevAccumulator::new();
+        assert!(acc.feed(EV_REL, REL_X, 5i32 as u32, SCREEN).is_none());
+        assert!(acc.feed(EV_REL, REL_Y, (-3i32) as u32, SCREEN).is_none());
+        assert!(acc.feed(EV_REL, REL_X, 2i32 as u32, SCREEN).is_none());
+        let out = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
+        assert_eq!(out, alloc::vec![InputEvent::MouseMove { dx: 7, dy: -3 }]);
+
+        // Deltas reset after the flush.
+        let out2 = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
+        assert!(out2.is_empty());
+    }
+
+    #[test]
+    fn accumulator_emits_single_absolute_per_packet() {
+        let mut acc = EvdevAccumulator::new();
+        acc.abs_x_info = AbsAxisInfo { min: 0, max: 32767 };
+        acc.abs_y_info = AbsAxisInfo { min: 0, max: 32767 };
+
+        assert!(acc.feed(EV_ABS, ABS_X, 32767, SCREEN).is_none());
+        assert!(acc.feed(EV_ABS, ABS_Y, 0, SCREEN).is_none());
+        let out = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
+        assert_eq!(out, alloc::vec![InputEvent::MouseAbsolute { x: 1279, y: 0 }]);
+    }
+
+    #[test]
+    fn accumulator_reuses_last_axis_when_packet_updates_only_one() {
+        let mut acc = EvdevAccumulator::new();
+        acc.abs_x_info = AbsAxisInfo { min: 0, max: 1000 };
+        acc.abs_y_info = AbsAxisInfo { min: 0, max: 1000 };
+
+        acc.feed(EV_ABS, ABS_X, 500, (1001, 1001));
+        acc.feed(EV_ABS, ABS_Y, 200, (1001, 1001));
+        let first = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
+        assert_eq!(first, alloc::vec![InputEvent::MouseAbsolute { x: 500, y: 200 }]);
+
+        // Second packet only reports a new X; Y must carry over.
+        acc.feed(EV_ABS, ABS_X, 750, (1001, 1001));
+        let second = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
+        assert_eq!(second, alloc::vec![InputEvent::MouseAbsolute { x: 750, y: 200 }]);
+    }
+
+    #[test]
+    fn accumulator_orders_keys_then_motion_then_scroll() {
+        let mut acc = EvdevAccumulator::new();
+        acc.feed(EV_KEY, BTN_LEFT, 1, SCREEN);
+        acc.feed(EV_REL, REL_X, 4i32 as u32, SCREEN);
+        acc.feed(EV_REL, REL_WHEEL, 1i32 as u32, SCREEN);
+        acc.feed(EV_REL, REL_HWHEEL, (-1i32) as u32, SCREEN);
+        let out = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).unwrap();
+        assert_eq!(
+            out,
+            alloc::vec![
+                InputEvent::MouseButtonPress(MouseButton::Left),
+                InputEvent::MouseMove { dx: 4, dy: 0 },
+                InputEvent::Scroll { delta_x: -1, delta_y: 1 },
+            ]
+        );
+    }
+
+    #[test]
+    fn led_event_encoding() {
+        assert_eq!(encode_led_event(LED_CAPSL, true), (EV_LED, LED_CAPSL, 1));
+        assert_eq!(encode_led_event(LED_NUML, false), (EV_LED, LED_NUML, 0));
     }
 }

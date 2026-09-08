@@ -285,7 +285,7 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!("controlador de entrada y periféricos (T26.3 / T27.2)");
     let input_devs = drivers::virtio_input::probe_and_init_virtio_inputs();
     if input_devs > 0 {
-        println!("  virtio-input {} dispositivos (teclado/ratón) detectados y activos", input_devs);
+        println!("  virtio-input {} dispositivo(s) de entrada activos (teclado/ratón/tablet)", input_devs);
     } else {
         println!("  virtio-input no detectado (probando PCIe xHCI y consola serie)");
     }
@@ -911,7 +911,7 @@ fn halt_loop() -> ! {
         {
             drivers::usb::poll();
             let (screen_w, screen_h) = console::resolution();
-            if drivers::virtio_input::poll_virtio_inputs() > 0 || input::has_events() {
+            if drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0 || input::has_events() {
                 if ui::dispatch_pending_inputs(screen_w, screen_h) {
                     if let Some(c) = console::CONSOLE.lock().as_mut() {
                         ui::render_desktop(
