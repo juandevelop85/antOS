@@ -3,6 +3,7 @@
 //! Includes PCI bus enumeration, VirtIO block device driver, and peripheral controllers.
 
 pub mod pci;
+pub mod ps2;
 #[cfg(target_arch = "x86_64")]
 pub mod storage;
 #[cfg(target_arch = "x86_64")]

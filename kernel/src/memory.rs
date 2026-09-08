@@ -411,6 +411,17 @@ pub fn phys_to_virt(phys: u64) -> u64 {
     phys + physical_memory_offset()
 }
 
+/// Walks the active page tables to translate a kernel virtual address to its
+/// physical address. `None` if the address is not mapped or the memory
+/// controller is not up yet. Used by DMA drivers that need the physical address
+/// of a statically-placed buffer.
+pub fn translate(virtual_address: u64) -> Option<u64> {
+    MEMORY_CONTROLLER
+        .lock()
+        .as_ref()
+        .and_then(|c| c.mapper.translate(virtual_address))
+}
+
 /// Allocates a single 4 KiB frame for DMA and returns (physical_address, virtual_address).
 /// The page is initialized with zeros.
 pub fn allocate_dma_frame() -> Option<(u64, u64)> {

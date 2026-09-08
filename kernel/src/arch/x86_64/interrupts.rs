@@ -85,6 +85,8 @@ fn set(idt: &mut [Entry; 256], vector: usize, handler: usize, ist: u8) {
 pub const TIMER_VECTOR: u8 = 32;
 /// Keyboard interrupt (IRQ1 via legacy PIC or I/O APIC in the future).
 pub const KEYBOARD_VECTOR: u8 = 33;
+/// PS/2 mouse interrupt (IRQ12 → PIC2 line 4 → remapped base 40 + 4).
+pub const MOUSE_VECTOR: u8 = 44;
 /// LAPIC spurious interrupt — required by the APIC specification.
 pub const SPURIOUS_VECTOR: u8 = 0xFF;
 
@@ -104,6 +106,7 @@ pub fn init() {
         // Hardware interrupts.
         set(idt, TIMER_VECTOR as usize, timer_interrupt_entry as *const () as usize, 0);
         set(idt, KEYBOARD_VECTOR as usize, keyboard as *const () as usize, 0);
+        set(idt, MOUSE_VECTOR as usize, mouse as *const () as usize, 0);
         set(idt, SPURIOUS_VECTOR as usize, spurious as *const () as usize, 0);
 
         let pointer = DescriptorTablePointer {
@@ -167,10 +170,10 @@ pub fn init_pic() {
         outb(PIC2_DATA, 0x01);
         io_wait();
 
-        // Mask: only allow keyboard (IRQ1) through PIC for now.
-        // Timer (IRQ0) is now handled by the LAPIC.
-        outb(PIC1_DATA, 0b1111_1101); // only IRQ1 (keyboard) unmasked
-        outb(PIC2_DATA, 0b1111_1111);
+        // Mask: allow keyboard (IRQ1), the cascade line (IRQ2) and — via the
+        // slave — the PS/2 mouse (IRQ12). Timer (IRQ0) is handled by the LAPIC.
+        outb(PIC1_DATA, 0b1111_1001); // IRQ1 (keyboard) + IRQ2 (cascade) unmasked
+        outb(PIC2_DATA, 0b1110_1111); // IRQ12 (mouse) unmasked
     }
 }
 
@@ -300,6 +303,10 @@ extern "C" fn timer_interrupt_handler(ctx: &mut crate::task::pcb::CpuContext) {
     // 1. Advance async timer ticks and notify waiting async futures
     crate::task::timer::tick();
 
+    // 1b. Service the USB host controller (HID reports) — the xHCI stack is
+    // polled, not MSI-driven, on x86_64 (T28.9).
+    crate::drivers::usb::poll();
+
     // 2. Scheduler preemption hook: evaluates quantum and switches context if needed
     crate::task::scheduler::on_timer_tick(ctx);
 
@@ -317,6 +324,14 @@ extern "x86-interrupt" fn keyboard(_frame: InterruptStackFrame) {
 
     // Keyboard still comes through PIC until I/O APIC migration.
     unsafe { pic_end_of_interrupt(KEYBOARD_VECTOR) };
+}
+
+/// PS/2 mouse interrupt (IRQ12, through the slave PIC).
+extern "x86-interrupt" fn mouse(_frame: InterruptStackFrame) {
+    let byte = unsafe { inb(0x60) };
+    crate::drivers::ps2::handle_byte(byte);
+    // IRQ12 lives on the slave PIC: EOI both.
+    unsafe { pic_end_of_interrupt(MOUSE_VECTOR) };
 }
 
 /// Spurious interrupt handler — required by the LAPIC specification.

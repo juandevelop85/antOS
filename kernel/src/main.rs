@@ -767,6 +767,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Initialize global memory controller for dynamic syscalls (mmap, munmap, spawn)
     memory::init_memory_controller(mapper, frames);
 
+    // ── Peripherals: PS/2 mouse + USB xHCI (T28.9) ──────────────────────
+    println!();
+    println!("\x1b[1;36mperiféricos (PS/2 ratón · USB xHCI)\x1b[0m");
+    let mouse_proto = unsafe { drivers::ps2::init() };
+    println!("  ps2-mouse    IRQ12 activo · protocolo {:?}", mouse_proto);
+
+    drivers::usb::init();
+    match drivers::usb::XHCI.lock().as_ref() {
+        Some(x) => println!("  usb-xhci     controlador activo en PCI {}:{}.{} · {} interfaz(es) HID",
+            x.pci_device.bus, x.pci_device.slot, x.pci_device.func, x.devices.len()),
+        None => println!("  usb-xhci     sin controlador xHCI en el bus PCI (pila inactiva)"),
+    }
+
     println!();
     println!("  ─── ejecución limpia ───");
     // SAFETY: entrada y pila están mapeadas con el bit de usuario.

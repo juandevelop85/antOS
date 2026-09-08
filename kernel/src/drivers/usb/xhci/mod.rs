@@ -93,9 +93,30 @@ pub fn virt_to_phys(vaddr: u64) -> u64 {
     {
         crate::arch::aarch64::mmu::kernel_virt_to_phys(vaddr)
     }
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(target_arch = "x86_64")]
+    {
+        // The DMA pool is a page-aligned kernel static; walk the page tables
+        // for its real physical address rather than assuming identity mapping.
+        crate::memory::translate(vaddr).unwrap_or(vaddr)
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         vaddr
+    }
+}
+
+/// Maps a device MMIO physical base to a CPU-accessible address for the running
+/// architecture (identity on AArch64's device window, physical-offset window on
+/// x86_64).
+#[inline]
+pub fn mmio_base(phys: u64) -> usize {
+    #[cfg(target_arch = "x86_64")]
+    {
+        (phys + crate::memory::physical_memory_offset()) as usize
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        phys as usize
     }
 }
 
@@ -106,7 +127,19 @@ pub fn delay_ms(ms: u64) {
     {
         crate::arch::aarch64::timer::delay_ms(ms);
     }
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Prefer the kernel tick clock; fall back to a bounded spin if it is
+        // not advancing (e.g. interrupts still masked).
+        let start = crate::task::timer::ticks();
+        let want = ms * crate::task::timer::TICKS_PER_SECOND / 1000;
+        let mut spin = ms.saturating_mul(2_000_000) + 200_000;
+        while crate::task::timer::ticks().wrapping_sub(start) < want && spin > 0 {
+            spin -= 1;
+            core::hint::spin_loop();
+        }
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         for _ in 0..(ms * 5_000) {
             core::hint::spin_loop();
@@ -205,7 +238,7 @@ impl XhciController {
         xhci_dev.enable_bus_mastering();
 
         unsafe {
-            let registers = XhciRegisters::new(bar0_addr as usize).ok()?;
+            let registers = XhciRegisters::new(mmio_base(bar0_addr)).ok()?;
             let mut controller = Self {
                 registers,
                 pci_device: xhci_dev,
