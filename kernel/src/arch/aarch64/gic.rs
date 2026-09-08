@@ -31,6 +31,10 @@ const GICC_CTLR: usize = 0x000;
 const GICC_PMR: usize = 0x004;
 const GICC_IAR: usize = 0x00C;
 const GICC_EOIR: usize = 0x010;
+/// CPU Interface Identification Register — read-only, always present on a real
+/// GICv2 CPU interface; used to detect whether the memory-mapped GICC block
+/// exists at all before writing to it.
+const GICC_IIDR: usize = 0x0FC;
 
 // GICv3 redistributor offsets.
 const GICR_WAKER: usize = 0x0014;
@@ -194,10 +198,33 @@ pub fn bases() -> (GicVersion, usize, usize) {
 
 /// Initializes the GIC distributor and this CPU's interface for the selected
 /// version.
+///
+/// When the version resolves to GICv2 but the memory-mapped GICC block does not
+/// respond — as on `qemu-system-aarch64 -M virt,gic-version=3 -kernel <ELF>`,
+/// where no DTB/ACPI is reachable so GICv2 is only *assumed* — the driver falls
+/// back to GICv3 rather than fault on the first GICC write.
 pub fn init() {
-    match version() {
+    let selected = match version() {
+        GicVersion::V2 if !gicc_block_responds() => {
+            GIC_VERSION.store(VERSION_V3, Ordering::Relaxed);
+            GicVersion::V3
+        }
+        v => v,
+    };
+    match selected {
         GicVersion::V2 => init_v2(),
         GicVersion::V3 => init_v3(),
+    }
+}
+
+/// `true` when a read of the GICC identification register at the configured
+/// base completes without a Data Abort and returns a plausible value. A missing
+/// GICC block (GICv3-only machine) aborts the read, which the fault guard turns
+/// into `None`.
+fn gicc_block_responds() -> bool {
+    match crate::arch::aarch64::exceptions::safe_probe_read_u32(gicc_base() + GICC_IIDR) {
+        Some(v) => v != 0 && v != 0xFFFF_FFFF,
+        None => false,
     }
 }
 
