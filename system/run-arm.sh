@@ -109,5 +109,16 @@ if [ "$MODO" = "test" ] || [ "$MODO" = "test-input" ]; then
   exit $?
 fi
 
-echo ">> antOS: arrancando QEMU AArch64 (${MACHINE} · kbd=${KBD} gpu=${GPU})..."
-exec qemu-system-aarch64 "${BASE_ARGS[@]}" -nographic "${DEV_ARGS[@]}"
+echo ">> antOS: arrancando QEMU AArch64 (${MACHINE} · kbd=${KBD} gpu=${GPU} · ${PROFILE})..."
+if [ "$GPU" = "none" ]; then
+  # Solo serie.
+  exec qemu-system-aarch64 "${BASE_ARGS[@]}" -nographic "${DEV_ARGS[@]}"
+else
+  # Con GPU: ventana gráfica + serie/monitor multiplexados en la terminal.
+  # -serial ya está en BASE_ARGS como 'stdio'; se sustituye por 'mon:stdio'.
+  GRAPHIC_ARGS=()
+  for a in "${BASE_ARGS[@]}"; do
+    if [ "$a" = "stdio" ]; then GRAPHIC_ARGS+=("mon:stdio"); else GRAPHIC_ARGS+=("$a"); fi
+  done
+  exec qemu-system-aarch64 "${GRAPHIC_ARGS[@]}" -display default,show-cursor=on "${DEV_ARGS[@]}"
+fi
