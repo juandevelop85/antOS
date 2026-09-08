@@ -164,7 +164,11 @@ El plan se extendió sustancialmente más allá de esta visión fundacional: ant
 desarrollo *sobre* macOS/Linux, sino que — a partir de la **Fase 18** (portado del kernel a AArch64) y,
 sobre todo, la **Fase 26** — es capaz de arrancar como **sistema operativo bare-metal soberano**, con su
 propio driver gráfico, compositor de escritorio nativo y un runtime/shell de espacio de usuario
-(`libantos` / `antos-init`) sin dependencia alguna de `glibc`/`musl` ni de un SO anfitrión. El backlog
-íntegro y actualizado de las 26 fases (85 tickets) vive en [`docs/tickets/README.md`](tickets/README.md);
+(`libantos` / `antos-init`) sin dependencia alguna de `glibc`/`musl` ni de un SO anfitrión. Las
+**Fases 27-28** añaden arranque Limine real por UEFI, pila PCIe/USB xHCI y HID bare-metal, y
+periféricos nativos (VirtIO-Input, GIC v2/v3, `virtio-gpu-pci`/`ramfb`, descubrimiento por DTB/ACPI)
+a paridad entre x86_64 y AArch64; el kernel arranca hasta el shell interactivo en **QEMU**,
+**VirtualBox ARM64** y **UTM**. El backlog
+íntegro y actualizado de las 28 fases (99 tickets) vive en [`docs/tickets/README.md`](tickets/README.md);
 el resumen navegable por fase está en el [`README.md`](../README.md) raíz del repositorio, y el registro
 cronológico de lo entregado en cada fase, en [`CHANGELOG.md`](../CHANGELOG.md).

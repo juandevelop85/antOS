@@ -18,6 +18,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
      - [D. Guía Paso a Paso para Hipervisores (UTM y VirtualBox)](#d-guía-paso-a-paso-para-hipervisores-utm-y-virtualbox)
      - [E. Escritorio Nativo Bare-Metal y Shell Interactivo Soberano (Fase 26)](#e-escritorio-nativo-bare-metal-y-shell-interactivo-soberano-fase-26)
      - [F. Soporte Real del Protocolo de Arranque Limine (Fase 27)](#f-soporte-real-del-protocolo-de-arranque-limine-fase-27)
+     - [G. Periféricos Nativos y Endurecimiento Runtime (Fase 28 y depuración en hipervisores)](#g-periféricos-nativos-y-endurecimiento-runtime-fase-28-y-depuración-en-hipervisores)
    - [Método 7: Live USB Booteable e Instalación en Hardware Real (Bare Metal)](#método-7-live-usb-booteable-e-instalación-en-hardware-real-bare-metal)
 2. [Variables de Entorno Globales](#2-variables-de-entorno-globales)
 3. [Banderas Globales del Comando `antos`](#3-banderas-globales-del-comando-antos)
@@ -212,36 +213,52 @@ qemu-system-x86_64 -drive format=raw,file=kernel/target/x86_64-unknown-none/debu
 
 #### B. Arquitectura AArch64 / ARM 64-bit (Bare Metal y UEFI)
 
+> ⚡ **En Apple Silicon compila en `--release`.** UTM y VirtualBox emulan el
+> kernel con TCG (`-cpu cortex-a72`, sin HVF); el binario `debug` puede tardar
+> minutos en llegar al banner. La vía corta es
+> `system/run-arm.sh --release [--uefi] --build-only`, que deja los artefactos
+> en `kernel/target/aarch64-unknown-none/release/`.
+
 ```bash
 # 1. Instalar target de compilación si no está presente
 rustup target add aarch64-unknown-none
 
 # 2. Arranque directo de QEMU virt (Direct Kernel Boot) — sin --features limine
-cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --release
 # Valida: consola serie PL011 MMIO, tabla VBAR_EL1 de 16 vectores, MMU (L0/L1/L2),
 # heap dinámico, temporizador virtual ARM a 100 Hz, transición a EL0 y syscalls svc #0.
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
-  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -kernel kernel/target/aarch64-unknown-none/release/kernel \
   -serial stdio -monitor none
+# GIC: sin DTB/ACPI el kernel asume GICv2; si arrancas con -M virt,gic-version=3
+# sondea GICC_IIDR y conmuta a GICv3 solo (no hace falta fijar la versión).
+# Dispositivos PCIe (-device qemu-xhci / virtio-gpu-pci) NO funcionan en -kernel:
+# sin firmware nadie asigna sus BAR y el kernel los omite (avisa
+# "pcie-xhci … BAR0 sin asignar · omitido"). Para GPU/USB usa la ruta UEFI (paso 3).
 
 # 2b. Con teclado y ratón/tablet nativos por VirtIO-Input MMIO (T28.1):
 #     añade -device virtio-keyboard-device y -device virtio-tablet-device
 #     (transporte MMIO en -M virt; usa un display, p.ej. -display cocoa, para
 #     poder teclear en la ventana).
 qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
-  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -kernel kernel/target/aarch64-unknown-none/release/kernel \
   -device virtio-keyboard-device -device virtio-tablet-device \
   -serial mon:stdio -display cocoa
 
 # 3. Imagen UEFI real (Limine) — recompila el kernel con --features limine antes:
-cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --features limine
-cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64 --format uefi
+cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --release --features limine
+cargo run -p builder -- kernel/target/aarch64-unknown-none/release/kernel --arch aarch64 --format uefi
 
-# 4. Arrancar con firmware UEFI EDK2 en QEMU AArch64:
+# 4. Arrancar con firmware UEFI EDK2 en QEMU AArch64 (par pflash: código + variables):
+cp /opt/homebrew/share/qemu/edk2-arm-vars.fd /tmp/antos-efivars.fd   # una vez
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
-  -bios QEMU_EFI.fd \
-  -drive format=raw,file=kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img \
+  -drive if=pflash,format=raw,readonly=on,file=/opt/homebrew/share/qemu/edk2-aarch64-code.fd \
+  -drive if=pflash,format=raw,file=/tmp/antos-efivars.fd \
+  -drive format=raw,file=kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img \
   -serial stdio
+# Con firmware los BAR quedan programados: añade
+#   -device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet -display cocoa
+# para escritorio gráfico con entrada USB xHCI. (En Linux/apt el firmware es 'QEMU_EFI.fd'.)
 ```
 
 #### B-bis. Matriz de periféricos y humo de entrada automatizado (T28.10)
@@ -261,20 +278,31 @@ consola serie con `input-rx:` (fallando si no llegan a tiempo).
 ./run.sh --test-input --kbd usb              # arranque headless + inyección de entrada
 
 # AArch64 — system/run-arm.sh (QEMU -M virt, arranque directo -kernel)
-system/run-arm.sh --gic 2 --kbd virtio --gpu virtio-mmio
-system/run-arm.sh --gic 3 --kbd usb    --gpu virtio-pci
-system/run-arm.sh --kbd virtio --gpu ramfb
+# Añade --release en Apple Silicon (emulación TCG); --gpu <no-none> abre ventana gráfica.
+system/run-arm.sh --release --gic 2 --kbd virtio --gpu virtio-mmio
+system/run-arm.sh --release --gic 3 --kbd virtio --gpu ramfb
+system/run-arm.sh --release --kbd virtio --gpu ramfb
 system/run-arm.sh --test-input --gic 3 --kbd virtio --gpu virtio-mmio
-system/run-arm.sh --uefi                     # arranque por imagen UEFI (Limine, --features limine)
+system/run-arm.sh --uefi --release           # imagen UEFI (Limine): habilita virtio-gpu-pci + USB xHCI
 ```
+
+> ℹ️ En **arranque directo `-kernel`** (todos los comandos salvo `--uefi`) los
+> dispositivos **PCIe** —`--kbd usb` (`qemu-xhci`) y `--gpu virtio-pci`
+> (`virtio-gpu-pci`)— se detectan pero se **omiten**: sin firmware nadie asigna
+> sus BAR (`pcie-xhci … BAR0 sin asignar · omitido`). Usa `--kbd virtio` /
+> `--gpu virtio-mmio`/`ramfb` en `-kernel`, o el arranque `--uefi` para la pila
+> PCIe completa.
 
 | Arch | `--kbd` | Dispositivos QEMU | `--gpu` | Dispositivos QEMU |
 | :--- | :--- | :--- | :--- | :--- |
 | x86_64  | `ps2` | *(i8042 implícito en `-machine pc`)* | `std` | `-vga std` |
 | x86_64  | `usb` | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` | `-vga none -device virtio-gpu-pci` |
 | aarch64 | `virtio` | `-device virtio-keyboard-device -device virtio-tablet-device` | `virtio-mmio` | `-device virtio-gpu-device` |
-| aarch64 | `usb` | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` | `-device virtio-gpu-pci` |
+| aarch64 | `usb` (¹) | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` (¹) | `-device virtio-gpu-pci` |
 | ambas   | —     | — | `ramfb` | `-device ramfb` (x86: `-vga none`) |
+
+(¹) En aarch64 sólo operativos con arranque **UEFI** (`--uefi`); en `-kernel`
+directo se omiten por BAR sin asignar.
 
 **Resultado esperado de `--test-input`:** el log serie contiene el banner de
 arranque (`antOS · kernel …`), las líneas de enumeración del periférico elegido
@@ -283,10 +311,14 @@ la inyección, `input-rx: primer evento recibido · total=N`. El *job*
 `peripheral-smoke` de `.github/workflows/ci.yml` ejecuta la matriz
 `aarch64 {virtio, usb} × {virtio-mmio, ramfb}` y `x86_64 {ps2, usb}`.
 
-> ⚠️ **VirtualBox ARM64** tiene limitaciones conocidas: la IRQ del *timer virtual*
+> ⚠️ **VirtualBox ARM64** (usa `--uefi --release`): arranca a `antos>` con
+> **GICv3 por ACPI MADT**, teclado **USB xHCI** y ratón operativos y cursor
+> rápido sobre el GOP crudo. Limitación permanente: la IRQ del *timer virtual*
 > (PPI 27) no se dispara — el kernel cae al *timer físico EL1* (PPI 30, T28.6) —
-> y el *event ring* de xHCI puede no entregar *Transfer Events* (`ev 0` en `info`,
-> T28.3). Usa VirtIO-Input en VirtualBox si es posible.
+> y el *event ring* de xHCI puede perder *Transfer Events* (`ev 0` en `info`,
+> T28.3; hay barrido PORTSC de reserva). El detalle y la lista de correcciones
+> están en [`guia-emulacion-utm-virtualbox.md`](guia-emulacion-utm-virtualbox.md)
+> §7.
 
 #### C. Opciones del CLI `builder`
 
@@ -309,39 +341,26 @@ UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitect
 
 > ⚠️ **Punto clave:** El kernel de antOS emite su telemetría y diagnósticos por el **puerto serie (UART PL011 en ARM64 / COM1 en x86_64)**. Para ver los mensajes del sistema en UTM es necesario tener habilitada la consola serie.
 
-###### Modo Directo (Kernel Boot - Recomendado para desarrollo):
-1. Abrir UTM y pulsar **Crear una nueva máquina virtual (+)**.
-2. Seleccionar **Virtualizar** (o *Emular* si estás en Intel y deseas ARM64) -> **Otro (Other)**.
-3. En la configuración de la máquina virtual (**Editar**):
-   * **Sistema:**
-     * **Arquitectura:** `ARM64 (aarch64)`.
-     * **Sistema:** `QEMU 7.x / 8.x / 9.x ARM Virtual Machine (virt)`.
-     * **Memoria RAM:** `512 MB` o `1024 MB`.
-   * **QEMU:**
-     * **Desmarcar** *"UEFI Boot"*.
-   * **Dispositivos:**
-     * Pulsar **Nuevo...** -> **Puerto serie** -> Modo: *Terminal / Emulado*.
-   * **Arranque / Kernel:**
-     * Seleccionar la ruta al binario compilado:
-       ```text
-       kernel/target/aarch64-unknown-none/debug/kernel
-       ```
-4. Iniciar la máquina virtual (Play). La pestaña de terminal mostrará el arranque de antOS en tiempo real.
+> ⚡ **Compila en `--release`** para UTM: emula con TCG y el binario `debug` no
+> llega ni al banner en 40 s. Genera los artefactos con
+> `system/run-arm.sh --release [--uefi] --build-only` (van a `…/release/`).
 
-###### Modo Imagen de Disco UEFI en UTM:
-1. Generar la imagen UEFI:
-   ```bash
-   cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
-   ```
-2. En UTM -> **Editar VM** -> **Unidades**:
-   * Pulsar **Nuevo...** -> **Imagen de disco**.
-   * **Interfaz:** `VirtIO` o `NVMe` (no CD/DVD).
-   * Importar el archivo:
-     ```text
-     kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img
-     ```
-3. En **Dispositivos**, añadir un **Puerto serie**.
-4. Iniciar la VM. Si ingresas a la UEFI Shell, escribe `map -r` y ejecuta `FS0:\EFI\BOOT\BOOTAA64.EFI`.
+Resumen de los dos métodos (pasos detallados y capturas en la
+[guía de emulación](guia-emulacion-utm-virtualbox.md) §4):
+
+* **Método A — Kernel directo (`-kernel`), bucle de desarrollo.** VM QEMU ARM64
+  `virt`, *UEFI Boot* **desmarcado**, un **Puerto serie** en modo *Terminal*.
+  UTM 4.5+ ya no tiene selector gráfico de kernel: en la pestaña **QEMU →
+  Argumentos** añade `-kernel` y la ruta a
+  `kernel/target/aarch64-unknown-none/release/kernel`. Salida **sólo por
+  serie**; los dispositivos PCIe (GPU, USB) se omiten sin firmware.
+* **Método B — Imagen de disco UEFI, recomendado para escritorio.** VM con
+  *UEFI Boot* **marcado**; importa
+  `kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img` como
+  unidad **VirtIO/NVMe** (no CD/DVD). Pantalla **`virtio-gpu-pci`**, entrada
+  **USB** (UTM adjunta `usb-kbd`+`usb-tablet` sobre `qemu-xhci`) y un **Puerto
+  serie** para el log. EDK2 programa los BAR, así que GPU y USB xHCI quedan
+  operativos. Si entras a la UEFI Shell: `FS0:` y `startup.nsh`.
 
 ---
 
@@ -350,20 +369,25 @@ UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitect
 ###### A. VirtualBox en macOS Apple Silicon (ARM64 / AArch64):
 VirtualBox en Mac M1/M2/M3/M4 **solo permite crear VMs ARM64** y requiere firmware UEFI ARM64 —
 por lo que también exige el kernel compilado con `--features limine` (T27.1). Sin ese flag verás
-`PANIC: elf: Lower half PHDRs are not allowed` nada más arrancar:
+`PANIC: elf: Lower half PHDRs are not allowed` nada más arrancar. **Compila en `--release`**
+(VirtualBox ARM64 no acelera el kernel; el `debug` es inutilizable):
 ```bash
-# 1. Compilar el kernel hablando el protocolo Limine, y generar el disco UEFI GPT para ARM64
-cargo build --target aarch64-unknown-none --manifest-path kernel/Cargo.toml --features limine
-cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
+# 1. Compilar (Limine, release) y generar el disco UEFI GPT para ARM64
+system/run-arm.sh --uefi --release --build-only
 
 # 2. Convertir la imagen RAW generada a disco virtual VDI nativo
-VBoxManage convertfromraw kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img antos-arm64.vdi --format VDI
+VBoxManage convertfromraw \
+  kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img \
+  antos-arm64.vdi --format VDI
 ```
 * **Configuración en VirtualBox:**
   - Tipo: `Linux` / `Other (ARM 64-bit)` con 2 CPUs y 1024 MB RAM.
   - Almacenamiento: Añadir `antos-arm64.vdi` como **Disco Duro** SATA/SCSI (no unidad óptica CD/DVD).
   - Puertos Serie: Activar **Puerto 1** (COM1) en modo *"Archivo sin formato"* (ej. `/tmp/antos-serial.log`) para capturar la salida UART PL011.
 * **Arranque:** En la UEFI Shell, escribe `map -r` y ejecuta `FS0:\EFI\BOOT\BOOTAA64.EFI` (o `startup.nsh`).
+* **Estado:** arranca a `antos>` con GICv3 (ACPI MADT), teclado **USB xHCI** y
+  ratón operativos y cursor rápido. Correcciones y limitaciones en la
+  [guía de emulación](guia-emulacion-utm-virtualbox.md) §7.
 
 ###### B. VirtualBox en PCs y Macs Intel (x86_64):
 ```bash
@@ -468,6 +492,66 @@ Sin `--features limine`, `antos-uefi-*.img` sigue conteniendo un kernel no apto 
 arranque por UEFI (VirtualBox, hardware físico, OVMF/EDK2) fallará con el mismo pánico — este
 flag **no** es necesario para `run.sh` (BIOS) ni para el arranque directo de QEMU AArch64
 (`-kernel`), que siguen funcionando exactamente igual que siempre.
+
+---
+
+#### G. Periféricos Nativos y Endurecimiento Runtime (Fase 28 y depuración en hipervisores)
+
+La Fase 28 (T28.1–T28.10) llevó los periféricos bare-metal a paridad entre
+arquitecturas, y una iteración posterior de depuración sobre **VirtualBox
+ARM64** y **UTM** endureció el arranque en emuladores reales.
+
+**Fase 28 — periféricos y firmware:**
+
+* **T28.1–T28.2** — VirtIO-Input MMIO robusto; mapeo PCIe ECAM/MMIO
+  multiplataforma con escaneo de puentes.
+* **T28.3–T28.4** — xHCI con *rings*/buffers por endpoint, *control transfers*
+  extendidas, *hotplug* y hubs; parser de HID Report Descriptor y decodificador
+  genérico dirigido por *usages*.
+* **T28.5** — ergonomía de entrada: LEDs de teclado, auto-repeat, layouts
+  US/ES, aceleración de puntero.
+* **T28.6** — timer AArch64 resiliente (fallback a físico EL1) y GIC v2/v3 con
+  enrutado de IRQ de periféricos.
+* **T28.7** — paridad de display: `virtio-gpu-pci`, `ramfb` y cadena de
+  *fallback* de framebuffer (GOP → DTB → virtio-gpu MMIO → virtio-gpu-pci →
+  ramfb).
+* **T28.8** — descubrimiento por firmware (DTB/ACPI) sin direcciones
+  *hardcodeadas*.
+* **T28.9** — periféricos x86_64: ratón PS/2 y pila USB xHCI.
+* **T28.10** — banco de pruebas de periféricos: `run.sh` / `system/run-arm.sh`
+  parametrizados (`--kbd`/`--gpu`/`--gic`), humo de inyección de entrada
+  (`--test-input`, `qemu-smoke.py`) y *job* `peripheral-smoke` en CI.
+
+**Depuración runtime sobre VirtualBox ARM64 / UTM (posterior a T28.10):**
+
+* **GICv3 por ACPI MADT.** VirtualBox ARM64 no expone un DTB alcanzable; el
+  kernel parsea ahora `RSDP → XSDT → MADT` y configura GICv3 con las bases
+  reales (`d=0xfcd3_0000`, `r=0xfcd4_0000`) antes de `gic::init()`. Antes se
+  quedaba en GICv2 y colgaba en `verificando fuente de temporizador…`.
+* **GICv3 sin firmware.** En `qemu -M virt,gic-version=3 -kernel` (sin DTB/ACPI)
+  el kernel sondea `GICC_IIDR` con recuperación de fallos y conmuta a GICv3 en
+  vez de hacer *panic* con un Data Abort sobre el bloque GICC inexistente.
+* **BAR PCIe sin asignar.** En arranque directo `-kernel` no hay asignador de
+  recursos PCI: los BAR de `qemu-xhci` / `virtio-gpu-pci` quedan a cero.
+  `decode_bar()` los trata como `PciBar::None` y el kernel omite el controlador
+  con un aviso (`pcie-xhci … BAR0 sin asignar · omitido`) en lugar de
+  desreferenciar un puntero nulo.
+* **Compositor sobre GOP crudo.** El cursor ya no deja «descuadre» ni va lento
+  en VirtualBox: `present_best` recompone por bandas de daño y `present_rows`
+  vuelca líneas de barrido completas (el *scanout* GOP Non-Cacheable no
+  reflejaba escrituras parciales estrechas).
+* **Teclado USB.** *Configure Endpoint* ya no pone a cero el *Root Hub Port*
+  del Slot Context; se alimentan (`PP`) todos los puertos raíz antes de
+  enumerar; el rol HID se clasifica por el *usage* de la colección
+  `Application` (un teclado se detectaba como ratón).
+* **Diagnósticos.** El *spam* de `input-rx:` se reduce a primer evento + una
+  línea cada 100; corregido un *deadlock* al re-tomar el lock de `CONSOLE`
+  dentro del log `fb-geom`.
+* **Tooling.** `system/run-arm.sh` abre ventana gráfica con `--gpu <≠none>` y
+  respeta `--release` (obligatorio en Apple Silicon por emulación TCG).
+
+> Guía práctica paso a paso (UTM y VirtualBox, con resolución de problemas):
+> [`guia-emulacion-utm-virtualbox.md`](guia-emulacion-utm-virtualbox.md).
 
 ---
 

@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/Tests-313%2F313%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-85%2F85%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-99%2F99%20(100%25%20Completado)-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 [![Guía UTM y VirtualBox](https://img.shields.io/badge/Gu%C3%ADa-UTM%20%26%20VirtualBox-blue.svg)](docs/guia-emulacion-utm-virtualbox.md)
 
@@ -557,6 +557,21 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 26** | [T26.3](docs/tickets/T26.3-controlador-de-entrada-virtio-input-teclado-y-raton.md) · Controlador de Entrada Nativo: VirtIO-Input, Teclado y Ratón | ✅ Completado |
 | **Fase 26** | [T26.4](docs/tickets/T26.4-cargador-de-ejecutables-elf64-y-sistema-de-ficheros-initramfs-tarfs.md) · Cargador de Ejecutables ELF64 y Sistema de Ficheros Initramfs Tarfs | ✅ Completado |
 | **Fase 26** | [T26.5](docs/tickets/T26.5-runtime-soberano-libantos-y-shell-interactivo-en-espacio-de-usuario.md) · Runtime Soberano `libantos` y Shell Interactivo en Espacio de Usuario | ✅ Completado |
+| **Fase 27** | [T27.1](docs/tickets/T27.1-soporte-real-del-protocolo-de-arranque-limine-en-el-kernel.md) · Soporte Real del Protocolo de Arranque Limine (Mitad Alta y Boot Requests) en el Kernel | ✅ Completado |
+| **Fase 27** | [T27.2](docs/tickets/T27.2-controlador-pcie-ecam-y-host-usb-xhci.md) · Controlador PCIe ECAM y Host Controller USB 3.0 xHCI | ✅ Completado |
+| **Fase 27** | [T27.3](docs/tickets/T27.3-pila-usb-y-subclase-hid-para-teclado-y-raton.md) · Pila USB y Subclase HID para Teclado y Ratón en Bare-Metal | ✅ Completado |
+| **Fase 27** | [T27.4](docs/tickets/T27.4-terminal-grafico-activo-en-compositor-y-multiplexacion.md) · Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio | ✅ Completado |
+| **Fase 28** | [T28.1](docs/tickets/T28.1-verificacion-y-robustez-del-driver-virtio-input-mmio.md) · Verificación y Robustez del Driver VirtIO-Input MMIO (Teclado/Ratón/Tablet Nativos) | ✅ Completado |
+| **Fase 28** | [T28.2](docs/tickets/T28.2-mapeo-pcie-ecam-mmio-multiplataforma-y-escaneo-de-bus-con-puentes.md) · Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes | ✅ Completado |
+| **Fase 28** | [T28.3](docs/tickets/T28.3-xhci-robusto-rings-por-endpoint-control-transfers-hotplug-y-hubs.md) · xHCI Robusto: Rings/Buffers por Endpoint, Control Transfers Extendidas, Hotplug y Hubs | ✅ Completado |
+| **Fase 28** | [T28.4](docs/tickets/T28.4-parser-de-hid-report-descriptor-y-decodificador-generico-por-usages.md) · Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages | ✅ Completado |
+| **Fase 28** | [T28.5](docs/tickets/T28.5-ergonomia-de-entrada-leds-auto-repeat-layouts-y-aceleracion-de-puntero.md) · Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero | ✅ Completado |
+| **Fase 28** | [T28.6](docs/tickets/T28.6-timer-aarch64-resiliente-y-gic-v2-v3-con-enrutado-de-irq-de-perifericos.md) · Timer AArch64 Resiliente (Fallback Físico EL1) y GIC v2/v3 con Enrutado de IRQ de Periféricos | ✅ Completado |
+| **Fase 28** | [T28.7](docs/tickets/T28.7-paridad-de-display-virtio-gpu-pci-ramfb-y-cadena-de-fallback-de-framebuffer.md) · Paridad de Display: virtio-gpu-pci, ramfb y Cadena de Fallback de Framebuffer | ✅ Completado |
+| **Fase 28** | [T28.8](docs/tickets/T28.8-descubrimiento-por-firmware-dtb-acpi-y-bring-up-sin-direcciones-hardcodeadas.md) · Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas | ✅ Completado |
+| **Fase 28** | [T28.9](docs/tickets/T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) · Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | ✅ Completado |
+| **Fase 28** | [T28.10](docs/tickets/T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) · Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | ✅ Completado |
+| **Runtime** | Endurecimiento de arranque en VirtualBox ARM64 y UTM: GICv3 por ACPI, BAR PCIe sin asignar, compositor sobre GOP crudo, teclado USB. Ver [`CHANGELOG.md`](CHANGELOG.md) y [`docs/guia-emulacion-utm-virtualbox.md`](docs/guia-emulacion-utm-virtualbox.md). | ✅ |
 
 
 ---

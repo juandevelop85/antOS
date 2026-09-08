@@ -306,13 +306,20 @@ compositor pinta el Desktop Shell sobre el framebuffer GOP de Limine.
 VirtualBox 7 en procesadores Apple Silicon (M1/M2/M3/M4) **solo virtualiza máquinas ARM64**, y utiliza obligatoriamente **firmware UEFI ARM64**.
 
 #### Paso 1: Convertir la Imagen RAW a Formato VDI
-VirtualBox no admite imágenes RAW `.img` directamente en su selector gráfico:
+VirtualBox no admite imágenes RAW `.img` directamente en su selector gráfico.
+
+> ⚡ **Compila en `--release`.** VirtualBox ARM64 no acelera el kernel de antOS;
+> el binario `debug` es demasiado lento para usarlo (se queda minutos antes del
+> banner). Todas las rutas de abajo usan `release/`.
+
 ```bash
-# 1. Asegurar la compilación y generación de la imagen
-cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
+# 1. Compilar (Limine) y generar la imagen UEFI optimizada
+system/run-arm.sh --uefi --release --build-only
 
 # 2. Convertir el disco GPT a disco virtual VDI nativo de VirtualBox
-VBoxManage convertfromraw kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img antos-arm64.vdi --format VDI
+VBoxManage convertfromraw \
+  kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img \
+  antos-arm64.vdi --format VDI
 ```
 *(Nota: Si ya habías ejecutado este comando antes, elimina el archivo anterior `rm -f antos-arm64.vdi` para evitar errores de UUID duplicado)*.
 
@@ -396,6 +403,24 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
   y vuelve a ejecutar la conversión.
 * **VirtualBox muestra pantalla negra en Mac ARM64:**  
   El kernel no pinta sobre la pantalla virtual en ARM64; utiliza la UART PL011. Configura el **Puerto serie en modo Archivo sin formato** (`/tmp/antos-serial.log`) y visualízalo con `tail -f /tmp/antos-serial.log`.
+* **Se abre un diálogo `DrvTCP#0` / el arranque se detiene en `verificando fuente de temporizador…`:**  
+  Síntoma del bug de GIC ya corregido: el kernel se quedaba en GICv2 porque no
+  encontraba el DTB de VirtualBox y el *timer* virtual nunca disparaba.
+  Actualiza a un binario que parsee **ACPI MADT** (imprime
+  `GICv3 … d=0xfcd3_0000` en el log). Si persiste, verifica que la VM expone
+  ACPI (EFI habilitado) y recompila desde `master`.
+* **El puntero deja un «escalón» de píxeles o va muy lento:**  
+  Corregido: el compositor pinta líneas de barrido completas por bandas sobre
+  el GOP crudo de VirtualBox. Si lo ves, tu binario es anterior al arreglo del
+  compositor; recompila.
+* **La pantalla se llena de líneas `input-rx: …`:**  
+  Corregido: ese diagnóstico ahora sólo emite el primer evento y luego una
+  línea cada 100. Recompila desde `master`.
+* **El teclado USB no escribe en el shell:**  
+  Corregido (alimentación de todos los puertos raíz + `Root Hub Port` en
+  *Configure Endpoint* + clasificación de rol HID por colección `Application`).
+  En el log debe aparecer `usb-debug slot N … role=Keyboard` y `roothub …`.
+  Como alternativa, añade dispositivos **VirtIO-Input** a la VM.
 
 ---
 
@@ -498,8 +523,41 @@ Comando exacto + resultado esperado por combinación. Los scripts parametrizados
 | **QEMU `-M virt` `-kernel` · dispositivos PCIe** | `system/run-arm.sh --kbd usb --gpu virtio-pci` | `pcie-xhci … BAR0 sin asignar · omitido`; `virtio-gpu-pci` cae a `modo headless` (sin pánico); salida por serie. Usar VirtIO-MMIO o el arranque UEFI. |
 | **UTM Método A (`-kernel`, `--release`)** | `system/run-arm.sh --release` (o el comando 4-A) | Serie PL011, MMU, timer 100 Hz, EL0 + syscalls. GICv2 o, con `gic-version=3` / autodetección, GICv3. GPU/USB PCIe omitidos. |
 | **UTM Método B (imagen UEFI, `--release`)** | `system/run-arm.sh --uefi --release` | GOP de Limine pinta el Desktop Shell; `virtio-gpu-pci` + entrada USB xHCI operativos; sin regresión frente a T27–T28.7. |
-| **VirtualBox ARM64** | Método 5.1 (VDI) | Arranca; usa **VirtIO-Input**. Ver limitaciones abajo. |
+| **VirtualBox ARM64** | Método 5.1 (VDI, `--release`) | Arranca a `antos>`; GICv3 por ACPI, teclado **USB xHCI** y ratón operativos, cursor rápido sobre GOP crudo. Ver notas abajo. |
 | **VirtualBox x86_64** | Método 5.2 (VDI BIOS) | Teclado y ratón **PS/2**; xHCI opcional si añades un controlador USB 3.0 a la VM. |
+
+### Resuelto en VirtualBox ARM64 (iteración de depuración runtime)
+
+Tras probar antOS sobre VirtualBox 7 ARM64 se corrigieron, con confirmación en
+la VM real:
+
+* **GICv3 no se seleccionaba.** VirtualBox ARM64 no expone un DTB alcanzable
+  pero sí ACPI. El kernel ahora parsea **MADT** (`RSDP → XSDT → MADT`,
+  `parse_madt_gic`) y llama a `gic::set_version(V3, gicd, gicr)` con las bases
+  reales (`d=0xfcd3_0000`, `r=0xfcd4_0000`) antes de `gic::init()`. Antes se
+  quedaba en GICv2 y el timer virtual no llegaba nunca (colgado en
+  `verificando fuente de temporizador…`).
+* **El puntero subía unos píxeles / dejaba «descuadre».** El *scanout* del GOP
+  crudo de VirtualBox (Non-Cacheable, sin canal de *flush*) no reflejaba
+  escrituras parciales estrechas. El compositor pinta ahora **líneas de barrido
+  completas** por bandas de daño (`present_rows`) en vez de rectángulos
+  angostos, y el estado del cursor se refresca sólo cada ~25 *ticks*.
+* **El puntero iba lento.** La ruta rápida `present_best` recompone sólo 3
+  bandas (barra de estado + cursor previo + cursor actual), las fusiona y hace
+  *full redraw* únicamente si tocan ≥ 2/3 de la pantalla.
+* **El teclado USB no funcionaba.** Dos causas: (1) el *Configure Endpoint*
+  ponía a cero el *Root Hub Port Number* del Slot Context — se restaura con
+  `set_port_info(root_port)`; (2) el teclado colgaba de un puerto sin
+  alimentar — ahora se activa `PP` en todos los puertos raíz antes de
+  enumerar. Además el rol HID se clasifica por el *usage* de la colección
+  `Application`, no por el primer *usage* suelto (un teclado se detectaba como
+  ratón).
+* **Spam de `input-rx:` en pantalla.** El diagnóstico de recepción de eventos
+  sólo imprime el primer evento y luego, si el escritorio no está activo, una
+  línea cada 100 eventos.
+* **Deadlock tras `framebuffer UEFI (GOP) activo`.** El log `fb-geom`
+  re-tomaba el lock de `CONSOLE` dentro de `println!`; ahora toma una
+  instantánea de la geometría, suelta el lock y luego imprime.
 
 ### Limitaciones conocidas de VirtualBox ARM64 (permanente)
 
@@ -508,11 +566,12 @@ Comando exacto + resultado esperado por combinación. Los scripts parametrizados
   físico EL1** (PPI 30, `CNTP_*`); `uptime_ticks` incrementa a partir de ahí.
 * **xHCI *event ring*:** el modelo xHCI de VirtualBox puede no volver a colocar
   *Transfer Events* tras el primero (`ev 0` en `info`, T28.3). `update_erdp`
-  limpia `IMAN.IP` en cada avance del *dequeue pointer* para mitigarlo; aun así,
-  **prefiere VirtIO-Input** en VirtualBox.
-* **GIC:** VirtualBox ARM64 expone GICv3; el kernel lo selecciona por el
-  `compatible` del DTB (T28.6/T28.8). Si su DTB no es alcanzable, cae a GICv2 y
-  el *timer* físico compensa.
+  limpia `IMAN.IP` en cada avance del *dequeue pointer* y hay un barrido
+  PORTSC de reserva para el *hotplug*; el teclado USB funciona, pero si ves
+  eventos perdidos prueba VirtIO-Input.
+* **Rendimiento:** VirtualBox ARM64 no acelera el kernel de antOS; **compila en
+  `--release`** (`system/run-arm.sh --uefi --release`), el `debug` es
+  inutilizable.
 
 ### Notas de UTM / QEMU en Apple Silicon
 

@@ -5,9 +5,9 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 ---
 
-## [No Publicado] · Fases 15-26
+## [No Publicado] · Fases 15-28
 
-Desarrollo posterior al lanzamiento v0.1.0: instalación en disco físico y dual-boot, virtualización con microVMs, gestor de paquetes inmutable `antpkg`, modo agente autónomo, aislamiento multi-proyecto en el workspace, portado completo del kernel a AArch64 (ARM 64-bit), ecosistema multi-LLM, entorno de desarrollo TUI integrado, benchmarking e integración con forjas Git, modularización interna y CI/CD multiplataforma, un kernel `x86_64` con multitarea preemptiva real, y finalmente un **escritorio nativo bare-metal** con compositor 2D, gestión de aplicaciones gráficas (Flatpak/XDG) y un **runtime y shell de espacio de usuario soberanos** (`libantos` / `antos-init`) que arrancan como PID 1 sin `glibc`/`musl`. 51 tickets técnicos adicionales, todos completados al 100% (ver el backlog íntegro en [`docs/tickets/README.md`](docs/tickets/README.md)).
+Desarrollo posterior al lanzamiento v0.1.0: instalación en disco físico y dual-boot, virtualización con microVMs, gestor de paquetes inmutable `antpkg`, modo agente autónomo, aislamiento multi-proyecto en el workspace, portado completo del kernel a AArch64 (ARM 64-bit), ecosistema multi-LLM, entorno de desarrollo TUI integrado, benchmarking e integración con forjas Git, modularización interna y CI/CD multiplataforma, un kernel `x86_64` con multitarea preemptiva real, un **escritorio nativo bare-metal** con compositor 2D, gestión de aplicaciones gráficas (Flatpak/XDG) y un **runtime y shell de espacio de usuario soberanos** (`libantos` / `antos-init`) que arrancan como PID 1 sin `glibc`/`musl`; y, en las Fases 27-28, **arranque Limine real por UEFI**, **pila PCIe/USB xHCI y HID bare-metal**, **periféricos nativos a paridad entre x86_64 y AArch64** (VirtIO-Input, GIC v2/v3, timer resiliente, `virtio-gpu-pci`/`ramfb`, descubrimiento por DTB/ACPI) más una iteración de **endurecimiento runtime** que hace arrancar a antOS en **VirtualBox ARM64** y **UTM** hasta el shell interactivo. 65 tickets técnicos adicionales, todos completados al 100% (ver el backlog íntegro en [`docs/tickets/README.md`](docs/tickets/README.md)).
 
 #### 🔹 Fase 15: Instalación en Disco Completo y Dual Boot UEFI
 - **[T15.1] Motor de Inspección de Almacenamiento y Particionador GPT:** Descubrimiento y diagnóstico tipado de discos físicos y virtuales (NVMe, SATA/SSD, virtio) y particionamiento GPT seguro.
@@ -109,6 +109,34 @@ Desarrollo posterior al lanzamiento v0.1.0: instalación en disco físico y dual
 - **[T26.3] Controlador de Entrada Nativo: VirtIO-Input, Teclado y Ratón:** Cola de eventos de entrada tipados compartida entre el driver PS/2 (x86_64) y VirtIO-Input (AArch64).
 - **[T26.4] Cargador de Ejecutables ELF64 y Sistema de Ficheros Initramfs Tarfs:** El kernel carga ejecutables ELF64 de usuario desde un `tarfs` montado sobre el `initrd.tar` embebido.
 - **[T26.5] Runtime Soberano `libantos` y Shell Interactivo en Espacio de Usuario:** Biblioteca de runtime sin `glibc`/`musl` (asignador sobre `SYS_MMAP`, IPC por canales, `print!`/`println!`/`read_line`) y el shell interactivo `antos-init` (PID 1, comandos `help`/`info`/`ls`/`cat`/`desktop`/`agent`).
+
+#### 🔹 Fase 27: Arranque Limine Real, PCIe/USB Bare-Metal y Terminal Gráfico Activo
+- **[T27.1] Soporte Real del Protocolo de Arranque Limine (Mitad Alta y Boot Requests) en el Kernel:** El kernel habla el protocolo Limine (enlace en mitad alta, `HHDM`, `memmap`, `framebuffer`, `module`), de modo que `antos-uefi-*.img` arranca por UEFI real (VirtualBox, EDK2, hardware) sin `PANIC: elf: Lower half PHDRs are not allowed`.
+- **[T27.2] Controlador PCIe ECAM y Host Controller USB 3.0 xHCI:** Descubrimiento de la ventana ECAM (DTB/ACPI MCFG), escaneo de bus con puentes y bring-up de un controlador xHCI (anillos de comandos/eventos, DCBAA, *slots*).
+- **[T27.3] Pila USB y Subclase HID para Teclado y Ratón en Bare-Metal:** Enumeración de dispositivos USB, `GET_DESCRIPTOR`/`SET_CONFIGURATION`, *Address Device*/*Configure Endpoint* y decodificadores HID Boot Protocol para teclado y ratón.
+- **[T27.4] Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio:** La ventana de terminal del compositor pasa a ser interactiva y multiplexa el shell soberano con el escritorio nativo.
+
+#### 🔹 Fase 28: Periféricos Nativos a Paridad entre Arquitecturas y Descubrimiento por Firmware
+- **[T28.1] Verificación y Robustez del Driver VirtIO-Input MMIO:** Teclado, ratón y tablet nativos sobre el bus `virtio-mmio` de `-M virt`, con reintentos y validación de colas.
+- **[T28.2] Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes:** ECAM configurable por firmware (QEMU `virt`, VirtualBox) y recorrido de puentes PCI-a-PCI con protección contra bucles.
+- **[T28.3] xHCI Robusto: Rings/Buffers por Endpoint, Control Transfers Extendidas, Hotplug y Hubs:** Un anillo y buffer DMA por endpoint, transferencias de control largas, *hotplug* por eventos + barrido PORTSC de reserva y soporte de hubs.
+- **[T28.4] Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages:** Análisis del Report Descriptor y decodificación por *usages*; el rol (teclado/ratón) se deriva del *usage* de la colección `Application`.
+- **[T28.5] Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero:** `SET_REPORT` para LEDs, auto-repetición, layouts US/ES y curva de aceleración del puntero (`INPUT_SETTINGS`).
+- **[T28.6] Timer AArch64 Resiliente (Fallback Físico EL1) y GIC v2/v3 con Enrutado de IRQ de Periféricos:** Verificación del *timer* virtual y caída automática al físico EL1; driver GIC unificado v2 (GICC MMIO) y v3 (redistribuidor + `ICC_*_EL1`).
+- **[T28.7] Paridad de Display: virtio-gpu-pci, ramfb y Cadena de Fallback de Framebuffer:** Cadena GOP → DTB → virtio-gpu MMIO → virtio-gpu-pci → ramfb, con *flush* explícito por rectángulo donde el transporte lo permite.
+- **[T28.8] Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas:** Parser FDT/DTB genérico y ACPI (`RSDP → XSDT → MCFG/MADT`); las bases de GIC, ECAM y framebuffer se leen del firmware.
+- **[T28.9] Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64:** Máquina de estados del ratón PS/2 (i8042) y la misma pila xHCI/HID compartida con AArch64.
+- **[T28.10] Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada:** `run.sh` / `system/run-arm.sh` parametrizados (`--kbd`/`--gpu`/`--gic`), humo de inyección de entrada (`--test-input`, `system/qemu-smoke.py`) y *job* `peripheral-smoke` en CI.
+
+#### 🔹 Endurecimiento Runtime: antOS sobre VirtualBox ARM64 y UTM (posterior a Fase 28)
+Iteración de depuración ejecutando antOS en hipervisores reales de macOS. Todas las correcciones verificadas en la VM.
+- **GICv3 por ACPI en VirtualBox ARM64:** VirtualBox no expone un DTB alcanzable; el kernel parsea MADT y configura GICv3 con las bases reales (`d=0xfcd3_0000`, `r=0xfcd4_0000`) antes de `gic::init()`. Antes se quedaba en GICv2 y colgaba en `verificando fuente de temporizador…`.
+- **GICv3 sin firmware (`qemu -M virt,gic-version=3 -kernel`):** al no haber DTB/ACPI, el kernel sondea `GICC_IIDR` con recuperación de fallos y conmuta a `init_v3()` en lugar de hacer *panic* con un Data Abort sobre el bloque GICC inexistente.
+- **BAR PCIe sin asignar en arranque directo:** `-kernel` sin firmware no asigna ventanas a los BAR; `decode_bar()` trata un BAR de memoria con dirección cero como `PciBar::None` y el kernel omite el controlador con un aviso (`pcie-xhci … BAR0 sin asignar · omitido`) en vez de desreferenciar un puntero nulo.
+- **Compositor sobre framebuffer GOP crudo:** el cursor ya no deja «descuadre» ni va lento en VirtualBox — `present_best` recompone por bandas de daño y `present_rows` vuelca líneas de barrido completas (el *scanout* GOP Non-Cacheable no reflejaba escrituras parciales estrechas).
+- **Teclado USB en VirtualBox:** *Configure Endpoint* deja de poner a cero el *Root Hub Port Number* del Slot Context; se alimentan (`PP`) todos los puertos raíz antes de enumerar; el rol HID se clasifica por la colección `Application` (un teclado se detectaba como ratón).
+- **Diagnósticos y estabilidad:** el *spam* de `input-rx:` se reduce a primer evento + una línea cada 100; corregido un *deadlock* al re-tomar el lock de `CONSOLE` dentro del log `fb-geom`.
+- **Tooling:** `system/run-arm.sh` abre ventana gráfica con `--gpu <≠none>` y respeta `--release` (obligatorio en Apple Silicon: UTM/VirtualBox emulan el kernel con TCG). Guía de emulación (UTM/VirtualBox/QEMU) revisada de arriba abajo.
 
 ---
 
