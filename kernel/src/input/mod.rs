@@ -466,16 +466,25 @@ static RX_REPORT_TOTAL: core::sync::atomic::AtomicU64 = core::sync::atomic::Atom
 /// running total grows, so a headless smoke test (T28.10) can confirm the
 /// kernel received injected keystrokes / mouse motion. Cheap no-op otherwise.
 pub fn poll_rx_report() {
+    // Once the graphical desktop owns the framebuffer, any `println!` corrupts
+    // it — and a moving pointer would flood the log with one line per event.
+    // So: announce the very first event (enough for the T28.10 smoke test to
+    // detect input), then stay silent unless we are still on the text console,
+    // where a coarse every-100-events heartbeat is harmless.
     let total = queue::total_events();
     let prev = RX_REPORT_TOTAL.swap(total, Ordering::Relaxed);
-    if total > prev {
-        // `RX_REPORT_LAST` just tracks "have we ever reported" for a nicer first line.
-        let first = RX_REPORT_LAST.swap(1, Ordering::Relaxed) == 0;
-        if first {
-            crate::println!("input-rx: primer evento recibido · total={}", total);
-        } else {
-            crate::println!("input-rx: total={}", total);
-        }
+    if total <= prev {
+        return;
+    }
+    let first = RX_REPORT_LAST.swap(1, Ordering::Relaxed) == 0;
+    if first {
+        crate::println!("input-rx: primer evento recibido · total={}", total);
+        return;
+    }
+    if !crate::ui::compositor::is_desktop_active()
+        && total / 100 != prev / 100
+    {
+        crate::println!("input-rx: total={}", total);
     }
 }
 
