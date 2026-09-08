@@ -751,6 +751,33 @@ impl XhciController {
     /// Enumerates all connected RootHub ports, addressing every device and
     /// configuring its HID endpoints (recursing through any USB hub).
     pub fn enumerate_connected_ports(&mut self) {
+        // Power every root port first — a device on an unpowered port reads
+        // CCS = 0, so without this a keyboard on a port the controller left
+        // unpowered would be invisible.
+        for port in 1..=self.params.max_ports {
+            let sc = self.registers.read_portsc(port);
+            if (sc & portsc::PP) == 0 {
+                self.registers.write_portsc(port, sc | portsc::PP);
+            }
+        }
+        delay_ms(20);
+
+        // Diagnostics: raw PORTSC of every root port.
+        for port in 1..=self.params.max_ports {
+            let sc = self.registers.read_portsc(port);
+            if sc != 0 {
+                crate::println!(
+                    "    usb-debug  portsc[{}]={:#010x} ccs={} ped={} pp={} pr={} spd={}",
+                    port, sc,
+                    (sc & portsc::CCS != 0) as u8,
+                    (sc & portsc::PED != 0) as u8,
+                    (sc & portsc::PP != 0) as u8,
+                    (sc & portsc::PR != 0) as u8,
+                    (sc >> portsc::SPEED_SHIFT) & portsc::SPEED_MASK,
+                );
+            }
+        }
+
         let ports = self.inspect_ports();
         for p in ports {
             if p.connected {
