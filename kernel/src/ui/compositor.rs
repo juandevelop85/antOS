@@ -336,39 +336,51 @@ impl DesktopCompositor {
         let screen_h = fb.height() as u32;
         let cursor_now = self.cursor.bounds();
         let swept = self.last_cursor_bounds.union(&cursor_now);
+        const STATUS_H: u32 = 28;
 
-        // Grow the damage a couple of pixels each way (the sprite has a 1px
-        // outline) and staple on the status-bar band so the clock still ticks.
-        let damage = Rect::new(
-            (swept.x - 2).max(0),
-            0,
-            (swept.width + 4).min(screen_w),
-            (swept.bottom() as u32 + 2).min(screen_h),
-        );
+        // The two horizontal bands that actually change on a pointer move: the
+        // status bar (its clock) and the rows the cursor swept (a little slack
+        // for the 1px sprite outline).
+        let cur_top = (swept.y - 3).max(0) as u32;
+        let cur_bot = (swept.bottom() as u32 + 3).min(screen_h);
+        let swept_rows = cur_bot.saturating_sub(cur_top);
+        let total_rows = STATUS_H + swept_rows;
 
-        let full_area = (screen_w as u64) * (screen_h as u64);
-        let damage_area = (damage.width as u64) * (damage.height as u64);
-        // The cursor-damage fast path writes a partial region straight into the
-        // framebuffer. That is reliable only when a GPU transport (VirtIO-GPU
-        // MMIO/PCIe) then flushes the exact rectangle to the host. On a raw
-        // memory-mapped GOP/ramfb scanout — VirtualBox in particular — partial
-        // writes to the Non-Cacheable framebuffer smear the cursor trail a few
-        // pixels; there a full-frame present is the only exact option.
-        let has_gpu_flush = raw_framebuffer_has_gpu_transport();
-        let must_full = self.full_redraw_pending
-            || !has_gpu_flush
-            || damage_area * 2 >= full_area;
-
+        let must_full =
+            self.full_redraw_pending || total_rows * 3 >= screen_h.max(1) * 2;
         if must_full {
             self.render_to_framebuffer(fb, heap_used, heap_total, ticks);
             return;
         }
 
         let mut surface = Surface::new_desktop(screen_w, screen_h);
-        surface.set_clip(damage);
-        self.render(&mut surface, heap_used, heap_total, ticks);
-        surface.reset_clip();
-        surface.present_rect(fb, damage);
+
+        if raw_framebuffer_has_gpu_transport() {
+            // Narrow-span damage: fast and exact, and the GPU transport flushes
+            // the precise rectangle to the host.
+            let damage = Rect::new(
+                (swept.x - 2).max(0),
+                0,
+                (swept.width + 4).min(screen_w),
+                cur_bot,
+            );
+            surface.set_clip(damage);
+            self.render(&mut surface, heap_used, heap_total, ticks);
+            surface.reset_clip();
+            surface.present_rect(fb, damage);
+        } else {
+            // Raw GOP/ramfb scanout (VirtualBox): narrow partial writes are not
+            // reflected, but whole scanlines are. Composite and present the
+            // status-bar band and the cursor band separately, each as complete
+            // rows, so a pointer move never repaints the whole screen.
+            surface.set_clip(Rect::new(0, 0, screen_w, STATUS_H));
+            self.render(&mut surface, heap_used, heap_total, ticks);
+            surface.set_clip(Rect::new(0, cur_top as i32, screen_w, swept_rows));
+            self.render(&mut surface, heap_used, heap_total, ticks);
+            surface.reset_clip();
+            surface.present_rows(fb, 0, STATUS_H as usize);
+            surface.present_rows(fb, cur_top as usize, cur_bot as usize);
+        }
         self.last_cursor_bounds = cursor_now;
     }
 }

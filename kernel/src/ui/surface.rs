@@ -226,6 +226,28 @@ impl Surface {
         crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, copy_w, copy_h);
     }
 
+    /// Presents whole scanlines `y0..y1` (full framebuffer width). Cheaper than
+    /// [`Self::present`] when only a horizontal band changed, and — unlike
+    /// [`Self::present_rect`]'s narrow spans — it writes complete rows, which a
+    /// raw memory-mapped GOP scanout (VirtualBox) reflects reliably.
+    pub fn present_rows(&self, fb: &mut Framebuffer, y0: usize, y1: usize) {
+        let copy_w = self.width.min(fb.width() as u32) as usize;
+        let last = y1.min(self.height as usize).min(fb.height());
+        let stride = self.stride as usize;
+
+        for y in y0..last {
+            let src_row = y * stride;
+            let row = unsafe { core::slice::from_raw_parts(self.buffer.add(src_row), copy_w) };
+            fb.blit_argb8888_row(y, row);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            unsafe { core::arch::asm!("dsb sy", options(nomem, nostack)) };
+            crate::arch::aarch64::virtio_gpu::flush_screen(0, y0, copy_w, last.saturating_sub(y0));
+        }
+    }
+
     /// Presents only the pixels inside `rect` (clamped to both buffers). Used by
     /// the compositor's cursor-move fast path so a pointer motion repaints a
     /// ~30x40 px damage region instead of the whole screen.
