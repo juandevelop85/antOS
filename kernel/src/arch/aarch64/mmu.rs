@@ -22,6 +22,55 @@ impl PageTable {
 static mut L0_TABLE: PageTable = PageTable::empty();
 static mut L1_TABLE: PageTable = PageTable::empty();
 static mut L2_TABLE_PERIPHERALS: PageTable = PageTable::empty();
+/// L1 table for the 512 GiB..1024 GiB half of the address space, reached via
+/// `L0_TABLE[1]`. Only needed for the QEMU `-M virt` high PCIe MMIO window
+/// (`0x80_0000_0000`), where 64-bit device BARs land (T28.2).
+static mut L1_TABLE_HIGH: PageTable = PageTable::empty();
+
+/// Fills the `0x1000_0000..0x4000_0000` range of `L2_TABLE_PERIPHERALS` with
+/// 2 MiB Device blocks. On the QEMU/UTM `virt` machine this window holds the
+/// PCIe 32-bit MMIO BAR area (`0x1000_0000..0x3eff_0000`), the PCIe ECAM
+/// configuration space (`0x3f00_0000`, 16 MiB, buses 0..=15) and the fw_cfg
+/// block — none of which the kernel mapped before, so `scan_pci_bus` faulted
+/// on `virt` and no xHCI was ever found (T28.2). Indices 2/64/72/80 (user
+/// window, GIC, PL011, VirtIO-MMIO) sit below `0x1000_0000` and are untouched.
+///
+/// # Safety
+/// Must run with `L2_TABLE_PERIPHERALS` still owned exclusively by the boot
+/// path (before the MMU is handed off to the rest of the kernel).
+unsafe fn map_pcie_window() {
+    let mut idx = (0x1000_0000u64 / 0x20_0000) as usize; // 128
+    while idx < 512 {
+        L2_TABLE_PERIPHERALS.entries[idx] = ((idx as u64) * 0x20_0000) | DEVICE_BLOCK_FLAGS;
+        idx += 1;
+    }
+
+    // High PCIe ECAM window: modern QEMU `-M virt` defaults `highmem-ecam` on
+    // for 64-bit guests and puts the ECAM at 0x40_1000_0000 (buses 0..=255),
+    // not the legacy 0x3f00_0000 window. Map the 1 GiB L1 block that contains
+    // it (0x40_0000_0000..0x40_4000_0000, also covers the high GIC redist).
+    // L0[0] -> L1_TABLE spans 0..512 GiB, so index 256 == 256 GiB is in range.
+    L1_TABLE.entries[256] = 0x40_0000_0000 | DEVICE_BLOCK_FLAGS;
+}
+
+/// Installs `L0_TABLE[1]` -> `L1_TABLE_HIGH` and maps the bottom 2 GiB of the
+/// QEMU `-M virt` high PCIe MMIO window (`0x80_0000_0000..0x80_8000_0000`) as
+/// Device memory. 64-bit device BARs (the `qemu-xhci` controller among them)
+/// are allocated from the bottom of this window, and touching an unmapped
+/// register there is exactly the Data Abort at `0x80_0000_8000` that T28.2
+/// chases. `l0_table_phys` is the physical address of `L0_TABLE` (equal to its
+/// virtual address on the direct-boot path, slid on the Limine path).
+///
+/// # Safety
+/// Same contract as [`map_pcie_window`]: boot-path exclusive access to the
+/// static tables.
+unsafe fn map_high_pcie_mmio(l1_high_phys: u64) {
+    L0_TABLE.entries[1] = l1_high_phys | DESC_TABLE;
+    // 0x80_0000_0000 is exactly 512 GiB, i.e. index 0 of the 512..1024 GiB
+    // half; map the first two 1 GiB blocks.
+    L1_TABLE_HIGH.entries[0] = 0x80_0000_0000 | DEVICE_BLOCK_FLAGS;
+    L1_TABLE_HIGH.entries[1] = 0x80_4000_0000 | DEVICE_BLOCK_FLAGS;
+}
 
 // Descriptor bitfields
 const DESC_TABLE: u64 = 0b11;
@@ -118,6 +167,10 @@ pub fn init() {
 
         // VirtIO MMIO at 0x0a00_0000..0x0a20_0000 (Index 80 = 0x0a00_0000 / 2MiB)
         L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
+
+        // PCIe MMIO32 + ECAM window for QEMU/UTM `virt` (T28.2).
+        map_pcie_window();
+        map_high_pcie_mmio(core::ptr::addr_of!(L1_TABLE_HIGH) as u64);
 
         // 2. Configure MAIR_EL1:
         // Attr 0: 0xFF = Normal Memory Write-Back (preserves Limine TTBR1 mappings)
@@ -250,6 +303,10 @@ pub fn init_ttbr0_under_limine() {
         L2_TABLE_PERIPHERALS.entries[64] = 0x0800_0000 | DEVICE_BLOCK_FLAGS;
         L2_TABLE_PERIPHERALS.entries[72] = 0x0900_0000 | DEVICE_BLOCK_FLAGS;
         L2_TABLE_PERIPHERALS.entries[80] = 0x0a00_0000 | DEVICE_BLOCK_FLAGS;
+
+        // PCIe MMIO32 + ECAM window for QEMU/UTM `virt` (T28.2).
+        map_pcie_window();
+        map_high_pcie_mmio(slide_virtual_to_physical(core::ptr::addr_of!(L1_TABLE_HIGH) as u64));
 
         let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));

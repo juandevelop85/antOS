@@ -135,6 +135,10 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     arch::aarch64::SERIAL.lock().init();
 
+    // Stash the firmware device-tree pointer for later discovery helpers
+    // (e.g. pci::probe_ecam_base -> dtb::find_pcie_ecam, T28.2).
+    arch::aarch64::dtb::set_dtb_base(dtb_ptr);
+
     println!();
     println!("antOS · kernel AArch64");
     println!("═══════════════════════");
@@ -290,7 +294,15 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         println!("  virtio-input no detectado (probando PCIe xHCI y consola serie)");
     }
 
-    // Inicializar bus PCIe y controlador host USB 3.0 xHCI (T27.2)
+    // Inicializar bus PCIe y controlador host USB 3.0 xHCI (T27.2 / T28.2)
+    let ecam_base = drivers::pci::probe_ecam_base();
+    let pci_scan = drivers::pci::scan_pci_bus();
+    println!("  pcie-ecam    ventana ECAM en {:#x} · {} función(es) PCI detectadas",
+        ecam_base, pci_scan.len());
+    for d in &pci_scan {
+        println!("    pci  {:02x}:{:02x}.{}  {:04x}:{:04x}  clase {:02x}:{:02x}:{:02x}",
+            d.bus, d.slot, d.func, d.vendor_id, d.device_id, d.class, d.subclass, d.prog_if);
+    }
     drivers::usb::init();
     if let Some(xhci) = drivers::usb::XHCI.lock().as_ref() {
         println!("  pcie-xhci    controlador USB 3.0 activo en bus {} dev {} fn {}",

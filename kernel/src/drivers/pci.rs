@@ -14,8 +14,14 @@ const PCI_CONFIG_DATA: u16 = 0xCFC;
 
 /// VirtualBox 7 Apple Silicon PCIe ECAM MMIO window base
 pub const VBOX_ECAM_BASE: usize = 0xfedd_c000;
-/// QEMU `virt` PCIe ECAM MMIO window base
+/// QEMU / UTM `virt` legacy PCIe ECAM window (used only with `highmem-ecam=off`).
 pub const QEMU_ECAM_BASE: usize = 0x3f00_0000;
+/// QEMU / UTM `virt` legacy ECAM window size: 16 MiB, buses 0..=15.
+pub const QEMU_ECAM_SIZE: usize = 0x0100_0000;
+/// QEMU / UTM `virt` high PCIe ECAM window — the default for 64-bit guests
+/// (`highmem-ecam` on): 256 MiB at 0x40_1000_0000, buses 0..=255. Mapped by
+/// `mmu::map_pcie_window` (T28.2).
+pub const QEMU_HIGH_ECAM_BASE: usize = 0x40_1000_0000;
 
 /// Calculates the PCIe ECAM memory-mapped offset for a given bus, slot, function, and register offset.
 #[inline]
@@ -30,22 +36,55 @@ pub fn ecam_offset(bus: u8, slot: u8, func: u8, offset: u8) -> usize {
 static ACTIVE_ECAM_BASE: core::sync::atomic::AtomicUsize =
     core::sync::atomic::AtomicUsize::new(VBOX_ECAM_BASE);
 
+/// Reads the vendor id at `bus 0 / dev 0 / func 0` of the ECAM window at
+/// `base` through the fault-tolerant probe, returning it only if the window
+/// is both mapped and answered by a real host bridge. This is how the kernel
+/// tells "mapped, nothing there" (probe returns `0xFFFF`) from "not mapped"
+/// (probe returns `None` after swallowing the translation fault) apart.
+#[cfg(target_arch = "aarch64")]
+fn ecam_window_answers(base: usize) -> bool {
+    match crate::arch::aarch64::exceptions::safe_probe_read_u32(base) {
+        Some(word) => {
+            let vendor = word & 0xFFFF;
+            vendor != 0xFFFF && vendor != 0
+        }
+        None => false,
+    }
+}
+
+/// Discovers the active PCIe ECAM configuration window and latches it for
+/// `read_config_*` to use. Order of preference:
+///   1. the `pci-host-ecam-generic` node in the device tree, if the firmware
+///      handed one over (QEMU/UTM `virt`);
+///   2. the fixed VirtualBox 7 Apple Silicon window (`0xfedd_c000`);
+///   3. the fixed QEMU/UTM `virt` windows — the `highmem-ecam` window at
+///      `0x40_1000_0000` first, then the legacy `0x3f00_0000` one — now that
+///      `mmu::map_pcie_window` maps both (T28.2).
+///
+/// Each candidate is verified with [`ecam_window_answers`] before it is
+/// accepted, so a wrong guess never wedges `scan_pci_bus`.
 #[cfg(target_arch = "aarch64")]
 pub fn probe_ecam_base() -> usize {
-    // VBOX_ECAM_BASE only exists as real hardware under VirtualBox; reading
-    // it on QEMU raises a synchronous external abort (nothing answers the
-    // bus there), and it may not even be mapped in every page-table setup.
-    // Use the fault-tolerant probe instead of a raw read_volatile (T27.2 /
-    // VirtualBox-vs-QEMU hardware discovery, see docs/tickets/T27.1 y T27.2).
-    if let Some(word) = crate::arch::aarch64::exceptions::safe_probe_read_u32(VBOX_ECAM_BASE) {
-        let vbox_vendor = word & 0xFFFF;
-        if vbox_vendor != 0xFFFF && vbox_vendor != 0 {
-            ACTIVE_ECAM_BASE.store(VBOX_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
-            return VBOX_ECAM_BASE;
+    use core::sync::atomic::Ordering;
+
+    if let Some((dt_base, _bus_lo, _bus_hi)) = crate::arch::aarch64::dtb::find_pcie_ecam() {
+        let dt_base = dt_base as usize;
+        if ecam_window_answers(dt_base) {
+            ACTIVE_ECAM_BASE.store(dt_base, Ordering::Relaxed);
+            return dt_base;
         }
     }
-    ACTIVE_ECAM_BASE.store(QEMU_ECAM_BASE, core::sync::atomic::Ordering::Relaxed);
-    QEMU_ECAM_BASE
+
+    for candidate in [VBOX_ECAM_BASE, QEMU_HIGH_ECAM_BASE, QEMU_ECAM_BASE] {
+        if ecam_window_answers(candidate) {
+            ACTIVE_ECAM_BASE.store(candidate, Ordering::Relaxed);
+            return candidate;
+        }
+    }
+
+    // Nothing answered anywhere; leave a sane default latched.
+    ACTIVE_ECAM_BASE.store(QEMU_HIGH_ECAM_BASE, Ordering::Relaxed);
+    QEMU_HIGH_ECAM_BASE
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -71,6 +110,26 @@ impl PciBar {
             PciBar::Memory64 { addr, .. } => Some(*addr),
             _ => None,
         }
+    }
+}
+
+/// Decodes one raw BAR slot (`bar_lo`, plus `bar_hi` for a 64-bit BAR — pass
+/// `0` when the caller has not read it). Returns the decoded BAR and whether
+/// it consumed *two* BAR slots (a 64-bit memory BAR).
+pub fn decode_bar(bar_lo: u32, bar_hi: u32) -> (PciBar, bool) {
+    if bar_lo == 0 || bar_lo == 0xFFFF_FFFF {
+        return (PciBar::None, false);
+    }
+    if bar_lo & 1 == 1 {
+        return (PciBar::Io { port: (bar_lo & 0xFFFC) as u16 }, false);
+    }
+    let prefetchable = bar_lo & 0x08 != 0;
+    let is_64bit = (bar_lo >> 1) & 0x03 == 0x02;
+    if is_64bit {
+        let addr = ((bar_hi as u64) << 32) | ((bar_lo & 0xFFFF_FFF0) as u64);
+        (PciBar::Memory64 { addr, prefetchable }, true)
+    } else {
+        (PciBar::Memory32 { addr: bar_lo & 0xFFFF_FFF0, prefetchable }, false)
     }
 }
 
@@ -276,28 +335,22 @@ pub fn probe_device(bus: u8, slot: u8, func: u8) -> Option<PciDevice> {
         let mut bar_idx = 0;
         while bar_idx < 6 {
             let offset = 0x10 + (bar_idx as u8) * 4;
-            let bar_val = read_config_u32(bus, slot, func, offset);
+            let bar_lo = read_config_u32(bus, slot, func, offset);
+            let needs_high = bar_lo != 0
+                && bar_lo != 0xFFFF_FFFF
+                && (bar_lo & 1) == 0
+                && ((bar_lo >> 1) & 0x03) == 0x02
+                && bar_idx + 1 < 6;
+            let bar_hi = if needs_high {
+                read_config_u32(bus, slot, func, offset + 4)
+            } else {
+                0
+            };
 
-            if bar_val != 0 && bar_val != 0xFFFF_FFFF {
-                if (bar_val & 1) == 1 {
-                    // I/O space BAR
-                    let port = (bar_val & 0xFFFC) as u16;
-                    bars[bar_idx] = PciBar::Io { port };
-                } else {
-                    // Memory space BAR
-                    let is_64bit = ((bar_val >> 1) & 0x03) == 0x02;
-                    let prefetchable = (bar_val & 0x08) != 0;
-
-                    if is_64bit && bar_idx + 1 < 6 {
-                        let bar_high = read_config_u32(bus, slot, func, offset + 4);
-                        let addr = ((bar_high as u64) << 32) | ((bar_val & 0xFFFF_FFF0) as u64);
-                        bars[bar_idx] = PciBar::Memory64 { addr, prefetchable };
-                        bar_idx += 1; // skip next 32-bit slot for 64-bit BAR
-                    } else {
-                        let addr = bar_val & 0xFFFF_FFF0;
-                        bars[bar_idx] = PciBar::Memory32 { addr, prefetchable };
-                    }
-                }
+            let (decoded, consumed_two) = decode_bar(bar_lo, bar_hi);
+            bars[bar_idx] = decoded;
+            if consumed_two {
+                bar_idx += 1; // 64-bit BAR occupies this slot and the next
             }
             bar_idx += 1;
         }
@@ -319,33 +372,59 @@ pub fn probe_device(bus: u8, slot: u8, func: u8) -> Option<PciDevice> {
     }
 }
 
-/// Scans the entire PCI bus hierarchy and returns all detected devices.
+/// Extracts a PCI-to-PCI bridge's secondary bus number (the bus on the far
+/// side of the bridge) from the raw dword at config offset `0x18`.
+#[inline]
+pub fn bridge_secondary_bus(reg_0x18: u32) -> u8 {
+    ((reg_0x18 >> 8) & 0xFF) as u8
+}
+
+/// Scans the entire PCI bus hierarchy — starting at bus 0 and following every
+/// PCI-to-PCI bridge to its secondary bus — and returns all detected
+/// functions. A `visited` bitmap keeps a mis-programmed or looping bridge
+/// topology from recursing forever.
 pub fn scan_pci_bus() -> Vec<PciDevice> {
     let mut devices = Vec::new();
+    let mut visited = [false; 256];
+    scan_bus_recursive(0, &mut devices, &mut visited);
+    devices
+}
 
-    // Primary bus 0 is standard; scan buses 0..=7 (or 0..=32)
-    for bus in 0..=8 {
-        for slot in 0..32 {
-            if let Some(dev0) = probe_device(bus, slot, 0) {
-                let is_multifunction = unsafe {
-                    let header_type = (read_config_u32(bus, slot, 0, 0x0C) >> 16) & 0xFF;
-                    (header_type & 0x80) != 0
-                };
+fn scan_bus_recursive(bus: u8, devices: &mut Vec<PciDevice>, visited: &mut [bool; 256]) {
+    if visited[bus as usize] {
+        return;
+    }
+    visited[bus as usize] = true;
 
-                devices.push(dev0);
+    for slot in 0..32 {
+        if probe_device(bus, slot, 0).is_none() {
+            continue;
+        }
+        let is_multifunction = unsafe {
+            let header_type = (read_config_u32(bus, slot, 0, 0x0C) >> 16) & 0xFF;
+            (header_type & 0x80) != 0
+        };
+        let last_func = if is_multifunction { 7 } else { 0 };
 
-                if is_multifunction {
-                    for func in 1..8 {
-                        if let Some(dev_fn) = probe_device(bus, slot, func) {
-                            devices.push(dev_fn);
-                        }
-                    }
+        for func in 0..=last_func {
+            let Some(dev) = probe_device(bus, slot, func) else {
+                continue;
+            };
+            // PCI-to-PCI bridge (class 0x06, subclass 0x04): descend.
+            let secondary = if dev.class == 0x06 && dev.subclass == 0x04 {
+                let sec = unsafe { bridge_secondary_bus(read_config_u32(bus, slot, func, 0x18)) };
+                Some(sec)
+            } else {
+                None
+            };
+            devices.push(dev);
+            if let Some(sec) = secondary {
+                if sec != 0 && sec != bus {
+                    scan_bus_recursive(sec, devices, visited);
                 }
             }
         }
     }
-
-    devices
 }
 
 /// Finds the first PCI device matching the given vendor and device IDs.
@@ -393,3 +472,58 @@ pub fn find_storage_controllers() -> Vec<PciDevice> {
         .collect()
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ecam_offset_layout() {
+        // bus in bits 27:20, slot in 19:15, func in 14:12, reg in 11:0.
+        assert_eq!(ecam_offset(0, 0, 0, 0), 0);
+        assert_eq!(ecam_offset(1, 0, 0, 0), 1 << 20);
+        assert_eq!(ecam_offset(0, 3, 0, 0), 3 << 15);
+        assert_eq!(ecam_offset(0, 0, 5, 0), 5 << 12);
+        assert_eq!(ecam_offset(0, 0, 0, 0x3C), 0x3C);
+        assert_eq!(ecam_offset(0, 0, 0, 0x1FFF) & 0xFFF, 0xFFF); // reg masked to 12 bits
+        assert_eq!(ecam_offset(2, 6, 1, 0x10), (2 << 20) | (6 << 15) | (1 << 12) | 0x10);
+    }
+
+    #[test]
+    fn decode_bar_io_and_empty() {
+        assert_eq!(decode_bar(0, 0), (PciBar::None, false));
+        assert_eq!(decode_bar(0xFFFF_FFFF, 0), (PciBar::None, false));
+        assert_eq!(decode_bar(0xC001, 0), (PciBar::Io { port: 0xC000 }, false));
+    }
+
+    #[test]
+    fn decode_bar_memory32() {
+        // 32-bit, non-prefetchable, base 0x1000_0000
+        let (bar, two) = decode_bar(0x1000_0000, 0);
+        assert_eq!(bar, PciBar::Memory32 { addr: 0x1000_0000, prefetchable: false });
+        assert!(!two);
+        // prefetchable bit (0x08)
+        let (bar, _) = decode_bar(0x1000_0008, 0);
+        assert_eq!(bar, PciBar::Memory32 { addr: 0x1000_0000, prefetchable: true });
+    }
+
+    #[test]
+    fn decode_bar_memory64_consumes_two_slots() {
+        // type bits 2:1 == 0b10 -> 64-bit. lo = 0x8000_0004, hi = 0x0000_0001
+        let (bar, two) = decode_bar(0x8000_0004, 0x0000_0001);
+        assert_eq!(
+            bar,
+            PciBar::Memory64 { addr: 0x1_8000_0000, prefetchable: false }
+        );
+        assert!(two);
+    }
+
+    #[test]
+    fn bridge_secondary_bus_extraction() {
+        // config 0x18: [primary | secondary | subordinate | latency]
+        // secondary bus is byte 1.
+        assert_eq!(bridge_secondary_bus(0x0000_0100), 1);
+        assert_eq!(bridge_secondary_bus(0x00FF_0A00), 0x0A);
+        assert_eq!(bridge_secondary_bus(0x1234_5678), 0x56);
+    }
+}

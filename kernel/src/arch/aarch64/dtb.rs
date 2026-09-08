@@ -2,11 +2,34 @@
 //!
 //! Provides introspection of hardware device nodes passed by QEMU, UTM, or firmware
 //! at boot time (FDT magic 0xd00dfeed). Specifically discovers `simple-framebuffer`
-//! nodes and `virtio,mmio` GPU devices.
+//! nodes, `virtio,mmio` GPU devices and the `pci-host-ecam-generic` node.
 
 use bootloader_api::info::PixelFormat;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 pub const FDT_MAGIC: u32 = 0xd00dfeed;
+
+/// Physical base of the flattened device tree, stashed by `kmain_arm64` so
+/// discovery helpers that run later (e.g. `pci::probe_ecam_base`) can reach it
+/// without threading the pointer through every call site. `0` = unknown, fall
+/// back to the QEMU `virt` convention of "DTB at the base of RAM".
+static DTB_BASE: AtomicU64 = AtomicU64::new(0);
+
+/// Records the firmware-provided device-tree pointer for later discovery.
+pub fn set_dtb_base(ptr: u64) {
+    DTB_BASE.store(ptr, Ordering::Relaxed);
+}
+
+/// Returns the stashed device-tree pointer, or the QEMU `virt` fallback
+/// (`0x4000_0000`, base of RAM) when none was recorded.
+pub fn dtb_base() -> u64 {
+    let p = DTB_BASE.load(Ordering::Relaxed);
+    if p != 0 {
+        p
+    } else {
+        0x4000_0000
+    }
+}
 
 const FDT_BEGIN_NODE: u32 = 0x0000_0001;
 const FDT_END_NODE: u32 = 0x0000_0002;
@@ -249,6 +272,111 @@ fn scan_dtb_at(addr: u64) -> Option<FramebufferConfig> {
             }
             FDT_END => break,
             _ => break,
+        }
+    }
+
+    None
+}
+
+/// Locates the PCIe ECAM configuration window (`pci-host-ecam-generic`) in the
+/// device tree, returning `(ecam_base, bus_start, bus_end)`. Used by
+/// `pci::probe_ecam_base` so the ECAM address comes from firmware instead of a
+/// per-hypervisor constant (T28.2; full DTB/ACPI bring-up is T28.8).
+pub fn find_pcie_ecam() -> Option<(u64, u8, u8)> {
+    let base = dtb_base();
+    if let Some(found) = scan_dtb_for_pcie_ecam(base) {
+        return Some(found);
+    }
+    if base != 0x4000_0000 {
+        return scan_dtb_for_pcie_ecam(0x4000_0000);
+    }
+    None
+}
+
+fn scan_dtb_for_pcie_ecam(addr: u64) -> Option<(u64, u8, u8)> {
+    if addr == 0 {
+        return None;
+    }
+
+    let ptr = addr as *const u8;
+    let header = unsafe { FdtHeader::from_ptr(ptr)? };
+    if header.totalsize < 40 || header.totalsize > 16 * 1024 * 1024 {
+        return None;
+    }
+    let dtb_bytes = unsafe { core::slice::from_raw_parts(ptr, header.totalsize as usize) };
+
+    let struct_start = header.off_dt_struct as usize;
+    let struct_end = struct_start.checked_add(header.size_dt_struct as usize)?;
+    let strings_start = header.off_dt_strings as usize;
+    let strings_end = strings_start.checked_add(header.size_dt_strings as usize)?;
+    if struct_end > dtb_bytes.len() || strings_end > dtb_bytes.len() {
+        return None;
+    }
+    let struct_block = &dtb_bytes[struct_start..struct_end];
+    let strings_block = &dtb_bytes[strings_start..strings_end];
+
+    let mut cursor = 0;
+    while cursor + 4 <= struct_block.len() {
+        let tag = read_u32_be(struct_block, cursor)?;
+        cursor += 4;
+
+        if tag == FDT_BEGIN_NODE {
+            while cursor < struct_block.len() && struct_block[cursor] != 0 {
+                cursor += 1;
+            }
+            cursor += 1;
+            cursor = (cursor + 3) & !3;
+
+            let mut is_ecam = false;
+            let mut ecam_base = 0u64;
+            let mut bus_lo = 0u8;
+            let mut bus_hi = 0u8;
+
+            while cursor + 4 <= struct_block.len() {
+                let next_tag = read_u32_be(struct_block, cursor)?;
+                if next_tag == FDT_PROP {
+                    cursor += 4;
+                    let prop_len = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+                    let nameoff = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+
+                    let prop_val_end = cursor + prop_len;
+                    if prop_val_end > struct_block.len() {
+                        break;
+                    }
+                    let prop_val = &struct_block[cursor..prop_val_end];
+                    cursor = (prop_val_end + 3) & !3;
+
+                    let prop_name = get_string(strings_block, nameoff);
+                    if prop_name == "compatible"
+                        && (contains_str(prop_val, "pci-host-ecam-generic")
+                            || contains_str(prop_val, "pci-host-cam-generic"))
+                    {
+                        is_ecam = true;
+                    } else if prop_name == "reg" && prop_len >= 16 {
+                        // Root cells are #address-cells=2 / #size-cells=2 on the
+                        // `virt` machine: the first 8 bytes are the ECAM base.
+                        let hi = read_u32_be(prop_val, 0)? as u64;
+                        let lo = read_u32_be(prop_val, 4)? as u64;
+                        ecam_base = (hi << 32) | lo;
+                    } else if prop_name == "bus-range" && prop_len >= 8 {
+                        bus_lo = (read_u32_be(prop_val, 0)? & 0xFF) as u8;
+                        bus_hi = (read_u32_be(prop_val, 4)? & 0xFF) as u8;
+                    }
+                } else if next_tag == FDT_NOP {
+                    cursor += 4;
+                } else {
+                    break;
+                }
+            }
+
+            if is_ecam && ecam_base != 0 {
+                let bus_hi = if bus_hi >= bus_lo { bus_hi } else { 0xFF };
+                return Some((ecam_base, bus_lo, bus_hi));
+            }
+        } else if tag == FDT_END {
+            break;
         }
     }
 

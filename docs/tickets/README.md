@@ -98,7 +98,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 27** | [T27.3](T27.3-pila-usb-y-subclase-hid-para-teclado-y-raton.md) | Pila USB y Subclase HID para Teclado y Ratón en Bare-Metal | ✅ Completado |
 | **Fase 27** | [T27.4](T27.4-terminal-grafico-activo-en-compositor-y-multiplexacion.md) | Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio | ✅ Completado |
 | **Fase 28** | [T28.1](T28.1-verificacion-y-robustez-del-driver-virtio-input-mmio.md) | Verificación y Robustez del Driver VirtIO-Input MMIO (Teclado/Ratón/Tablet Nativos) | ✅ Completado |
-| **Fase 28** | [T28.2](T28.2-mapeo-pcie-ecam-mmio-multiplataforma-y-escaneo-de-bus-con-puentes.md) | Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes | 🔲 Pendiente |
+| **Fase 28** | [T28.2](T28.2-mapeo-pcie-ecam-mmio-multiplataforma-y-escaneo-de-bus-con-puentes.md) | Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes | ✅ Completado |
 | **Fase 28** | [T28.3](T28.3-xhci-robusto-rings-por-endpoint-control-transfers-hotplug-y-hubs.md) | xHCI Robusto: Rings/Buffers por Endpoint, Control Transfers Extendidas, Hotplug y Hubs | 🔲 Pendiente |
 | **Fase 28** | [T28.4](T28.4-parser-de-hid-report-descriptor-y-decodificador-generico-por-usages.md) | Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages | 🔲 Pendiente |
 | **Fase 28** | [T28.5](T28.5-ergonomia-de-entrada-leds-auto-repeat-layouts-y-aceleracion-de-puntero.md) | Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero | 🔲 Pendiente |
