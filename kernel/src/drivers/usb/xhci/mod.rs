@@ -235,8 +235,11 @@ impl XhciController {
         let devices = pci::scan_pci_bus();
         let xhci_dev = devices.into_iter().find(|d| d.is_xhci_controller())?;
 
-        // Extract BAR0 physical MMIO base
-        let bar0_addr = xhci_dev.bars[0].memory_address()?;
+        // Extract BAR0 physical MMIO base. A zero address means the BAR is
+        // present but unprogrammed (no firmware PCI resource allocation, as on
+        // `qemu -M virt -kernel`); there is nothing to map, so skip the
+        // controller instead of dereferencing a null MMIO base.
+        let bar0_addr = xhci_dev.bars[0].memory_address().filter(|&a| a != 0)?;
         xhci_dev.enable_bus_mastering();
 
         unsafe {

@@ -116,6 +116,14 @@ impl PciBar {
 /// Decodes one raw BAR slot (`bar_lo`, plus `bar_hi` for a 64-bit BAR — pass
 /// `0` when the caller has not read it). Returns the decoded BAR and whether
 /// it consumed *two* BAR slots (a 64-bit memory BAR).
+///
+/// A memory BAR whose address bits are all zero is reported as [`PciBar::None`]:
+/// the BAR exists but no firmware has assigned it a window (the usual state on
+/// `qemu-system-aarch64 -M virt -kernel <ELF>`, which runs no PCI resource
+/// allocator). antOS has no BAR allocator of its own, so such a BAR is not
+/// usable — decoding it as `Memory{32,64} { addr: 0 }` would hand a driver a
+/// null MMIO base and fault on the first access. The 64-bit case still reports
+/// `consumed_two` so the caller's slot walk stays aligned.
 pub fn decode_bar(bar_lo: u32, bar_hi: u32) -> (PciBar, bool) {
     if bar_lo == 0 || bar_lo == 0xFFFF_FFFF {
         return (PciBar::None, false);
@@ -127,9 +135,16 @@ pub fn decode_bar(bar_lo: u32, bar_hi: u32) -> (PciBar, bool) {
     let is_64bit = (bar_lo >> 1) & 0x03 == 0x02;
     if is_64bit {
         let addr = ((bar_hi as u64) << 32) | ((bar_lo & 0xFFFF_FFF0) as u64);
+        if addr == 0 {
+            return (PciBar::None, true);
+        }
         (PciBar::Memory64 { addr, prefetchable }, true)
     } else {
-        (PciBar::Memory32 { addr: bar_lo & 0xFFFF_FFF0, prefetchable }, false)
+        let addr = bar_lo & 0xFFFF_FFF0;
+        if addr == 0 {
+            return (PciBar::None, false);
+        }
+        (PciBar::Memory32 { addr, prefetchable }, false)
     }
 }
 
@@ -516,6 +531,20 @@ mod tests {
             PciBar::Memory64 { addr: 0x1_8000_0000, prefetchable: false }
         );
         assert!(two);
+    }
+
+    #[test]
+    fn decode_bar_unprogrammed_memory_is_none() {
+        // The BAR type nibble is hardwired, so an unassigned 64-bit MMIO BAR
+        // still reads as 0x0000_0004 (type 0b10) with all address bits zero —
+        // as on `qemu -M virt -kernel`. It must decode to None (nothing to
+        // map) while still consuming the second slot.
+        assert_eq!(decode_bar(0x0000_0004, 0), (PciBar::None, true));
+        // Unassigned 64-bit prefetchable MMIO BAR: 0x0000_000C.
+        assert_eq!(decode_bar(0x0000_000C, 0), (PciBar::None, true));
+        // Unassigned 32-bit MMIO BAR: 0x0000_0000 is already covered; the
+        // non-zero-type 32-bit form does not exist (bits 2:1 == 0 means 32-bit
+        // and bit 0 == 0 means memory, so 0x0 is the only unassigned encoding).
     }
 
     #[test]
