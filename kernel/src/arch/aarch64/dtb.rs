@@ -383,6 +383,127 @@ fn scan_dtb_for_pcie_ecam(addr: u64) -> Option<(u64, u8, u8)> {
     None
 }
 
+/// Interrupt-controller description discovered in the device tree.
+#[derive(Clone, Copy, Debug)]
+pub struct GicInfo {
+    /// `true` for `arm,gic-v3` / `arm,gic-v4`, `false` for a GICv2 variant.
+    pub is_v3: bool,
+    /// Distributor (GICD) physical base.
+    pub gicd_base: u64,
+    /// Second `reg` range: GICR (v3) or GICC (v2) physical base.
+    pub second_base: u64,
+}
+
+/// Locates the GIC node and reports its version and register bases so the GIC
+/// driver can pick v2 vs v3 instead of assuming QEMU `-M virt` GICv2.
+pub fn find_gic() -> Option<GicInfo> {
+    let base = dtb_base();
+    if let Some(info) = scan_dtb_for_gic(base) {
+        return Some(info);
+    }
+    if base != 0x4000_0000 {
+        return scan_dtb_for_gic(0x4000_0000);
+    }
+    None
+}
+
+fn scan_dtb_for_gic(addr: u64) -> Option<GicInfo> {
+    if addr == 0 {
+        return None;
+    }
+    let ptr = addr as *const u8;
+    let header = unsafe { FdtHeader::from_ptr(ptr)? };
+    if header.totalsize < 40 || header.totalsize > 16 * 1024 * 1024 {
+        return None;
+    }
+    let dtb_bytes = unsafe { core::slice::from_raw_parts(ptr, header.totalsize as usize) };
+
+    let struct_start = header.off_dt_struct as usize;
+    let struct_end = struct_start.checked_add(header.size_dt_struct as usize)?;
+    let strings_start = header.off_dt_strings as usize;
+    let strings_end = strings_start.checked_add(header.size_dt_strings as usize)?;
+    if struct_end > dtb_bytes.len() || strings_end > dtb_bytes.len() {
+        return None;
+    }
+    let struct_block = &dtb_bytes[struct_start..struct_end];
+    let strings_block = &dtb_bytes[strings_start..strings_end];
+
+    let mut cursor = 0;
+    while cursor + 4 <= struct_block.len() {
+        let tag = read_u32_be(struct_block, cursor)?;
+        cursor += 4;
+
+        if tag == FDT_BEGIN_NODE {
+            while cursor < struct_block.len() && struct_block[cursor] != 0 {
+                cursor += 1;
+            }
+            cursor += 1;
+            cursor = (cursor + 3) & !3;
+
+            let mut is_gic = false;
+            let mut is_v3 = false;
+            let mut gicd_base = 0u64;
+            let mut second_base = 0u64;
+
+            while cursor + 4 <= struct_block.len() {
+                let next_tag = read_u32_be(struct_block, cursor)?;
+                if next_tag == FDT_PROP {
+                    cursor += 4;
+                    let prop_len = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+                    let nameoff = read_u32_be(struct_block, cursor)? as usize;
+                    cursor += 4;
+
+                    let prop_val_end = cursor + prop_len;
+                    if prop_val_end > struct_block.len() {
+                        break;
+                    }
+                    let prop_val = &struct_block[cursor..prop_val_end];
+                    cursor = (prop_val_end + 3) & !3;
+
+                    let prop_name = get_string(strings_block, nameoff);
+                    if prop_name == "compatible" {
+                        if contains_str(prop_val, "arm,gic-v3")
+                            || contains_str(prop_val, "arm,gic-v4")
+                        {
+                            is_gic = true;
+                            is_v3 = true;
+                        } else if contains_str(prop_val, "gic") {
+                            is_gic = true;
+                        }
+                    } else if prop_name == "reg" && prop_len >= 16 {
+                        // #address-cells=2 / #size-cells=2 -> 16 bytes per range.
+                        let d_hi = read_u32_be(prop_val, 0)? as u64;
+                        let d_lo = read_u32_be(prop_val, 4)? as u64;
+                        gicd_base = (d_hi << 32) | d_lo;
+                        if prop_len >= 32 {
+                            let s_hi = read_u32_be(prop_val, 16)? as u64;
+                            let s_lo = read_u32_be(prop_val, 20)? as u64;
+                            second_base = (s_hi << 32) | s_lo;
+                        }
+                    }
+                } else if next_tag == FDT_NOP {
+                    cursor += 4;
+                } else {
+                    break;
+                }
+            }
+
+            if is_gic && gicd_base != 0 {
+                return Some(GicInfo {
+                    is_v3,
+                    gicd_base,
+                    second_base,
+                });
+            }
+        } else if tag == FDT_END {
+            break;
+        }
+    }
+
+    None
+}
+
 fn scan_dtb_for_virtio_gpu(addr: u64) -> Option<u64> {
     if addr == 0 {
         return None;

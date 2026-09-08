@@ -33,6 +33,21 @@ pub fn safe_probe_read_u32(addr: usize) -> Option<u32> {
     }
 }
 
+/// Runs `f` with the fault guard armed, so a synchronous abort *or* a trapped
+/// system-register access (`EC 0x18`) inside it skips the offending instruction
+/// instead of panicking. Returns `true` if `f` completed without faulting.
+///
+/// Used by the timer fallback: on a guest booted at EL1 from an EL2 that never
+/// enabled `CNTHCTL_EL2.EL1PCEN`, writing `CNTP_TVAL_EL0` traps — this lets the
+/// kernel notice and stay on the virtual timer rather than crash.
+pub fn probe_guard<F: FnOnce()>(f: F) -> bool {
+    PROBE_FAULTED.store(false, Ordering::SeqCst);
+    PROBE_ARMED.store(true, Ordering::SeqCst);
+    f();
+    PROBE_ARMED.store(false, Ordering::SeqCst);
+    !PROBE_FAULTED.swap(false, Ordering::SeqCst)
+}
+
 #[repr(C)]
 pub struct ExceptionContext {
     pub x: [u64; 30],
@@ -250,17 +265,33 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
     // Handle IRQs first (Vectors 1, 5, 9, 13).
     // ESR_EL1 is only updated on synchronous exceptions, not on IRQs.
     if vector_id == 5 || vector_id == 1 || vector_id == 9 || vector_id == 13 {
-        let irq_id = crate::arch::aarch64::gic::acknowledge();
-        if irq_id == crate::arch::aarch64::timer::TIMER_IRQ {
-            crate::arch::aarch64::timer::handle_timer_interrupt();
+        use crate::arch::aarch64::{gic, timer};
+        let irq_id = gic::acknowledge();
+
+        // Spurious / group-mismatch INTIDs (1020..=1023) carry no interrupt and
+        // must not be EOI'd.
+        if gic::is_spurious(irq_id) {
+            return;
+        }
+
+        if timer::is_timer_irq(irq_id) {
+            timer::handle_timer_interrupt();
             crate::drivers::usb::poll();
             // Preemption hook: check quantum and switch context if needed
             let cpu_ctx = unsafe {
                 &mut *(ctx as *mut ExceptionContext as *mut crate::task::pcb::CpuContext)
             };
             crate::task::scheduler::on_timer_tick(cpu_ctx);
+        } else {
+            // A shared-peripheral IRQ (xHCI, VirtIO-Input/GPU). Servicing the
+            // devices drains their state so a level-triggered line de-asserts
+            // before EOI. Cheap enough to run for any non-timer INTID.
+            let (w, h) = crate::console::resolution();
+            crate::drivers::usb::poll();
+            crate::drivers::virtio_input::poll_virtio_inputs(w, h);
         }
-        crate::arch::aarch64::gic::end_of_interrupt(irq_id);
+
+        gic::end_of_interrupt(irq_id);
         return;
     }
 
@@ -277,7 +308,9 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
     // Recover from a guarded "safe probe" access instead of panicking.
     // Hardware discovery may target an address that doesn't exist on the
     // emulator/hypervisor currently running it (see safe_probe_read_u32).
-    if PROBE_ARMED.load(Ordering::SeqCst) && matches!(ec, 0x20 | 0x21 | 0x24 | 0x25) {
+    // 0x18 = trapped MSR/MRS/system instruction (e.g. CNTP_* not enabled for
+    // EL1 by EL2); 0x20/0x21/0x24/0x25 = instruction/data aborts.
+    if PROBE_ARMED.load(Ordering::SeqCst) && matches!(ec, 0x18 | 0x20 | 0x21 | 0x24 | 0x25) {
         PROBE_FAULTED.store(true, Ordering::SeqCst);
         PROBE_ARMED.store(false, Ordering::SeqCst);
         ctx.elr_el1 += 4;

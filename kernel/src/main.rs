@@ -338,27 +338,50 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     println!();
     println!("controlador de interrupciones y temporizador");
+
+    // Detectar la versión del GIC por el device tree (v3 en hardware real y en
+    // algunos hipervisores; v2 en QEMU -M virt por defecto).
+    match arch::aarch64::dtb::find_gic() {
+        Some(info) => {
+            let v = if info.is_v3 {
+                arch::aarch64::gic::GicVersion::V3
+            } else {
+                arch::aarch64::gic::GicVersion::V2
+            };
+            let gicr = if info.is_v3 && info.second_base != 0 {
+                Some(info.second_base as usize)
+            } else {
+                None
+            };
+            arch::aarch64::gic::set_version(v, gicr);
+        }
+        None => {
+            println!("  gic          nodo DTB no hallado · asumiendo GICv2");
+        }
+    }
+
     arch::aarch64::gic::init();
-    println!("  gicv2        distribuidor y cpu interface activos");
+    println!("  {:<12} distribuidor y cpu interface activos", arch::aarch64::gic::version_name());
 
     arch::aarch64::timer::init();
-    println!("  temporizador virtual configurado a 100 Hz (IRQ 27)");
-
+    arch::aarch64::gic::enable_peripheral_irqs();
     arch::aarch64::exceptions::enable_irq();
-    println!("  daif         irq habilitadas · recibiendo pulsos...");
+    println!("  daif         irq habilitadas · verificando fuente de temporizador...");
 
-    // Esperar pulsos de temporizador con límite seguro para compatibilidad con hipervisores
-    let start_ticks = arch::aarch64::timer::ticks();
-    let mut timeout = 200_000u32;
-    while arch::aarch64::timer::ticks() < start_ticks + 5 && timeout > 0 {
-        timeout -= 1;
-        core::hint::spin_loop();
-    }
+    let src = arch::aarch64::timer::verify_and_fallback();
     let current_ticks = arch::aarch64::timer::ticks();
-    if current_ticks > start_ticks {
-        println!("  ticks        {} pulsos de temporizador verificados con éxito", current_ticks);
+    if current_ticks > 0 {
+        println!(
+            "  timer        {} · {} pulsos verificados ({} Hz)",
+            arch::aarch64::timer::source_name(),
+            current_ticks,
+            arch::aarch64::timer::TICK_HZ
+        );
     } else {
-        println!("  ticks        temporizador virtual activo (modo hipervisor)");
+        let _ = src;
+        println!(
+            "  timer        sin pulsos (contador del sistema congelado) · uptime derivado de CNTPCT"
+        );
     }
 
     println!();
