@@ -270,6 +270,15 @@ pub unsafe fn init_raw(
     *CONSOLE.lock() = Some(console);
 }
 
+/// Returns active framebuffer resolution (width, height) or defaults to (1024, 768).
+pub fn resolution() -> (u32, u32) {
+    if let Some(c) = CONSOLE.lock().as_ref() {
+        (c.framebuffer().width() as u32, c.framebuffer().height() as u32)
+    } else {
+        (1024, 768)
+    }
+}
+
 /// Multiplex target: formats arguments to the graphical console if initialized.
 #[doc(hidden)]
 pub fn _print(args: core::fmt::Arguments) {
@@ -279,3 +288,4 @@ pub fn _print(args: core::fmt::Arguments) {
         let _ = console.write_fmt(args);
     }
 }
+

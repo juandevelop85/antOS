@@ -909,8 +909,10 @@ fn halt_loop() -> ! {
     loop {
         #[cfg(target_arch = "aarch64")]
         {
+            drivers::usb::poll();
+            let (screen_w, screen_h) = console::resolution();
             if drivers::virtio_input::poll_virtio_inputs() > 0 || input::has_events() {
-                if ui::dispatch_pending_inputs(1024, 768) {
+                if ui::dispatch_pending_inputs(screen_w, screen_h) {
                     if let Some(c) = console::CONSOLE.lock().as_mut() {
                         ui::render_desktop(
                             c.framebuffer_mut(),

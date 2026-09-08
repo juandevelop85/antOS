@@ -3,6 +3,7 @@ target/
 **/target/
 *.vdi
 *.iso
+*.log
 
 # estado en ejecución de antOS / sysod: instantáneas, bitácora, concesiones
 .syso/

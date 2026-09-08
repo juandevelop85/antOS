@@ -599,8 +599,13 @@ impl XhciController {
             let set_cfg_setup = [0x00, 0x09, config_val, 0x00, 0x00, 0x00, 0x00, 0x00];
             let _ = self.control_transfer(slot_id, set_cfg_setup, None, false);
 
-            // 4. Configure interfaces
             for iface in ifaces {
+                let mut desc_buf = [0u8; 128];
+                let get_report_desc = [0x81, 0x06, 0x00, 0x22, iface.interface_number, 0x00, 128, 0x00];
+                let rd_len = self.control_transfer(slot_id, get_report_desc, Some(&mut desc_buf), true);
+                crate::println!("    usb-debug  slot {}: hid report desc len={:?}: {:02x?}",
+                    slot_id, rd_len, &desc_buf[..rd_len.unwrap_or(0).min(128)]);
+
                 let max_pkt = iface.ep_max_packet.max(8);
                 match self.configure_hid_endpoint(slot_id, speed, iface.ep_addr, max_pkt, iface.ep_interval) {
                     Ok(dci) => {

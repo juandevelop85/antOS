@@ -7,8 +7,8 @@ use crate::console::font::{self, FONT_WIDTH};
 use crate::console::framebuffer::Color as FbColor;
 use crate::console::Framebuffer;
 
-pub const DEFAULT_SURFACE_WIDTH: u32 = 1024;
-pub const DEFAULT_SURFACE_HEIGHT: u32 = 768;
+pub const DEFAULT_SURFACE_WIDTH: u32 = 1920;
+pub const DEFAULT_SURFACE_HEIGHT: u32 = 1080;
 
 #[repr(align(4096))]
 struct SurfaceMemory([u32; (DEFAULT_SURFACE_WIDTH * DEFAULT_SURFACE_HEIGHT) as usize]);

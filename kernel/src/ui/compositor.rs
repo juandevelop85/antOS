@@ -9,6 +9,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use super::color::palette;
 use super::cursor::MouseCursor;
 use super::hud::IntentHud;
+use super::rect::Rect;
 use super::statusbar::StatusBar;
 use super::surface::Surface;
 use super::terminal_window::TerminalWindow;
@@ -52,11 +53,11 @@ pub struct DesktopCompositor {
 
 impl DesktopCompositor {
     pub fn new(arch_name: &'static str) -> Self {
-        // Default layout positioned for 1024x768 screens
+        let (screen_w, screen_h) = crate::console::resolution();
         let term_x = 48;
-        let term_y = 196;
-        let term_w = 928;
-        let term_h = 540;
+        let term_y = 180;
+        let term_w = (screen_w.saturating_sub(96)).max(640);
+        let term_h = (screen_h.saturating_sub(210)).max(300);
 
         let mut hud = IntentHud::new();
         hud.set_focused(false);
@@ -68,7 +69,7 @@ impl DesktopCompositor {
             status_bar: StatusBar::new(),
             hud,
             terminal: term,
-            cursor: MouseCursor::new(512, 384),
+            cursor: MouseCursor::new((screen_w / 2) as i32, (screen_h / 2) as i32),
             focus: FocusTarget::Terminal,
             keyboard_state: KeyboardState::new(),
             arch_name,
@@ -242,6 +243,11 @@ impl DesktopCompositor {
         for y in (28..h).step_by(64) {
             surface.draw_line_h(0, y as i32, w, palette::WINDOW_BG);
         }
+
+        // Dynamically fit terminal window to surface dimensions
+        let term_w = (w.saturating_sub(96)).max(640);
+        let term_h = (h.saturating_sub(210)).max(300);
+        self.terminal.set_rect(Rect::new(48, 180, term_w, term_h));
 
         // 3. Render Terminal Window (Layer 1)
         self.terminal.render(surface);

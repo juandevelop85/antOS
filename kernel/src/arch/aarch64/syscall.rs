@@ -147,8 +147,10 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
         }
 
         syscall::SYS_YIELD => {
+            crate::drivers::usb::poll();
             if crate::ui::compositor::is_desktop_active() {
-                if crate::ui::dispatch_pending_inputs(1024, 768) {
+                let (screen_w, screen_h) = crate::console::resolution();
+                if crate::ui::dispatch_pending_inputs(screen_w, screen_h) {
                     if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
                         crate::ui::render_desktop(
                             c.framebuffer_mut(),

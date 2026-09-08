@@ -295,6 +295,8 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
     crate::drivers::usb::poll();
     let mut state = ASCII_BRIDGE_STATE.lock();
     let mut written = 0usize;
+    let mut desktop_dirty = false;
+    let (screen_w, screen_h) = crate::console::resolution();
     while written < buf.len() {
         let Some(event) = pop_event() else { break };
         state.update(&event);
@@ -308,10 +310,8 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
                     | InputEvent::MouseButtonPress(_)
                     | InputEvent::MouseButtonRelease(_)
                     | InputEvent::Scroll { .. } => {
-
-                        let dirty = comp.handle_event(event, 1024, 768);
-                        if dirty {
-                            render_compositor_if_active(comp);
+                        if comp.handle_event(event, screen_w, screen_h) {
+                            desktop_dirty = true;
                         }
                         continue;
                     }
@@ -321,17 +321,15 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
                             || (key == KeyCode::KeyK && comp.keyboard_state().modifiers.ctrl)
                             || (key == KeyCode::Escape && comp.hud().is_visible())
                         {
-                            let dirty = comp.handle_event(event, 1024, 768);
-                            if dirty {
-                                render_compositor_if_active(comp);
+                            if comp.handle_event(event, screen_w, screen_h) {
+                                desktop_dirty = true;
                             }
                             continue;
                         }
 
                         if comp.focus() == crate::ui::FocusTarget::Hud {
-                            let dirty = comp.handle_event(event, 1024, 768);
-                            if dirty {
-                                render_compositor_if_active(comp);
+                            if comp.handle_event(event, screen_w, screen_h) {
+                                desktop_dirty = true;
                             }
                             continue;
                         }
@@ -350,6 +348,14 @@ pub fn drain_ascii(buf: &mut [u8]) -> usize {
             }
         }
     }
+
+    if desktop_dirty {
+        let mut comp_guard = crate::ui::COMPOSITOR.lock();
+        if let Some(comp) = comp_guard.as_mut() {
+            render_compositor_if_active(comp);
+        }
+    }
+
     written
 }
 

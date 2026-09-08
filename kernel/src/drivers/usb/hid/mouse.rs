@@ -49,16 +49,38 @@ impl UsbHidMouse {
         }
         self.prev_buttons = buttons;
 
-        // Check if report format is absolute tablet (typically >= 5 bytes with 16-bit coordinates)
-        if report.len() >= 5 && self.is_absolute {
-            let raw_x = u16::from_le_bytes([report[1], report[2]]) as u32;
-            let raw_y = u16::from_le_bytes([report[3], report[4]]) as u32;
+        // Check if report format is absolute tablet
+        if self.is_absolute || report.len() >= 8 {
+            if report.len() >= 8 {
+                // VirtualBox / Standard 8-byte USB Tablet report:
+                // [buttons, wheel, pan, padding, x_low, x_high, y_low, y_high]
+                let raw_x = u16::from_le_bytes([report[4], report[5]]) as u32;
+                let raw_y = u16::from_le_bytes([report[6], report[7]]) as u32;
 
-            // Map 0..32767 coordinate space to virtual screen or emit raw absolute
-            events.push(InputEvent::MouseAbsolute {
-                x: raw_x,
-                y: raw_y,
-            });
+                events.push(InputEvent::MouseAbsolute {
+                    x: raw_x,
+                    y: raw_y,
+                });
+
+                let wheel = report[1] as i8 as i32;
+                let pan = report[2] as i8 as i32;
+                if wheel != 0 || pan != 0 {
+                    events.push(InputEvent::Scroll {
+                        delta_x: pan,
+                        delta_y: wheel,
+                    });
+                }
+            } else if report.len() >= 5 {
+                // Compact 5-byte USB Tablet report without wheels/padding:
+                // [buttons, x_low, x_high, y_low, y_high]
+                let raw_x = u16::from_le_bytes([report[1], report[2]]) as u32;
+                let raw_y = u16::from_le_bytes([report[3], report[4]]) as u32;
+
+                events.push(InputEvent::MouseAbsolute {
+                    x: raw_x,
+                    y: raw_y,
+                });
+            }
         } else if report.len() >= 3 {
             // Relative mouse: byte 1 = dx, byte 2 = dy
             let dx = report[1] as i8 as i32;
@@ -80,5 +102,46 @@ impl UsbHidMouse {
         }
 
         events
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vbox_tablet_8byte_report() {
+        let mut mouse = UsbHidMouse::new();
+        mouse.is_absolute = true;
+
+        // Middle of screen horizontally (0x4000 = 16384), lower-right vertically (0x6000 = 24576)
+        let report = [0x01, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x60];
+        let events = mouse.process_report(&report);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], InputEvent::MouseButtonPress(MouseButton::Left));
+        assert_eq!(events[1], InputEvent::MouseAbsolute { x: 16384, y: 24576 });
+
+        // Release button, move to origin
+        let report2 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let events2 = mouse.process_report(&report2);
+
+        assert_eq!(events2.len(), 2);
+        assert_eq!(events2[0], InputEvent::MouseButtonRelease(MouseButton::Left));
+        assert_eq!(events2[1], InputEvent::MouseAbsolute { x: 0, y: 0 });
+    }
+
+    #[test]
+    fn test_relative_mouse_report() {
+        let mut mouse = UsbHidMouse::new();
+        mouse.is_absolute = false;
+
+        let report = [0x02, 10u8, (-5i8) as u8, 1u8];
+        let events = mouse.process_report(&report);
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events[0], InputEvent::MouseButtonPress(MouseButton::Right));
+        assert_eq!(events[1], InputEvent::MouseMove { dx: 10, dy: -5 });
+        assert_eq!(events[2], InputEvent::Scroll { delta_x: 0, delta_y: 1 });
     }
 }
