@@ -47,11 +47,15 @@ Antes de configurar cualquier máquina virtual, es fundamental entender por dón
 
 antOS soporta dos arquitecturas bare-metal (`no_std`) y genera los siguientes artefactos:
 
+> Las rutas usan `debug/`; con `--release` cambia el segmento a `release/`
+> (idéntico árbol). **Para UTM y VirtualBox en Apple Silicon compila en
+> `--release`** — emulan con TCG y el `debug` es demasiado lento.
+
 | Arquitectura | Tipo de Archivo | Ruta Relativa | Compatibilidad Recomendada |
 | :--- | :--- | :--- | :--- |
-| **AArch64 (ARM64)** | Binario ELF | `kernel/target/aarch64-unknown-none/debug/kernel` | **UTM (Método A)** y **QEMU `-kernel`**. |
-| **AArch64 (ARM64)** | Disco UEFI GPT | `kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img` | **UTM (Método B)** y **VirtualBox 7 ARM64** (convertido a `.vdi`). |
-| **AArch64 (ARM64)** | Live ISO | `kernel/target/aarch64-unknown-none/debug/antos-aarch64.iso` | Medios USB y pruebas ópticas UEFI. |
+| **AArch64 (ARM64)** | Binario ELF | `kernel/target/aarch64-unknown-none/release/kernel` | **UTM (Método A)** y **QEMU `-kernel`**. |
+| **AArch64 (ARM64)** | Disco UEFI GPT | `kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img` | **UTM (Método B)** y **VirtualBox 7 ARM64** (convertido a `.vdi`). |
+| **AArch64 (ARM64)** | Live ISO | `kernel/target/aarch64-unknown-none/release/antos-aarch64.iso` | Medios USB y pruebas ópticas UEFI. |
 | **x86_64** | Binario ELF | `kernel/target/x86_64-unknown-none/debug/kernel` | Kernel bare-metal x86_64. |
 | **x86_64** | Imagen BIOS MBR | `kernel/target/x86_64-unknown-none/debug/antos-bios.img` | **VirtualBox 7 x86_64 (BIOS clásico)** y **QEMU x86_64**. |
 | **x86_64** | Disco UEFI GPT | `kernel/target/x86_64-unknown-none/debug/antos-uefi-x86_64.img` | **UTM x86_64 (UEFI)** y **VirtualBox 7 (con EFI activado)**. |
@@ -69,19 +73,28 @@ antOS soporta dos arquitecturas bare-metal (`no_std`) y genera los siguientes ar
 
 ### A. Para Arquitectura ARM64 (AArch64 - Mac Apple Silicon)
 
+La vía corta es `system/run-arm.sh`, que encadena los tres pasos:
+
+```bash
+system/run-arm.sh --release --build-only          # ELF optimizado (Método A)
+system/run-arm.sh --uefi --release --build-only    # + imagen UEFI/ISO (Método B)
+```
+
+Paso a paso, si prefieres invocar cada herramienta:
+
 ```bash
 # 1. Asegurar el target cruzado en Rust
 rustup target add aarch64-unknown-none
 
 # 2a. Compilar el kernel AArch64 para arranque directo de QEMU (Método A más abajo)
-(cd kernel && cargo build --target aarch64-unknown-none)
+(cd kernel && cargo build --target aarch64-unknown-none --release)
 
 # 2b. — o — compilarlo hablando el protocolo Limine, para generar una imagen UEFI (Método B)
-(cd kernel && cargo build --target aarch64-unknown-none --features limine)
+(cd kernel && cargo build --target aarch64-unknown-none --release --features limine)
 
 # 3. Generar el disco GPT con partición ESP FAT32 (/EFI/BOOT/BOOTAA64.EFI) y la Live ISO
 # a partir del binario que hayas compilado en el paso 2a o 2b
-cargo run -p builder -- kernel/target/aarch64-unknown-none/debug/kernel --arch aarch64
+cargo run -p builder -- kernel/target/aarch64-unknown-none/release/kernel --arch aarch64
 ```
 
 ### B. Para Arquitectura x86_64 (Intel / AMD)
@@ -108,11 +121,44 @@ cargo run -p builder -- kernel/target/x86_64-unknown-none/debug/kernel --format 
 UTM en macOS soporta dos motores de virtualización: **Apple Virtualization (VZ)** y **QEMU**.  
 Para ejecutar kernels bare-metal experimentales o utilizar arranque directo, **el motor QEMU es el indicado**.
 
+> ⚡ **Compila siempre en `--release` para UTM.**
+> UTM en Apple Silicon sólo acelera por hardware (HVF) cuando la CPU invitada
+> es `host`. antOS arranca con `-cpu cortex-a72`, así que UTM lo **emula con
+> TCG**. El binario `debug` es entre 10× y 40× más lento y, en la práctica,
+> parece colgado (no llega a imprimir el banner en 40 s). Genera los artefactos
+> con `--release`:
+>
+> ```bash
+> system/run-arm.sh --uefi --release --build-only   # imagen UEFI (Método B)
+> system/run-arm.sh --release --build-only          # binario ELF   (Método A)
+> ```
+>
+> Las rutas quedan en `kernel/target/aarch64-unknown-none/release/`.
+
+> 🧭 **Qué método elegir:**
+> | | Método A (`-kernel`) | Método B (imagen UEFI) |
+> | :--- | :--- | :--- |
+> | Arranque | ELF directo, sin firmware | EDK2 + Limine |
+> | Salida | **Sólo serie** (PL011) | **Gráfica** (GOP de Limine) + serie |
+> | GPU / USB PCIe | Se detectan pero se **omiten** (¹) | **Funcionan** (virtio-gpu-pci, xHCI) |
+> | Entrada | Sólo consola serie | Teclado + ratón USB (xHCI) |
+> | Iteración | La más rápida (recompila y relanza) | Requiere regenerar la `.img` |
+> | Uso recomendado | Bucle de kernel / depuración de arranque | **Escritorio completo en UTM** |
+>
+> (¹) `-M virt -kernel` no ejecuta ningún asignador de recursos PCI, así que los
+> BAR de `qemu-xhci` y `virtio-gpu-pci` quedan sin programar. El kernel lo
+> detecta (`BAR0 sin asignar`) y salta esos controladores en lugar de fallar; la
+> salida sigue por la UART. Para GPU y USB en UTM usa el **Método B**.
+
 ---
 
-### Método A: Arranque Directo del Kernel con QEMU (Recomendado en ARM64)
+### Método A: Arranque Directo del Kernel con QEMU (bucle de desarrollo)
 
-Este método es el más rápido y directo para desarrollo y pruebas en Macs con chip M1/M2/M3/M4:
+Este método es el más rápido para iterar sobre el arranque del kernel en Macs
+con chip M1/M2/M3/M4. La salida es **exclusivamente por puerto serie**: no hay
+firmware que programe los BAR PCIe, de modo que la GPU y el xHCI se omiten
+(desde el commit de robustez de BAR ya no provocan pánico). Para escritorio
+gráfico y USB, ve al **[Método B](#método-b-arranque-con-imagen-de-disco-uefi-gpt--limine)**.
 
 1. **Crear la Máquina Virtual en el Asistente:**
    * Abre UTM y pulsa el botón **+** en la barra superior.
@@ -138,7 +184,12 @@ Este método es el más rápido y directo para desarrollo y pruebas en Macs con 
      * Pulsa el botón **`+`** (o *Nuevo argumento*).
      * Introduce dos entradas (o el flag y el valor):
        1. Argumento: `-kernel`
-       2. Valor / siguiente argumento: `/Users/juandevelop/Develop/antOS/kernel/target/aarch64-unknown-none/debug/kernel`
+       2. Valor / siguiente argumento: `<ruta-del-repo>/kernel/target/aarch64-unknown-none/release/kernel`
+          (usa `release/`, no `debug/` — ver el aviso de `--release` arriba).
+     * *(Opcional)* Para forzar GICv3 en el arranque directo (sin DTB), añade
+       también los argumentos `-machine` y `virt,gic-version=3`. El kernel sondea
+       el bloque GICC y, si no responde, conmuta a GICv3 por sí solo, así que
+       esto sólo es necesario si quieres fijar la versión.
    * **Pestaña Dispositivos (Crucial para ver la salida de pantalla):**
      * En la barra lateral izquierda, bajo **Dispositivos**, pulsa **+ Nuevo...** -> **Puerto serie**.
      * Modo: **Terminal** (Consola integrada).
@@ -165,27 +216,48 @@ Este método es el más rápido y directo para desarrollo y pruebas en Macs con 
 
 ---
 
-### Método B: Arranque con Imagen de Disco UEFI (GPT / Limine)
+### Método B: Arranque con Imagen de Disco UEFI (GPT / Limine) — **recomendado para escritorio en UTM**
 
-Si deseas probar la secuencia de arranque completa mediante firmware UEFI EDK2 y el cargador de arranque Limine:
+Con firmware UEFI (EDK2) el arranque es completo: EDK2 programa los BAR PCIe —el
+mismo escenario que VirtualBox ARM64, donde el teclado USB ya está validado—, así
+que **la GPU (`virtio-gpu-pci`) y la entrada USB (xHCI) quedan operativas** y el
+compositor pinta el Desktop Shell sobre el framebuffer GOP de Limine.
+
+0. **Generar la imagen (una vez por cambio de código):**
+   ```bash
+   system/run-arm.sh --uefi --release --build-only
+   # -> kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img
+   ```
 
 1. **Crear la VM en UTM:**
    * Pulsa **+** -> **Emular** -> **Otro (Other)** -> **Omitir arranque ISO**.
    * Memoria: `1024 MB`, CPU: `2 núcleos`.
    * En almacenamiento: desmarca la creación de disco o crea uno efímero.
 2. **Configurar Unidades y Firmware (`Editar VM`):**
+   * **Pestaña Sistema:** Arquitectura `ARM64 (aarch64)`, máquina `QEMU ARM
+     Virtual Machine (virt)`.
    * **Pestaña QEMU:** Asegúrate de que **"UEFI Boot" esté MARCADO**.
    * **Pestaña Unidades (Drives):**
      * Si el asistente creó un disco duro vacío de 64 GB, elimínalo.
      * Pulsa **Nueva unidad...** -> **Importar unidad...** (*Import Drive*).
      * Selecciona el archivo:
        ```text
-       <ruta-del-repo>/kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img
+       <ruta-del-repo>/kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img
        ```
      * En los detalles de la unidad importada, verifica que la **Interfaz** sea `VirtIO` (o `NVMe`).
      * ⚠️ **No marques la unidad como extraíble ni como CD/DVD.**
+   * **Pestaña Pantalla (Display):**
+     * Tarjeta emulada: **`virtio-gpu-pci`** (predeterminada en UTM para ARM).
+       Es la que antOS trae por PCIe (T28.7) con *flush* explícito por
+       rectángulo — cursor rápido y sin descuadre. `virtio-ramfb-gl` también
+       sirve si tu build de UTM la ofrece.
+   * **Pestaña Entrada (Input):**
+     * Deja **USB** (UTM adjunta `usb-kbd` + `usb-tablet` sobre `qemu-xhci`).
+       Es la pila HID xHCI del kernel (T28.3/T28.4); en el log verás
+       `roothub …` y, al conectar, `usb-debug slot N … role=Keyboard|Mouse`.
    * **Pestaña Dispositivos:**
-     * Pulsa **Nuevo...** -> **Puerto serie** -> Modo: **Terminal**.
+     * Pulsa **Nuevo...** -> **Puerto serie** -> Modo: **Terminal** (para ver el
+       log de arranque; la ventana gráfica muestra el Desktop Shell).
 3. **Iniciar y Secuencia de Arranque:**
    * Pulsa **Play**.
    * El firmware EDK2 buscará la partición EFI. Si entra en la **UEFI Interactive Shell**, el script `/startup.nsh` (T24.1) se ejecutará automáticamente tras 5 segundos.
@@ -194,12 +266,24 @@ Si deseas probar la secuencia de arranque completa mediante firmware UEFI EDK2 y
      FS0:
      startup.nsh
      ```
-   * En la pestaña **Terminal** de UTM verás los mensajes del kernel y el cargador.
+   * En la pestaña **Terminal** de UTM verás los mensajes del kernel y el
+     cargador; con UEFI el GIC se autodetecta por DTB/ACPI (en Apple Silicon con
+     TCG, `virt` expone GICv2).
 
 ---
 
 ### Resolución de Problemas en UTM
 
+* **El arranque parece colgado (sin banner tras decenas de segundos):**  
+  Casi siempre es el binario `debug` emulado con TCG. Recompila con `--release`
+  (`system/run-arm.sh --uefi --release --build-only` o `--release --build-only`)
+  y apunta la VM al artefacto de `release/`. Un arranque `release` bajo TCG en un
+  M-series llega al `antos>` en pocos segundos.
+* **En el Método A no aparecen la GPU ni el teclado USB:**  
+  Es esperado: `-kernel` sin firmware no asigna ventanas a los BAR PCIe. El
+  kernel lo avisa (`pcie-xhci … BAR0 sin asignar · omitido`) y la GPU cae por
+  la cadena de framebuffer hasta `modo headless`; ninguno provoca pánico. Usa
+  el **Método B (UEFI)** para escritorio y USB.
 * **La ventana se queda en negro o dice *"Guest has not initialized the display (yet)"*:**  
   Comportamiento esperado si la VM no expone un `virtio-gpu` que antOS pueda detectar (T26.1): el
   kernel sigue arrancando normalmente, solo que en modo headless por la UART PL011. Asegúrate de
@@ -319,10 +403,15 @@ VBoxManage convertfromraw kernel/target/x86_64-unknown-none/debug/antos-bios.img
 
 Si prefieres arrancar directamente desde la terminal sin configuraciones de hipervisor gráfico:
 
+> En Apple Silicon `-cpu cortex-a72` implica emulación TCG: compila en
+> `--release` (`system/run-arm.sh --release --build-only`) y usa la ruta
+> `release/` en los comandos siguientes. El `debug/` sólo es práctico en un
+> host x86_64 rápido o en CI.
+
 ### A. QEMU ARM64 (AArch64) Bare Metal (Kernel Directo)
 ```bash
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
-  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -kernel kernel/target/aarch64-unknown-none/release/kernel \
   -serial stdio -monitor none
 ```
 *(Para salir de QEMU presiona `Ctrl+A` y luego `X`)*.
@@ -330,7 +419,7 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
 Con teclado y ratón/tablet nativos por **VirtIO-Input MMIO** (T28.1) y ventana gráfica:
 ```bash
 qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
-  -kernel kernel/target/aarch64-unknown-none/debug/kernel \
+  -kernel kernel/target/aarch64-unknown-none/release/kernel \
   -device virtio-keyboard-device -device virtio-tablet-device \
   -serial mon:stdio -display cocoa
 ```
@@ -339,13 +428,41 @@ El sufijo `-device` (no `-pci`) coloca los dispositivos en el bus `virtio-mmio` 
 arranque debe listar `virtio-input N dispositivo(s) de entrada activos` con una
 línea por dispositivo (`teclado` / `tablet`).
 
+> ⚠️ En arranque directo (`-kernel`) los dispositivos **PCIe** (`virtio-gpu-pci`,
+> `qemu-xhci` + `usb-kbd`/`usb-tablet`) se detectan pero se **omiten**: sin
+> firmware nadie asigna sus BAR. Para GPU/USB por PCIe usa el arranque UEFI (6-B)
+> o la entrada VirtIO-MMIO de arriba. Forzar GICv3 es opcional
+> (`-M virt,gic-version=3`): el kernel también conmuta solo si el bloque GICC no
+> responde.
+
 ### B. QEMU ARM64 con Firmware UEFI (EDK2)
 ```bash
+system/run-arm.sh --uefi --release --build-only    # genera la .img optimizada
+
+# Copia local escribible del almacén de variables EFI (una vez):
+cp /opt/homebrew/share/qemu/edk2-arm-vars.fd /tmp/antos-efivars.fd
+
 qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
-  -bios /opt/homebrew/share/qemu/edk2-aarch64-code.fd \
-  -drive format=raw,file=kernel/target/aarch64-unknown-none/debug/antos-uefi-aarch64.img \
+  -drive if=pflash,format=raw,readonly=on,file=/opt/homebrew/share/qemu/edk2-aarch64-code.fd \
+  -drive if=pflash,format=raw,file=/tmp/antos-efivars.fd \
+  -drive format=raw,file=kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img \
   -serial stdio
 ```
+El par `-drive if=pflash` (código de sólo lectura + almacén de variables
+escribible) es la forma habitual de cargar EDK2 en `-M virt`. `system/run-arm.sh
+--uefi` usa el nombre `QEMU_EFI.fd` (el que instala `apt`); en macOS/Homebrew
+ajusta la ruta al `edk2-aarch64-code.fd` de arriba.
+
+> ℹ️ Tras `limine: Loading executable …`, con algunas versiones de QEMU/EDK2 en
+> macOS el kernel entrega su salida al **framebuffer GOP** y la consola serie
+> queda en silencio: mira la ventana gráfica (o la pestaña de pantalla de UTM),
+> no la terminal. Para ver el log por serie de forma fiable usa el Método A.
+> Bajo TCG en un M-series el arranque UEFI completo (EDK2 + Limine + kernel)
+> tarda bastante; ten paciencia y compila en `--release`.
+
+Añade `-device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device
+usb-tablet -display cocoa` para escritorio gráfico con entrada USB: con UEFI los
+BAR sí quedan programados y ambos controladores se inicializan.
 
 ### C. QEMU x86_64 BIOS (Con Salida Gráfica y Serie)
 ```bash
@@ -377,9 +494,10 @@ Comando exacto + resultado esperado por combinación. Los scripts parametrizados
 | **QEMU x86_64 · USB** | `./run.sh --kbd usb --gpu std` | `usb-xhci controlador activo en PCI …`; `usb-kbd`/`usb-tablet` funcionan en el shell y el compositor. |
 | **QEMU `-M virt` GICv2 · VirtIO-Input** | `system/run-arm.sh --gic 2 --kbd virtio --gpu virtio-mmio` | `GICv2`, `timer virtual (CNTV, PPI 27)`, `virtio-input N dispositivos`, framebuffer por VirtIO-GPU MMIO. |
 | **QEMU `-M virt` GICv3 · VirtIO-Input** | `system/run-arm.sh --gic 3 --kbd virtio --gpu ramfb` | `GICv3` (bring-up de redistribuidor + `ICC_*_EL1`), framebuffer por `ramfb` (fw_cfg). |
-| **QEMU `-M virt` · USB xHCI** | `system/run-arm.sh --kbd usb --gpu virtio-pci` | `pcie-xhci controlador USB 3.0 activo`, `roothub …`, framebuffer por `virtio-gpu-pci`. |
-| **UTM Método A (`-kernel`)** | `system/run-arm.sh` (o el comando de la sección 4-A) | Serie PL011, MMU, timer 100 Hz, EL0 + syscalls. |
-| **UTM Método B (imagen UEFI)** | `system/run-arm.sh --uefi` | GOP de Limine pinta el Desktop Shell; sin regresión frente a T27–T28.7. |
+| **QEMU `-M virt` UEFI · USB xHCI + GPU PCIe** | sección 6-B + `-device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet` | `pcie-xhci controlador USB 3.0 activo`, `roothub …`, framebuffer por `virtio-gpu-pci`. Requiere firmware (BAR programados). |
+| **QEMU `-M virt` `-kernel` · dispositivos PCIe** | `system/run-arm.sh --kbd usb --gpu virtio-pci` | `pcie-xhci … BAR0 sin asignar · omitido`; `virtio-gpu-pci` cae a `modo headless` (sin pánico); salida por serie. Usar VirtIO-MMIO o el arranque UEFI. |
+| **UTM Método A (`-kernel`, `--release`)** | `system/run-arm.sh --release` (o el comando 4-A) | Serie PL011, MMU, timer 100 Hz, EL0 + syscalls. GICv2 o, con `gic-version=3` / autodetección, GICv3. GPU/USB PCIe omitidos. |
+| **UTM Método B (imagen UEFI, `--release`)** | `system/run-arm.sh --uefi --release` | GOP de Limine pinta el Desktop Shell; `virtio-gpu-pci` + entrada USB xHCI operativos; sin regresión frente a T27–T28.7. |
 | **VirtualBox ARM64** | Método 5.1 (VDI) | Arranca; usa **VirtIO-Input**. Ver limitaciones abajo. |
 | **VirtualBox x86_64** | Método 5.2 (VDI BIOS) | Teclado y ratón **PS/2**; xHCI opcional si añades un controlador USB 3.0 a la VM. |
 
@@ -395,3 +513,20 @@ Comando exacto + resultado esperado por combinación. Los scripts parametrizados
 * **GIC:** VirtualBox ARM64 expone GICv3; el kernel lo selecciona por el
   `compatible` del DTB (T28.6/T28.8). Si su DTB no es alcanzable, cae a GICv2 y
   el *timer* físico compensa.
+
+### Notas de UTM / QEMU en Apple Silicon
+
+* **Rendimiento:** con `-cpu cortex-a72` no hay HVF; todo es TCG. Usa siempre
+  `--release`. El `debug` puede tardar más de 40 s sólo en llegar al banner.
+* **Arranque directo sin firmware (`-kernel`, UTM Método A):** QEMU `-M virt`
+  no ejecuta un asignador de recursos PCI, así que los BAR de las funciones
+  PCIe (`qemu-xhci`, `virtio-gpu-pci`) quedan a cero. El kernel los detecta
+  (`BAR0 sin asignar`), los omite y continúa por serie. Para GPU y USB usa el
+  **Método B (UEFI)**, donde EDK2 programa los BAR.
+* **GIC en arranque directo:** sin DTB ni ACPI el kernel asume GICv2; si el
+  bloque GICC no responde (máquina `gic-version=3`), sondea `GICC_IIDR` con
+  recuperación de fallos y conmuta a GICv3 (`init_v3`) por sí mismo. Fijar
+  `-M virt,gic-version=3` en los argumentos es opcional.
+* **`system/run-arm.sh --test` / `--test-input`:** el arnés headless compila en
+  `debug` por defecto; en un M-series conviene añadir `--release` para que el
+  arranque quepa en el *timeout*. En CI (host x86_64) el `debug` es suficiente.
