@@ -297,7 +297,7 @@ fn cmd_help(commands: &BTreeMap<&'static str, &'static str>) {
 }
 
 fn cmd_info() {
-    let mut buf = [0u8; 256];
+    let mut buf = [0u8; 1024];
     match sysinfo(&mut buf) {
         Ok(n) => {
             if let Ok(text) = core::str::from_utf8(&buf[..n]) {

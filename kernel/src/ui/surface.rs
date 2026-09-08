@@ -1,10 +1,9 @@
 //! Off-screen 2D rendering surface with double-buffering (*backbuffer*),
 //! clipping support, geometric drawing primitives and atomic presentation.
 
-use super::color::{palette, Color};
+use super::color::Color;
 use super::rect::Rect;
 use crate::console::font::{self, FONT_WIDTH};
-use crate::console::framebuffer::Color as FbColor;
 use crate::console::Framebuffer;
 
 pub const DEFAULT_SURFACE_WIDTH: u32 = 1920;
@@ -33,15 +32,17 @@ impl Surface {
         let h = height.min(DEFAULT_SURFACE_HEIGHT);
         let ptr = unsafe { core::ptr::addr_of_mut!(DESKTOP_BACKBUFFER.0) as *mut u32 };
 
-        let mut s = Surface {
+        // No initial clear here: every `DesktopCompositor::render` call begins
+        // by clearing the whole surface anyway, and this constructor runs once
+        // per presented frame — a second full-surface write per frame was pure
+        // overhead on the software compositor path.
+        Surface {
             buffer: ptr,
             width: w,
             height: h,
             stride: w,
             clip_rect: Rect::new(0, 0, w, h),
-        };
-        s.clear(palette::ANTOS_BG);
-        s
+        }
     }
 
     #[inline]
@@ -211,21 +212,45 @@ impl Surface {
     ///
     /// This atomic transfer prevents any visual tearing or flickering.
     pub fn present(&self, fb: &mut Framebuffer) {
-        let copy_w = self.width.min(fb.width() as u32);
-        let copy_h = self.height.min(fb.height() as u32);
+        let copy_w = self.width.min(fb.width() as u32) as usize;
+        let copy_h = self.height.min(fb.height() as u32) as usize;
+        let stride = self.stride as usize;
 
-        for y in 0..copy_h as usize {
-            let src_row = y * self.stride as usize;
-            for x in 0..copy_w as usize {
-                let p = unsafe { *self.buffer.add(src_row + x) };
-                let r = ((p >> 16) & 0xff) as u8;
-                let g = ((p >> 8) & 0xff) as u8;
-                let b = (p & 0xff) as u8;
-                fb.put_pixel(x, y, FbColor::new(r, g, b));
-            }
+        for y in 0..copy_h {
+            let src_row = y * stride;
+            let row = unsafe { core::slice::from_raw_parts(self.buffer.add(src_row), copy_w) };
+            fb.blit_argb8888_row(y, row);
         }
 
         #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, copy_w as usize, copy_h as usize);
+        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, copy_w, copy_h);
+    }
+
+    /// Presents only the pixels inside `rect` (clamped to both buffers). Used by
+    /// the compositor's cursor-move fast path so a pointer motion repaints a
+    /// ~30x40 px damage region instead of the whole screen.
+    pub fn present_rect(&self, fb: &mut Framebuffer, rect: Rect) {
+        let screen = Rect::new(
+            0,
+            0,
+            self.width.min(fb.width() as u32),
+            self.height.min(fb.height() as u32),
+        );
+        let Some(area) = screen.intersection(&rect) else {
+            return;
+        };
+        let x0 = area.x as usize;
+        let y0 = area.y as usize;
+        let w = area.width as usize;
+        let stride = self.stride as usize;
+
+        for y in y0..(y0 + area.height as usize) {
+            let src = y * stride + x0;
+            let row = unsafe { core::slice::from_raw_parts(self.buffer.add(src), w) };
+            fb.blit_argb8888_span(x0, y, row);
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        crate::arch::aarch64::virtio_gpu::flush_screen(x0, y0, w, area.height as usize);
     }
 }

@@ -98,6 +98,30 @@ pub fn delay_ms(ms: u64) {
 }
 
 
+/// Translates a USB endpoint `bInterval` into the value the xHCI Endpoint
+/// Context "Interval" field expects (a `125 µs * 2^Interval` period).
+///
+/// * High/SuperSpeed interrupt endpoints already express `bInterval` as a
+///   `2^(bInterval-1)` exponent, so the field is simply `bInterval - 1`.
+/// * Full/Low-speed interrupt endpoints express `bInterval` directly in 1 ms
+///   frames; the field becomes `3 + floor(log2(bInterval))`, clamped to the
+///   1 ms .. 128 ms range xHCI allows for these speeds.
+///
+/// Passing the raw `bInterval` through (as the code did before) made a
+/// Full-speed keyboard advertising `bInterval = 10` poll every `2^10 * 125 µs`
+/// ≈ 128 ms *at best*, and encode to a reserved value at worst — which is why
+/// keystrokes never surfaced.
+fn encode_interval(speed: u8, b_interval: u8) -> u8 {
+    match speed as u32 {
+        portsc::SPEED_HIGH | portsc::SPEED_SUPER => b_interval.max(1).saturating_sub(1).min(15),
+        _ => {
+            let frames = b_interval.max(1) as u32;
+            let log2 = 31 - frames.leading_zeros(); // floor(log2(frames))
+            (3 + log2).clamp(3, 10) as u8
+        }
+    }
+}
+
 /// Information about an xHCI RootHub port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortInfo {
@@ -118,6 +142,13 @@ pub struct SlotDevice {
     pub ep_int_max_packet: u16,
     pub keyboard: UsbHidKeyboard,
     pub mouse: UsbHidMouse,
+    /// Diagnostics: interface class/protocol as reported by the device and a
+    /// snapshot of the last interrupt report, surfaced through `SYS_SYSINFO`.
+    pub iface_class: u8,
+    pub iface_protocol: u8,
+    pub report_events: u32,
+    pub last_report: [u8; 8],
+    pub last_report_len: u8,
 }
 
 /// Active xHCI Host Controller instance.
@@ -518,7 +549,7 @@ impl XhciController {
             }
 
             if let Some(mut ep_ctx) = view.endpoint_context(dci as usize, true) {
-                ep_ctx.set_interval(interval.max(3));
+                ep_ctx.set_interval(encode_interval(speed, interval));
                 let ep_type = if is_in { 7 } else { 3 }; // 7 = Interrupt IN
                 ep_ctx.set_type_and_max_packet(ep_type, max_packet.max(8), 3);
                 ep_ctx.set_tr_dequeue_pointer(ep_int_ring_phys, true);
@@ -606,11 +637,60 @@ impl XhciController {
                 crate::println!("    usb-debug  slot {}: hid report desc len={:?}: {:02x?}",
                     slot_id, rd_len, &desc_buf[..rd_len.unwrap_or(0).min(128)]);
 
+                // Force *boot-subclass* HID interfaces into Boot Protocol before
+                // configuring the endpoint: the keyboard/mouse decoders assume
+                // the fixed 8-byte boot report layout, but a device powers up in
+                // Report Protocol and emits whatever its Report Descriptor
+                // dictates — which the decoders then misread as noise (this is
+                // why the keyboard produced no key events at all).
+                //
+                // The request is only sent when the interface actually has a
+                // boot report — boot subclass, or a keyboard/mouse boot
+                // protocol. A device such as the VirtualBox absolute tablet
+                // (subclass 0, protocol 0) is left in Report Protocol so its
+                // 8-byte absolute format keeps decoding.
+                let has_boot_report = iface.interface_subclass
+                    == crate::drivers::usb::descriptor::SUBCLASS_BOOT_INTERFACE
+                    || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_KEYBOARD
+                    || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_MOUSE;
+                if has_boot_report {
+                    //   bmRequestType 0x21 (Host->Dev | Class | Interface)
+                    //   bRequest 0x0B SET_PROTOCOL, wValue 0 = Boot, wIndex = iface
+                    let set_protocol =
+                        [0x21, 0x0B, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                    let _ = self.control_transfer(slot_id, set_protocol, None, false);
+                    //   bRequest 0x0A SET_IDLE, wValue 0 = report only on change
+                    let set_idle =
+                        [0x21, 0x0A, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                    let _ = self.control_transfer(slot_id, set_idle, None, false);
+                }
+
+                let rd_valid = rd_len.unwrap_or(0).min(desc_buf.len());
+                let (rd_kbd, rd_mouse) =
+                    crate::drivers::usb::descriptor::classify_report_descriptor(&desc_buf[..rd_valid]);
+
                 let max_pkt = iface.ep_max_packet.max(8);
                 match self.configure_hid_endpoint(slot_id, speed, iface.ep_addr, max_pkt, iface.ep_interval) {
                     Ok(dci) => {
-                        let is_kbd = iface.is_boot_keyboard || port_num == 1;
-                        let is_mou = (iface.is_boot_mouse || port_num == 2) && !is_kbd;
+                        // Classify by the strongest available signal:
+                        //   1. the interface's declared boot protocol,
+                        //   2. the top-level usage in the HID Report Descriptor,
+                        //   3. (last resort) nothing — an unidentifiable HID is
+                        //      treated as a pointer, never a phantom keyboard.
+                        // The old code assumed "port 1 == keyboard"
+                        // unconditionally, so on VirtualBox — which exposes the
+                        // absolute tablet on *both* ports and no USB keyboard at
+                        // all — port 1 became a keyboard that no keystroke ever
+                        // reached.
+                        let (is_kbd, is_mou) = if iface.is_boot_keyboard {
+                            (true, false)
+                        } else if iface.is_boot_mouse {
+                            (false, true)
+                        } else if rd_kbd && !rd_mouse {
+                            (true, false)
+                        } else {
+                            (false, true)
+                        };
 
                         let mut mouse = UsbHidMouse::new();
                         if is_mou {
@@ -627,6 +707,11 @@ impl XhciController {
                             ep_int_max_packet: max_pkt,
                             keyboard: UsbHidKeyboard::new(),
                             mouse,
+                            iface_class: iface.interface_class,
+                            iface_protocol: iface.interface_protocol,
+                            report_events: 0,
+                            last_report: [0u8; 8],
+                            last_report_len: 0,
                         });
                     }
                     Err(e) => {
@@ -652,6 +737,12 @@ impl XhciController {
                         let slot_idx = (slot_id - 1) as usize;
                         let slot_dma = &mut (*dma).slots[slot_idx];
                         let report_buf = &slot_dma.report_buffer;
+
+                        // Diagnostics snapshot (surfaced via `info` / SYS_SYSINFO).
+                        dev.report_events = dev.report_events.wrapping_add(1);
+                        let snap = report_buf.len().min(8);
+                        dev.last_report[..snap].copy_from_slice(&report_buf[..snap]);
+                        dev.last_report_len = snap as u8;
 
                         if dev.is_keyboard {
                             let mut k_rep = [0u8; 8];

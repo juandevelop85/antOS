@@ -49,6 +49,14 @@ pub struct DesktopCompositor {
     keyboard_state: KeyboardState,
     arch_name: &'static str,
     workspace_name: &'static str,
+    /// `true` when the next present must repaint the whole screen (terminal
+    /// output, HUD, focus or button-state change). Cleared after a full render.
+    /// While it stays `false`, a pointer motion only repaints the small
+    /// rectangle it swept over — see [`DesktopCompositor::present_best`].
+    full_redraw_pending: bool,
+    /// Screen rectangle the cursor sprite occupied at the last present, so the
+    /// fast path knows which stale pixels to repaint.
+    last_cursor_bounds: Rect,
 }
 
 impl DesktopCompositor {
@@ -65,15 +73,20 @@ impl DesktopCompositor {
         let mut term = TerminalWindow::new(term_x, term_y, term_w, term_h);
         term.set_focused(true);
 
+        let cursor = MouseCursor::new((screen_w / 2) as i32, (screen_h / 2) as i32);
+        let last_cursor_bounds = cursor.bounds();
+
         DesktopCompositor {
             status_bar: StatusBar::new(),
             hud,
             terminal: term,
-            cursor: MouseCursor::new((screen_w / 2) as i32, (screen_h / 2) as i32),
+            cursor,
             focus: FocusTarget::Terminal,
             keyboard_state: KeyboardState::new(),
             arch_name,
             workspace_name: "[ws: default]",
+            full_redraw_pending: true,
+            last_cursor_bounds,
         }
     }
 
@@ -121,6 +134,16 @@ impl DesktopCompositor {
 
     /// Dispatches an input event to the compositor, moving the cursor or routing keys.
     pub fn handle_event(&mut self, event: InputEvent, screen_w: u32, screen_h: u32) -> bool {
+        // Anything other than a bare pointer motion can change pixels outside
+        // the cursor sprite (button colour, focus ring, HUD, terminal scroll),
+        // so it forces the next present to be a full-screen repaint.
+        if !matches!(
+            event,
+            InputEvent::MouseMove { .. } | InputEvent::MouseAbsolute { .. }
+        ) {
+            self.full_redraw_pending = true;
+        }
+
         match event {
             InputEvent::MouseMove { dx, dy } => {
                 self.cursor.move_rel(dx, dy, screen_w as i32, screen_h as i32);
@@ -234,12 +257,14 @@ impl DesktopCompositor {
         heap_total: usize,
         ticks: u64,
     ) {
-        // 1. Clear desktop with official dark theme background (#0d1117)
-        surface.clear(palette::ANTOS_BG);
-
-        // 2. Subtle grid / pattern accent lines for sovereign desktop aesthetic
+        // 1. Clear desktop with official dark theme background (#0d1117).
+        //    `fill_rect` honours the active clip, so when this pass runs inside
+        //    the cursor-move fast path only the damage rectangle is repainted.
         let w = surface.width();
         let h = surface.height();
+        surface.fill_rect(Rect::new(0, 0, w, h), palette::ANTOS_BG);
+
+        // 2. Subtle grid / pattern accent lines for sovereign desktop aesthetic
         for y in (28..h).step_by(64) {
             surface.draw_line_h(0, y as i32, w, palette::WINDOW_BG);
         }
@@ -287,6 +312,55 @@ impl DesktopCompositor {
         let mut surface = Surface::new_desktop(fb.width() as u32, fb.height() as u32);
         self.render(&mut surface, heap_used, heap_total, ticks);
         surface.present(fb);
+        self.full_redraw_pending = false;
+        self.last_cursor_bounds = self.cursor.bounds();
+    }
+
+    /// Presents the smallest update that still shows the current state: a full
+    /// repaint when something outside the pointer changed, otherwise just the
+    /// rectangle the cursor swept over since the last present (plus the pinned
+    /// status bar band, so its clock keeps advancing).
+    ///
+    /// A full-screen software composite runs on every input event on the
+    /// AArch64 path; at 1024x768 that is ~2 M scalar pixel ops per frame in the
+    /// debug profile, which is what made the pointer feel sluggish. A pointer
+    /// motion now touches ~a thousandth of that.
+    pub fn present_best(
+        &mut self,
+        fb: &mut Framebuffer,
+        heap_used: usize,
+        heap_total: usize,
+        ticks: u64,
+    ) {
+        let screen_w = fb.width() as u32;
+        let screen_h = fb.height() as u32;
+        let cursor_now = self.cursor.bounds();
+        let swept = self.last_cursor_bounds.union(&cursor_now);
+
+        // Grow the damage a couple of pixels each way (the sprite has a 1px
+        // outline) and staple on the status-bar band so the clock still ticks.
+        let damage = Rect::new(
+            (swept.x - 2).max(0),
+            0,
+            (swept.width + 4).min(screen_w),
+            (swept.bottom() as u32 + 2).min(screen_h),
+        );
+
+        let full_area = (screen_w as u64) * (screen_h as u64);
+        let damage_area = (damage.width as u64) * (damage.height as u64);
+        let must_full = self.full_redraw_pending || damage_area * 2 >= full_area;
+
+        if must_full {
+            self.render_to_framebuffer(fb, heap_used, heap_total, ticks);
+            return;
+        }
+
+        let mut surface = Surface::new_desktop(screen_w, screen_h);
+        surface.set_clip(damage);
+        self.render(&mut surface, heap_used, heap_total, ticks);
+        surface.reset_clip();
+        surface.present_rect(fb, damage);
+        self.last_cursor_bounds = cursor_now;
     }
 }
 
@@ -312,10 +386,11 @@ pub fn dispatch_pending_inputs(screen_w: u32, screen_h: u32) -> bool {
     modified
 }
 
-/// Renders the current desktop state to the given framebuffer.
+/// Renders the current desktop state to the given framebuffer, choosing a full
+/// repaint or a cursor-only damage update as appropriate.
 pub fn render_desktop(fb: &mut Framebuffer, heap_used: usize, heap_total: usize, ticks: u64) {
     let mut guard = COMPOSITOR.lock();
     if let Some(comp) = guard.as_mut() {
-        comp.render_to_framebuffer(fb, heap_used, heap_total, ticks);
+        comp.present_best(fb, heap_used, heap_total, ticks);
     }
 }

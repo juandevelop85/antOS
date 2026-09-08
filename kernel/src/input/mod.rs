@@ -264,7 +264,7 @@ static ASCII_BRIDGE_STATE: crate::sync::SpinLock<KeyboardState> =
 #[inline]
 fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
     if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
-        comp.render_to_framebuffer(
+        comp.present_best(
             c.framebuffer_mut(),
             crate::allocator::used(),
             crate::AARCH64_HEAP_SIZE,
@@ -278,7 +278,7 @@ fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
 fn render_compositor_if_active(comp: &mut crate::ui::DesktopCompositor) {
     #[cfg(target_arch = "x86_64")]
     if let Some(c) = crate::console::CONSOLE.lock().as_mut() {
-        comp.render_to_framebuffer(
+        comp.present_best(
             c.framebuffer_mut(),
             crate::allocator::used(),
             crate::memory::HEAP_SIZE,

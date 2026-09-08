@@ -161,6 +161,67 @@ impl Framebuffer {
         }
     }
 
+    /// Fast blit of one ARGB8888 (`0xAARRGGBB`) scanline into the framebuffer at
+    /// `(0, y)`, converting to the native pixel format. Bounds are checked once
+    /// for the whole row instead of once per pixel, which is what makes a
+    /// full-screen `Surface::present` cheap enough to run per input event.
+    #[inline]
+    pub fn blit_argb8888_row(&mut self, y: usize, row: &[u32]) {
+        self.blit_argb8888_span(0, y, row);
+    }
+
+    /// Like [`Self::blit_argb8888_row`] but starting at column `x0`, so a
+    /// partial-redraw pass can push just the pixels inside a damage rectangle.
+    pub fn blit_argb8888_span(&mut self, x0: usize, y: usize, row: &[u32]) {
+        if y >= self.height || x0 >= self.width {
+            return;
+        }
+        let n = row.len().min(self.width - x0);
+        let row_start = (y * self.stride + x0) * self.bytes_per_pixel;
+        if row_start + n * self.bytes_per_pixel > self.buffer_len {
+            return;
+        }
+
+        unsafe {
+            let mut ptr = self.buffer.add(row_start);
+            let bpp = self.bytes_per_pixel;
+            match self.pixel_format {
+                PixelFormat::Bgr => {
+                    for &px in &row[..n] {
+                        *ptr = (px & 0xff) as u8;
+                        *ptr.add(1) = ((px >> 8) & 0xff) as u8;
+                        *ptr.add(2) = ((px >> 16) & 0xff) as u8;
+                        if bpp >= 4 {
+                            *ptr.add(3) = 0xff;
+                        }
+                        ptr = ptr.add(bpp);
+                    }
+                }
+                PixelFormat::Rgb => {
+                    for &px in &row[..n] {
+                        *ptr = ((px >> 16) & 0xff) as u8;
+                        *ptr.add(1) = ((px >> 8) & 0xff) as u8;
+                        *ptr.add(2) = (px & 0xff) as u8;
+                        if bpp >= 4 {
+                            *ptr.add(3) = 0xff;
+                        }
+                        ptr = ptr.add(bpp);
+                    }
+                }
+                PixelFormat::U8 => {
+                    for &px in &row[..n] {
+                        let r = ((px >> 16) & 0xff) as u16;
+                        let g = ((px >> 8) & 0xff) as u16;
+                        let b = (px & 0xff) as u16;
+                        *ptr = ((r + g + b) / 3) as u8;
+                        ptr = ptr.add(bpp);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Fills a rectangular region of pixels with a given color.
     pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
         let max_x = (x + width).min(self.width);

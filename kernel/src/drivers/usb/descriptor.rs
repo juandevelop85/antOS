@@ -117,11 +117,39 @@ impl EndpointDescriptor {
 #[derive(Debug, Clone)]
 pub struct ParsedHidInterface {
     pub interface_number: u8,
+    pub interface_class: u8,
+    pub interface_subclass: u8,
+    pub interface_protocol: u8,
     pub is_boot_keyboard: bool,
     pub is_boot_mouse: bool,
     pub ep_addr: u8,
     pub ep_max_packet: u16,
     pub ep_interval: u8,
+}
+
+/// Coarse classification of a HID Report Descriptor by its top-level usage,
+/// used when `bInterfaceProtocol` is 0 (no boot protocol declared) — which is
+/// exactly the case for the VirtualBox absolute pointing device, whose report
+/// descriptor is a `Generic Desktop / Mouse` collection with 16-bit absolute
+/// X/Y. Returns `(looks_like_keyboard, looks_like_mouse)`.
+pub fn classify_report_descriptor(report_desc: &[u8]) -> (bool, bool) {
+    // Scan for the top-level `Usage Page (Generic Desktop), Usage (x)` pair.
+    //   05 01 09 06 -> Keyboard      05 01 09 02 -> Mouse
+    //   05 01 09 01 -> Pointer       05 01 09 80 -> System Control
+    let mut kbd = false;
+    let mut mouse = false;
+    let mut i = 0;
+    while i + 3 < report_desc.len() {
+        if report_desc[i] == 0x05 && report_desc[i + 1] == 0x01 && report_desc[i + 2] == 0x09 {
+            match report_desc[i + 3] {
+                0x06 => kbd = true,
+                0x02 | 0x01 => mouse = true,
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    (kbd, mouse)
 }
 
 /// Parses a raw USB configuration descriptor bundle and extracts all HID interfaces.
@@ -179,8 +207,11 @@ pub fn parse_configuration_bundle(data: &[u8]) -> (Option<u8>, Vec<ParsedHidInte
 
                             interfaces.push(ParsedHidInterface {
                                 interface_number: iface.interface_number,
+                                interface_class: iface.interface_class,
+                                interface_subclass: iface.interface_subclass,
+                                interface_protocol: iface.interface_protocol,
                                 is_boot_keyboard: is_keyboard,
-                                is_boot_mouse: is_mouse || (!is_keyboard), // Fallback to mouse if other HID
+                                is_boot_mouse: is_mouse,
                                 ep_addr: ep.endpoint_address,
                                 ep_max_packet: ep.max_packet_size,
                                 ep_interval: ep.interval,

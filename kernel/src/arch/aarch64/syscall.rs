@@ -305,9 +305,10 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
 
         syscall::SYS_SYSINFO => {
             let text = alloc::format!(
-                "arch: aarch64\nheap_used: {} B\nuptime_ticks: {}\n",
+                "arch: aarch64\nheap_used: {} B\nuptime_ticks: {}\n{}",
                 crate::allocator::used(),
                 crate::arch::aarch64::timer::ticks(),
+                crate::drivers::usb::debug_report(),
             );
             ctx.x[0] = copy_out(ctx.x[0], ctx.x[1], text.as_bytes());
         }
