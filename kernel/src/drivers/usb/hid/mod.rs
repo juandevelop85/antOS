@@ -5,6 +5,8 @@
 
 pub mod keyboard;
 pub mod mouse;
+pub mod report;
 
 pub use keyboard::{UsbHidKeyboard, hid_usage_to_key};
 pub use mouse::UsbHidMouse;
+pub use report::{HidDevice, HidRole};

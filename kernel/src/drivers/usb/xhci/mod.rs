@@ -166,6 +166,12 @@ pub struct SlotDevice {
     pub parent_hub_slot: u8,
     pub keyboard: UsbHidKeyboard,
     pub mouse: UsbHidMouse,
+    /// Parsed Report-Descriptor model, used when the interface is not in Boot
+    /// Protocol. `None` on the boot fast path.
+    pub hid: Option<crate::drivers::usb::hid::HidDevice>,
+    /// When set, decode interrupt reports with [`Self::hid`] instead of the
+    /// fixed boot decoders.
+    pub use_generic: bool,
     /// Diagnostics: interface class/protocol as reported by the device and a
     /// snapshot of the last interrupt report, surfaced through `SYS_SYSINFO`.
     pub iface_class: u8,
@@ -774,6 +780,8 @@ impl XhciController {
                 parent_hub_slot,
                 keyboard: UsbHidKeyboard::new(),
                 mouse: UsbHidMouse::new(),
+                hid: None,
+                use_generic: false,
                 iface_class: hub::CLASS_HUB,
                 iface_protocol: 0,
                 report_events: 0,
@@ -789,27 +797,46 @@ impl XhciController {
         let mut used_mask = 0u8;
 
         for iface in ifaces {
-            let mut desc_buf = [0u8; 128];
-            let get_report_desc =
-                [0x81, 0x06, 0x00, 0x22, iface.interface_number, 0x00, 128, 0x00];
+            let mut desc_buf = [0u8; 256];
+            let get_report_desc = [
+                0x81,
+                0x06,
+                0x00,
+                0x22,
+                iface.interface_number,
+                0x00,
+                (desc_buf.len() & 0xFF) as u8,
+                ((desc_buf.len() >> 8) & 0xFF) as u8,
+            ];
             let rd_len = self.control_transfer(slot_id, get_report_desc, Some(&mut desc_buf), true);
+            let rd_valid = rd_len.unwrap_or(0).min(desc_buf.len());
 
-            let has_boot_report = iface.interface_subclass
-                == crate::drivers::usb::descriptor::SUBCLASS_BOOT_INTERFACE
+            // Try Boot Protocol. It is only meaningful for a Boot Interface
+            // subclass; a subclass-0 device (e.g. the absolute tablet) is left
+            // in Report Protocol and decoded generically from its descriptor.
+            let is_boot_subclass = iface.interface_subclass
+                == crate::drivers::usb::descriptor::SUBCLASS_BOOT_INTERFACE;
+            let wants_boot = is_boot_subclass
                 || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_KEYBOARD
                 || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_MOUSE;
-            if has_boot_report {
+            let mut boot_ok = false;
+            if wants_boot {
                 let set_protocol =
                     [0x21, 0x0B, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
-                let _ = self.control_transfer(slot_id, set_protocol, None, false);
+                let sp_ok = self
+                    .control_transfer(slot_id, set_protocol, None, false)
+                    .is_ok();
                 let set_idle = [0x21, 0x0A, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
                 let _ = self.control_transfer(slot_id, set_idle, None, false);
+                boot_ok = sp_ok && is_boot_subclass;
             }
 
-            let rd_valid = rd_len.unwrap_or(0).min(desc_buf.len());
             let (rd_kbd, rd_mouse) = crate::drivers::usb::descriptor::classify_report_descriptor(
                 &desc_buf[..rd_valid],
             );
+            let mut hid_model =
+                crate::drivers::usb::hid::HidDevice::from_descriptor(&desc_buf[..rd_valid]);
+            let use_generic = !boot_ok && !hid_model.is_empty();
 
             let ep_slot = match alloc_ep_slot(used_mask) {
                 Some(s) => s,
@@ -837,7 +864,14 @@ impl XhciController {
                 Ok(dci) => {
                     used_mask |= 1 << ep_slot;
 
-                    let (is_kbd, is_mou) = if iface.is_boot_keyboard {
+                    use crate::drivers::usb::hid::HidRole;
+                    let (is_kbd, is_mou) = if use_generic {
+                        match hid_model.role {
+                            HidRole::Keyboard => (true, false),
+                            HidRole::Mouse => (false, true),
+                            HidRole::Other => (rd_kbd && !rd_mouse, !(rd_kbd && !rd_mouse)),
+                        }
+                    } else if iface.is_boot_keyboard {
                         (true, false)
                     } else if iface.is_boot_mouse {
                         (false, true)
@@ -850,6 +884,31 @@ impl XhciController {
                     let mut mouse = UsbHidMouse::new();
                     if is_mou {
                         mouse.is_absolute = max_pkt >= 5;
+                    }
+
+                    // Prime the generic decoder's diff state with the current
+                    // report so a device that only emits on change starts sane.
+                    if use_generic {
+                        let want = hid_model.input_len_bytes(0)
+                            + if hid_model.uses_report_id() { 1 } else { 0 };
+                        let rlen = want.clamp(1, 64);
+                        let mut prime = alloc::vec![0u8; rlen];
+                        let get_report = [
+                            0xA1,
+                            0x01,
+                            0x00,
+                            0x01,
+                            iface.interface_number,
+                            0x00,
+                            (rlen & 0xFF) as u8,
+                            ((rlen >> 8) & 0xFF) as u8,
+                        ];
+                        if self
+                            .control_transfer(slot_id, get_report, Some(&mut prime), true)
+                            .is_ok()
+                        {
+                            let _ = hid_model.decode(&prime);
+                        }
                     }
 
                     self.devices.push(SlotDevice {
@@ -866,6 +925,8 @@ impl XhciController {
                         parent_hub_slot,
                         keyboard: UsbHidKeyboard::new(),
                         mouse,
+                        hid: if use_generic { Some(hid_model) } else { None },
+                        use_generic,
                         iface_class: iface.interface_class,
                         iface_protocol: iface.interface_protocol,
                         report_events: 0,
@@ -1119,7 +1180,14 @@ impl XhciController {
         dev.last_report[..snap].copy_from_slice(&report_buf[..snap]);
         dev.last_report_len = snap as u8;
 
-        if dev.is_keyboard {
+        if dev.use_generic {
+            if let Some(hid) = dev.hid.as_mut() {
+                let len = (dev.ep_int_max_packet as usize).min(report_buf.len());
+                for ev in hid.decode(&report_buf[..len]) {
+                    crate::input::push_event(ev);
+                }
+            }
+        } else if dev.is_keyboard {
             let mut k_rep = [0u8; 8];
             k_rep.copy_from_slice(&report_buf[..8]);
             let events = dev.keyboard.process_report(&k_rep);

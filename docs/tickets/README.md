@@ -100,7 +100,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 28** | [T28.1](T28.1-verificacion-y-robustez-del-driver-virtio-input-mmio.md) | Verificación y Robustez del Driver VirtIO-Input MMIO (Teclado/Ratón/Tablet Nativos) | ✅ Completado |
 | **Fase 28** | [T28.2](T28.2-mapeo-pcie-ecam-mmio-multiplataforma-y-escaneo-de-bus-con-puentes.md) | Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes | ✅ Completado |
 | **Fase 28** | [T28.3](T28.3-xhci-robusto-rings-por-endpoint-control-transfers-hotplug-y-hubs.md) | xHCI Robusto: Rings/Buffers por Endpoint, Control Transfers Extendidas, Hotplug y Hubs | ✅ Completado |
-| **Fase 28** | [T28.4](T28.4-parser-de-hid-report-descriptor-y-decodificador-generico-por-usages.md) | Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages | 🔲 Pendiente |
+| **Fase 28** | [T28.4](T28.4-parser-de-hid-report-descriptor-y-decodificador-generico-por-usages.md) | Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages | ✅ Completado |
 | **Fase 28** | [T28.5](T28.5-ergonomia-de-entrada-leds-auto-repeat-layouts-y-aceleracion-de-puntero.md) | Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero | 🔲 Pendiente |
 | **Fase 28** | [T28.6](T28.6-timer-aarch64-resiliente-y-gic-v2-v3-con-enrutado-de-irq-de-perifericos.md) | Timer AArch64 Resiliente (Fallback Físico EL1) y GIC v2/v3 con Enrutado de IRQ de Periféricos | 🔲 Pendiente |
 | **Fase 28** | [T28.7](T28.7-paridad-de-display-virtio-gpu-pci-ramfb-y-cadena-de-fallback-de-framebuffer.md) | Paridad de Display: virtio-gpu-pci, ramfb y Cadena de Fallback de Framebuffer | 🔲 Pendiente |

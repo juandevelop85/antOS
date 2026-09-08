@@ -64,14 +64,16 @@ pub fn debug_report() -> alloc::string::String {
             "hid    "
         };
         let n = (d.last_report_len as usize).min(d.last_report.len());
+        let path = if d.use_generic { "gen " } else { "boot" };
         let _ = writeln!(
             out,
-            "  slot {} pto {} ruta {:#x} vel {} {} ep{} dci {} mps {} cls {:#04x} proto {:#04x} ev {} last {:02x?}",
+            "  slot {} pto {} ruta {:#x} vel {} {} {} ep{} dci {} mps {} cls {:#04x} proto {:#04x} ev {} last {:02x?}",
             d.slot_id,
             d.port,
             d.route_string,
             d.speed,
             kind,
+            path,
             d.ep_slot,
             d.ep_int_dci,
             d.ep_int_max_packet,

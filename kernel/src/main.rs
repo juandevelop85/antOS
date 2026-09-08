@@ -318,14 +318,21 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             let dev_type = if dev.is_hub {
                 "hub USB"
             } else if dev.is_keyboard {
-                "teclado USB HID (boot)"
+                "teclado USB HID"
             } else if dev.is_mouse {
                 "raton/tablet USB HID"
             } else {
                 "dispositivo USB HID"
             };
-            println!("    usb-hid    slot {} · puerto {} · ruta {:#x} · {} (EP {})",
-                dev.slot_id, dev.port, dev.route_string, dev_type, dev.ep_int_dci / 2);
+            let proto = if dev.is_hub {
+                ""
+            } else if dev.use_generic {
+                " [report descriptor]"
+            } else {
+                " [boot]"
+            };
+            println!("    usb-hid    slot {} · puerto {} · ruta {:#x} · {}{} (EP {})",
+                dev.slot_id, dev.port, dev.route_string, dev_type, proto, dev.ep_int_dci / 2);
         }
     }
 

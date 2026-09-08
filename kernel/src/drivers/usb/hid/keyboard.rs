@@ -94,6 +94,19 @@ pub fn hid_usage_to_key(usage: u8) -> KeyCode {
         0x51 => KeyCode::Down,
         0x52 => KeyCode::Up,
 
+        // Modifier usages (0xE0 - 0xE7). Boot reports carry these in the
+        // modifier bitmap byte, but a Report-Protocol keyboard declares them as
+        // ordinary Usage-Page-0x07 variable fields, so the generic decoder maps
+        // them here too.
+        0xE0 => KeyCode::LeftCtrl,
+        0xE1 => KeyCode::LeftShift,
+        0xE2 => KeyCode::LeftAlt,
+        0xE3 => KeyCode::LeftSuper,
+        0xE4 => KeyCode::RightCtrl,
+        0xE5 => KeyCode::RightShift,
+        0xE6 => KeyCode::RightAlt,
+        0xE7 => KeyCode::RightSuper,
+
         other => KeyCode::Unknown(other as u16),
     }
 }
