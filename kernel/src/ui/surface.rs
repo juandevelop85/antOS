@@ -251,6 +251,11 @@ impl Surface {
         }
 
         #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(x0, y0, w, area.height as usize);
+        {
+            // The GOP framebuffer is mapped Normal Non-Cacheable; make the strip
+            // write globally visible before the display controller scans it.
+            unsafe { core::arch::asm!("dsb sy", options(nomem, nostack)) };
+            crate::arch::aarch64::virtio_gpu::flush_screen(x0, y0, w, area.height as usize);
+        }
     }
 }

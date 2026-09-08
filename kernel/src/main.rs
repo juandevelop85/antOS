@@ -206,6 +206,12 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     #[cfg(feature = "limine")]
     if limine_fb_active {
         println!("  limine       framebuffer UEFI (GOP) activo vía protocolo Limine");
+        if let Some(c) = console::CONSOLE.lock().as_ref() {
+            let fb = c.framebuffer();
+            println!("  fb-geom      {}x{} · stride {} px · {} B/px{}",
+                fb.width(), fb.height(), fb.stride_pixels(), fb.bytes_per_pixel(),
+                if fb.stride_pixels() != fb.width() { " (pitch con relleno)" } else { "" });
+        }
     }
 
     // 1. Introspección del DTB para simple-framebuffer

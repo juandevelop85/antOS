@@ -348,7 +348,13 @@ impl DesktopCompositor {
 
         let full_area = (screen_w as u64) * (screen_h as u64);
         let damage_area = (damage.width as u64) * (damage.height as u64);
-        let must_full = self.full_redraw_pending || damage_area * 2 >= full_area;
+        // A partial (span) blit into a framebuffer whose row pitch is padded
+        // (VirtualBox GOP) has been observed to smear the cursor trail a few
+        // pixels vertically; a full-frame present is exact, so fall back to it
+        // there. Tightly-packed framebuffers (QEMU, UTM) keep the fast path.
+        let padded_pitch = fb.stride_pixels() != fb.width();
+        let must_full =
+            self.full_redraw_pending || padded_pitch || damage_area * 2 >= full_area;
 
         if must_full {
             self.render_to_framebuffer(fb, heap_used, heap_total, ticks);

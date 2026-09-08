@@ -121,6 +121,19 @@ impl Framebuffer {
         self.height
     }
 
+    /// Row stride in **pixels** (`pitch / bytes_per_pixel`). Equals `width` on a
+    /// tightly-packed framebuffer; some firmware (VirtualBox GOP) pads it.
+    #[inline]
+    pub fn stride_pixels(&self) -> usize {
+        self.stride
+    }
+
+    /// Bytes per pixel of the active framebuffer.
+    #[inline]
+    pub fn bytes_per_pixel(&self) -> usize {
+        self.bytes_per_pixel
+    }
+
     /// Sets a single pixel to the specified color with bounds checking.
     #[inline]
     pub fn put_pixel(&mut self, x: usize, y: usize, color: Color) {
