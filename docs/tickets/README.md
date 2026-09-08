@@ -104,6 +104,6 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 28** | [T28.5](T28.5-ergonomia-de-entrada-leds-auto-repeat-layouts-y-aceleracion-de-puntero.md) | Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero | ✅ Completado |
 | **Fase 28** | [T28.6](T28.6-timer-aarch64-resiliente-y-gic-v2-v3-con-enrutado-de-irq-de-perifericos.md) | Timer AArch64 Resiliente (Fallback Físico EL1) y GIC v2/v3 con Enrutado de IRQ de Periféricos | ✅ Completado |
 | **Fase 28** | [T28.7](T28.7-paridad-de-display-virtio-gpu-pci-ramfb-y-cadena-de-fallback-de-framebuffer.md) | Paridad de Display: virtio-gpu-pci, ramfb y Cadena de Fallback de Framebuffer | ✅ Completado |
-| **Fase 28** | [T28.8](T28.8-descubrimiento-por-firmware-dtb-acpi-y-bring-up-sin-direcciones-hardcodeadas.md) | Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas | 🔲 Pendiente |
+| **Fase 28** | [T28.8](T28.8-descubrimiento-por-firmware-dtb-acpi-y-bring-up-sin-direcciones-hardcodeadas.md) | Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas | ✅ Completado |
 | **Fase 28** | [T28.9](T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) | Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | 🔲 Pendiente |
 | **Fase 28** | [T28.10](T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) | Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | 🔲 Pendiente |

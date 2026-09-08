@@ -14,6 +14,7 @@ extern crate alloc;
 
 #[allow(dead_code)]
 mod allocator;
+pub mod acpi;
 pub mod arch;
 pub mod console;
 pub mod drivers;
@@ -133,11 +134,11 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         }
     }
 
-    arch::aarch64::SERIAL.lock().init();
-
-    // Stash the firmware device-tree pointer for later discovery helpers
-    // (e.g. pci::probe_ecam_base -> dtb::find_pcie_ecam, T28.2).
+    // Stash the firmware device-tree pointer first so even the earliest
+    // discovery (PL011 base, T28.8) can consult it.
     arch::aarch64::dtb::set_dtb_base(dtb_ptr);
+
+    arch::aarch64::SERIAL.lock().init();
 
     println!();
     println!("antOS · kernel AArch64");
@@ -385,6 +386,32 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     println!();
     println!("controlador de interrupciones y temporizador");
+    println!("  {}", arch::aarch64::dtb::firmware_summary());
+
+    // Ruta Limine (UEFI): descubrimiento por ACPI en vez de DTB.
+    #[cfg(feature = "limine")]
+    if booted_via_limine {
+        let rsdp_resp = crate::limine::RSDP_REQUEST.response;
+        if !rsdp_resp.is_null() {
+            let rsdp_ptr = unsafe { (*rsdp_resp).address };
+            let mcfg = unsafe { acpi::find_table(rsdp_ptr, b"MCFG") }.map(acpi::parse_mcfg);
+            let madt = unsafe { acpi::find_table(rsdp_ptr, b"APIC") }.map(acpi::parse_madt_gic);
+            match (&mcfg, &madt) {
+                (Some(m), _) if !m.is_empty() => {
+                    println!("  acpi         MCFG: ECAM {:#x} buses {}..{}",
+                        m[0].base_address, m[0].start_bus, m[0].end_bus);
+                }
+                _ => println!("  acpi         MCFG no encontrada"),
+            }
+            if let Some(g) = &madt {
+                println!("  acpi         MADT: GIC{} d={:#x} r={:#x}",
+                    if g.is_v3() { "v3" } else { "v2" },
+                    g.gicd_base.unwrap_or(0), g.gicr_base.unwrap_or(0));
+            }
+        } else {
+            println!("  acpi         Limine no proporcionó RSDP");
+        }
+    }
 
     // Detectar la versión del GIC por el device tree (v3 en hardware real y en
     // algunos hipervisores; v2 en QEMU -M virt por defecto).

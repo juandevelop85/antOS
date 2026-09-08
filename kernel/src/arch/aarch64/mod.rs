@@ -7,6 +7,7 @@ pub mod dtb;
 #[cfg(not(feature = "limine"))]
 pub mod entry;
 pub mod exceptions;
+pub mod fdt;
 pub mod fw_cfg;
 pub mod gic;
 #[cfg(feature = "limine")]

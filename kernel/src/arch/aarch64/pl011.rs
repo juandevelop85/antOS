@@ -12,9 +12,15 @@ pub const DEFAULT_PL011_BASE: usize = 0x0900_0000;
 /// VirtualBox ARM64 MMIO base address for arm-pl011.
 pub const VBOX_PL011_BASE: usize = 0xffdd_e000;
 
-/// Probes whether PL011 is located at QEMU base (0x0900_0000)
-/// or VirtualBox base (0xffdd_e000) by inspecting PrimeCell identification registers.
+/// Resolves the PL011 MMIO base. Primary source is the device tree
+/// (`arm,pl011` node `reg`, T28.8); the PrimeCell identification-register probe
+/// is the fallback for firmware that passes no usable DTB.
 pub fn probe_pl011_base() -> usize {
+    if let Some((base, _)) = crate::arch::aarch64::dtb::firmware_reg("arm,pl011") {
+        if base != 0 {
+            return base as usize;
+        }
+    }
     unsafe {
         let qemu_id0 = core::ptr::read_volatile((DEFAULT_PL011_BASE + 0xFF0) as *const u32);
         let qemu_id1 = core::ptr::read_volatile((DEFAULT_PL011_BASE + 0xFF4) as *const u32);

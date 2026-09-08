@@ -258,3 +258,30 @@ pub static DTB_REQUEST: DtbRequest = DtbRequest {
     revision: 0,
     response: core::ptr::null(),
 };
+
+/// Limine RSDP request — hands back the ACPI Root System Description Pointer on
+/// firmware that boots via UEFI (T28.8, ACPI discovery path).
+#[repr(C)]
+pub struct RsdpRequest {
+    id: [u64; 4],
+    revision: u64,
+    pub response: *const RsdpResponse,
+}
+
+#[repr(C)]
+pub struct RsdpResponse {
+    pub revision: u64,
+    /// Pointer to the RSDP structure (HHDM-offset on recent Limine revisions).
+    pub address: *const u8,
+}
+
+// SAFETY: see `unsafe impl Sync for HhdmRequest` above — same reasoning.
+unsafe impl Sync for RsdpRequest {}
+
+#[used]
+#[unsafe(link_section = ".requests")]
+pub static RSDP_REQUEST: RsdpRequest = RsdpRequest {
+    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0xc5e77b6b397e7b43, 0x27637845accdcf3c],
+    revision: 0,
+    response: core::ptr::null(),
+};

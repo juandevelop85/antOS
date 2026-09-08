@@ -283,14 +283,40 @@ fn scan_dtb_at(addr: u64) -> Option<FramebufferConfig> {
 /// `pci::probe_ecam_base` so the ECAM address comes from firmware instead of a
 /// per-hypervisor constant (T28.2; full DTB/ACPI bring-up is T28.8).
 pub fn find_pcie_ecam() -> Option<(u64, u8, u8)> {
+    // Primary: the generic FDT parser (T28.8).
+    for candidate in [dtb_base(), 0x4000_0000] {
+        if let Some(fdt) = unsafe { super::fdt::from_ptr(candidate as *const u8) } {
+            let node = fdt
+                .find_compatible("pci-host-ecam-generic")
+                .into_iter()
+                .next()
+                .or_else(|| fdt.find_compatible("pci-host-cam-generic").into_iter().next());
+            if let Some(node) = node {
+                if let Some((base, _)) = node.reg() {
+                    let (lo, hi) = node
+                        .prop("bus-range")
+                        .filter(|b| b.len() >= 8)
+                        .map(|b| {
+                            (
+                                u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as u8,
+                                u32::from_be_bytes([b[4], b[5], b[6], b[7]]) as u8,
+                            )
+                        })
+                        .unwrap_or((0, 0xFF));
+                    return Some((base, lo, if hi >= lo { hi } else { 0xFF }));
+                }
+            }
+        }
+    }
+    // Fallback: the hand-rolled scanner.
     let base = dtb_base();
-    if let Some(found) = scan_dtb_for_pcie_ecam(base) {
-        return Some(found);
-    }
-    if base != 0x4000_0000 {
-        return scan_dtb_for_pcie_ecam(0x4000_0000);
-    }
-    None
+    scan_dtb_for_pcie_ecam(base).or_else(|| {
+        if base != 0x4000_0000 {
+            scan_dtb_for_pcie_ecam(0x4000_0000)
+        } else {
+            None
+        }
+    })
 }
 
 fn scan_dtb_for_pcie_ecam(addr: u64) -> Option<(u64, u8, u8)> {
@@ -397,14 +423,36 @@ pub struct GicInfo {
 /// Locates the GIC node and reports its version and register bases so the GIC
 /// driver can pick v2 vs v3 instead of assuming QEMU `-M virt` GICv2.
 pub fn find_gic() -> Option<GicInfo> {
+    // Primary: the generic FDT parser (T28.8).
+    for candidate in [dtb_base(), 0x4000_0000] {
+        if let Some(fdt) = unsafe { super::fdt::from_ptr(candidate as *const u8) } {
+            let (node, is_v3) = if let Some(n) = fdt.find_compatible("arm,gic-v3").into_iter().next()
+            {
+                (Some(n), true)
+            } else {
+                (fdt.find_compatible("gic").into_iter().next(), false)
+            };
+            if let Some(node) = node {
+                if let Some((gicd_base, _)) = node.reg_at(0) {
+                    let second_base = node.reg_at(1).map(|(a, _)| a).unwrap_or(0);
+                    return Some(GicInfo {
+                        is_v3,
+                        gicd_base,
+                        second_base,
+                    });
+                }
+            }
+        }
+    }
+    // Fallback: the hand-rolled scanner.
     let base = dtb_base();
-    if let Some(info) = scan_dtb_for_gic(base) {
-        return Some(info);
-    }
-    if base != 0x4000_0000 {
-        return scan_dtb_for_gic(0x4000_0000);
-    }
-    None
+    scan_dtb_for_gic(base).or_else(|| {
+        if base != 0x4000_0000 {
+            scan_dtb_for_gic(0x4000_0000)
+        } else {
+            None
+        }
+    })
 }
 
 fn scan_dtb_for_gic(addr: u64) -> Option<GicInfo> {
@@ -507,14 +555,77 @@ fn scan_dtb_for_gic(addr: u64) -> Option<GicInfo> {
 /// Locates the `qemu,fw-cfg-mmio` node and returns its MMIO base, so `ramfb`
 /// bring-up does not hardcode the QEMU `-M virt` address.
 pub fn find_fw_cfg() -> Option<u64> {
-    let base = dtb_base();
-    if let Some(b) = scan_dtb_for_compatible_reg(base, "qemu,fw-cfg-mmio") {
-        return Some(b);
+    if let Some((base, _)) = firmware_reg("qemu,fw-cfg-mmio") {
+        return Some(base);
     }
-    if base != 0x4000_0000 {
-        return scan_dtb_for_compatible_reg(0x4000_0000, "qemu,fw-cfg-mmio");
+    let base = dtb_base();
+    scan_dtb_for_compatible_reg(base, "qemu,fw-cfg-mmio").or_else(|| {
+        if base != 0x4000_0000 {
+            scan_dtb_for_compatible_reg(0x4000_0000, "qemu,fw-cfg-mmio")
+        } else {
+            None
+        }
+    })
+}
+
+/// `(address, size)` of the first `reg` of the first node whose `compatible`
+/// contains `needle`, via the generic FDT parser. The one-stop replacement for
+/// the hand-rolled `scan_dtb_for_*` helpers (T28.8).
+pub fn firmware_reg(needle: &str) -> Option<(u64, u64)> {
+    for candidate in [dtb_base(), 0x4000_0000] {
+        if let Some(fdt) = unsafe { super::fdt::from_ptr(candidate as *const u8) } {
+            if let Some(node) = fdt.find_compatible(needle).into_iter().next() {
+                if let Some(reg) = node.reg() {
+                    return Some(reg);
+                }
+            }
+        }
     }
     None
+}
+
+/// One-line summary of the device bases the generic FDT parser resolved, for
+/// the boot log and `SYS_SYSINFO`. Empty string when no DTB is reachable.
+pub fn firmware_summary() -> alloc::string::String {
+    use core::fmt::Write as _;
+    let mut out = alloc::string::String::new();
+
+    let fdt = [dtb_base(), 0x4000_0000]
+        .into_iter()
+        .find_map(|c| unsafe { super::fdt::from_ptr(c as *const u8) });
+    let Some(fdt) = fdt else {
+        let _ = write!(out, "firmware: sin DTB alcanzable (usando sondas heredadas)");
+        return out;
+    };
+
+    let base = |needle: &str| {
+        fdt.find_compatible(needle)
+            .into_iter()
+            .next()
+            .and_then(|n| n.reg())
+            .map(|(a, _)| a)
+    };
+    let gic_v3 = !fdt.find_compatible("arm,gic-v3").is_empty();
+    let gic = fdt
+        .find_compatible(if gic_v3 { "arm,gic-v3" } else { "gic" })
+        .into_iter()
+        .next();
+    let (gicd, gic2) = gic
+        .map(|n| (n.reg_at(0).map(|(a, _)| a), n.reg_at(1).map(|(a, _)| a)))
+        .unwrap_or((None, None));
+
+    let _ = write!(
+        out,
+        "firmware(DTB): gic{} d={:#x} 2={:#x} · pl011={:#x} · ecam={:#x} · fw-cfg={:#x} · virtio0={:#x}",
+        if gic_v3 { "v3" } else { "v2" },
+        gicd.unwrap_or(0),
+        gic2.unwrap_or(0),
+        base("arm,pl011").unwrap_or(0),
+        base("pci-host-ecam-generic").unwrap_or(0),
+        base("qemu,fw-cfg-mmio").unwrap_or(0),
+        base("virtio,mmio").unwrap_or(0),
+    );
+    out
 }
 
 /// Generic helper: first node whose `compatible` contains `needle`, returning
