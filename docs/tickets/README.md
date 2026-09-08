@@ -97,3 +97,13 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 27** | [T27.2](T27.2-controlador-pcie-ecam-y-host-usb-xhci.md) | Controlador PCIe ECAM y Host Controller USB 3.0 xHCI | ✅ Completado |
 | **Fase 27** | [T27.3](T27.3-pila-usb-y-subclase-hid-para-teclado-y-raton.md) | Pila USB y Subclase HID para Teclado y Ratón en Bare-Metal | ✅ Completado |
 | **Fase 27** | [T27.4](T27.4-terminal-grafico-activo-en-compositor-y-multiplexacion.md) | Terminal Gráfico Activo en Compositor 2D y Control Soberano de Escritorio | ✅ Completado |
+| **Fase 28** | [T28.1](T28.1-verificacion-y-robustez-del-driver-virtio-input-mmio.md) | Verificación y Robustez del Driver VirtIO-Input MMIO (Teclado/Ratón/Tablet Nativos) | 🔲 Pendiente |
+| **Fase 28** | [T28.2](T28.2-mapeo-pcie-ecam-mmio-multiplataforma-y-escaneo-de-bus-con-puentes.md) | Mapeo PCIe ECAM/MMIO Multi-Plataforma y Escaneo de Bus con Puentes | 🔲 Pendiente |
+| **Fase 28** | [T28.3](T28.3-xhci-robusto-rings-por-endpoint-control-transfers-hotplug-y-hubs.md) | xHCI Robusto: Rings/Buffers por Endpoint, Control Transfers Extendidas, Hotplug y Hubs | 🔲 Pendiente |
+| **Fase 28** | [T28.4](T28.4-parser-de-hid-report-descriptor-y-decodificador-generico-por-usages.md) | Parser de HID Report Descriptor y Decodificador Genérico Dirigido por Usages | 🔲 Pendiente |
+| **Fase 28** | [T28.5](T28.5-ergonomia-de-entrada-leds-auto-repeat-layouts-y-aceleracion-de-puntero.md) | Ergonomía de Entrada: LEDs de Teclado, Auto-Repeat, Layouts y Aceleración de Puntero | 🔲 Pendiente |
+| **Fase 28** | [T28.6](T28.6-timer-aarch64-resiliente-y-gic-v2-v3-con-enrutado-de-irq-de-perifericos.md) | Timer AArch64 Resiliente (Fallback Físico EL1) y GIC v2/v3 con Enrutado de IRQ de Periféricos | 🔲 Pendiente |
+| **Fase 28** | [T28.7](T28.7-paridad-de-display-virtio-gpu-pci-ramfb-y-cadena-de-fallback-de-framebuffer.md) | Paridad de Display: virtio-gpu-pci, ramfb y Cadena de Fallback de Framebuffer | 🔲 Pendiente |
+| **Fase 28** | [T28.8](T28.8-descubrimiento-por-firmware-dtb-acpi-y-bring-up-sin-direcciones-hardcodeadas.md) | Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas | 🔲 Pendiente |
+| **Fase 28** | [T28.9](T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) | Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | 🔲 Pendiente |
+| **Fase 28** | [T28.10](T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) | Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | 🔲 Pendiente |
