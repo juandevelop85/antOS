@@ -409,14 +409,30 @@ impl XhciController {
 
     /// Resets a RootHub port and returns its negotiated speed code.
     pub fn reset_port(&mut self, port: u8) -> Result<u8, &'static str> {
-        let sc = self.registers.read_portsc(port);
+        let mut sc = self.registers.read_portsc(port);
         if (sc & portsc::CCS) == 0 {
 
             return Err("Port not connected");
         }
 
+        // The device (or the host, e.g. VirtualBox) may already be mid-reset;
+        // wait for PR to clear before touching the port again rather than
+        // stacking another reset request on top.
+        if (sc & portsc::PR) != 0 {
+            let mut spin = 60;
+            while spin > 0 && (self.registers.read_portsc(port) & portsc::PR) != 0 {
+                delay_ms(5);
+                spin -= 1;
+            }
+            sc = self.registers.read_portsc(port);
+        }
+
         if (sc & portsc::PED) != 0 {
-            let speed = ((sc >> portsc::SPEED_SHIFT) & portsc::SPEED_MASK) as u8;
+            // Already enabled — give the device its reset-recovery window
+            // anyway, then report the negotiated speed.
+            delay_ms(15);
+            let speed = ((self.registers.read_portsc(port) >> portsc::SPEED_SHIFT)
+                & portsc::SPEED_MASK) as u8;
             return Ok(speed);
         }
 
@@ -668,6 +684,7 @@ impl XhciController {
         ep_slot: usize,
         speed: u8,
         route_string: u32,
+        root_port: u8,
         ep_addr: u8,
         max_packet: u16,
         interval: u8,
@@ -698,6 +715,12 @@ impl XhciController {
 
             if let Some(mut slot) = view.slot_context(true) {
                 slot.set_info(route_string, speed, context_entries.max(dci));
+                // The input context was just zeroed and the Slot add-flag (A0)
+                // is set, so the controller re-evaluates the Slot Context on
+                // this Configure Endpoint. Re-assert the Root Hub Port Number
+                // (DWORD1) — leaving it 0 breaks routing of the interrupt
+                // endpoint's transfers, i.e. the actual key/mouse reports.
+                slot.set_port_info(root_port, 0);
             }
 
             if let Some(mut ep_ctx) = view.endpoint_context(dci as usize, true) {
@@ -767,8 +790,15 @@ impl XhciController {
         // 1. Device Descriptor (18 bytes) — carries bDeviceClass at offset 4.
         let mut dev_desc_buf = [0u8; 18];
         let get_dev_setup = [0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 18, 0x00];
-        let _ = self.control_transfer(slot_id, get_dev_setup, Some(&mut dev_desc_buf), true);
+        let dd = self.control_transfer(slot_id, get_dev_setup, Some(&mut dev_desc_buf), true);
         let device_class = dev_desc_buf[4];
+        crate::println!(
+            "    usb-debug  slot {} pto {}: devdesc={:?} {:04x}:{:04x} class={:#x} proto={:#x}",
+            slot_id, root_port, dd,
+            u16::from_le_bytes([dev_desc_buf[8], dev_desc_buf[9]]),
+            u16::from_le_bytes([dev_desc_buf[10], dev_desc_buf[11]]),
+            device_class, dev_desc_buf[6],
+        );
 
         // 2. Configuration Descriptor: 9-byte header first for wTotalLength,
         //    then the whole bundle (bounded by the 512 B control buffer).
@@ -904,6 +934,7 @@ impl XhciController {
                 ep_slot,
                 speed,
                 route_string,
+                root_port,
                 iface.ep_addr,
                 max_pkt,
                 iface.ep_interval,
