@@ -181,6 +181,7 @@ pub fn verify_and_fallback() -> TimerSource {
     // If the virtual counter is not even advancing the virtual timer is
     // hopeless; go straight to physical.
     if !virtual_counter_running() {
+        crate::println!("  timer        contador virtual congelado · probando timer físico EL1");
         let _ = switch_to_physical();
     }
 
@@ -188,8 +189,11 @@ pub fn verify_and_fallback() -> TimerSource {
         return source();
     }
 
-    if source() == TimerSource::Virtual && switch_to_physical() && wait_for_tick() {
-        return TimerSource::Physical;
+    if source() == TimerSource::Virtual {
+        crate::println!("  timer        sin pulsos del timer virtual (PPI 27) · fallback a físico EL1 (PPI 30)");
+        if switch_to_physical() && wait_for_tick() {
+            return TimerSource::Physical;
+        }
     }
 
     source()

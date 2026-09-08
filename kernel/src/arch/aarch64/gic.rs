@@ -8,10 +8,13 @@
 
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
-// ── Memory-mapped bases (QEMU `-M virt` defaults; GICR overridden from DTB) ──
+// ── Memory-mapped bases (QEMU `-M virt` defaults; overridden from DTB/ACPI) ──
 
-pub const GICD_BASE: usize = 0x0800_0000;
-pub const GICC_BASE: usize = 0x0801_0000;
+/// GIC Distributor base on QEMU `-M virt` (v2 and v3). VirtualBox ARM64 puts it
+/// elsewhere (e.g. `0xfcd3_0000`) and reports it via ACPI MADT.
+pub const GICD_BASE_DEFAULT: usize = 0x0800_0000;
+/// GICv2 CPU-interface (GICC) base on QEMU `-M virt`.
+pub const GICC_BASE_DEFAULT: usize = 0x0801_0000;
 /// GICv3 redistributor frame 0 base on QEMU `-M virt,gic-version=3`.
 pub const GICR_BASE_DEFAULT: usize = 0x080A_0000;
 
@@ -50,7 +53,19 @@ const VERSION_V2: u8 = 2;
 const VERSION_V3: u8 = 3;
 
 static GIC_VERSION: AtomicU8 = AtomicU8::new(VERSION_V2);
+static GICD_BASE: AtomicUsize = AtomicUsize::new(GICD_BASE_DEFAULT);
+static GICC_BASE: AtomicUsize = AtomicUsize::new(GICC_BASE_DEFAULT);
 static GICR_BASE: AtomicUsize = AtomicUsize::new(GICR_BASE_DEFAULT);
+
+#[inline]
+fn gicd_base() -> usize {
+    GICD_BASE.load(Ordering::Relaxed)
+}
+
+#[inline]
+fn gicc_base() -> usize {
+    GICC_BASE.load(Ordering::Relaxed)
+}
 
 /// Returns the GIC version chosen at [`init`] time.
 pub fn version() -> GicVersion {
@@ -96,12 +111,12 @@ unsafe fn write_reg(base: usize, offset: usize, val: u32) {
 
 #[inline]
 unsafe fn read_gicd(offset: usize) -> u32 {
-    read_reg(GICD_BASE, offset)
+    read_reg(gicd_base(), offset)
 }
 
 #[inline]
 unsafe fn write_gicd(offset: usize, val: u32) {
-    write_reg(GICD_BASE, offset, val);
+    write_reg(gicd_base(), offset, val);
 }
 
 // ── GICv3 system-register CPU interface ────────────────────────────────────
@@ -145,9 +160,11 @@ unsafe fn write_icc_eoir1_el1(v: u64) {
     core::arch::asm!("msr ICC_EOIR1_EL1, {}", in(reg) v, options(nomem, nostack));
 }
 
-/// Selects the GIC version (call before [`init`]). Normally driven by
-/// `dtb::find_gic()`; exposed so `main` can log/force it.
-pub fn set_version(v: GicVersion, gicr_base: Option<usize>) {
+/// Selects the GIC version and register bases (call before [`init`]). Driven by
+/// firmware discovery — `dtb::find_gic()` on the direct-boot path, ACPI MADT on
+/// the Limine path. `gicd_base` is the Distributor; `second_base` is the GICR
+/// discovery base on v3 or the GICC base on v2. `None` keeps the current value.
+pub fn set_version(v: GicVersion, gicd_base: Option<usize>, second_base: Option<usize>) {
     GIC_VERSION.store(
         match v {
             GicVersion::V2 => VERSION_V2,
@@ -155,9 +172,24 @@ pub fn set_version(v: GicVersion, gicr_base: Option<usize>) {
         },
         Ordering::Relaxed,
     );
-    if let Some(b) = gicr_base {
-        GICR_BASE.store(b, Ordering::Relaxed);
+    if let Some(b) = gicd_base.filter(|&b| b != 0) {
+        GICD_BASE.store(b, Ordering::Relaxed);
     }
+    if let Some(b) = second_base.filter(|&b| b != 0) {
+        match v {
+            GicVersion::V3 => GICR_BASE.store(b, Ordering::Relaxed),
+            GicVersion::V2 => GICC_BASE.store(b, Ordering::Relaxed),
+        }
+    }
+}
+
+/// `(version, gicd_base, gicr_or_gicc_base)` currently configured, for the log.
+pub fn bases() -> (GicVersion, usize, usize) {
+    let second = match version() {
+        GicVersion::V3 => GICR_BASE.load(Ordering::Relaxed),
+        GicVersion::V2 => GICC_BASE.load(Ordering::Relaxed),
+    };
+    (version(), gicd_base(), second)
 }
 
 /// Initializes the GIC distributor and this CPU's interface for the selected
@@ -172,8 +204,8 @@ pub fn init() {
 fn init_v2() {
     unsafe {
         write_gicd(GICD_CTLR, 0);
-        write_reg(GICC_BASE, GICC_PMR, 0xFF);
-        write_reg(GICC_BASE, GICC_CTLR, 0b11);
+        write_reg(gicc_base(), GICC_PMR, 0xFF);
+        write_reg(gicc_base(), GICC_CTLR, 0b11);
         write_gicd(GICD_CTLR, 1);
     }
 }
@@ -294,7 +326,7 @@ fn enable_interrupt_v3(id: u32) {
 #[inline]
 pub fn acknowledge() -> u32 {
     match version() {
-        GicVersion::V2 => unsafe { read_reg(GICC_BASE, GICC_IAR) & 0x3FF },
+        GicVersion::V2 => unsafe { read_reg(gicc_base(), GICC_IAR) & 0x3FF },
         GicVersion::V3 => unsafe { (read_icc_iar1_el1() & 0xFF_FFFF) as u32 },
     }
 }
@@ -303,7 +335,7 @@ pub fn acknowledge() -> u32 {
 #[inline]
 pub fn end_of_interrupt(id: u32) {
     match version() {
-        GicVersion::V2 => unsafe { write_reg(GICC_BASE, GICC_EOIR, id) },
+        GicVersion::V2 => unsafe { write_reg(gicc_base(), GICC_EOIR, id) },
         GicVersion::V3 => unsafe { write_icc_eoir1_el1(id as u64) },
     }
 }

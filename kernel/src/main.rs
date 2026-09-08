@@ -388,54 +388,65 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!("controlador de interrupciones y temporizador");
     println!("  {}", arch::aarch64::dtb::firmware_summary());
 
-    // Ruta Limine (UEFI): descubrimiento por ACPI en vez de DTB.
+    // Descubrimiento del GIC (versión + bases) antes de gic::init().
+    // Prioridad: device tree → ACPI MADT (ruta Limine/UEFI) → GICv2 por defecto.
+    use arch::aarch64::gic::GicVersion;
+    let mut gic_configured = false;
+
+    if let Some(info) = arch::aarch64::dtb::find_gic() {
+        let v = if info.is_v3 { GicVersion::V3 } else { GicVersion::V2 };
+        arch::aarch64::gic::set_version(
+            v,
+            Some(info.gicd_base as usize),
+            Some(info.second_base as usize),
+        );
+        println!("  gic          DTB · {} d={:#x} 2={:#x}",
+            arch::aarch64::gic::version_name(), info.gicd_base, info.second_base);
+        gic_configured = true;
+    }
+
     #[cfg(feature = "limine")]
     if booted_via_limine {
         let rsdp_resp = crate::limine::RSDP_REQUEST.response;
         if !rsdp_resp.is_null() {
             let rsdp_ptr = unsafe { (*rsdp_resp).address };
-            let mcfg = unsafe { acpi::find_table(rsdp_ptr, b"MCFG") }.map(acpi::parse_mcfg);
-            let madt = unsafe { acpi::find_table(rsdp_ptr, b"APIC") }.map(acpi::parse_madt_gic);
-            match (&mcfg, &madt) {
-                (Some(m), _) if !m.is_empty() => {
+            if let Some(m) = unsafe { acpi::find_table(rsdp_ptr, b"MCFG") }.map(acpi::parse_mcfg) {
+                if let Some(a) = m.first() {
                     println!("  acpi         MCFG: ECAM {:#x} buses {}..{}",
-                        m[0].base_address, m[0].start_bus, m[0].end_bus);
+                        a.base_address, a.start_bus, a.end_bus);
                 }
-                _ => println!("  acpi         MCFG no encontrada"),
             }
-            if let Some(g) = &madt {
+            if let Some(g) = unsafe { acpi::find_table(rsdp_ptr, b"APIC") }.map(acpi::parse_madt_gic) {
                 println!("  acpi         MADT: GIC{} d={:#x} r={:#x}",
                     if g.is_v3() { "v3" } else { "v2" },
                     g.gicd_base.unwrap_or(0), g.gicr_base.unwrap_or(0));
+                // Sin DTB, la MADT es la única fuente fiable de la topología del
+                // GIC (VirtualBox ARM64: GICv3 en 0xfcd3_0000 / 0xfcd4_0000).
+                if !gic_configured && g.gicd_base.is_some() {
+                    let v = if g.is_v3() { GicVersion::V3 } else { GicVersion::V2 };
+                    arch::aarch64::gic::set_version(
+                        v,
+                        g.gicd_base.map(|b| b as usize),
+                        g.gicr_base.map(|b| b as usize),
+                    );
+                    gic_configured = true;
+                }
             }
         } else {
             println!("  acpi         Limine no proporcionó RSDP");
         }
     }
 
-    // Detectar la versión del GIC por el device tree (v3 en hardware real y en
-    // algunos hipervisores; v2 en QEMU -M virt por defecto).
-    match arch::aarch64::dtb::find_gic() {
-        Some(info) => {
-            let v = if info.is_v3 {
-                arch::aarch64::gic::GicVersion::V3
-            } else {
-                arch::aarch64::gic::GicVersion::V2
-            };
-            let gicr = if info.is_v3 && info.second_base != 0 {
-                Some(info.second_base as usize)
-            } else {
-                None
-            };
-            arch::aarch64::gic::set_version(v, gicr);
-        }
-        None => {
-            println!("  gic          nodo DTB no hallado · asumiendo GICv2");
-        }
+    if !gic_configured {
+        println!("  gic          sin DTB/ACPI · asumiendo GICv2 en bases por defecto");
     }
 
     arch::aarch64::gic::init();
-    println!("  {:<12} distribuidor y cpu interface activos", arch::aarch64::gic::version_name());
+    {
+        let (_, d, s) = arch::aarch64::gic::bases();
+        println!("  {:<12} distribuidor y cpu interface activos · d={:#x} 2={:#x}",
+            arch::aarch64::gic::version_name(), d, s);
+    }
 
     arch::aarch64::timer::init();
     arch::aarch64::gic::enable_peripheral_irqs();
