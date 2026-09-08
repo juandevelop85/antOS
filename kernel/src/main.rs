@@ -393,6 +393,21 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             println!("    usb-hid    slot {} · puerto {} · ruta {:#x} · {}{} (EP {})",
                 dev.slot_id, dev.port, dev.route_string, dev_type, proto, dev.ep_int_dci / 2);
         }
+    } else if let Some(x) = pci_scan.iter().find(|d| d.is_xhci_controller()) {
+        // The controller is on the bus but did not come up. The usual cause on
+        // `-M virt -kernel` (no firmware) is an unprogrammed BAR0.
+        let bar0_unset = x.bars[0].memory_address().unwrap_or(0) == 0;
+        if bar0_unset {
+            println!(
+                "  pcie-xhci    xHCI {:04x}:{:04x} presente pero con BAR0 sin asignar · omitido (arranque sin firmware)",
+                x.vendor_id, x.device_id
+            );
+        } else {
+            println!(
+                "  pcie-xhci    xHCI {:04x}:{:04x} presente · la inicialización del controlador falló",
+                x.vendor_id, x.device_id
+            );
+        }
     }
 
     println!();
