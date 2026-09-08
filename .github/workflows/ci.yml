@@ -242,3 +242,49 @@ jobs:
 
       - name: Run builder tests
         run: cargo test -p builder
+
+  # ──────────────────────── Peripheral emulation matrix (T28.10)
+  # Boots the kernel headless for each transport combination and injects
+  # keyboard + mouse events over the QEMU monitor, requiring the kernel to
+  # acknowledge them ("input-rx:" on the serial log).
+  peripheral-smoke:
+    name: "Periféricos · ${{ matrix.arch }} kbd=${{ matrix.kbd }} gpu=${{ matrix.gpu }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  target: x86_64-unknown-none,  kbd: ps2, gpu: std,        script: "./run.sh" }
+          - { arch: x86_64,  target: x86_64-unknown-none,  kbd: usb, gpu: std,        script: "./run.sh" }
+          - { arch: aarch64, target: aarch64-unknown-none, kbd: virtio, gpu: virtio-mmio, script: "system/run-arm.sh" }
+          - { arch: aarch64, target: aarch64-unknown-none, kbd: virtio, gpu: ramfb,       script: "system/run-arm.sh" }
+          - { arch: aarch64, target: aarch64-unknown-none, kbd: usb,    gpu: virtio-mmio, script: "system/run-arm.sh" }
+          - { arch: aarch64, target: aarch64-unknown-none, kbd: usb,    gpu: ramfb,       script: "system/run-arm.sh" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: x86_64-unknown-none, aarch64-unknown-none
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-system-arm
+
+      - name: Cache kernel build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            kernel/target
+            user/target
+            target
+          key: smoke-${{ matrix.arch }}-${{ hashFiles('kernel/Cargo.lock', 'user/Cargo.lock') }}
+          restore-keys: smoke-${{ matrix.arch }}-
+
+      - name: Input-injection smoke test
+        run: ${{ matrix.script }} --test-input --kbd ${{ matrix.kbd }} --gpu ${{ matrix.gpu }}

@@ -305,10 +305,11 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
 
         syscall::SYS_SYSINFO => {
             let text = alloc::format!(
-                "arch: aarch64\nheap_used: {} B\nuptime_ticks: {}\nuptime_s: {}\ntimer_src: {}\ngic: {}\n{}\n{}\n{}",
+                "arch: aarch64\nheap_used: {} B\nuptime_ticks: {}\nuptime_s: {}\ninput_events: {}\ntimer_src: {}\ngic: {}\n{}\n{}\n{}",
                 crate::allocator::used(),
                 crate::arch::aarch64::timer::ticks(),
                 crate::arch::aarch64::timer::uptime_seconds(),
+                crate::input::total_events(),
                 crate::arch::aarch64::timer::source_name(),
                 crate::arch::aarch64::gic::version_name(),
                 crate::arch::aarch64::dtb::firmware_summary(),

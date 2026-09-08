@@ -3,10 +3,17 @@
 //! Stores hardware events (keyboard, mouse, touchpad) arriving via interrupts
 //! or driver polling loops with zero allocation and lock-protected synchronization.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use super::InputEvent;
 use crate::sync::SpinLock;
 
 const QUEUE_CAPACITY: usize = 256;
+
+/// Monotonic count of every input event ever enqueued (keyboard, mouse, all
+/// transports). Used by the peripheral smoke test (T28.10) to confirm the
+/// kernel received injected input, and surfaced through `SYS_SYSINFO`.
+static TOTAL_EVENTS: AtomicU64 = AtomicU64::new(0);
 
 /// Fixed-size circular buffer for kernel input events.
 pub struct InputEventQueue {
@@ -72,7 +79,14 @@ pub static GLOBAL_INPUT_QUEUE: SpinLock<InputEventQueue> = SpinLock::new(InputEv
 
 /// Enqueues an input event into the global queue.
 pub fn push_event(event: InputEvent) -> bool {
+    TOTAL_EVENTS.fetch_add(1, Ordering::Relaxed);
     GLOBAL_INPUT_QUEUE.lock().push(event)
+}
+
+/// Total number of input events enqueued since boot, across every device and
+/// transport.
+pub fn total_events() -> u64 {
+    TOTAL_EVENTS.load(Ordering::Relaxed)
 }
 
 /// Pops an input event from the global queue.

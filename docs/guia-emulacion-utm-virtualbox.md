@@ -358,4 +358,40 @@ qemu-system-x86_64 -m 256M \
 ```bash
 # Compila el kernel, empaqueta el disco y ejecuta verificación desatendida en QEMU
 ./run.sh --test
+
+# Inyecta teclado + ratón por el monitor de QEMU y exige que el kernel los
+# acuse (línea "input-rx:" en la consola serie).
+./run.sh --test-input --kbd usb            # x86_64
+system/run-arm.sh --test-input --gic 3     # AArch64
 ```
+
+## 7. Matriz de Periféricos: Qué Funciona Dónde (T28.10)
+
+Comando exacto + resultado esperado por combinación. Los scripts parametrizados
+(`run.sh`, `system/run-arm.sh`) los generan automáticamente con los *flags*
+`--kbd` / `--gpu` / `--gic`.
+
+| Entorno | Comando | Resultado esperado |
+| :--- | :--- | :--- |
+| **QEMU x86_64 · PS/2** | `./run.sh --kbd ps2 --gpu std` | `ps2-mouse IRQ12 activo`; teclas y ratón mueven el cursor y encolan eventos (`input_events` en `info`). |
+| **QEMU x86_64 · USB** | `./run.sh --kbd usb --gpu std` | `usb-xhci controlador activo en PCI …`; `usb-kbd`/`usb-tablet` funcionan en el shell y el compositor. |
+| **QEMU `-M virt` GICv2 · VirtIO-Input** | `system/run-arm.sh --gic 2 --kbd virtio --gpu virtio-mmio` | `GICv2`, `timer virtual (CNTV, PPI 27)`, `virtio-input N dispositivos`, framebuffer por VirtIO-GPU MMIO. |
+| **QEMU `-M virt` GICv3 · VirtIO-Input** | `system/run-arm.sh --gic 3 --kbd virtio --gpu ramfb` | `GICv3` (bring-up de redistribuidor + `ICC_*_EL1`), framebuffer por `ramfb` (fw_cfg). |
+| **QEMU `-M virt` · USB xHCI** | `system/run-arm.sh --kbd usb --gpu virtio-pci` | `pcie-xhci controlador USB 3.0 activo`, `roothub …`, framebuffer por `virtio-gpu-pci`. |
+| **UTM Método A (`-kernel`)** | `system/run-arm.sh` (o el comando de la sección 4-A) | Serie PL011, MMU, timer 100 Hz, EL0 + syscalls. |
+| **UTM Método B (imagen UEFI)** | `system/run-arm.sh --uefi` | GOP de Limine pinta el Desktop Shell; sin regresión frente a T27–T28.7. |
+| **VirtualBox ARM64** | Método 5.1 (VDI) | Arranca; usa **VirtIO-Input**. Ver limitaciones abajo. |
+| **VirtualBox x86_64** | Método 5.2 (VDI BIOS) | Teclado y ratón **PS/2**; xHCI opcional si añades un controlador USB 3.0 a la VM. |
+
+### Limitaciones conocidas de VirtualBox ARM64 (permanente)
+
+* **Timer:** la IRQ del *timer virtual* (PPI 27, `CNTV_*`) no se dispara. El
+  kernel lo detecta al arrancar (`verify_and_fallback`, T28.6) y cae al **timer
+  físico EL1** (PPI 30, `CNTP_*`); `uptime_ticks` incrementa a partir de ahí.
+* **xHCI *event ring*:** el modelo xHCI de VirtualBox puede no volver a colocar
+  *Transfer Events* tras el primero (`ev 0` en `info`, T28.3). `update_erdp`
+  limpia `IMAN.IP` en cada avance del *dequeue pointer* para mitigarlo; aun así,
+  **prefiere VirtIO-Input** en VirtualBox.
+* **GIC:** VirtualBox ARM64 expone GICv3; el kernel lo selecciona por el
+  `compatible` del DTB (T28.6/T28.8). Si su DTB no es alcanzable, cae a GICv2 y
+  el *timer* físico compensa.

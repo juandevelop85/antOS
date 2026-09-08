@@ -1043,6 +1043,7 @@ fn halt_loop() -> ! {
         #[cfg(target_arch = "aarch64")]
         {
             drivers::usb::poll();
+            input::poll_rx_report();
             input::service_auto_repeat(arch::aarch64::timer::ticks());
             input::sync_keyboard_leds();
             let (screen_w, screen_h) = console::resolution();

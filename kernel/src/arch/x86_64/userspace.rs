@@ -466,9 +466,12 @@ fn sys_fs_readfile(path_ptr: u64, path_len: u64, out_ptr: u64, out_len: u64) -> 
 /// `SYS_SYSINFO` — reports architecture, heap usage and uptime as text (T26.5).
 fn sys_sysinfo(out_ptr: u64, out_len: u64) -> u64 {
     let text = alloc::format!(
-        "arch: x86_64\nheap_used: {} B\nuptime_ticks: {}\n",
+        "arch: x86_64\nheap_used: {} B\nuptime_ticks: {}\ninput_events: {}\n{}\n{}",
         crate::allocator::used(),
         crate::task::timer::ticks(),
+        crate::input::total_events(),
+        crate::input::settings_report(),
+        crate::drivers::usb::debug_report(),
     );
     copy_out(out_ptr, out_len, text.as_bytes())
 }

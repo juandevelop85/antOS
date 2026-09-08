@@ -244,6 +244,50 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -nographic \
   -serial stdio
 ```
 
+#### B-bis. Matriz de periféricos y humo de entrada automatizado (T28.10)
+
+El soporte de periféricos depende mucho del entorno (transporte de teclado/ratón,
+GIC v2 vs v3, framebuffer). Los scripts parametrizados generan el comando QEMU
+canónico de cada combinación y el modo `--test-input` inyecta teclas y movimiento
+de ratón por el **monitor de QEMU**, exigiendo que el kernel los acuse en la
+consola serie con `input-rx:` (fallando si no llegan a tiempo).
+
+```bash
+# x86_64 — run.sh
+./run.sh --kbd ps2 --gpu std                 # i8042 (teclado + ratón PS/2) + VGA
+./run.sh --kbd usb --gpu std                 # -device qemu-xhci -device usb-kbd -device usb-tablet
+./run.sh --gpu virtio-pci                    # -vga none -device virtio-gpu-pci
+./run.sh --gpu ramfb                         # -vga none -device ramfb
+./run.sh --test-input --kbd usb              # arranque headless + inyección de entrada
+
+# AArch64 — system/run-arm.sh (QEMU -M virt, arranque directo -kernel)
+system/run-arm.sh --gic 2 --kbd virtio --gpu virtio-mmio
+system/run-arm.sh --gic 3 --kbd usb    --gpu virtio-pci
+system/run-arm.sh --kbd virtio --gpu ramfb
+system/run-arm.sh --test-input --gic 3 --kbd virtio --gpu virtio-mmio
+system/run-arm.sh --uefi                     # arranque por imagen UEFI (Limine, --features limine)
+```
+
+| Arch | `--kbd` | Dispositivos QEMU | `--gpu` | Dispositivos QEMU |
+| :--- | :--- | :--- | :--- | :--- |
+| x86_64  | `ps2` | *(i8042 implícito en `-machine pc`)* | `std` | `-vga std` |
+| x86_64  | `usb` | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` | `-vga none -device virtio-gpu-pci` |
+| aarch64 | `virtio` | `-device virtio-keyboard-device -device virtio-tablet-device` | `virtio-mmio` | `-device virtio-gpu-device` |
+| aarch64 | `usb` | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` | `-device virtio-gpu-pci` |
+| ambas   | —     | — | `ramfb` | `-device ramfb` (x86: `-vga none`) |
+
+**Resultado esperado de `--test-input`:** el log serie contiene el banner de
+arranque (`antOS · kernel …`), las líneas de enumeración del periférico elegido
+(`ps2-mouse IRQ12 activo`, `usb-xhci …`, `virtio-input …`, `roothub …`) y, tras
+la inyección, `input-rx: primer evento recibido · total=N`. El *job*
+`peripheral-smoke` de `.github/workflows/ci.yml` ejecuta la matriz
+`aarch64 {virtio, usb} × {virtio-mmio, ramfb}` y `x86_64 {ps2, usb}`.
+
+> ⚠️ **VirtualBox ARM64** tiene limitaciones conocidas: la IRQ del *timer virtual*
+> (PPI 27) no se dispara — el kernel cae al *timer físico EL1* (PPI 30, T28.6) —
+> y el *event ring* de xHCI puede no entregar *Transfer Events* (`ev 0` en `info`,
+> T28.3). Usa VirtIO-Input en VirtualBox si es posible.
+
 #### C. Opciones del CLI `builder`
 
 El crate `builder/` permite empaquetar binarios ELF del kernel en imágenes de disco GPT con partición ESP (FAT32) e ISOs híbridas:

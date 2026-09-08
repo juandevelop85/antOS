@@ -458,6 +458,27 @@ pub fn service_auto_repeat(now: u64) {
     }
 }
 
+/// Last input-event total announced by [`poll_rx_report`].
+static RX_REPORT_LAST: AtomicU8 = AtomicU8::new(0);
+static RX_REPORT_TOTAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// Emits a terminal line the first time input events arrive and whenever the
+/// running total grows, so a headless smoke test (T28.10) can confirm the
+/// kernel received injected keystrokes / mouse motion. Cheap no-op otherwise.
+pub fn poll_rx_report() {
+    let total = queue::total_events();
+    let prev = RX_REPORT_TOTAL.swap(total, Ordering::Relaxed);
+    if total > prev {
+        // `RX_REPORT_LAST` just tracks "have we ever reported" for a nicer first line.
+        let first = RX_REPORT_LAST.swap(1, Ordering::Relaxed) == 0;
+        if first {
+            crate::println!("input-rx: primer evento recibido · total={}", total);
+        } else {
+            crate::println!("input-rx: total={}", total);
+        }
+    }
+}
+
 /// Current tick count on whichever timer this architecture runs.
 #[inline]
 fn now_ticks() -> u64 {
@@ -501,6 +522,7 @@ pub fn settings_report() -> alloc::string::String {
 /// userspace shell can poll `fd 0` the same way on every architecture.
 pub fn drain_ascii(buf: &mut [u8]) -> usize {
     crate::drivers::usb::poll();
+    poll_rx_report();
     let now = now_ticks();
     service_auto_repeat(now);
     let mut state = ASCII_BRIDGE_STATE.lock();

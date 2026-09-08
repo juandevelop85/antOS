@@ -1,5 +1,19 @@
 #!/usr/bin/env bash
-# antOS · Pipeline de arranque bare metal, compilación cruzada y QEMU (T13.2).
+# antOS · Pipeline de arranque bare metal x86_64, compilación cruzada y QEMU.
+#
+# Uso:
+#   ./run.sh                       arranque normal (serie + display)
+#   ./run.sh --headless            sin display
+#   ./run.sh --build-only          solo genera la imagen
+#   ./run.sh --test                humo de arranque (verifica el banner)
+#   ./run.sh --test-input          humo de arranque + inyección de teclado/ratón
+#
+# Matriz de periféricos (T28.10):
+#   --kbd  ps2|usb                 teclado/ratón: i8042 PS/2 (por defecto) o USB xHCI
+#   --gpu  std|virtio-pci|ramfb    salida gráfica (por defecto: std / VGA)
+#
+# Cada combinación mapea a un comando QEMU canónico documentado en
+# docs/manual-de-comandos.md.
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,20 +23,37 @@ DISK_IMAGE="${RAIZ}/kernel/target/x86_64-unknown-none/${PROFILE_DIR}/antos-bios.
 INITRD_TAR="${RAIZ}/kernel/target/x86_64-unknown-none/${PROFILE_DIR}/initrd.tar"
 
 MODO="normal"
+KBD="ps2"
+GPU="std"
 
-for arg in "$@"; do
-  case "$arg" in
-    --headless)
-      MODO="headless"
-      ;;
-    --test)
-      MODO="test"
-      ;;
-    --build-only)
-      MODO="build-only"
-      ;;
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --headless)   MODO="headless" ;;
+    --test)       MODO="test" ;;
+    --test-input) MODO="test-input" ;;
+    --build-only) MODO="build-only" ;;
+    --kbd)        KBD="$2"; shift ;;
+    --gpu)        GPU="$2"; shift ;;
+    --kbd=*)      KBD="${1#*=}" ;;
+    --gpu=*)      GPU="${1#*=}" ;;
+    *) echo "arg desconocido: $1" >&2; exit 2 ;;
   esac
+  shift
 done
+
+# ── Device matrix ─────────────────────────────────────────────────────────
+DEV_ARGS=()
+case "$KBD" in
+  ps2) : ;; # i8042 keyboard + PS/2 aux mouse are implicit on -machine pc
+  usb) DEV_ARGS+=(-device qemu-xhci -device usb-kbd -device usb-tablet) ;;
+  *)   echo "kbd no soportado: $KBD (ps2|usb)" >&2; exit 2 ;;
+esac
+case "$GPU" in
+  std)        DEV_ARGS+=(-vga std) ;;
+  virtio-pci) DEV_ARGS+=(-vga none -device virtio-gpu-pci) ;;
+  ramfb)      DEV_ARGS+=(-vga none -device ramfb) ;;
+  *)          echo "gpu no soportado: $GPU (std|virtio-pci|ramfb)" >&2; exit 2 ;;
+esac
 
 echo ">> antOS: compilando kernel no_std para target x86_64-unknown-none..."
 (cd "${RAIZ}/kernel" && cargo build)
@@ -41,59 +72,25 @@ if ! command -v qemu-system-x86_64 >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ "$MODO" = "test" ]; then
-  echo ">> antOS: ejecutando prueba automatizada de arranque en QEMU (headless)..."
-  python3 -c "
-import subprocess, sys, re, os
+BASE_ARGS=(-m 256M -serial stdio -drive "format=raw,file=${DISK_IMAGE}")
+if [ -f "${INITRD_TAR}" ]; then
+  BASE_ARGS+=(-drive "file=${INITRD_TAR},format=raw,if=virtio")
+fi
 
-cmd = [
-    'qemu-system-x86_64',
-    '-m', '256M',
-    '-serial', 'stdio',
-    '-display', 'none',
-    '-drive', 'format=raw,file=${DISK_IMAGE}'
-]
-
-if os.path.exists('${INITRD_TAR}'):
-    cmd.extend(['-drive', 'file=${INITRD_TAR},format=raw,if=virtio'])
-
-proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-try:
-    stdout, stderr = proc.communicate(timeout=7)
-except subprocess.TimeoutExpired:
-    proc.kill()
-    stdout, stderr = proc.communicate()
-
-clean_stdout = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', stdout)
-
-if 'antOS · kernel x86_64' in clean_stdout:
-    print('✓ Verificación de arranque exitosa:')
-    for line in stdout.splitlines():
-        clean_line = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', line)
-        if any(marker in clean_line for marker in ['antOS · kernel', 'utilizable', 'interrupciones', 'gdt', 'idt', 'memoria virtual', 'asignador', 'anillo 3', 'consola', 'virtio-blk', 'tarfs', 'vfs', 'cargador', 'el ejecutor toma el control']):
-            print('  ' + line)
-    sys.exit(0)
-else:
-    print('Error: no se detectó el banner de arranque de antOS.')
-    print('Salida capturada:', stdout[:500])
-    sys.exit(1)
-"
+if [ "$MODO" = "test" ] || [ "$MODO" = "test-input" ]; then
+  echo ">> antOS: prueba automatizada headless (kbd=${KBD} gpu=${GPU} modo=${MODO})..."
+  INJECT_INPUT=0
+  [ "$MODO" = "test-input" ] && INJECT_INPUT=1
+  ANTOS_QEMU_BIN="qemu-system-x86_64" \
+  ANTOS_QEMU_ARGS="$(printf '%s\n' "${BASE_ARGS[@]}" -display none "${DEV_ARGS[@]}")" \
+  ANTOS_INJECT_INPUT="$INJECT_INPUT" \
+  ANTOS_BANNER="antOS · kernel x86_64" \
+    python3 "${RAIZ}/system/qemu-smoke.py"
   exit $?
 fi
 
-QEMU_ARGS=(
-  -m 256M
-  -serial stdio
-  -drive "format=raw,file=${DISK_IMAGE}"
-)
+QEMU_ARGS=("${BASE_ARGS[@]}" "${DEV_ARGS[@]}")
+[ "$MODO" = "headless" ] && QEMU_ARGS+=(-display none)
 
-if [ -f "${INITRD_TAR}" ]; then
-  QEMU_ARGS+=(-drive "file=${INITRD_TAR},format=raw,if=virtio")
-fi
-
-if [ "$MODO" = "headless" ]; then
-  QEMU_ARGS+=(-display none)
-fi
-
-echo ">> antOS: arrancando QEMU (BIOS legacy)..."
+echo ">> antOS: arrancando QEMU x86_64 (BIOS legacy · kbd=${KBD} gpu=${GPU})..."
 exec qemu-system-x86_64 "${QEMU_ARGS[@]}"
