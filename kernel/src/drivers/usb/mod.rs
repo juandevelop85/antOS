@@ -5,6 +5,7 @@
 
 pub mod descriptor;
 pub mod hid;
+pub mod hub;
 pub mod xhci;
 
 pub use xhci::{XhciController, PortInfo};
@@ -53,7 +54,9 @@ pub fn debug_report() -> alloc::string::String {
     );
 
     for d in &ctrl.devices {
-        let kind = if d.is_keyboard {
+        let kind = if d.is_hub {
+            "hub    "
+        } else if d.is_keyboard {
             "teclado"
         } else if d.is_mouse {
             "raton  "
@@ -63,11 +66,13 @@ pub fn debug_report() -> alloc::string::String {
         let n = (d.last_report_len as usize).min(d.last_report.len());
         let _ = writeln!(
             out,
-            "  slot {} pto {} vel {} {} dci {} mps {} cls {:#04x} proto {:#04x} ev {} last {:02x?}",
+            "  slot {} pto {} ruta {:#x} vel {} {} ep{} dci {} mps {} cls {:#04x} proto {:#04x} ev {} last {:02x?}",
             d.slot_id,
             d.port,
+            d.route_string,
             d.speed,
             kind,
+            d.ep_slot,
             d.ep_int_dci,
             d.ep_int_max_packet,
             d.iface_class,

@@ -12,6 +12,28 @@ use registers::{XhciRegisters, usbcmd, usbsts, portsc, iman, HcParams};
 use ring::{CommandRing, EventRing, EventRingSegmentEntry, TransferRing, Trb, RING_SIZE};
 use crate::drivers::pci::{self, PciDevice};
 use crate::drivers::usb::hid::{UsbHidKeyboard, UsbHidMouse};
+use crate::drivers::usb::hub;
+
+/// Maximum number of device slots the driver backs with DMA structures. Raised
+/// from 4 so a `usb-hub` plus several downstream devices all fit.
+pub const MAX_SLOTS: usize = 16;
+
+/// Interrupt-endpoint rings/buffers carried per slot. A composite device (one
+/// USB address exposing e.g. a keyboard and a mouse on separate endpoints)
+/// needs one ring/buffer pair per interface, not one per slot.
+pub const MAX_EP_SLOTS: usize = 4;
+
+/// Control-transfer bounce buffer size. 512 B swallows the Configuration
+/// Descriptor bundle of a 3+ interface composite HID device, which overran the
+/// old 256 B buffer and truncated the later interfaces.
+pub const CONTROL_BUF_LEN: usize = 512;
+
+/// Picks the lowest free interrupt-endpoint slot given a bitmask of the ones
+/// already taken on a device, or `None` when the device has more interrupt
+/// interfaces than [`MAX_EP_SLOTS`].
+pub fn alloc_ep_slot(used_mask: u8) -> Option<usize> {
+    (0..MAX_EP_SLOTS).find(|&i| used_mask & (1 << i) == 0)
+}
 
 /// DMA buffers for an individual device slot.
 #[repr(C, align(64))]
@@ -19,9 +41,9 @@ pub struct SlotDma {
     pub device_context: [u8; 2048],
     pub input_context: [u8; 2112],
     pub ep0_ring: TransferRing,
-    pub ep_int_ring: TransferRing,
-    pub control_buffer: [u8; 256],
-    pub report_buffer: [u8; 64],
+    pub ep_int_ring: [TransferRing; MAX_EP_SLOTS],
+    pub control_buffer: [u8; CONTROL_BUF_LEN],
+    pub report_buffer: [[u8; 64]; MAX_EP_SLOTS],
 }
 
 impl SlotDma {
@@ -30,9 +52,9 @@ impl SlotDma {
             device_context: [0u8; 2048],
             input_context: [0u8; 2112],
             ep0_ring: TransferRing::new(),
-            ep_int_ring: TransferRing::new(),
-            control_buffer: [0u8; 256],
-            report_buffer: [0u8; 64],
+            ep_int_ring: [const { TransferRing::new() }; MAX_EP_SLOTS],
+            control_buffer: [0u8; CONTROL_BUF_LEN],
+            report_buffer: [[0u8; 64]; MAX_EP_SLOTS],
         }
     }
 }
@@ -44,7 +66,7 @@ pub struct XhciDmaPool {
     pub erst: [EventRingSegmentEntry; 1],
     pub command_ring: CommandRing,
     pub event_ring: EventRing,
-    pub slots: [SlotDma; 4],
+    pub slots: [SlotDma; MAX_SLOTS],
 }
 
 impl XhciDmaPool {
@@ -58,12 +80,7 @@ impl XhciDmaPool {
             }; 1],
             command_ring: CommandRing::new(),
             event_ring: EventRing::new(),
-            slots: [
-                SlotDma::new(),
-                SlotDma::new(),
-                SlotDma::new(),
-                SlotDma::new(),
-            ],
+            slots: [const { SlotDma::new() }; MAX_SLOTS],
         }
     }
 }
@@ -138,8 +155,15 @@ pub struct SlotDevice {
     pub speed: u8,
     pub is_keyboard: bool,
     pub is_mouse: bool,
+    pub is_hub: bool,
     pub ep_int_dci: u8,
+    /// Index into the slot's per-endpoint ring/buffer arrays for this interface.
+    pub ep_slot: usize,
     pub ep_int_max_packet: u16,
+    /// Route string of this device in the bus topology (0 for a root-port device).
+    pub route_string: u32,
+    /// Slot ID of the parent hub, or 0 when attached to a root port.
+    pub parent_hub_slot: u8,
     pub keyboard: UsbHidKeyboard,
     pub mouse: UsbHidMouse,
     /// Diagnostics: interface class/protocol as reported by the device and a
@@ -195,6 +219,12 @@ impl XhciController {
         }
     }
 
+    /// Highest slot ID the controller and our DMA pool both support.
+    #[inline]
+    fn slot_ceiling(&self) -> u8 {
+        (self.params.max_slots as usize).clamp(1, MAX_SLOTS) as u8
+    }
+
     /// Executes the xHCI controller reset and hardware initialization sequence.
     unsafe fn init_hardware(&mut self) -> Result<(), &'static str> {
         // 1. Wait until Controller Not Ready (CNR) is 0
@@ -227,7 +257,7 @@ impl XhciController {
         }
 
         // 4. Configure Max Device Slots Enabled
-        let max_slots = self.params.max_slots.min(16).max(1);
+        let max_slots = self.slot_ceiling();
         self.registers.set_config_max_slots(max_slots);
 
         // 5. Setup DMA buffers (calculate physical addresses)
@@ -300,6 +330,11 @@ impl XhciController {
             let deq_idx = (*dma).event_ring.dequeue_idx;
             let event_ring_phys = virt_to_phys(core::ptr::addr_of!((*dma).event_ring) as u64);
             let erdp = event_ring_phys + (deq_idx as u64 * 16);
+            // Clear a latched Interrupt Pending (IMAN.IP is W1C) so a controller
+            // that gates further Event TRBs on IP being clear — the VirtualBox
+            // model behaves this way — keeps delivering after the first event.
+            let iman = self.registers.read_interrupter0_iman();
+            self.registers.set_interrupter0_iman(iman | iman::IP | iman::IE);
             self.registers.set_interrupter0_erdp(erdp | (1 << 3)); // EHB = 1
         }
     }
@@ -373,19 +408,30 @@ impl XhciController {
 
     }
 
-    /// Submits an Enable Slot command and returns the allocated Slot ID (1..=4).
+    /// Submits an Enable Slot command and returns the allocated Slot ID.
     pub fn enable_slot(&mut self) -> Result<u8, &'static str> {
         let trb = Trb::make_enable_slot(false);
         let event = self.send_command_and_wait(trb)?;
         let slot_id = ((event.control >> 24) & 0xFF) as u8;
-        if slot_id == 0 || slot_id > 4 {
+        if slot_id == 0 || slot_id > self.slot_ceiling() {
             return Err("Invalid slot ID allocated");
         }
         Ok(slot_id)
     }
 
     /// Prepares Input/Device Contexts and issues the Address Device command.
-    pub fn address_device(&mut self, slot_id: u8, port: u8, speed: u8) -> Result<(), &'static str> {
+    ///
+    /// `route_string` / `parent_hub_slot` / `parent_port` are 0 for a device on
+    /// a root port and carry the topology of a device sitting behind a hub.
+    pub fn address_device(
+        &mut self,
+        slot_id: u8,
+        root_port: u8,
+        speed: u8,
+        route_string: u32,
+        parent_hub_slot: u8,
+        parent_port: u8,
+    ) -> Result<(), &'static str> {
         let slot_idx = (slot_id - 1) as usize;
         let dma = &raw mut XHCI_DMA;
 
@@ -408,8 +454,11 @@ impl XhciController {
             }
 
             if let Some(mut slot) = view.slot_context(true) {
-                slot.set_info(0, speed, 1);
-                slot.set_port_info(port, 0);
+                slot.set_info(route_string, speed, 1);
+                slot.set_port_info(root_port, 0);
+                if parent_hub_slot != 0 {
+                    slot.set_tt_info(parent_hub_slot, parent_port, 0);
+                }
             }
 
             // Default EP0 max packet size for Full/Low speed devices before descriptor read is 8 bytes
@@ -433,19 +482,22 @@ impl XhciController {
         Ok(())
     }
 
-    /// Performs a USB Control Transfer on Endpoint 0.
-    pub fn control_transfer(
+    /// Runs a single Control Transfer attempt on Endpoint 0, surfacing the raw
+    /// completion code on failure so the caller can decide whether to recover.
+    fn control_transfer_once(
         &mut self,
         slot_id: u8,
         setup: [u8; 8],
-        mut data: Option<&mut [u8]>,
+        data: Option<&mut [u8]>,
         is_in: bool,
-    ) -> Result<usize, &'static str> {
+    ) -> Result<usize, (u32, &'static str)> {
         let slot_idx = (slot_id - 1) as usize;
         let dma = &raw mut XHCI_DMA;
 
-        let data_len = if let Some(ref d) = data { d.len() as u32 } else { 0 };
-        let trt = if data_len == 0 {
+        let mut data = data;
+        let data_len = data.as_ref().map(|d| d.len() as u32).unwrap_or(0);
+        let xfer_len = data_len.min(CONTROL_BUF_LEN as u32);
+        let trt = if xfer_len == 0 {
             0 // No Data Stage
         } else if is_in {
             3 // IN Data Stage
@@ -458,25 +510,25 @@ impl XhciController {
 
             // 1. Setup Stage TRB
             let setup_trb = Trb::make_setup_stage(setup, trt);
-            slot_dma.ep0_ring.push(setup_trb)?;
+            slot_dma.ep0_ring.push(setup_trb).map_err(|e| (0, e))?;
 
             // 2. Data Stage TRB
-            if data_len > 0 {
+            if xfer_len > 0 {
                 let buf_phys = virt_to_phys(core::ptr::addr_of!(slot_dma.control_buffer) as u64);
                 if !is_in {
                     if let Some(ref src) = data {
-                        let len = (data_len as usize).min(256);
+                        let len = xfer_len as usize;
                         slot_dma.control_buffer[..len].copy_from_slice(&src[..len]);
                     }
                 }
-                let data_trb = Trb::make_data_stage(buf_phys, data_len.min(256), is_in);
-                slot_dma.ep0_ring.push(data_trb)?;
+                let data_trb = Trb::make_data_stage(buf_phys, xfer_len, is_in);
+                slot_dma.ep0_ring.push(data_trb).map_err(|e| (0, e))?;
             }
 
             // 3. Status Stage TRB
-            let status_in = if data_len > 0 && is_in { false } else { true };
+            let status_in = !(xfer_len > 0 && is_in);
             let status_trb = Trb::make_status_stage(status_in);
-            slot_dma.ep0_ring.push(status_trb)?;
+            slot_dma.ep0_ring.push(status_trb).map_err(|e| (0, e))?;
 
             // 4. Ring Doorbell for Endpoint 0
             self.registers.ring_doorbell(slot_id, 1);
@@ -492,15 +544,15 @@ impl XhciController {
                         if ev_slot == slot_id && ev_ep == 1 {
                             let code = (event.status >> 24) & 0xFF;
                             if code == 1 || code == 13 {
-                                if is_in && data_len > 0 {
+                                if is_in && xfer_len > 0 {
                                     if let Some(ref mut dest) = data {
-                                        let len = (data_len as usize).min(dest.len()).min(256);
+                                        let len = (xfer_len as usize).min(dest.len());
                                         dest[..len].copy_from_slice(&slot_dma.control_buffer[..len]);
                                     }
                                 }
-                                return Ok(data_len as usize);
+                                return Ok(xfer_len as usize);
                             } else {
-                                return Err("Control transfer failed");
+                                return Err((code, "Control transfer failed"));
                             }
                         }
                     }
@@ -508,22 +560,80 @@ impl XhciController {
                 delay_ms(1);
                 timeout -= 1;
             }
-
         }
 
-        Err("Control transfer timed out")
+        Err((0, "Control transfer timed out"))
     }
 
-    /// Configures an Interrupt IN endpoint (e.g. EP 1 IN -> DCI 3).
+    /// Performs a USB Control Transfer on Endpoint 0 with bounded recovery.
+    ///
+    /// A STALL (completion code 6) halts EP0; the endpoint is reset, its
+    /// transfer ring re-seeded via Set TR Dequeue Pointer, and `CLEAR_FEATURE
+    /// (ENDPOINT_HALT)` sent before retrying. A USB Transaction Error
+    /// (code 4) is retried without the reset dance. Up to two retries.
+    pub fn control_transfer(
+        &mut self,
+        slot_id: u8,
+        setup: [u8; 8],
+        mut data: Option<&mut [u8]>,
+        is_in: bool,
+    ) -> Result<usize, &'static str> {
+        let mut attempt = 0u32;
+        loop {
+            match self.control_transfer_once(slot_id, setup, data.as_deref_mut(), is_in) {
+                Ok(n) => return Ok(n),
+                Err((code, msg)) => {
+                    attempt += 1;
+                    if attempt > 2 {
+                        return Err(msg);
+                    }
+                    match code {
+                        6 => unsafe { self.recover_ep0(slot_id) },
+                        4 => delay_ms(2),
+                        _ => return Err(msg),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Clears a halted EP0: Reset Endpoint, rewind the control ring, Set TR
+    /// Dequeue Pointer, and a best-effort device-side `CLEAR_FEATURE`.
+    unsafe fn recover_ep0(&mut self, slot_id: u8) {
+        let dma = &raw mut XHCI_DMA;
+        let slot_idx = (slot_id - 1) as usize;
+
+        let _ = self.send_command_and_wait(Trb::make_reset_endpoint(slot_id, 1));
+
+        let ep0_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep0_ring) as u64);
+        (*dma).slots[slot_idx].ep0_ring.reset(ep0_phys);
+        let _ = self.send_command_and_wait(Trb::make_set_tr_dequeue(ep0_phys, true, slot_id, 1));
+
+        // bmRequestType 0x02 (Host->Dev | Standard | Endpoint),
+        // bRequest 0x01 CLEAR_FEATURE, wValue 0 = ENDPOINT_HALT, wIndex 0 = EP0.
+        let clear_halt = [0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let _ = self.control_transfer_once(slot_id, clear_halt, None, false);
+    }
+
+    /// Configures an Interrupt IN endpoint on its own per-interface ring/buffer.
+    ///
+    /// `ep_slot` selects the ring/buffer pair (see [`MAX_EP_SLOTS`]);
+    /// `context_entries` is the running maximum DCI configured on the slot so a
+    /// second, lower-DCI endpoint does not shrink the Slot Context.
+    #[allow(clippy::too_many_arguments)]
     pub fn configure_hid_endpoint(
         &mut self,
         slot_id: u8,
+        ep_slot: usize,
         speed: u8,
+        route_string: u32,
         ep_addr: u8,
         max_packet: u16,
         interval: u8,
+        context_entries: u8,
     ) -> Result<u8, &'static str> {
         let slot_idx = (slot_id - 1) as usize;
+        let ep_slot = ep_slot.min(MAX_EP_SLOTS - 1);
         let dma = &raw mut XHCI_DMA;
 
         let ep_num = ep_addr & 0x0F;
@@ -533,9 +643,10 @@ impl XhciController {
         unsafe {
             (*dma).slots[slot_idx].input_context.fill(0);
 
-            let ep_int_ring_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep_int_ring) as u64);
-            (*dma).slots[slot_idx].ep_int_ring = ring::TransferRing::new();
-            (*dma).slots[slot_idx].ep_int_ring.init_link(ep_int_ring_phys);
+            let ep_int_ring_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep_int_ring[ep_slot]) as u64);
+            (*dma).slots[slot_idx].ep_int_ring[ep_slot] = ring::TransferRing::new();
+            (*dma).slots[slot_idx].ep_int_ring[ep_slot].init_link(ep_int_ring_phys);
 
             let csz = self.params.csz_64;
             let mut view = context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
@@ -545,7 +656,7 @@ impl XhciController {
             }
 
             if let Some(mut slot) = view.slot_context(true) {
-                slot.set_info(0, speed, dci);
+                slot.set_info(route_string, speed, context_entries.max(dci));
             }
 
             if let Some(mut ep_ctx) = view.endpoint_context(dci as usize, true) {
@@ -560,10 +671,11 @@ impl XhciController {
             let trb = Trb::make_configure_endpoint(input_ctx_phys, slot_id);
             self.send_command_and_wait(trb)?;
 
-            // Queue first Normal TRB on Interrupt Ring
-            let report_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].report_buffer) as u64);
+            // Queue first Normal TRB on this endpoint's Interrupt Ring
+            let report_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].report_buffer[ep_slot]) as u64);
             let normal_trb = Trb::make_normal(report_phys, max_packet.max(8) as u32);
-            (*dma).slots[slot_idx].ep_int_ring.push(normal_trb)?;
+            (*dma).slots[slot_idx].ep_int_ring[ep_slot].push(normal_trb)?;
 
             // Ring doorbell for interrupt endpoint
             self.registers.ring_doorbell(slot_id, dci);
@@ -572,201 +684,516 @@ impl XhciController {
         Ok(dci)
     }
 
-    /// Enumerates all connected RootHub ports, addresses devices, and configures HID endpoints.
+    /// Enumerates all connected RootHub ports, addressing every device and
+    /// configuring its HID endpoints (recursing through any USB hub).
     pub fn enumerate_connected_ports(&mut self) {
         let ports = self.inspect_ports();
         for p in ports {
-            if !p.connected {
-                continue;
-            }
-
-            let port_num = p.port_number;
-            let speed = match self.reset_port(port_num) {
-                Ok(s) => s,
-                Err(e) => {
-                    crate::println!("    usb-debug  puerto {}: reset fallo: {}", port_num, e);
-                    continue;
-                }
-            };
-
-            let slot_id = match self.enable_slot() {
-                Ok(s) => s,
-                Err(e) => {
-                    crate::println!("    usb-debug  puerto {}: enable_slot fallo: {}", port_num, e);
-                    continue;
-                }
-            };
-
-            if let Err(e) = self.address_device(slot_id, port_num, speed) {
-                crate::println!("    usb-debug  slot {}: address_device fallo: {}", slot_id, e);
-                continue;
-            }
-
-            // 1. Get Device Descriptor
-            let mut dev_desc_buf = [0u8; 18];
-            let get_dev_setup = [0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 18, 0x00];
-            if let Err(e) = self.control_transfer(slot_id, get_dev_setup, Some(&mut dev_desc_buf), true) {
-                crate::println!("    usb-debug  slot {}: get_dev_desc fallo: {}", slot_id, e);
-            }
-
-            // 2. Get Configuration Descriptor (first 9 bytes, then full bundle)
-            let mut config_hdr = [0u8; 9];
-            let get_cfg_setup = [0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 9, 0x00];
-            if let Err(e) = self.control_transfer(slot_id, get_cfg_setup, Some(&mut config_hdr), true) {
-                crate::println!("    usb-debug  slot {}: get_cfg_hdr fallo: {}", slot_id, e);
-                continue;
-            }
-
-            let total_len = u16::from_le_bytes([config_hdr[2], config_hdr[3]]) as usize;
-            let read_len = total_len.min(256);
-            let mut config_buf = alloc::vec![0u8; read_len];
-            let get_full_cfg = [0x80, 0x06, 0x00, 0x02, 0x00, 0x00, read_len as u8, 0x00];
-            let _ = self.control_transfer(slot_id, get_full_cfg, Some(&mut config_buf), true);
-
-            let (config_val, ifaces) = crate::drivers::usb::descriptor::parse_configuration_bundle(&config_buf);
-            let config_val = config_val.unwrap_or(1);
-
-            // 3. Set Configuration
-            let set_cfg_setup = [0x00, 0x09, config_val, 0x00, 0x00, 0x00, 0x00, 0x00];
-            let _ = self.control_transfer(slot_id, set_cfg_setup, None, false);
-
-            for iface in ifaces {
-                let mut desc_buf = [0u8; 128];
-                let get_report_desc = [0x81, 0x06, 0x00, 0x22, iface.interface_number, 0x00, 128, 0x00];
-                let rd_len = self.control_transfer(slot_id, get_report_desc, Some(&mut desc_buf), true);
-                crate::println!("    usb-debug  slot {}: hid report desc len={:?}: {:02x?}",
-                    slot_id, rd_len, &desc_buf[..rd_len.unwrap_or(0).min(128)]);
-
-                // Force *boot-subclass* HID interfaces into Boot Protocol before
-                // configuring the endpoint: the keyboard/mouse decoders assume
-                // the fixed 8-byte boot report layout, but a device powers up in
-                // Report Protocol and emits whatever its Report Descriptor
-                // dictates — which the decoders then misread as noise (this is
-                // why the keyboard produced no key events at all).
-                //
-                // The request is only sent when the interface actually has a
-                // boot report — boot subclass, or a keyboard/mouse boot
-                // protocol. A device such as the VirtualBox absolute tablet
-                // (subclass 0, protocol 0) is left in Report Protocol so its
-                // 8-byte absolute format keeps decoding.
-                let has_boot_report = iface.interface_subclass
-                    == crate::drivers::usb::descriptor::SUBCLASS_BOOT_INTERFACE
-                    || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_KEYBOARD
-                    || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_MOUSE;
-                if has_boot_report {
-                    //   bmRequestType 0x21 (Host->Dev | Class | Interface)
-                    //   bRequest 0x0B SET_PROTOCOL, wValue 0 = Boot, wIndex = iface
-                    let set_protocol =
-                        [0x21, 0x0B, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
-                    let _ = self.control_transfer(slot_id, set_protocol, None, false);
-                    //   bRequest 0x0A SET_IDLE, wValue 0 = report only on change
-                    let set_idle =
-                        [0x21, 0x0A, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
-                    let _ = self.control_transfer(slot_id, set_idle, None, false);
-                }
-
-                let rd_valid = rd_len.unwrap_or(0).min(desc_buf.len());
-                let (rd_kbd, rd_mouse) =
-                    crate::drivers::usb::descriptor::classify_report_descriptor(&desc_buf[..rd_valid]);
-
-                let max_pkt = iface.ep_max_packet.max(8);
-                match self.configure_hid_endpoint(slot_id, speed, iface.ep_addr, max_pkt, iface.ep_interval) {
-                    Ok(dci) => {
-                        // Classify by the strongest available signal:
-                        //   1. the interface's declared boot protocol,
-                        //   2. the top-level usage in the HID Report Descriptor,
-                        //   3. (last resort) nothing — an unidentifiable HID is
-                        //      treated as a pointer, never a phantom keyboard.
-                        // The old code assumed "port 1 == keyboard"
-                        // unconditionally, so on VirtualBox — which exposes the
-                        // absolute tablet on *both* ports and no USB keyboard at
-                        // all — port 1 became a keyboard that no keystroke ever
-                        // reached.
-                        let (is_kbd, is_mou) = if iface.is_boot_keyboard {
-                            (true, false)
-                        } else if iface.is_boot_mouse {
-                            (false, true)
-                        } else if rd_kbd && !rd_mouse {
-                            (true, false)
-                        } else {
-                            (false, true)
-                        };
-
-                        let mut mouse = UsbHidMouse::new();
-                        if is_mou {
-                            mouse.is_absolute = max_pkt >= 5;
-                        }
-
-                        self.devices.push(SlotDevice {
-                            slot_id,
-                            port: port_num,
-                            speed,
-                            is_keyboard: is_kbd,
-                            is_mouse: is_mou,
-                            ep_int_dci: dci,
-                            ep_int_max_packet: max_pkt,
-                            keyboard: UsbHidKeyboard::new(),
-                            mouse,
-                            iface_class: iface.interface_class,
-                            iface_protocol: iface.interface_protocol,
-                            report_events: 0,
-                            last_report: [0u8; 8],
-                            last_report_len: 0,
-                        });
-                    }
-                    Err(e) => {
-                        crate::println!("    usb-debug  slot {}: config_ep fallo: {}", slot_id, e);
-                    }
-                }
+            if p.connected {
+                self.enumerate_root_port(p.port_number);
             }
         }
     }
 
-    /// Polls the xHCI Event Ring for completed HID interrupt transfers,
-    /// pushes input events, and re-arms the transfer rings.
+    /// Resets one root port and enumerates whatever is attached to it.
+    fn enumerate_root_port(&mut self, port_num: u8) {
+        let speed = match self.reset_port(port_num) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::println!("    usb-debug  puerto {}: reset fallo: {}", port_num, e);
+                return;
+            }
+        };
+        if let Err(e) = self.enumerate_device(port_num, speed, 0, 0, 0) {
+            crate::println!("    usb-debug  puerto {}: enumeracion fallo: {}", port_num, e);
+        }
+    }
+
+    /// Shared device bring-up: Enable Slot, Address Device, descriptor reads,
+    /// Set Configuration, then per-interface endpoint configuration. A device
+    /// whose class is Hub is handed to [`configure_hub`] instead.
+    fn enumerate_device(
+        &mut self,
+        root_port: u8,
+        speed: u8,
+        route_string: u32,
+        parent_hub_slot: u8,
+        parent_port: u8,
+    ) -> Result<(), &'static str> {
+        let slot_id = self.enable_slot()?;
+        self.address_device(slot_id, root_port, speed, route_string, parent_hub_slot, parent_port)?;
+
+        // 1. Device Descriptor (18 bytes) — carries bDeviceClass at offset 4.
+        let mut dev_desc_buf = [0u8; 18];
+        let get_dev_setup = [0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 18, 0x00];
+        let _ = self.control_transfer(slot_id, get_dev_setup, Some(&mut dev_desc_buf), true);
+        let device_class = dev_desc_buf[4];
+
+        // 2. Configuration Descriptor: 9-byte header first for wTotalLength,
+        //    then the whole bundle (bounded by the 512 B control buffer).
+        let mut config_hdr = [0u8; 9];
+        let get_cfg_setup = [0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 9, 0x00];
+        self.control_transfer(slot_id, get_cfg_setup, Some(&mut config_hdr), true)?;
+
+        let total_len = u16::from_le_bytes([config_hdr[2], config_hdr[3]]) as usize;
+        let read_len = total_len.min(CONTROL_BUF_LEN);
+        let mut config_buf = alloc::vec![0u8; read_len];
+        let get_full_cfg = [
+            0x80,
+            0x06,
+            0x00,
+            0x02,
+            0x00,
+            0x00,
+            (read_len & 0xFF) as u8,
+            ((read_len >> 8) & 0xFF) as u8,
+        ];
+        let _ = self.control_transfer(slot_id, get_full_cfg, Some(&mut config_buf), true);
+
+        let (config_val, ifaces) =
+            crate::drivers::usb::descriptor::parse_configuration_bundle(&config_buf);
+        let config_val = config_val.unwrap_or(1);
+
+        // 3. Set Configuration
+        let set_cfg_setup = [0x00, 0x09, config_val, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let _ = self.control_transfer(slot_id, set_cfg_setup, None, false);
+
+        // A USB hub is required to report its class at the device level.
+        if device_class == hub::CLASS_HUB {
+            self.devices.push(SlotDevice {
+                slot_id,
+                port: root_port,
+                speed,
+                is_keyboard: false,
+                is_mouse: false,
+                is_hub: true,
+                ep_int_dci: 0,
+                ep_slot: 0,
+                ep_int_max_packet: 0,
+                route_string,
+                parent_hub_slot,
+                keyboard: UsbHidKeyboard::new(),
+                mouse: UsbHidMouse::new(),
+                iface_class: hub::CLASS_HUB,
+                iface_protocol: 0,
+                report_events: 0,
+                last_report: [0u8; 8],
+                last_report_len: 0,
+            });
+            let tier = hub::route_depth(route_string);
+            return self.configure_hub(slot_id, root_port, speed, route_string, tier);
+        }
+
+        // Context Entries must cover the highest DCI configured on the slot.
+        let mut max_dci = 1u8;
+        let mut used_mask = 0u8;
+
+        for iface in ifaces {
+            let mut desc_buf = [0u8; 128];
+            let get_report_desc =
+                [0x81, 0x06, 0x00, 0x22, iface.interface_number, 0x00, 128, 0x00];
+            let rd_len = self.control_transfer(slot_id, get_report_desc, Some(&mut desc_buf), true);
+
+            let has_boot_report = iface.interface_subclass
+                == crate::drivers::usb::descriptor::SUBCLASS_BOOT_INTERFACE
+                || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_KEYBOARD
+                || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_MOUSE;
+            if has_boot_report {
+                let set_protocol =
+                    [0x21, 0x0B, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                let _ = self.control_transfer(slot_id, set_protocol, None, false);
+                let set_idle = [0x21, 0x0A, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                let _ = self.control_transfer(slot_id, set_idle, None, false);
+            }
+
+            let rd_valid = rd_len.unwrap_or(0).min(desc_buf.len());
+            let (rd_kbd, rd_mouse) = crate::drivers::usb::descriptor::classify_report_descriptor(
+                &desc_buf[..rd_valid],
+            );
+
+            let ep_slot = match alloc_ep_slot(used_mask) {
+                Some(s) => s,
+                None => {
+                    crate::println!("    usb-debug  slot {}: sin ep_slot libre", slot_id);
+                    break;
+                }
+            };
+
+            let max_pkt = iface.ep_max_packet.max(8);
+            let ep_num = iface.ep_addr & 0x0F;
+            let dci = ep_num * 2 + if iface.ep_addr & 0x80 != 0 { 1 } else { 0 };
+            max_dci = max_dci.max(dci);
+
+            match self.configure_hid_endpoint(
+                slot_id,
+                ep_slot,
+                speed,
+                route_string,
+                iface.ep_addr,
+                max_pkt,
+                iface.ep_interval,
+                max_dci,
+            ) {
+                Ok(dci) => {
+                    used_mask |= 1 << ep_slot;
+
+                    let (is_kbd, is_mou) = if iface.is_boot_keyboard {
+                        (true, false)
+                    } else if iface.is_boot_mouse {
+                        (false, true)
+                    } else if rd_kbd && !rd_mouse {
+                        (true, false)
+                    } else {
+                        (false, true)
+                    };
+
+                    let mut mouse = UsbHidMouse::new();
+                    if is_mou {
+                        mouse.is_absolute = max_pkt >= 5;
+                    }
+
+                    self.devices.push(SlotDevice {
+                        slot_id,
+                        port: root_port,
+                        speed,
+                        is_keyboard: is_kbd,
+                        is_mouse: is_mou,
+                        is_hub: false,
+                        ep_int_dci: dci,
+                        ep_slot,
+                        ep_int_max_packet: max_pkt,
+                        route_string,
+                        parent_hub_slot,
+                        keyboard: UsbHidKeyboard::new(),
+                        mouse,
+                        iface_class: iface.interface_class,
+                        iface_protocol: iface.interface_protocol,
+                        report_events: 0,
+                        last_report: [0u8; 8],
+                        last_report_len: 0,
+                    });
+                }
+                Err(e) => {
+                    crate::println!("    usb-debug  slot {}: config_ep fallo: {}", slot_id, e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Reads the Hub Descriptor, folds the Hub bit / port count into the Slot
+    /// Context, powers every downstream port, and enumerates what is attached.
+    fn configure_hub(
+        &mut self,
+        hub_slot: u8,
+        root_port: u8,
+        speed: u8,
+        route_string: u32,
+        tier: usize,
+    ) -> Result<(), &'static str> {
+        if tier >= hub::MAX_HUB_TIERS {
+            return Err("hub topology deeper than the route string allows");
+        }
+
+        let mut buf = [0u8; 71];
+        let get_hub_desc = [
+            hub::REQ_TYPE_HUB_IN,
+            hub::REQ_GET_DESCRIPTOR,
+            0x00,
+            hub::DESC_TYPE_HUB,
+            0x00,
+            0x00,
+            71,
+            0x00,
+        ];
+        let n = self.control_transfer(hub_slot, get_hub_desc, Some(&mut buf), true)?;
+        let desc = hub::HubDescriptor::from_bytes(&buf[..n.min(buf.len())])
+            .ok_or("invalid hub descriptor")?;
+
+        self.update_hub_slot_context(hub_slot, speed, route_string, &desc)?;
+
+        crate::println!(
+            "    usb-hub    slot {} · {} puertos downstream",
+            hub_slot,
+            desc.num_ports
+        );
+
+        // Power all downstream ports, then wait the descriptor's settle time.
+        for port in 1..=desc.num_ports {
+            let set_power = [
+                hub::REQ_TYPE_PORT_OUT,
+                hub::REQ_SET_FEATURE,
+                (hub::PORT_POWER & 0xFF) as u8,
+                (hub::PORT_POWER >> 8) as u8,
+                port,
+                0x00,
+                0x00,
+                0x00,
+            ];
+            let _ = self.control_transfer(hub_slot, set_power, None, false);
+        }
+        delay_ms(desc.power_on_delay_ms() as u64);
+
+        for port in 1..=desc.num_ports {
+            if let Err(e) = self.enumerate_hub_port(hub_slot, root_port, route_string, tier, port) {
+                crate::println!(
+                    "    usb-debug  hub {} puerto {}: {}",
+                    hub_slot,
+                    port,
+                    e
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Issues a Configure Endpoint command that only rewrites the Slot Context,
+    /// setting the Hub bit and downstream port count. Some controller models
+    /// reject an A0-only Configure Endpoint; the hub path then degrades
+    /// gracefully and root-port devices are unaffected.
+    fn update_hub_slot_context(
+        &mut self,
+        hub_slot: u8,
+        speed: u8,
+        route_string: u32,
+        desc: &hub::HubDescriptor,
+    ) -> Result<(), &'static str> {
+        let slot_idx = (hub_slot - 1) as usize;
+        let dma = &raw mut XHCI_DMA;
+        unsafe {
+            (*dma).slots[slot_idx].input_context.fill(0);
+            let csz = self.params.csz_64;
+            let mut view = context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
+            if let Some(mut icc) = view.input_control() {
+                icc.set_add_flags(1 << 0); // Slot context only
+            }
+            if let Some(mut slot) = view.slot_context(true) {
+                slot.set_info(route_string, speed, 1);
+                slot.set_hub(true, desc.num_ports, false);
+            }
+            let phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].input_context) as u64);
+            self.send_command_and_wait(Trb::make_configure_endpoint(phys, hub_slot))?;
+        }
+        Ok(())
+    }
+
+    /// Drives one downstream hub port: GET_STATUS, reset, clear change bits, and
+    /// enumerate the device with a route string one tier deeper.
+    fn enumerate_hub_port(
+        &mut self,
+        hub_slot: u8,
+        root_port: u8,
+        hub_route: u32,
+        hub_tier: usize,
+        port: u8,
+    ) -> Result<(), &'static str> {
+        let get_status = [
+            hub::REQ_TYPE_PORT_IN,
+            hub::REQ_GET_STATUS,
+            0x00,
+            0x00,
+            port,
+            0x00,
+            0x04,
+            0x00,
+        ];
+
+        let mut st = [0u8; 4];
+        self.control_transfer(hub_slot, get_status, Some(&mut st), true)?;
+        let status = u16::from_le_bytes([st[0], st[1]]);
+        if status & hub::port_status::CONNECTION == 0 {
+            return Ok(());
+        }
+
+        // Reset the downstream port and poll for completion.
+        let set_reset = [
+            hub::REQ_TYPE_PORT_OUT,
+            hub::REQ_SET_FEATURE,
+            (hub::PORT_RESET & 0xFF) as u8,
+            (hub::PORT_RESET >> 8) as u8,
+            port,
+            0x00,
+            0x00,
+            0x00,
+        ];
+        self.control_transfer(hub_slot, set_reset, None, false)?;
+        delay_ms(50);
+
+        let mut status_after = status;
+        let mut tries = 10;
+        while tries > 0 {
+            let mut s = [0u8; 4];
+            if self
+                .control_transfer(hub_slot, get_status, Some(&mut s), true)
+                .is_ok()
+            {
+                status_after = u16::from_le_bytes([s[0], s[1]]);
+                if status_after & hub::port_status::RESET == 0
+                    && status_after & hub::port_status::ENABLE != 0
+                {
+                    break;
+                }
+            }
+            delay_ms(10);
+            tries -= 1;
+        }
+
+        // Acknowledge the change bits the reset raised.
+        for feat in [
+            hub::C_PORT_CONNECTION,
+            hub::C_PORT_RESET,
+            hub::C_PORT_ENABLE,
+        ] {
+            let clear = [
+                hub::REQ_TYPE_PORT_OUT,
+                hub::REQ_CLEAR_FEATURE,
+                (feat & 0xFF) as u8,
+                (feat >> 8) as u8,
+                port,
+                0x00,
+                0x00,
+                0x00,
+            ];
+            let _ = self.control_transfer(hub_slot, clear, None, false);
+        }
+
+        if status_after & hub::port_status::ENABLE == 0 {
+            return Err("downstream port did not enable after reset");
+        }
+
+        let speed = hub::speed_from_port_status(status_after);
+        let child_route = hub::route_string_append(hub_route, hub_tier, port);
+        self.enumerate_device(root_port, speed, child_route, hub_slot, port)
+    }
+
+    /// Polls the xHCI Event Ring for completed HID interrupt transfers and
+    /// RootHub port changes, then re-arms the interrupt transfer rings.
     pub fn poll(&mut self) {
         let dma = &raw mut XHCI_DMA;
         unsafe {
             while let Some(event) = (*dma).event_ring.pop() {
                 self.update_erdp();
-                if event.trb_type() == ring::TRB_TYPE_TRANSFER_EVENT {
-                    let slot_id = ((event.control >> 24) & 0xFF) as u8;
-                    let ep_id = ((event.control >> 16) & 0x1F) as u8;
-
-                    if let Some(dev) = self.devices.iter_mut().find(|d| d.slot_id == slot_id && d.ep_int_dci == ep_id) {
-                        let slot_idx = (slot_id - 1) as usize;
-                        let slot_dma = &mut (*dma).slots[slot_idx];
-                        let report_buf = &slot_dma.report_buffer;
-
-                        // Diagnostics snapshot (surfaced via `info` / SYS_SYSINFO).
-                        dev.report_events = dev.report_events.wrapping_add(1);
-                        let snap = report_buf.len().min(8);
-                        dev.last_report[..snap].copy_from_slice(&report_buf[..snap]);
-                        dev.last_report_len = snap as u8;
-
-                        if dev.is_keyboard {
-                            let mut k_rep = [0u8; 8];
-                            k_rep.copy_from_slice(&report_buf[..8]);
-                            let events = dev.keyboard.process_report(&k_rep);
-                            for ev in events {
-                                crate::input::push_event(ev);
-                            }
-                        } else if dev.is_mouse {
-                            let len = (dev.ep_int_max_packet as usize).min(64);
-                            let events = dev.mouse.process_report(&report_buf[..len]);
-                            for ev in events {
-                                crate::input::push_event(ev);
-                            }
-                        }
-
-                        // Re-arm interrupt transfer
-                        let report_phys = virt_to_phys(core::ptr::addr_of!(slot_dma.report_buffer) as u64);
-                        let norm = Trb::make_normal(report_phys, dev.ep_int_max_packet as u32);
-                        let _ = slot_dma.ep_int_ring.push(norm);
-                        self.registers.ring_doorbell(slot_id, dev.ep_int_dci);
+                match event.trb_type() {
+                    ring::TRB_TYPE_TRANSFER_EVENT => {
+                        let slot_id = ((event.control >> 24) & 0xFF) as u8;
+                        let ep_id = ((event.control >> 16) & 0x1F) as u8;
+                        self.handle_transfer_event(slot_id, ep_id);
                     }
+                    ring::TRB_TYPE_PORT_STATUS_CHANGE_EVENT => {
+                        let port = ((event.parameter >> 24) & 0xFF) as u8;
+                        self.service_root_port_change(port);
+                    }
+                    _ => {}
                 }
             }
         }
+
+        // Fallback for controllers that never post PORT_STATUS_CHANGE events
+        // (observed under VirtualBox): sweep the root ports for W1C change bits.
+        self.scan_root_port_changes();
+    }
+
+    /// Handles a single Transfer Event on an interrupt endpoint: decodes the
+    /// report from the interface's own buffer and re-arms its own ring.
+    unsafe fn handle_transfer_event(&mut self, slot_id: u8, ep_id: u8) {
+        let dma = &raw mut XHCI_DMA;
+        let Some(dev) = self
+            .devices
+            .iter_mut()
+            .find(|d| d.slot_id == slot_id && d.ep_int_dci == ep_id)
+        else {
+            return;
+        };
+
+        let slot_idx = (slot_id - 1) as usize;
+        let ep_slot = dev.ep_slot.min(MAX_EP_SLOTS - 1);
+        let slot_dma = &mut (*dma).slots[slot_idx];
+        let report_buf = slot_dma.report_buffer[ep_slot];
+
+        // Diagnostics snapshot (surfaced via `info` / SYS_SYSINFO).
+        dev.report_events = dev.report_events.wrapping_add(1);
+        let snap = report_buf.len().min(8);
+        dev.last_report[..snap].copy_from_slice(&report_buf[..snap]);
+        dev.last_report_len = snap as u8;
+
+        if dev.is_keyboard {
+            let mut k_rep = [0u8; 8];
+            k_rep.copy_from_slice(&report_buf[..8]);
+            let events = dev.keyboard.process_report(&k_rep);
+            for ev in events {
+                crate::input::push_event(ev);
+            }
+        } else if dev.is_mouse {
+            let len = (dev.ep_int_max_packet as usize).min(64);
+            let events = dev.mouse.process_report(&report_buf[..len]);
+            for ev in events {
+                crate::input::push_event(ev);
+            }
+        }
+
+        // Re-arm this interface's interrupt transfer.
+        let report_phys =
+            virt_to_phys(core::ptr::addr_of!(slot_dma.report_buffer[ep_slot]) as u64);
+        let norm = Trb::make_normal(report_phys, dev.ep_int_max_packet as u32);
+        let _ = slot_dma.ep_int_ring[ep_slot].push(norm);
+        self.registers.ring_doorbell(slot_id, dev.ep_int_dci);
+    }
+
+    /// Sweeps every root port for a latched Connect Status Change.
+    fn scan_root_port_changes(&mut self) {
+        for port in 1..=self.params.max_ports {
+            let sc = self.registers.read_portsc(port);
+            if (sc & portsc::CSC) != 0 {
+                self.service_root_port_change(port);
+            }
+        }
+    }
+
+    /// Attaches or detaches whatever is now on `port`, acknowledging the change.
+    fn service_root_port_change(&mut self, port: u8) {
+        let sc = self.registers.read_portsc(port);
+        // Acknowledge the W1C change bits while preserving Port Power.
+        self.registers
+            .write_portsc(port, (sc & portsc::PP) | portsc::CSC | portsc::PRC);
+
+        let connected = (sc & portsc::CCS) != 0;
+        let known = self
+            .devices
+            .iter()
+            .any(|d| d.port == port && d.route_string == 0);
+
+        if connected && !known {
+            crate::println!("  usb-hotplug  puerto {} conectado", port);
+            self.enumerate_root_port(port);
+        } else if !connected && known {
+            crate::println!("  usb-hotplug  puerto {} desconectado", port);
+            self.detach_root_port(port);
+        }
+    }
+
+    /// Tears down every slot reached through `port` (the root device and any
+    /// devices behind a hub on it): Disable Slot, clear the DCBAA entry, and
+    /// drop the [`SlotDevice`] records.
+    fn detach_root_port(&mut self, port: u8) {
+        let dma = &raw mut XHCI_DMA;
+
+        let mut slot_ids: Vec<u8> = Vec::new();
+        for d in self.devices.iter().filter(|d| d.port == port) {
+            if !slot_ids.contains(&d.slot_id) {
+                slot_ids.push(d.slot_id);
+            }
+        }
+
+        for slot_id in slot_ids {
+            let _ = self.send_command_and_wait(Trb::make_disable_slot(slot_id));
+            unsafe {
+                (*dma).dcbaa[slot_id as usize] = 0;
+            }
+        }
+
+        self.devices.retain(|d| d.port != port);
     }
 }

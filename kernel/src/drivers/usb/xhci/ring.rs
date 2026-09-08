@@ -12,6 +12,9 @@ pub const TRB_TYPE_ENABLE_SLOT: u8 = 9;
 pub const TRB_TYPE_DISABLE_SLOT: u8 = 10;
 pub const TRB_TYPE_ADDRESS_DEVICE: u8 = 11;
 pub const TRB_TYPE_CONFIGURE_ENDPOINT: u8 = 12;
+pub const TRB_TYPE_EVALUATE_CONTEXT: u8 = 13;
+pub const TRB_TYPE_RESET_ENDPOINT: u8 = 14;
+pub const TRB_TYPE_SET_TR_DEQUEUE: u8 = 16;
 pub const TRB_TYPE_TRANSFER_EVENT: u8 = 32;
 pub const TRB_TYPE_COMMAND_COMPLETION_EVENT: u8 = 33;
 pub const TRB_TYPE_PORT_STATUS_CHANGE_EVENT: u8 = 34;
@@ -80,6 +83,39 @@ impl Trb {
     pub fn make_configure_endpoint(input_ctx_phys: u64, slot_id: u8) -> Self {
         let control = ((TRB_TYPE_CONFIGURE_ENDPOINT as u32) << 10) | ((slot_id as u32) << 24);
         Self::new(input_ctx_phys, 0, control)
+    }
+
+    /// Constructs an Evaluate Context command TRB (used to fold a freshly parsed
+    /// Hub Descriptor's port count and the Hub bit into an addressed slot).
+    pub fn make_evaluate_context(input_ctx_phys: u64, slot_id: u8) -> Self {
+        let control = ((TRB_TYPE_EVALUATE_CONTEXT as u32) << 10) | ((slot_id as u32) << 24);
+        Self::new(input_ctx_phys, 0, control)
+    }
+
+    /// Constructs a Disable Slot command TRB (detach / hot-unplug path).
+    pub fn make_disable_slot(slot_id: u8) -> Self {
+        let control = ((TRB_TYPE_DISABLE_SLOT as u32) << 10) | ((slot_id as u32) << 24);
+        Self::new(0, 0, control)
+    }
+
+    /// Constructs a Reset Endpoint command TRB, clearing a `Halted` endpoint
+    /// after a STALL. `dci` is the Device Context Index (1 = EP0).
+    pub fn make_reset_endpoint(slot_id: u8, dci: u8) -> Self {
+        let control = ((TRB_TYPE_RESET_ENDPOINT as u32) << 10)
+            | (((dci as u32) & 0x1F) << 16)
+            | ((slot_id as u32) << 24);
+        Self::new(0, 0, control)
+    }
+
+    /// Constructs a Set TR Dequeue Pointer command TRB, re-seeding an endpoint's
+    /// transfer ring after a reset so the controller and driver agree on the
+    /// next TRB and cycle state.
+    pub fn make_set_tr_dequeue(deq_ptr_phys: u64, dcs: bool, slot_id: u8, dci: u8) -> Self {
+        let param = (deq_ptr_phys & !0xF) | (if dcs { 1 } else { 0 });
+        let control = ((TRB_TYPE_SET_TR_DEQUEUE as u32) << 10)
+            | (((dci as u32) & 0x1F) << 16)
+            | ((slot_id as u32) << 24);
+        Self::new(param, 0, control)
     }
 
     /// Constructs a Setup Stage TRB for Control Transfers on Endpoint 0.
@@ -154,6 +190,17 @@ impl CommandRing {
     /// Initializes the ring's Link TRB at the end to loop back to `phys_base`.
     pub fn init_link(&mut self, phys_base: u64) {
         self.trbs[RING_SIZE - 1] = Trb::make_link(phys_base, true);
+    }
+
+    /// Clears every TRB and rewinds the enqueue pointer / cycle state to their
+    /// power-on values, then re-installs the Link TRB. Used to recover a control
+    /// endpoint whose ring is out of sync with the controller after a STALL,
+    /// paired with a Set TR Dequeue Pointer command.
+    pub fn reset(&mut self, phys_base: u64) {
+        self.trbs = [Trb::empty(); RING_SIZE];
+        self.enqueue_idx = 0;
+        self.cycle_state = true;
+        self.init_link(phys_base);
     }
 
     /// Pushes a TRB to the command ring and advances the enqueue pointer.

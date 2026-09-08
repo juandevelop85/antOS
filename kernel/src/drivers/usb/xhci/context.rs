@@ -51,6 +51,37 @@ impl<'a> SlotContext<'a> {
                 | (((num_ports as u32) & 0xFF) << 24);
         }
     }
+
+    /// Marks the slot as a hub: DWORD0 Hub (26) and Multi-TT (25) bits, plus
+    /// DWORD1 Number of Ports (31:24). Read-modify-write so it composes with a
+    /// prior [`set_info`] / [`set_port_info`] on the same context.
+    pub fn set_hub(&mut self, is_hub: bool, num_ports: u8, multi_tt: bool) {
+        if !self.data.is_empty() {
+            let mut d0 = self.data[0] & !((1 << 25) | (1 << 26));
+            if is_hub {
+                d0 |= 1 << 26;
+            }
+            if multi_tt {
+                d0 |= 1 << 25;
+            }
+            self.data[0] = d0;
+        }
+        if self.data.len() > 1 {
+            self.data[1] = (self.data[1] & 0x00FF_FFFF) | (((num_ports as u32) & 0xFF) << 24);
+        }
+    }
+
+    /// Sets the Transaction Translator fields in DWORD2: Parent Hub Slot ID
+    /// (7:0), Parent Port Number (15:8), and TT Think Time (17:16). Needed when a
+    /// Full/Low-speed device sits behind a High-speed hub.
+    pub fn set_tt_info(&mut self, parent_hub_slot: u8, parent_port: u8, think_time: u8) {
+        if self.data.len() > 2 {
+            self.data[2] = (self.data[2] & !0x0003_FFFF)
+                | ((parent_hub_slot as u32) & 0xFF)
+                | (((parent_port as u32) & 0xFF) << 8)
+                | (((think_time as u32) & 0x3) << 16);
+        }
+    }
 }
 
 /// Helper for accessing and configuring an Endpoint Context.
@@ -134,5 +165,38 @@ impl<'a> ContextView<'a> {
     pub fn endpoint_context(&mut self, dci: usize, is_input: bool) -> Option<EndpointContext<'_>> {
         let idx = if is_input { dci + 1 } else { dci };
         self.get_u32_slice(idx).map(EndpointContext::new)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_context_route_string_and_hub_bits_compose() {
+        let mut dwords = [0u32; 8];
+        let mut slot = SlotContext::new(&mut dwords);
+        // Device four tiers deep, HighSpeed (code 3), one context entry.
+        slot.set_info(0x4321, 3, 1);
+        slot.set_port_info(2, 0);
+        slot.set_hub(true, 7, true);
+
+        assert_eq!(dwords[0] & 0xF_FFFF, 0x4321, "route string preserved");
+        assert_eq!((dwords[0] >> 20) & 0xF, 3, "speed preserved");
+        assert_eq!((dwords[0] >> 27) & 0x1F, 1, "context entries preserved");
+        assert_ne!(dwords[0] & (1 << 26), 0, "hub bit set");
+        assert_ne!(dwords[0] & (1 << 25), 0, "multi-TT bit set");
+        assert_eq!((dwords[1] >> 16) & 0xFF, 2, "root hub port preserved");
+        assert_eq!((dwords[1] >> 24) & 0xFF, 7, "number of ports set");
+    }
+
+    #[test]
+    fn slot_context_tt_info_packs_dword2() {
+        let mut dwords = [0u32; 8];
+        let mut slot = SlotContext::new(&mut dwords);
+        slot.set_tt_info(5, 3, 1);
+        assert_eq!(dwords[2] & 0xFF, 5);
+        assert_eq!((dwords[2] >> 8) & 0xFF, 3);
+        assert_eq!((dwords[2] >> 16) & 0x3, 1);
     }
 }
