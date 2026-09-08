@@ -4,6 +4,9 @@
 # Uso:
 #   system/run-arm.sh                     arranque directo (-kernel), serie
 #   system/run-arm.sh --uefi              arranque por imagen UEFI (Limine)
+#   system/run-arm.sh --release           compila optimizado (mucho más rápido
+#                                         bajo emulación sin aceleración, p.ej.
+#                                         VirtualBox ARM)
 #   system/run-arm.sh --build-only        solo compila
 #   system/run-arm.sh --test              humo de arranque
 #   system/run-arm.sh --test-input        humo de arranque + inyección de entrada
@@ -18,20 +21,19 @@
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="${RAIZ}/kernel/target/aarch64-unknown-none/debug"
-KERNEL_ELF="${TARGET_DIR}/kernel"
-INITRD_TAR="${TARGET_DIR}/initrd.tar"
-UEFI_IMAGE="${TARGET_DIR}/antos-uefi-aarch64.img"
 
 MODO="normal"
 BOOT="kernel"
 GIC="2"
 KBD="virtio"
 GPU="none"
+PROFILE="debug"
+CARGO_PROFILE_FLAG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --uefi)        BOOT="uefi" ;;
+    --release)     PROFILE="release"; CARGO_PROFILE_FLAG="--release" ;;
     --build-only)  MODO="build-only" ;;
     --test)        MODO="test" ;;
     --test-input)  MODO="test-input" ;;
@@ -46,13 +48,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-echo ">> antOS: compilando kernel para aarch64-unknown-none..."
+TARGET_DIR="${RAIZ}/kernel/target/aarch64-unknown-none/${PROFILE}"
+KERNEL_ELF="${TARGET_DIR}/kernel"
+INITRD_TAR="${TARGET_DIR}/initrd.tar"
+UEFI_IMAGE="${TARGET_DIR}/antos-uefi-aarch64.img"
+
+echo ">> antOS: compilando kernel para aarch64-unknown-none (${PROFILE})..."
 if [ "$BOOT" = "uefi" ]; then
-  (cd "${RAIZ}/kernel" && cargo build --target aarch64-unknown-none --features limine)
+  (cd "${RAIZ}/kernel" && cargo build --target aarch64-unknown-none --features limine ${CARGO_PROFILE_FLAG})
   echo ">> antOS: generando imagen UEFI AArch64..."
   (cd "${RAIZ}" && cargo run -q -p builder -- "$KERNEL_ELF" aarch64 > /dev/null)
 else
-  (cd "${RAIZ}/kernel" && cargo build --target aarch64-unknown-none)
+  (cd "${RAIZ}/kernel" && cargo build --target aarch64-unknown-none ${CARGO_PROFILE_FLAG})
 fi
 
 if [ "$MODO" = "build-only" ]; then

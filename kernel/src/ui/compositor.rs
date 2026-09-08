@@ -57,6 +57,10 @@ pub struct DesktopCompositor {
     /// Screen rectangle the cursor sprite occupied at the last present, so the
     /// fast path knows which stale pixels to repaint.
     last_cursor_bounds: Rect,
+    /// Tick value at the last status-bar repaint; the clock only needs a
+    /// refresh a few times a second, so a pointer move can skip the status
+    /// band entirely and only touch the ~50 rows around the cursor.
+    last_status_ticks: u64,
 }
 
 impl DesktopCompositor {
@@ -87,6 +91,7 @@ impl DesktopCompositor {
             workspace_name: "[ws: default]",
             full_redraw_pending: true,
             last_cursor_bounds,
+            last_status_ticks: 0,
         }
     }
 
@@ -314,6 +319,7 @@ impl DesktopCompositor {
         surface.present(fb);
         self.full_redraw_pending = false;
         self.last_cursor_bounds = self.cursor.bounds();
+        self.last_status_ticks = ticks;
     }
 
     /// Presents the smallest update that still shows the current state: a full
@@ -335,51 +341,74 @@ impl DesktopCompositor {
         let screen_w = fb.width() as u32;
         let screen_h = fb.height() as u32;
         let cursor_now = self.cursor.bounds();
-        let swept = self.last_cursor_bounds.union(&cursor_now);
         const STATUS_H: u32 = 28;
 
-        // The two horizontal bands that actually change on a pointer move: the
-        // status bar (its clock) and the rows the cursor swept (a little slack
-        // for the 1px sprite outline).
-        let cur_top = (swept.y - 3).max(0) as u32;
-        let cur_bot = (swept.bottom() as u32 + 3).min(screen_h);
-        let swept_rows = cur_bot.saturating_sub(cur_top);
-        let total_rows = STATUS_H + swept_rows;
+        if self.full_redraw_pending {
+            self.render_to_framebuffer(fb, heap_used, heap_total, ticks);
+            return;
+        }
 
-        let must_full =
-            self.full_redraw_pending || total_rows * 3 >= screen_h.max(1) * 2;
-        if must_full {
+        // The rows that actually change on a pointer move: the status bar (its
+        // clock), the old cursor position (erase the sprite) and the new one
+        // (draw it). With an absolute tablet the pointer teleports, so a `union`
+        // of old+new would grow to most of the screen on a fast flick — track
+        // the two positions as separate bands instead and merge only when they
+        // touch.
+        let row_band = |r: Rect| -> (u32, u32) {
+            (
+                (r.y - 3).max(0) as u32,
+                (r.bottom() as u32 + 3).min(screen_h),
+            )
+        };
+        // The status-bar clock is second-resolution: only fold its band in a
+        // few times a second, so a plain pointer move never rewrites those rows.
+        let refresh_status = ticks.wrapping_sub(self.last_status_ticks) >= 25;
+        let status_band = if refresh_status {
+            self.last_status_ticks = ticks;
+            (0, STATUS_H)
+        } else {
+            (0, 0)
+        };
+        let mut bands: [(u32, u32); 3] = [
+            status_band,
+            row_band(self.last_cursor_bounds),
+            row_band(cursor_now),
+        ];
+        bands.sort_unstable_by_key(|b| b.0);
+        // Merge overlapping / adjacent bands.
+        let mut merged: [(u32, u32); 3] = [(0, 0); 3];
+        let mut n = 0usize;
+        for &(a, b) in &bands {
+            if b <= a {
+                continue;
+            }
+            if n > 0 && a <= merged[n - 1].1 + 2 {
+                merged[n - 1].1 = merged[n - 1].1.max(b);
+            } else {
+                merged[n] = (a, b);
+                n += 1;
+            }
+        }
+
+        let touched: u32 = merged[..n].iter().map(|&(a, b)| b - a).sum();
+        if touched * 3 >= screen_h.max(1) * 2 {
             self.render_to_framebuffer(fb, heap_used, heap_total, ticks);
             return;
         }
 
         let mut surface = Surface::new_desktop(screen_w, screen_h);
+        let raw = !raw_framebuffer_has_gpu_transport();
 
-        if raw_framebuffer_has_gpu_transport() {
-            // Narrow-span damage: fast and exact, and the GPU transport flushes
-            // the precise rectangle to the host.
-            let damage = Rect::new(
-                (swept.x - 2).max(0),
-                0,
-                (swept.width + 4).min(screen_w),
-                cur_bot,
-            );
-            surface.set_clip(damage);
+        for &(y0, y1) in &merged[..n] {
+            surface.set_clip(Rect::new(0, y0 as i32, screen_w, y1 - y0));
             self.render(&mut surface, heap_used, heap_total, ticks);
             surface.reset_clip();
-            surface.present_rect(fb, damage);
-        } else {
-            // Raw GOP/ramfb scanout (VirtualBox): narrow partial writes are not
-            // reflected, but whole scanlines are. Composite and present the
-            // status-bar band and the cursor band separately, each as complete
-            // rows, so a pointer move never repaints the whole screen.
-            surface.set_clip(Rect::new(0, 0, screen_w, STATUS_H));
-            self.render(&mut surface, heap_used, heap_total, ticks);
-            surface.set_clip(Rect::new(0, cur_top as i32, screen_w, swept_rows));
-            self.render(&mut surface, heap_used, heap_total, ticks);
-            surface.reset_clip();
-            surface.present_rows(fb, 0, STATUS_H as usize);
-            surface.present_rows(fb, cur_top as usize, cur_bot as usize);
+            if raw {
+                // A raw GOP/ramfb scanout (VirtualBox) reflects only whole rows.
+                surface.present_rows(fb, y0 as usize, y1 as usize);
+            } else {
+                surface.present_rect(fb, Rect::new(0, y0 as i32, screen_w, y1 - y0));
+            }
         }
         self.last_cursor_bounds = cursor_now;
     }

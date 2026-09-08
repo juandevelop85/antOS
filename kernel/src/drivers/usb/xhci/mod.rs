@@ -222,6 +222,8 @@ pub struct XhciController {
     pub pci_device: PciDevice,
     pub params: HcParams,
     pub devices: Vec<SlotDevice>,
+    /// Counter that throttles the per-port PORTSC hotplug sweep in [`poll`].
+    port_scan_divider: u32,
 }
 
 impl XhciController {
@@ -249,6 +251,7 @@ impl XhciController {
                     csz_64: false,
                 },
                 devices: Vec::new(),
+                port_scan_divider: 0,
             };
             controller.params = controller.registers.params();
 
@@ -931,17 +934,13 @@ impl XhciController {
                 crate::drivers::usb::hid::HidDevice::from_descriptor(&desc_buf[..rd_valid]);
             let use_generic = !boot_ok && !hid_model.is_empty();
 
-            // T28.4 diagnostics: dump what the parser made of this interface so a
-            // mis-classified keyboard is visible in the boot log.
+            // T28.4 diagnostics: one line on what the parser made of this
+            // interface, so a mis-classified device is visible in the boot log.
             crate::println!(
-                "    usb-debug  slot {} iface {}: rd_len={:?} role={:?} empty={} rid={} boot_ok={} heur(k={},m={})",
-                slot_id, iface.interface_number, rd_len, hid_model.role,
-                hid_model.is_empty(), hid_model.uses_report_id(), boot_ok, rd_kbd, rd_mouse,
+                "    usb-debug  slot {} iface {}: rd_len={:?} role={:?} rid={} boot_ok={}",
+                slot_id, iface.interface_number, rd_len,
+                hid_model.role, hid_model.uses_report_id(), boot_ok,
             );
-            {
-                let n = rd_valid.min(48);
-                crate::println!("    usb-debug  rdesc[{}]: {:02x?}", rd_valid, &desc_buf[..n]);
-            }
 
             let ep_slot = match alloc_ep_slot(used_mask) {
                 Some(s) => s,
@@ -1261,7 +1260,13 @@ impl XhciController {
 
         // Fallback for controllers that never post PORT_STATUS_CHANGE events
         // (observed under VirtualBox): sweep the root ports for W1C change bits.
-        self.scan_root_port_changes();
+        // Hot path — `poll()` runs on every timer tick and every input IRQ — so
+        // rate-limit the (slow, per-port) MMIO sweep to a few times a second;
+        // hotplug does not need sub-100 ms latency.
+        self.port_scan_divider = self.port_scan_divider.wrapping_add(1);
+        if self.port_scan_divider.is_multiple_of(16) {
+            self.scan_root_port_changes();
+        }
     }
 
     /// Handles a single Transfer Event on an interrupt endpoint: decodes the
