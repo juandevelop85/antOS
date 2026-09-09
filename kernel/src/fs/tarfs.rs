@@ -57,8 +57,12 @@ impl TarFs {
                     sector_or_offset: data_offset,
                 });
 
-                let blocks = (size + 511) / 512;
-                offset = data_offset + blocks * 512;
+                // Checked (T31.3): `size` comes straight from the archive's
+                // header field, so a corrupted or hostile value must not be
+                // able to wrap `offset` around and desynchronize the parser
+                // from the real layout of the file.
+                let block_bytes = size.div_ceil(512).checked_mul(512).ok_or(FsError::IoError)?;
+                offset = data_offset.checked_add(block_bytes).ok_or(FsError::IoError)?;
             } else {
                 offset += 512;
             }
@@ -102,8 +106,13 @@ impl TarFs {
                         sector_or_offset: data_sector,
                     });
 
-                    let blocks = ((size + 511) / 512) as u64;
-                    sector = sector + 1 + blocks;
+                    // Checked (T31.3): see the identical reasoning in
+                    // `from_memory` above — `size` is attacker-controlled.
+                    let blocks = size.div_ceil(512) as u64;
+                    sector = sector
+                        .checked_add(1)
+                        .and_then(|s| s.checked_add(blocks))
+                        .ok_or(FsError::IoError)?;
                 } else {
                     sector += 1;
                 }
@@ -134,19 +143,21 @@ impl TarFs {
 
         match self.backing {
             TarBacking::Memory(slice) => {
+                // Checked (T31.3): `entry.size` is derived from the archive
+                // header, so it must not be able to wrap this addition and
+                // slip a truncated or out-of-bounds slice past the check.
                 let start = entry.sector_or_offset;
-                let end = start + entry.size;
-                if end <= slice.len() {
-                    Ok(slice[start..end].to_vec())
-                } else {
-                    Err(FsError::IoError)
+                match start.checked_add(entry.size) {
+                    Some(end) if end <= slice.len() => Ok(slice[start..end].to_vec()),
+                    _ => Err(FsError::IoError),
                 }
             }
             TarBacking::BlockDevice => {
                 #[cfg(target_arch = "x86_64")]
                 {
-                    let sector_count = (entry.size + 511) / 512;
-                    let mut raw_buf = vec![0u8; sector_count * 512];
+                    let sector_count = entry.size.div_ceil(512);
+                    let byte_len = sector_count.checked_mul(512).ok_or(FsError::IoError)?;
+                    let mut raw_buf = vec![0u8; byte_len];
                     virtio_blk::read_blocks(entry.sector_or_offset as u64, &mut raw_buf)
                         .map_err(|_| FsError::IoError)?;
                     raw_buf.truncate(entry.size);
@@ -210,21 +221,35 @@ impl TarFs {
     }
 }
 
-/// Normalizes a path string so that it is absolute, without redundant slashes or relative components.
+/// Normalizes a path string so that it is absolute, without redundant
+/// slashes, `.` components, or `..` components (T31.3).
+///
+/// A `..` component pops the last resolved segment, same as any ordinary
+/// path resolver; a `..` with nothing left to pop is **dropped**, never
+/// resolved above the root. Without this, an archive entry literally named
+/// `../../etc/passwd` was kept exactly as written and only ever excluded by
+/// coincidence — because every lookup so far has required an exact string
+/// match against a normalized query path, never a directory walk or an
+/// extraction to disk. The moment either of those appears, an unresolved
+/// `..` becomes a real path-traversal primitive; this closes that off now,
+/// before it's needed to.
 pub fn normalize_path(path: &str) -> String {
-    let trimmed = path.trim();
-    let without_rel = trimmed.strip_prefix("./").unwrap_or(trimmed);
-    let with_leading = if without_rel.starts_with('/') {
-        without_rel.to_string()
+    let mut components: Vec<&str> = Vec::new();
+    for part in path.trim().split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => {
+                components.pop();
+            }
+            other => components.push(other),
+        }
+    }
+
+    if components.is_empty() {
+        String::from("/")
     } else {
-        alloc::format!("/{}", without_rel)
-    };
-    let without_trailing = if with_leading.len() > 1 {
-        with_leading.trim_end_matches('/').to_string()
-    } else {
-        with_leading
-    };
-    without_trailing
+        alloc::format!("/{}", components.join("/"))
+    }
 }
 
 fn parse_header(header: &[u8]) -> Option<(String, usize, bool)> {
@@ -262,14 +287,88 @@ fn parse_header(header: &[u8]) -> Option<(String, usize, bool)> {
     Some((normalize_path(&full_path), size, is_dir))
 }
 
+/// Parses a NUL/space-terminated octal byte string from a USTAR header field.
+///
+/// Saturates instead of wrapping on overflow (T31.3): an overlong or
+/// malicious octal string can no longer produce a small, wrapped-around
+/// value that would then pass a downstream bounds check it should have
+/// failed. Every caller already treats an implausibly large size as
+/// "reject this entry" via the checked arithmetic in `read_file` and the
+/// indexing loops above, so saturating here is enough — there is no need to
+/// thread a `Result` through a header field parser.
 fn parse_octal(bytes: &[u8]) -> usize {
     let mut val = 0usize;
     for &b in bytes {
         if b >= b'0' && b <= b'7' {
-            val = val * 8 + (b - b'0') as usize;
+            val = val.saturating_mul(8).saturating_add((b - b'0') as usize);
         } else if b == 0 || b == b' ' {
             break;
         }
     }
     val
+}
+
+// -------------------------------------------------------------------- tests
+//
+// NOTE (T31.3 / T31.16): see the identical note in `kernel/src/elf.rs` — the
+// kernel workspace's `cargo test` does not yet compile (tracked in T31.16).
+// This exact logic was additionally verified by hand: copied verbatim into a
+// standalone host binary and run with `rustc -O`, confirming `parse_octal`
+// saturates instead of wrapping and `normalize_path` never resolves `..`
+// above the root. These tests will run for real as soon as T31.16 lands.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_octal_saturates_on_overflow_instead_of_wrapping() {
+        // Far more digits than fit in a u64/usize.
+        let overflow = b"77777777777777777777777";
+        assert_eq!(parse_octal(overflow), usize::MAX);
+    }
+
+    #[test]
+    fn test_parse_octal_normal_values_still_correct() {
+        assert_eq!(parse_octal(b"0000644\0"), 0o644);
+        assert_eq!(parse_octal(b"0000000\0"), 0);
+        assert_eq!(parse_octal(b"0001000\0"), 0o1000);
+    }
+
+    #[test]
+    fn test_normalize_path_never_escapes_the_root() {
+        assert_eq!(normalize_path("../../etc/passwd"), "/etc/passwd");
+        assert_eq!(normalize_path("../../../../../../etc/shadow"), "/etc/shadow");
+        assert_eq!(normalize_path(".."), "/");
+        assert_eq!(normalize_path("a/../.."), "/");
+    }
+
+    #[test]
+    fn test_normalize_path_resolves_dot_and_dotdot_components() {
+        assert_eq!(normalize_path("a/./b/../c"), "/a/c");
+        assert_eq!(normalize_path("./foo/bar"), "/foo/bar");
+        assert_eq!(normalize_path("/foo/bar/"), "/foo/bar");
+    }
+
+    #[test]
+    fn test_normalize_path_base_cases_unchanged() {
+        assert_eq!(normalize_path("/"), "/");
+        assert_eq!(normalize_path(""), "/");
+        assert_eq!(normalize_path("foo"), "/foo");
+    }
+
+    #[test]
+    fn test_read_file_memory_backing_rejects_offset_size_overflow() {
+        let data: &'static [u8] = &[0u8; 16];
+        let fs = TarFs {
+            backing: TarBacking::Memory(data),
+            entries: alloc::vec::Vec::new(),
+        };
+        let entry = TarEntry {
+            path: String::from("/evil"),
+            size: usize::MAX,
+            is_dir: false,
+            sector_or_offset: 8,
+        };
+        assert!(fs.read_file(&entry).is_err(), "start + size overflow must be rejected, not wrap into a valid slice");
+    }
 }

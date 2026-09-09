@@ -122,7 +122,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso |
 | **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ✅ Completado |
 | **Fase 31** | [T31.2](T31.2-ciclo-de-vida-y-limites-de-recursos-del-servidor-de-consola-web.md) | Ciclo de Vida y Límites de Recursos del Servidor de Consola Web | ✅ Completado |
-| **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ⏳ Pendiente |
+| **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ✅ Completado |
 | **Fase 31** | [T31.4](T31.4-aislamiento-real-de-microvm-y-eliminacion-de-inyeccion-de-shell.md) | Aislamiento Real de MicroVM y Eliminación de Inyección de Shell | ⏳ Pendiente |
 | **Fase 31** | [T31.5](T31.5-identidad-criptografica-real-en-antmesh.md) | Identidad Criptográfica Real y Tokens de Emparejamiento en antMesh | ⏳ Pendiente |
 | **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ⏳ Pendiente |
@@ -151,10 +151,15 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   por defecto) y su ciclo de vida (**✅ T31.2 resuelto**: `stop()` cierra el
   puerto de verdad, tope de 64 conexiones concurrentes, cabeceras leídas por
   completo, `decode_ws_frame` con aritmética comprobada), desbordamientos
-  aritméticos en el cargador ELF del kernel, ejecución sin aislamiento en
-  `vm exec`, inyección de shell en la detección de herramientas, identidad de
-  antMesh derivada de un hash no criptográfico, secretos en claro, pánicos por
-  `unwrap` y límites ausentes en el socket IPC y en el intérprete WASM.
+  aritméticos en el cargador ELF del kernel y en tarfs (**✅ T31.3 resuelto**:
+  aritmética de límites comprobada en `elf.rs`/`tarfs.rs`, revalidación local
+  dentro de las funciones `unsafe`, mantenimiento de caché AArch64 línea a
+  línea, `normalize_path` resuelve `..` sin escapar de la raíz, y
+  `overflow-checks = true` activado en el perfil `release` del kernel),
+  ejecución sin aislamiento en `vm exec`, inyección de shell en la detección
+  de herramientas, identidad de antMesh derivada de un hash no criptográfico,
+  secretos en claro, pánicos por `unwrap` y límites ausentes en el socket IPC
+  y en el intérprete WASM.
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
   `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
   en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
@@ -167,7 +172,8 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   de módulo con lo realmente implementado, y descomposición de los ficheros que
   han vuelto a superar las 1500 líneas.
 
-Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ **→ T31.4 → T31.10 → T31.16 →
-T31.3 → T31.5 → T31.6**, y el resto según convenga. T31.10 y T31.16 conviene
+Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ **→ T31.4 →
+T31.10 → T31.16 → T31.5 → T31.6**, y el resto según convenga. T31.10 y T31.16
+conviene
 abordarlos pronto: sin CI verde y sin tests de kernel ejecutables, las
 correcciones de T31.3 no tienen forma de verificarse.
