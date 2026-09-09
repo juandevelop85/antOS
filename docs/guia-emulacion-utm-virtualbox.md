@@ -322,6 +322,9 @@ framebuffer GOP de Limine.
   añadía cualquier función PCI (UTM añade red, audio, xHCI, blk, rng…).
   **Corregido**; recompila desde `master`. Si por lo que sea reaparece, verás
   `irq-storm  INTID N … enmascarada` y el arranque continúa igualmente.
+* **El cursor apenas se mueve (un barrido completo del ratón lo desplaza ~30 px):**  
+  Era un doble escalado del puntero absoluto de VirtIO-Input. **Corregido**;
+  recompila desde `master`.
 * **`pcie-xhci … BAR0 sin asignar · omitido` en el log:**  
   Esperado en el Método A (sin firmware). No es un error; el teclado/ratón van
   por VirtIO-Input.
