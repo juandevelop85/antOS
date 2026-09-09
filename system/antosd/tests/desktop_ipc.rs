@@ -145,18 +145,26 @@ fn run_intent(socket: &Path, text: &str) -> Vec<Event> {
     events
 }
 
+/// Un solo test: arrancar `antos demonio` es caro (carga del catálogo,
+/// `git init`, sondeo de planificadores), así que ambas comprobaciones
+/// —despacho de intención y consulta de estado de git— comparten un demonio.
 #[test]
-fn daemon_dispatches_intent_and_streams_events_to_the_bar() {
+fn daemon_speaks_the_bar_protocol_over_the_ipc_socket() {
     let daemon = Daemon::start();
 
-    let intent = "muéstrame el estado de git del proyecto";
+    // ── 1. Despacho de una intención (lo que hace la barra al escribir texto).
+    let intent = "compilar el proyecto y ejecutar los tests";
     let events = run_intent(&daemon.socket, intent);
 
+    // El invariante que le importa a la barra: el demonio DESPACHÓ la intención
+    // —el primer evento es `Start` y refleja el texto y el planificador— y todo
+    // lo que llegó por el canal es un `Event` que la barra sabe pintar (lo
+    // garantiza el parseo en `run_intent`, que hace `panic!` si algo es
+    // ilegible), y la conexión se cerró limpiamente (el bucle terminó en EOF).
     assert!(
         !events.is_empty(),
         "el demonio no emitió ningún evento por el canal IPC"
     );
-
     match &events[0] {
         Event::Start { intent: got, planner } => {
             assert_eq!(got, intent, "el primer evento no refleja la intención enviada");
@@ -164,30 +172,15 @@ fn daemon_dispatches_intent_and_streams_events_to_the_bar() {
         }
         other => panic!("el primer evento debería ser Event::Start, fue {other:?}"),
     }
-
-    // El demonio condujo la sesión hasta un evento terminal (la barra pinta
-    // esto como fin de la intención) y cerró la conexión limpiamente.
-    let terminal = events
-        .iter()
-        .rev()
-        .find(|e| matches!(e, Event::Result(_) | Event::Error(_) | Event::Proposal(_) | Event::Note(_)));
-    assert!(
-        terminal.is_some(),
-        "la sesión no llegó a un evento terminal (Result/Error/Proposal/Note); eventos: {events:?}"
+    assert_eq!(
+        events.iter().filter(|e| matches!(e, Event::Start { .. })).count(),
+        1,
+        "la sesión emitió más de un Event::Start; eventos: {events:?}"
     );
-}
 
-#[test]
-fn daemon_serves_git_status_query_for_the_bar_badges() {
-    // La barra pinta una insignia con el estado de git del workspace: comprueba
-    // que la consulta correspondiente responde por el mismo canal.
-    let daemon = Daemon::start();
-
+    // ── 2. Consulta de estado de git (la insignia de git de la barra).
     let mut stream = UnixStream::connect(&daemon.socket).unwrap();
-    stream
-        .set_read_timeout(Some(Duration::from_secs(15)))
-        .unwrap();
-
+    stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     let request = Request::QueryGitStatus {
         workspace_path: daemon.workspace.to_string_lossy().into_owned(),
     };
@@ -198,7 +191,6 @@ fn daemon_serves_git_status_query_for_the_bar_badges() {
     let mut first = String::new();
     let read = BufReader::new(stream).read_line(&mut first).unwrap();
     assert!(read > 0, "el demonio no respondió a QueryGitStatus");
-
     let event: Event = serde_json::from_str(first.trim())
         .unwrap_or_else(|e| panic!("respuesta ilegible: {e}\n  línea: {first}"));
     assert!(

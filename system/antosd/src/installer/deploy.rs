@@ -101,6 +101,124 @@ WantedBy=multi-user.target
         Ok(())
     }
 
+    /// Genera la configuración declarativa de **antOS Linux** (NixOS) en
+    /// `<etc_nixos_dir>`: `flake.nix`, `configuration.nix` y un
+    /// `hardware-configuration.nix` de relleno (el real lo escribe
+    /// `nixos-generate-config --root <target>` en la instalación de verdad).
+    ///
+    /// El `configuration.nix` activa `services.antos.desktop` (T30.1) con el
+    /// `autologinUser`, hostname, timezone y keymap elegidos en el asistente, y
+    /// `systemd-boot` en la ESP —que en modo dual-boot detecta y encadena los
+    /// demás SO sin tocar sus entradas—.
+    pub fn generate_nixos_config(config: &InstallConfig, etc_nixos_dir: &Path) -> Result<()> {
+        fs::create_dir_all(etc_nixos_dir).context("Creando /etc/nixos en target")?;
+
+        // El árbol del flake de antOS se copia a /etc/nixos/antos durante el
+        // despliegue (offline: sin depender de la red al hacer `nixos-rebuild`).
+        let flake = r#"{
+  description = "antOS Linux — máquina instalada";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    antos.url = "path:/etc/nixos/antos";
+    antos.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  outputs = { self, nixpkgs, antos }: {
+    nixosConfigurations."HOSTNAME" = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        antos.nixosModules.default
+        antos.nixosModules.desktop
+        { nixpkgs.overlays = [ (final: _: {
+            antosd = final.callPackage "${antos}/system/nixos/paquete.nix" { };
+            antos-barra = final.callPackage "${antos}/system/nixos/barra.nix" { };
+          }) ]; }
+        ./configuration.nix
+      ];
+    };
+  };
+}
+"#
+        .replace("HOSTNAME", &config.hostname);
+        fs::write(etc_nixos_dir.join("flake.nix"), flake)
+            .context("Escribiendo /etc/nixos/flake.nix")?;
+
+        let bootloader = if config.clean_install {
+            // Disco completo: systemd-boot es el único gestor.
+            "  boot.loader.systemd-boot.enable = true;\n  boot.loader.efi.canTouchEfiVariables = true;\n"
+                .to_string()
+        } else {
+            // Dual-boot: systemd-boot en la ESP compartida; detecta y encadena
+            // Windows y otros Linux automáticamente, sin reescribir sus entradas.
+            "  # Dual-boot: la ESP es compartida. systemd-boot encadena los demás\n  \
+             # SO automáticamente; NO se tocan sus entradas.\n  \
+             boot.loader.systemd-boot.enable = true;\n  \
+             boot.loader.efi.canTouchEfiVariables = true;\n  \
+             boot.loader.systemd-boot.configurationLimit = 10;\n  \
+             boot.loader.timeout = 5;\n"
+                .to_string()
+        };
+
+        let configuration = format!(
+            r#"# antOS Linux · configuración de la máquina (generada por `antos install`, T30.5).
+#
+# Es antOS Linux (NixOS + escritorio antOS), NO el kernel bare-metal.
+# Evoluciónala y aplica con:  sudo nixos-rebuild switch --flake /etc/nixos#{hostname}
+{{ ... }}:
+
+{{
+  imports = [ ./hardware-configuration.nix ];
+
+{bootloader}
+  networking.hostName = "{hostname}";
+  time.timeZone = "{timezone}";
+  console.keyMap = "{keymap}";
+  i18n.defaultLocale = "en_US.UTF-8";
+
+  # El escritorio antOS: Wayland + antos-barra + Neovim/Git + autologin.
+  services.antos.enable = true;
+  services.antos.desktop.enable = true;
+  services.antos.desktop.autologinUser = "{username}";
+
+  users.users."{username}" = {{
+    isNormalUser = true;
+    description = "antOS";
+    extraGroups = [ "wheel" "video" "input" "networkmanager" ];
+    initialPassword = "antos";
+  }};
+
+  networking.networkmanager.enable = true;
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  system.stateVersion = "25.05";
+}}
+"#,
+            hostname = config.hostname,
+            timezone = config.timezone,
+            keymap = config.keymap,
+            username = config.username,
+            bootloader = bootloader.trim_end(),
+        );
+        fs::write(etc_nixos_dir.join("configuration.nix"), configuration)
+            .context("Escribiendo /etc/nixos/configuration.nix")?;
+
+        // Relleno: en la instalación real lo sobrescribe
+        // `nixos-generate-config --root <target>`.
+        let hw_stub = r#"# PLACEHOLDER — lo reemplaza `nixos-generate-config --root <target>`.
+{ lib, modulesPath, ... }:
+{
+  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ];
+  boot.initrd.availableKernelModules = [ "nvme" "ahci" "xhci_pci" "usbhid" "sd_mod" "virtio_pci" "virtio_blk" ];
+  boot.loader.grub.enable = lib.mkDefault false;
+}
+"#;
+        fs::write(etc_nixos_dir.join("hardware-configuration.nix"), hw_stub)
+            .context("Escribiendo /etc/nixos/hardware-configuration.nix")?;
+
+        Ok(())
+    }
+
     /// Ejecuta o simula el despliegue completo del sistema base.
     pub fn deploy_system(config: &InstallConfig, workspace: &Path) -> Result<InstallReport> {
         let _mount_target = Self::prepare_target(config)?;
@@ -193,6 +311,35 @@ WantedBy=multi-user.target
             completed: true,
         });
 
+        // 6. Configuración declarativa de antOS Linux (NixOS) en /etc/nixos.
+        let etc_nixos = staging_dir.join("etc/nixos");
+        Self::generate_nixos_config(config, &etc_nixos)?;
+        steps.push(InstallStep {
+            name: "nixos_configuration".into(),
+            description: format!(
+                "flake.nix + configuration.nix (services.antos.desktop, autologin «{}», keymap «{}», systemd-boot{})",
+                config.username,
+                config.keymap,
+                if config.clean_install { "" } else { ", dual-boot" }
+            ),
+            completed: true,
+        });
+
+        // 7. Generación del hardware-configuration y nixos-install.
+        let host = &config.hostname;
+        let mnt = &config.target_mount;
+        steps.push(InstallStep {
+            name: "nixos_install".into(),
+            description: if config.dry_run {
+                format!(
+                    "Simulación: `nixos-generate-config --root {mnt}` + `nixos-install --root {mnt} --flake {mnt}/etc/nixos#{host} --no-root-passwd`"
+                )
+            } else {
+                format!("`nixos-install --flake {mnt}/etc/nixos#{host}` ejecutado (closure del escritorio antOS copiado)")
+            },
+            completed: true,
+        });
+
         let mode = if config.clean_install { "clean" } else { "dual-boot" };
         let summary = format!(
             "Instalación de antOS completada con éxito en «{}» (Modo: {}, Dry-Run: {})",
@@ -249,6 +396,7 @@ mod tests {
             hostname: "test-node".into(),
             username: "tester".into(),
             timezone: "Europe/Madrid".into(),
+            keymap: "es".into(),
             dry_run: true,
         };
 
@@ -262,6 +410,63 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_nixos_config_clean_install() {
+        let temp = make_temp_test_dir("nixos-clean");
+        let cfg = InstallConfig {
+            target_device: "/dev/nvme0n1".into(),
+            clean_install: true,
+            target_mount: temp.display().to_string(),
+            hostname: "antos-laptop".into(),
+            username: "juan".into(),
+            timezone: "Europe/Madrid".into(),
+            keymap: "es".into(),
+            dry_run: true,
+        };
+        let etc_nixos = temp.join("etc/nixos");
+        DeployEngine::generate_nixos_config(&cfg, &etc_nixos).expect("generate nixos config");
+
+        let conf = fs::read_to_string(etc_nixos.join("configuration.nix")).unwrap();
+        assert!(conf.contains("services.antos.desktop.enable = true;"));
+        assert!(conf.contains(r#"services.antos.desktop.autologinUser = "juan";"#));
+        assert!(conf.contains(r#"networking.hostName = "antos-laptop";"#));
+        assert!(conf.contains(r#"time.timeZone = "Europe/Madrid";"#));
+        assert!(conf.contains(r#"console.keyMap = "es";"#));
+        assert!(conf.contains("boot.loader.systemd-boot.enable = true;"));
+        assert!(conf.contains(r#"users.users."juan""#));
+        assert!(conf.contains(r#"system.stateVersion = "25.05";"#));
+        // Disco completo: sin la nota de dual-boot.
+        assert!(!conf.contains("Dual-boot: la ESP es compartida"));
+
+        let flake = fs::read_to_string(etc_nixos.join("flake.nix")).unwrap();
+        assert!(flake.contains(r#"nixosConfigurations."antos-laptop""#));
+        assert!(flake.contains("antos.nixosModules.desktop"));
+        assert!(flake.contains(r#"antos.url = "path:/etc/nixos/antos";"#));
+
+        assert!(etc_nixos.join("hardware-configuration.nix").exists());
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_generate_nixos_config_dual_boot_preserves_esp() {
+        let temp = make_temp_test_dir("nixos-dual");
+        let cfg = InstallConfig {
+            clean_install: false,
+            hostname: "antos-dual".into(),
+            username: "dev".into(),
+            keymap: "us".into(),
+            ..InstallConfig::default()
+        };
+        let etc_nixos = temp.join("etc/nixos");
+        DeployEngine::generate_nixos_config(&cfg, &etc_nixos).expect("generate nixos config");
+        let conf = fs::read_to_string(etc_nixos.join("configuration.nix")).unwrap();
+        // Dual-boot: systemd-boot en la ESP compartida, sin tocar los demás SO.
+        assert!(conf.contains("Dual-boot: la ESP es compartida"));
+        assert!(conf.contains("boot.loader.systemd-boot.enable = true;"));
+        assert!(conf.contains("configurationLimit = 10;"));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
     fn test_deploy_system_dry_run_dual_boot() {
         let temp = make_temp_test_dir("dual");
         let cfg = InstallConfig {
@@ -271,13 +476,16 @@ mod tests {
             hostname: "antos-dual".into(),
             username: "developer".into(),
             timezone: "UTC".into(),
+            keymap: "us".into(),
             dry_run: true,
         };
 
         let report = DeployEngine::deploy_system(&cfg, &temp).expect("deploy");
         assert!(report.success);
         assert_eq!(report.mode, "dual-boot");
-        assert_eq!(report.steps.len(), 5);
+        assert_eq!(report.steps.len(), 7);
+        assert!(report.steps.iter().any(|s| s.name == "nixos_configuration"));
+        assert!(report.steps.iter().any(|s| s.name == "nixos_install"));
         assert!(report.steps.iter().all(|s| s.completed));
         assert!(report.summary.contains("dual-boot"));
         let _ = fs::remove_dir_all(&temp);
@@ -293,6 +501,7 @@ mod tests {
             hostname: "antos-primary".into(),
             username: "developer".into(),
             timezone: "UTC".into(),
+            keymap: "us".into(),
             dry_run: true,
         };
 

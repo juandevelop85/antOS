@@ -164,6 +164,7 @@ impl InstallTomlConfig {
             hostname: self.hostname.clone(),
             username: self.username.clone(),
             timezone: self.timezone.clone(),
+            keymap: self.keymap.clone(),
             dry_run: self.dry_run,
         }
     }
@@ -355,6 +356,7 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         hostname: hostname.clone(),
         username: username.clone(),
         timezone: timezone.clone(),
+        keymap: keymap.clone(),
         dry_run: dry_run_default,
     };
 
@@ -527,6 +529,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             hostname: "antos-box".into(),
             username: "antos".into(),
             timezone: "UTC".into(),
+            keymap: "us".into(),
             dry_run,
         };
         println!(

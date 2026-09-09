@@ -307,7 +307,7 @@ pub struct PartitionPlan {
     pub warnings: Vec<String>,
 }
 
-/// Operating system installation configuration (T15.2).
+/// Operating system installation configuration (T15.2 / T30.5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub target_device: String,
@@ -316,7 +316,14 @@ pub struct InstallConfig {
     pub hostname: String,
     pub username: String,
     pub timezone: String,
+    /// Console keymap (`console.keyMap` in the generated NixOS config).
+    #[serde(default = "default_keymap")]
+    pub keymap: String,
     pub dry_run: bool,
+}
+
+fn default_keymap() -> String {
+    "us".to_string()
 }
 
 impl Default for InstallConfig {
@@ -328,6 +335,7 @@ impl Default for InstallConfig {
             hostname: "antos-box".into(),
             username: "antos".into(),
             timezone: "UTC".into(),
+            keymap: default_keymap(),
             dry_run: true,
         }
     }

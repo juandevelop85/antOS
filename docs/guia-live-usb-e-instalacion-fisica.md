@@ -93,6 +93,15 @@ Antes de arrancar desde el pendrive USB:
 
 ---
 
+> 🧭 **Dos productos, dos ISOs.** Este documento y su `antos usb build` producen
+> el **Live del kernel bare-metal** (`no_std`, Limine; Método 6). El **escritorio
+> antOS Linux** de uso diario (NixOS + Wayland + `antos-barra` + Neovim) se
+> instala desde la **ISO gráfica** de la Fase 30: `nix build .#iso` →
+> `antos-linux-*.iso`, que se graba y arranca igual (secciones 2 y 3 de esta
+> guía) pero cuyo `antos install` genera una configuración **NixOS**
+> (`/etc/nixos/{flake.nix,configuration.nix}` con `services.antos.desktop.enable
+> = true`) y ejecuta `nixos-install`. Ver §4-bis.
+
 ## 4. Sesión Live y Asistente de Instalación
 
 1. **Menú de Arranque Limine:**
@@ -123,3 +132,28 @@ Antes de arrancar desde el pendrive USB:
    reboot
    ```
    Retira la memoria USB cuando la pantalla se apague. El equipo iniciará directamente en tu nueva instalación de **antOS**.
+
+---
+
+## 4-bis. Instalar antOS Linux (NixOS + escritorio antOS) — T30.5
+
+Desde la **ISO gráfica** (`nix build .#iso`), `antos install` sigue el mismo
+asistente (inspección de hardware, selección de disco, Disco Completo / Dual-Boot
+seguro, hostname/usuario/timezone/**keymap**) pero el despliegue es NixOS:
+
+| Paso | Qué hace |
+| :--- | :--- |
+| Particionado | GPT limpio (512 MiB ESP + raíz) en Disco Completo; en **Dual-Boot** preserva la ESP y las particiones ajenas |
+| `/etc/nixos` | Genera `flake.nix` + `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, `networking.hostName`, `time.timeZone`, `console.keyMap` y `systemd-boot` (en Dual-Boot, `systemd-boot` encadena Windows/otros Linux **sin tocar sus entradas**) |
+| `hardware-configuration.nix` | Lo escribe `nixos-generate-config --root /mnt/target` |
+| Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd` (copia el *closure* del escritorio antOS) |
+| NVRAM UEFI | Entrada `antOS Linux` vía `systemd-boot` / `efibootmgr` |
+
+Tras `reboot`, el equipo entra **directo al escritorio antOS** (autologin
+Wayland, barra anclada, `antosd` vivo). A partir de ahí evolucionas el sistema
+de forma declarativa:
+
+```bash
+sudo nixos-rebuild switch --flake /etc/nixos#<hostname>
+antos doctor            # verifica el recinto y que antosd/antos-barra levantan
+```

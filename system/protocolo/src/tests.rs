@@ -851,6 +851,7 @@ use crate::*;
             hostname: "antos-dev".into(),
             username: "developer".into(),
             timezone: "America/Bogota".into(),
+            keymap: "us".into(),
             dry_run: true,
         };
         let req_install = Request::InstallSystem(cfg.clone());

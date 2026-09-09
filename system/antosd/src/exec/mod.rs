@@ -1175,6 +1175,7 @@ pub fn changes_for(
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
             let username = a.get("username").cloned().unwrap_or_else(|| "antos".into());
             let hostname = a.get("hostname").cloned().unwrap_or_else(|| "antos-box".into());
+            let keymap = a.get("keymap").cloned().unwrap_or_else(|| "us".into());
             let config = antos_protocol::InstallConfig {
                 target_device,
                 clean_install,
@@ -1182,6 +1183,7 @@ pub fn changes_for(
                 hostname,
                 username,
                 timezone: "UTC".into(),
+                keymap,
                 dry_run,
             };
             Ok(vec![Change::InstallDeploy {

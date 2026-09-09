@@ -701,6 +701,18 @@ antos usb flash --image antos-live.iso --target /dev/sdb --apply
    ```
 5. Selecciona el disco de destino (`/dev/nvme0n1` o `/dev/sda`), elige entre instalación limpia en disco completo (escribiendo `SI`) o Dual-Boot seguro, y completa la configuración. Al finalizar, retira la memoria USB y reinicia el equipo con `reboot`.
 
+> **Dos destinos de `antos install`:**
+> - Desde la **Live del kernel bare-metal** (arriba): despliega el sistema
+>   base FHS con `antosd` como servicio `systemd`.
+> - Desde la **ISO gráfica de antOS Linux** (`nix build .#iso`, T30.2): el
+>   mismo asistente genera `/etc/nixos/{flake.nix,configuration.nix}` con
+>   `services.antos.desktop.enable = true` (autologin, hostname, timezone,
+>   **keymap**) + `systemd-boot` —que en Dual-Boot encadena los demás SO sin
+>   tocar sus entradas— y ejecuta `nixos-install`. Tras `reboot` arranca al
+>   escritorio antOS; se evoluciona con
+>   `sudo nixos-rebuild switch --flake /etc/nixos#<hostname>`. Detalle en
+>   [`docs/guia-live-usb-e-instalacion-fisica.md`](guia-live-usb-e-instalacion-fisica.md) §4-bis.
+
 ---
 
 ## 2. Variables de Entorno Globales
