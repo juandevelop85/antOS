@@ -17,10 +17,29 @@
 //!
 //! ## Quién puede conectarse
 //!
-//! El socket vive en el directorio de estado con permisos 0600. Esa es hoy
-//! toda la autorización: quien pueda abrir el fichero puede pedir cosas. Es
+//! El socket vive en el directorio de estado con permisos 0600, sin ventana
+//! transitoria más permisiva: se crea bajo una `umask` restrictiva propia y
+//! solo después se restaura la del proceso (T31.8). Esa es hoy toda la
+//! autorización: quien pueda abrir el fichero puede pedir cosas. Es
 //! suficiente para un solo usuario en su máquina y claramente insuficiente
 //! para cualquier otra cosa.
+//!
+//! ## Una conexión cada vez, a propósito (T31.8)
+//!
+//! `servir` no atiende conexiones en paralelo. No es una limitación que
+//! quede por resolver: dos intenciones mutando el mismo espacio de trabajo
+//! a la vez producirían diffs que ya no describen el resultado — el mismo
+//! fallo que se evitó calculando los pasos en orden dentro de una sola
+//! intención, pero ahora entre procesos. Antes de "arreglar" esto
+//! convirtiéndolo en concurrente, hace falta resolver esa cuestión de fondo,
+//! no solo la de E/S.
+//!
+//! Lo que sí hacía falta arreglar era el otro lado de esa decisión: sin un
+//! tiempo de espera, una conexión que no envía nada bloqueaba el bucle serie
+//! **para todos los demás clientes**, indefinidamente. Cada conexión
+//! aceptada lleva ahora un tiempo de espera de lectura y escritura; se
+//! libera el de lectura en cuanto el cliente manda una petición real, para
+//! no cortar una aprobación interactiva humana que puede tardar.
 
 use crate::capability::Catalog;
 use crate::ctx::Ctx;
@@ -28,10 +47,26 @@ use crate::protocol::{SessionHandler, Proposal, ExecutionResult};
 use crate::{session, terminal};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// One line of JSON is one message (T31.8). A client that never sends `\n`
+/// must not be able to grow the receive buffer until the daemon runs out of
+/// memory — generous enough for any real `Request`/`Event`, including a
+/// large diff proposal.
+const MAX_MESSAGE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// How long a freshly accepted connection has to send its first message
+/// before it's considered abandoned (T31.8). Applies only to that initial
+/// wait — see the module doc comment on why the read timeout is lifted
+/// once a real request arrives.
+const IPC_READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// Applies for the whole connection: a write that can't complete within
+/// this means the peer is gone, at any point in the session.
+const IPC_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn socket_path(ctx: &Ctx) -> PathBuf {
     ctx.state.join("antos.sock")
@@ -59,12 +94,32 @@ fn send<T: Serialize>(dest: &mut impl Write, msg: &T) -> Result<()> {
     Ok(())
 }
 
-fn receive<T: for<'a> Deserialize<'a>>(source: &mut impl BufRead) -> Result<Option<T>> {
+/// What a single call to [`receive`] found on the wire.
+enum Received<T> {
+    /// A well-formed message, within the size limit.
+    Message(T),
+    /// The peer closed the connection before sending anything — not an
+    /// error, just nothing left to do.
+    Eof,
+    /// The peer sent a line longer than `MAX_MESSAGE_BYTES` without a
+    /// newline (T31.8). The connection is still open; the caller decides
+    /// how to respond — typically an `Event::Error`, then closing.
+    TooLarge,
+}
+
+fn receive<T: for<'a> Deserialize<'a>>(source: &mut impl BufRead) -> Result<Received<T>> {
+    // Reading one byte past the limit is what lets this tell "the line is
+    // exactly at the boundary" apart from "the line is longer than the
+    // boundary and got truncated here" (T31.8).
     let mut line = String::new();
-    if source.read_line(&mut line)? == 0 {
-        return Ok(None);
+    let n = source.by_ref().take(MAX_MESSAGE_BYTES + 1).read_line(&mut line)?;
+    if n == 0 {
+        return Ok(Received::Eof);
     }
-    Ok(Some(serde_json::from_str(line.trim())?))
+    if line.len() as u64 > MAX_MESSAGE_BYTES {
+        return Ok(Received::TooLarge);
+    }
+    Ok(Received::Message(serde_json::from_str(line.trim())?))
 }
 
 // ------------------------------------------------------------- lado servidor
@@ -98,8 +153,9 @@ impl SessionHandler for SocketHandler<'_> {
         )?;
 
         match receive::<Request>(self.reader)? {
-            Some(Request::Approval(decision)) => Ok(decision),
-            // A client that leaves without answering does not approve anything.
+            Received::Message(Request::Approval(decision)) => Ok(decision),
+            // A client that leaves without answering, disconnects, or sends
+            // something oversized does not approve anything (T31.8).
             // Silence is never a yes.
             _ => Ok(false),
         }
@@ -115,14 +171,52 @@ impl SessionHandler for SocketHandler<'_> {
     }
 }
 
+/// Binds the IPC socket file under a temporarily restrictive process
+/// `umask`, then restores the previous one (T31.8). This is the piece that
+/// actually closes the permissions window: a `umask` of `0o077` denies
+/// group/other access to *any* file the process creates while it's in
+/// effect, so the socket can never exist — not even for the instant between
+/// `bind` returning and an explicit `chmod` — with broader-than-owner
+/// access. The follow-up `set_permissions` in [`bind_socket`] is exactness,
+/// not the actual guarantee.
+fn bind_socket_with_restrictive_umask(path: &Path) -> Result<UnixListener> {
+    #[cfg(unix)]
+    let previous_umask = unsafe { libc::umask(0o077) };
+
+    let result =
+        UnixListener::bind(path).with_context(|| format!("no pude escuchar en {}", path.display()));
+
+    #[cfg(unix)]
+    unsafe {
+        libc::umask(previous_umask);
+    }
+
+    result
+}
+
+/// Binds the IPC socket with owner-only (`0600`) permissions from the
+/// instant it exists (T31.8).
+fn bind_socket(path: &Path) -> Result<UnixListener> {
+    let listener = bind_socket_with_restrictive_umask(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(listener)
+}
+
+/// Recognizes the specific I/O error a timed-out read or write produces, so
+/// `servir` can log an abandoned connection distinctly (T31.8) instead of a
+/// generic "session ended with error".
+fn is_idle_timeout(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<std::io::Error>()
+        .map(|e| matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+        .unwrap_or(false)
+}
+
 pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
     let path = socket_path(ctx);
     // Un socket huérfano de una ejecución anterior impediría escuchar.
     let _ = std::fs::remove_file(&path);
 
-    let listener = UnixListener::bind(&path)
-        .with_context(|| format!("no pude escuchar en {}", path.display()))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    let listener = bind_socket(&path)?;
 
     println!(
         "{} {}",
@@ -138,12 +232,23 @@ pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
                 continue;
             }
         };
-        // Se atiende una conexión cada vez, a propósito. Dos intenciones
-        // mutando el mismo espacio de trabajo a la vez producirían diffs que
-        // ya no describen el resultado — el mismo fallo que se arregló
-        // calculando los pasos en orden, pero entre procesos.
+
+        // T31.8: bounded from the start — lifted once inside
+        // `handle_connection` for a connection that turns out to be live.
+        let _ = stream.set_read_timeout(Some(IPC_READ_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(IPC_WRITE_TIMEOUT));
+
+        // Se atiende una conexión cada vez, a propósito — ver el comentario
+        // del módulo. Dos intenciones mutando el mismo espacio de trabajo a
+        // la vez producirían diffs que ya no describen el resultado.
         if let Err(e) = handle_connection(ctx, catalog, stream) {
-            eprintln!("sesión terminada con error: {e:#}");
+            if is_idle_timeout(&e) {
+                eprintln!(
+                    "conexión IPC abandonada: sin actividad durante {IPC_READ_TIMEOUT:?}, cerrada"
+                );
+            } else {
+                eprintln!("sesión terminada con error: {e:#}");
+            }
         }
     }
     Ok(())
@@ -153,9 +258,24 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
 
-    let Some(request) = receive::<Request>(&mut reader)? else {
-        return Ok(());
+    let request = match receive::<Request>(&mut reader)? {
+        Received::Message(r) => r,
+        Received::Eof => return Ok(()),
+        Received::TooLarge => {
+            send(
+                &mut writer,
+                &Event::Error(format!("mensaje IPC excede el límite de {MAX_MESSAGE_BYTES} bytes")),
+            )?;
+            return Ok(());
+        }
     };
+
+    // A real request just arrived: this is a live, actively-communicating
+    // session, not an idle or abandoned connection. Lift the read timeout
+    // for what may be a long, human-interactive approval wait (T31.8) — see
+    // the module doc comment. The write timeout stays in effect for the
+    // rest of the connection.
+    let _ = writer.set_read_timeout(None);
 
     match request {
         Request::Intent { text, planner, dry_run } => {
@@ -1015,7 +1135,10 @@ pub fn intencion_remota(
 
     let mut term = terminal::Terminal::new(assume_yes);
 
-    while let Some(event) = receive::<Event>(&mut reader)? {
+    // A `TooLarge` event would mean the daemon itself sent something
+    // implausible; treated the same as a clean end of stream rather than
+    // failing the whole session over it (T31.8).
+    while let Received::Message(event) = receive::<Event>(&mut reader)? {
         match event {
             Event::Start { intent, planner } => {
                 term.on_start(&intent, &planner)?
@@ -1622,4 +1745,154 @@ pub fn intencion_remota(
         }
     }
     Ok(())
+}
+
+// ------------------------------------------------------------------- tests
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use std::time::Instant;
+
+    /// A `Ctx` usable for these tests: `caps_dir` comes from a real
+    /// `Ctx::discover()` (this test binary runs from inside the antOS
+    /// tree), `workspace`/`state` point at an isolated temp directory —
+    /// none of these tests exercise a code path that needs either to
+    /// contain anything.
+    fn test_ctx() -> (Ctx, std::path::PathBuf) {
+        let discovered = Ctx::discover().expect("Ctx::discover must succeed inside the antOS tree");
+        let temp = std::env::temp_dir().join(format!("antos_test_ipc_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        std::fs::create_dir_all(&temp).unwrap();
+        let ctx = Ctx {
+            workspace: temp.clone(),
+            state: temp.clone(),
+            ..discovered
+        };
+        (ctx, temp)
+    }
+
+    fn test_catalog(ctx: &Ctx) -> Catalog {
+        Catalog::load(&ctx.caps_dir).expect("the real capability catalogue must load")
+    }
+
+    #[test]
+    fn test_oversized_message_gets_a_protocol_error_not_a_hang() {
+        let (ctx, temp) = test_ctx();
+        let catalog = test_catalog(&ctx);
+
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        client_stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+        let handle = std::thread::spawn(move || handle_connection(&ctx, &catalog, server_stream));
+
+        // Comfortably over MAX_MESSAGE_BYTES, no newline anywhere in it —
+        // the exact "client never sends \n" scenario from the ticket. Only
+        // `MAX_MESSAGE_BYTES + 1` of this is ever actively read by
+        // `receive`'s capped `take`; the rest is well within a Unix domain
+        // socket's kernel buffer, so this write does not itself block.
+        let garbage = vec![b'x'; (MAX_MESSAGE_BYTES as usize) + 4096];
+        client_stream.write_all(&garbage).unwrap();
+
+        let mut reader = BufReader::new(client_stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).expect("must receive a response instead of hanging or being disconnected without one");
+        let event: Event = serde_json::from_str(line.trim()).expect("response must be valid JSON");
+        assert!(matches!(event, Event::Error(_)), "expected a protocol error, got: {event:?}");
+
+        handle.join().unwrap().ok();
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_second_connection_is_served_after_an_idle_first_connection_times_out() {
+        let (ctx, temp) = test_ctx();
+        let catalog = test_catalog(&ctx);
+
+        // Connection A: idle, never sends anything — the abandoned
+        // connection from the ticket. A short timeout stands in for the
+        // real `IPC_READ_TIMEOUT` so this test is fast and deterministic;
+        // the mechanism under test is the same `set_read_timeout` call
+        // `servir` makes in production.
+        let (server_a, client_a) = UnixStream::pair().unwrap();
+        server_a.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+
+        let start = Instant::now();
+        let result_a = handle_connection(&ctx, &catalog, server_a);
+        let elapsed = start.elapsed();
+        assert!(result_a.is_err(), "an idle connection past its read timeout must surface as an error");
+        assert!(elapsed < Duration::from_secs(2), "must give up within its configured timeout, took {elapsed:?}");
+        drop(client_a); // kept alive until here on purpose, so the read above genuinely times out rather than seeing an immediate EOF.
+
+        // Connection B: served right after, exactly as `servir`'s serial
+        // accept loop would do once connection A releases control — must
+        // not have been starved by A's idleness.
+        let (server_b, mut client_b) = UnixStream::pair().unwrap();
+        server_b.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        send(&mut client_b, &Request::Approval(false)).unwrap();
+
+        handle_connection(&ctx, &catalog, server_b).expect("connection B must be served normally");
+
+        let mut reader = BufReader::new(client_b);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let event: Event = serde_json::from_str(line.trim()).unwrap();
+        assert!(matches!(event, Event::Error(_)), "expected the usual 'approval without prior proposal' error, got: {event:?}");
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_socket_is_never_group_or_world_accessible_even_transiently() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("antos_test_ipc_bind_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("test.sock");
+
+        // SAFETY: temporarily loosens the process umask to prove the
+        // socket doesn't rely on an already-strict ambient umask — it must
+        // be denied to group/other from the instant it exists, not merely
+        // chmod'd afterward under a lucky umask. Restored unconditionally.
+        unsafe {
+            let previous = libc::umask(0o000);
+            let result = std::panic::catch_unwind(|| {
+                // The umask-wrapped bind step alone, *not* the follow-up
+                // explicit chmod in `bind_socket` — this is what actually
+                // proves there is no window between the two.
+                let _listener = bind_socket_with_restrictive_umask(&sock_path).unwrap();
+                let mode = std::fs::metadata(&sock_path).unwrap().permissions().mode();
+                assert_eq!(
+                    mode & 0o077,
+                    0,
+                    "the socket must deny group/other access from the instant it exists, even under a permissive process umask"
+                );
+            });
+            libc::umask(previous);
+            result.unwrap();
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_bind_socket_final_permissions_are_0600() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("antos_test_ipc_bind_final_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock_path = dir.join("test.sock");
+
+        let _listener = bind_socket(&sock_path).unwrap();
+        let mode = std::fs::metadata(&sock_path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
