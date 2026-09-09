@@ -137,6 +137,8 @@ Iteración de depuración ejecutando antOS en hipervisores reales de macOS. Toda
 - **Teclado USB en VirtualBox:** *Configure Endpoint* deja de poner a cero el *Root Hub Port Number* del Slot Context; se alimentan (`PP`) todos los puertos raíz antes de enumerar; el rol HID se clasifica por la colección `Application` (un teclado se detectaba como ratón).
 - **Diagnósticos y estabilidad:** el *spam* de `input-rx:` se reduce a primer evento + una línea cada 100; corregido un *deadlock* al re-tomar el lock de `CONSOLE` dentro del log `fb-geom`.
 - **Tooling:** `system/run-arm.sh` abre ventana gráfica con `--gpu <≠none>` y respeta `--release` (obligatorio en Apple Silicon: UTM/VirtualBox emulan el kernel con TCG). Guía de emulación (UTM/VirtualBox/QEMU) revisada de arriba abajo.
+- **UTM (macOS Apple Silicon):** ejecución verificada por **arranque directo `-kernel` + `ramfb`** (VM *Emulate → Linux → boot from kernel image*, `UEFI Boot` OFF, `virtio-keyboard-device`/`virtio-tablet-device`): llega a `antos>` con ventana gráfica y entrada.
+- **Conocido / abierto:** el arranque **UEFI vía Limine no completa** en QEMU 10-11 + EDK2 stable-202408 (UTM 4.7.x): Limine carga `KERNEL.ELF` y el kernel no produce salida (ni serie ni framebuffer). Pendiente de corregir el *handoff* de Limine en AArch64; hasta entonces, la vía en UTM es el Método A + `ramfb`.
 
 ---
 

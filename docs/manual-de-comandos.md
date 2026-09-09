@@ -283,15 +283,19 @@ system/run-arm.sh --release --gic 2 --kbd virtio --gpu virtio-mmio
 system/run-arm.sh --release --gic 3 --kbd virtio --gpu ramfb
 system/run-arm.sh --release --kbd virtio --gpu ramfb
 system/run-arm.sh --test-input --gic 3 --kbd virtio --gpu virtio-mmio
-system/run-arm.sh --uefi --release           # imagen UEFI (Limine): habilita virtio-gpu-pci + USB xHCI
+system/run-arm.sh --uefi --release           # imagen UEFI (Limine) — ver aviso abajo
 ```
 
 > ℹ️ En **arranque directo `-kernel`** (todos los comandos salvo `--uefi`) los
 > dispositivos **PCIe** —`--kbd usb` (`qemu-xhci`) y `--gpu virtio-pci`
 > (`virtio-gpu-pci`)— se detectan pero se **omiten**: sin firmware nadie asigna
-> sus BAR (`pcie-xhci … BAR0 sin asignar · omitido`). Usa `--kbd virtio` /
-> `--gpu virtio-mmio`/`ramfb` en `-kernel`, o el arranque `--uefi` para la pila
-> PCIe completa.
+> sus BAR (`pcie-xhci … BAR0 sin asignar · omitido`). Usa `--kbd virtio` con
+> `--gpu virtio-mmio` o `--gpu ramfb` en `-kernel` (esta es la vía que funciona
+> en UTM).
+>
+> ⚠️ El arranque **`--uefi` (Limine) no completa** en QEMU 10-11 + EDK2 2024.08:
+> Limine carga `KERNEL.ELF` y el kernel no da salida. Bug de *handoff* Limine
+> AArch64, en investigación.
 
 | Arch | `--kbd` | Dispositivos QEMU | `--gpu` | Dispositivos QEMU |
 | :--- | :--- | :--- | :--- | :--- |
@@ -301,8 +305,10 @@ system/run-arm.sh --uefi --release           # imagen UEFI (Limine): habilita vi
 | aarch64 | `usb` (¹) | `-device qemu-xhci -device usb-kbd -device usb-tablet` | `virtio-pci` (¹) | `-device virtio-gpu-pci` |
 | ambas   | —     | — | `ramfb` | `-device ramfb` (x86: `-vga none`) |
 
-(¹) En aarch64 sólo operativos con arranque **UEFI** (`--uefi`); en `-kernel`
-directo se omiten por BAR sin asignar.
+(¹) En aarch64 los dispositivos PCIe requieren firmware que asigne los BAR
+(sólo VirtualBox ARM64 lo hace hoy); en `-kernel` directo se omiten. El
+arranque `--uefi` los programaría, pero actualmente no completa (ver aviso
+arriba).
 
 **Resultado esperado de `--test-input`:** el log serie contiene el banner de
 arranque (`antOS · kernel …`), las líneas de enumeración del periférico elegido
@@ -345,22 +351,24 @@ UTM es el hipervisor recomendado en macOS para ejecutar antOS tanto en arquitect
 > llega ni al banner en 40 s. Genera los artefactos con
 > `system/run-arm.sh --release [--uefi] --build-only` (van a `…/release/`).
 
-Resumen de los dos métodos (pasos detallados y capturas en la
-[guía de emulación](guia-emulacion-utm-virtualbox.md) §4):
+Pasos detallados y capturas en la
+[guía de emulación](guia-emulacion-utm-virtualbox.md) §4.
 
-* **Método A — Kernel directo (`-kernel`), bucle de desarrollo.** VM QEMU ARM64
-  `virt`, *UEFI Boot* **desmarcado**, un **Puerto serie** en modo *Terminal*.
-  UTM 4.5+ ya no tiene selector gráfico de kernel: en la pestaña **QEMU →
-  Argumentos** añade `-kernel` y la ruta a
-  `kernel/target/aarch64-unknown-none/release/kernel`. Salida **sólo por
-  serie**; los dispositivos PCIe (GPU, USB) se omiten sin firmware.
-* **Método B — Imagen de disco UEFI, recomendado para escritorio.** VM con
-  *UEFI Boot* **marcado**; importa
-  `kernel/target/aarch64-unknown-none/release/antos-uefi-aarch64.img` como
-  unidad **VirtIO/NVMe** (no CD/DVD). Pantalla **`virtio-gpu-pci`**, entrada
-  **USB** (UTM adjunta `usb-kbd`+`usb-tablet` sobre `qemu-xhci`) y un **Puerto
-  serie** para el log. EDK2 programa los BAR, así que GPU y USB xHCI quedan
-  operativos. Si entras a la UEFI Shell: `FS0:` y `startup.nsh`.
+* **Método A — Kernel directo + `ramfb` (✅ el que funciona en UTM 4.7.x).**
+  1. `system/run-arm.sh --release --build-only` → usa el ELF
+     `kernel/target/aarch64-unknown-none/release/kernel` (~8 MB; **no** el de
+     `--uefi`/`--features limine`, que pesa ~460 KB y no arranca por `-kernel`).
+  2. UTM → **+** → **Emular** → **Linux** → marca **«Boot from kernel image»** y
+     elige ese `kernel` (UTM lo copia al *bundle* y añade `-kernel` solo).
+  3. Configuración: `UEFI Boot` **DESMARCADO**; **Display Card = `ramfb`**;
+     en **Argumentos** añade `-device virtio-keyboard-device` y
+     `-device virtio-tablet-device`; deja el **Serial** en *Built-in Terminal*.
+  4. La ventana gráfica muestra el log (`antOS · ramfb`), el teclado/ratón van
+     por VirtIO-Input y `pcie-xhci … BAR0 sin asignar · omitido` es normal.
+* **Método B — Imagen de disco UEFI / Limine.** ⛔ **No arranca hoy** en
+  QEMU 10-11 + EDK2 2024.08 (UTM 4.7.x): Limine carga `KERNEL.ELF` y el kernel
+  queda mudo. Bug de *handoff* Limine AArch64, en investigación — usa el
+  Método A.
 
 ---
 

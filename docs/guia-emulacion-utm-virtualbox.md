@@ -135,93 +135,114 @@ Para ejecutar kernels bare-metal experimentales o utilizar arranque directo, **e
 >
 > Las rutas quedan en `kernel/target/aarch64-unknown-none/release/`.
 
-> 🧭 **Qué método elegir:**
-> | | Método A (`-kernel`) | Método B (imagen UEFI) |
+> 🧭 **Qué método elegir (estado actual en UTM 4.7.x / QEMU 10-11):**
+> | | Método A (`-kernel` + `ramfb`) | Método B (imagen UEFI / Limine) |
 > | :--- | :--- | :--- |
 > | Arranque | ELF directo, sin firmware | EDK2 + Limine |
-> | Salida | **Sólo serie** (PL011) | **Gráfica** (GOP de Limine) + serie |
-> | GPU / USB PCIe | Se detectan pero se **omiten** (¹) | **Funcionan** (virtio-gpu-pci, xHCI) |
-> | Entrada | Sólo consola serie | Teclado + ratón USB (xHCI) |
-> | Iteración | La más rápida (recompila y relanza) | Requiere regenerar la `.img` |
-> | Uso recomendado | Bucle de kernel / depuración de arranque | **Escritorio completo en UTM** |
+> | Estado | ✅ **Funciona** (verificado en UTM 4.7.5) | ⚠️ **No completa el arranque** en QEMU 10-11 + EDK2 2024.08 — Limine carga el kernel y se queda mudo. Bug del *handoff* Limine AArch64, en investigación. |
+> | Salida | `ramfb` (ventana gráfica) **y** serie a la vez | — |
+> | Entrada | Teclado + ratón por **VirtIO-Input MMIO** | — |
+> | GPU / USB PCIe | Se **omiten** (¹): sin firmware nadie asigna sus BAR | — |
+> | Uso recomendado | **La forma de ejecutar antOS en UTM hoy** | (Usa el Método A hasta que se corrija) |
 >
 > (¹) `-M virt -kernel` no ejecuta ningún asignador de recursos PCI, así que los
 > BAR de `qemu-xhci` y `virtio-gpu-pci` quedan sin programar. El kernel lo
-> detecta (`BAR0 sin asignar`) y salta esos controladores en lugar de fallar; la
-> salida sigue por la UART. Para GPU y USB en UTM usa el **Método B**.
+> detecta (`pcie-xhci … BAR0 sin asignar · omitido`) y salta esos controladores
+> sin fallar. `ramfb` no usa BAR (va por `fw_cfg`), por eso **sí** funciona como
+> salida gráfica en el arranque directo.
 
 ---
 
-### Método A: Arranque Directo del Kernel con QEMU (bucle de desarrollo)
+### Método A: Arranque Directo del Kernel + `ramfb` (el que funciona en UTM)
 
-Este método es el más rápido para iterar sobre el arranque del kernel en Macs
-con chip M1/M2/M3/M4. La salida es **exclusivamente por puerto serie**: no hay
-firmware que programe los BAR PCIe, de modo que la GPU y el xHCI se omiten
-(desde el commit de robustez de BAR ya no provocan pánico). Para escritorio
-gráfico y USB, ve al **[Método B](#método-b-arranque-con-imagen-de-disco-uefi-gpt--limine)**.
+Verificado en **UTM 4.7.5** (macOS Apple Silicon). Da ventana gráfica (`ramfb`),
+teclado y ratón, y el `antos>` — todo sin firmware.
 
-1. **Crear la Máquina Virtual en el Asistente:**
-   * Abre UTM y pulsa el botón **+** en la barra superior.
-   * En la pantalla de inicio:
-     * En Mac con Apple Silicon: Selecciona **Emular (Emulate)** o **Virtualizar (Virtualize)**.  
-       *(Nota: Seleccionar **Emular -> Otro** garantiza el acceso completo al backend QEMU con opciones avanzadas de kernel directo y puerto serie)*.
-     * Selecciona **Otro (Other)**.
-     * En la pantalla de selección de medio: marca la casilla **Omitir arranque ISO** (*Skip ISO boot*).
-     * Memoria y CPU: Asigna `1024 MB` de RAM y `2` núcleos de CPU.
-     * Almacenamiento: Puedes dejar el disco sugerido o reducirlo a `1 GB` (no se usará en este método).
-     * Finalizar el asistente guardando la VM con el nombre `antOS-Kernel-Direct`.
+#### 0. Compilar el binario correcto
 
-2. **Ajustar la Configuración de la VM (`Clic derecho -> Editar`):**
-   * **Pestaña Sistema (System):**
-     * **Arquitectura:** `ARM64 (aarch64)`.
-     * **Sistema / Máquina:** `QEMU ARM Virtual Machine (virt)` (versión virt estándar o recomendada).
-     * **Memoria RAM:** `1024 MB`.
-   * **Pestaña QEMU:**
-     * ⚠️ **Desmarcar la casilla "Arranque UEFI"** (en la sección *Retoques* de la pestaña QEMU).
-   * **Carga del Kernel en UTM 4.5+ (QEMU 10):**
-     En las versiones actuales de UTM (con QEMU 10), UTM ha retirado el selector gráfico de archivos de kernel. Para pasar el binario del kernel:
-     * En la barra lateral izquierda, haz clic en **`[A] Argument...`** (justo debajo de **QEMU**).
-     * Pulsa el botón **`+`** (o *Nuevo argumento*).
-     * Introduce dos entradas (o el flag y el valor):
-       1. Argumento: `-kernel`
-       2. Valor / siguiente argumento: `<ruta-del-repo>/kernel/target/aarch64-unknown-none/release/kernel`
-          (usa `release/`, no `debug/` — ver el aviso de `--release` arriba).
-     * *(Opcional)* Para forzar GICv3 en el arranque directo (sin DTB), añade
-       también los argumentos `-machine` y `virt,gic-version=3`. El kernel sondea
-       el bloque GICC y, si no responde, conmuta a GICv3 por sí solo, así que
-       esto sólo es necesario si quieres fijar la versión.
-   * **Pestaña Dispositivos (Crucial para ver la salida de pantalla):**
-     * En la barra lateral izquierda, bajo **Dispositivos**, pulsa **+ Nuevo...** -> **Puerto serie**.
-     * Modo: **Terminal** (Consola integrada).
-     * *(Opcional)*: Si eliminas el dispositivo **Monitor**, la VM abrirá automáticamente la terminal de texto serie al arrancar.
+```bash
+cd /ruta/al/repo
+system/run-arm.sh --release --build-only
+ls -la kernel/target/aarch64-unknown-none/release/kernel   # debe pesar ~8 MB
+```
 
-> 💡 **Recomendación (El Camino Más Sencillo en UTM):**  
-> Debido a que UTM 4.5+ no tiene selector gráfico de kernel, el **[Método B (Disco UEFI)](#método-b-arranque-con-imagen-de-disco-uefi-gpt--limine)** es hoy el método 100% gráfico y más cómodo: mantienes *Arranque UEFI* activado e importas el archivo `.img` en *Unidades de disco*.
+> ⚠️ **Usa este binario, no otro.** El de `--features limine` / `--uefi` pesa
+> **~460 KB** y **no arranca por `-kernel`** (síntoma: terminal serie en blanco y
+> «Guest has not initialized the display»). Si dudas, fuerza la recompilación:
+> `touch kernel/src/main.rs && (cd kernel && cargo build --target aarch64-unknown-none --release)`.
 
-3. **Iniciar la Máquina Virtual:**
-   * Pulsa **Play (▶️)**.
-   * Si mantuviste la pantalla gráfica, pulsa el icono de la **Terminal** en la barra superior de la ventana de la VM.
-   * Verás la ejecución en tiempo real del kernel antOS:
-     ```text
-     antOS · kernel AArch64
-     ═══════════════════════
-     arranque
-       arquitectura AArch64 (ARM 64-bit)
-       uart         pl011 inicializado en 0x09000000
-     ...
-     espacio de usuario (EL0) y llamadas al sistema (SVC)
-       userspace    ¡saludo desde espacio de usuario (EL0) via svc #0!
-       retorno      el programa EL0 finalizó limpiamente con código de salida 42
-     ```
+#### 1. Crear la VM
+
+1. UTM → **+** → **Emular** (*Emulate*, **no** *Virtualizar*).
+2. Sistema operativo: **Linux**.
+3. Marca **«Boot from kernel image»** (arranque desde imagen de kernel);
+   *Use Apple Virtualization* **sin marcar**.
+   * **Linux kernel:** selecciona `…/aarch64-unknown-none/release/kernel`.
+     UTM lo **copia** dentro del *bundle* (`…/Linux.utm/Data/kernel`) y añade el
+     argumento `-kernel` automáticamente (no editable — es normal).
+   * **Initial ramdisk** y **Device Tree (DTB):** vacíos.
+   * **Boot arguments:** vacío.
+4. Hardware: **ARM64 (aarch64)**, **1024 MB** RAM, **1–2** CPUs.
+5. Almacenamiento: `1 GB` (no se usa) o sáltalo. Directorio compartido: sáltalo.
+6. Resumen → marca **«Abrir configuración»** → **Guardar**.
+
+#### 2. Ajustar la configuración (VM apagada)
+
+* **Sistema:** Máquina `QEMU … ARM Virtual Machine (virt)`; CPU `Default` o `cortex-a72`.
+* **QEMU:**
+  * ⚠️ **`UEFI Boot` DESMARCADO.** Si queda marcado, UTM arranca EDK2 en lugar de
+    tu kernel y verás el terminal en blanco + «Guest has not initialized the
+    display» (el mismo síntoma que el binario equivocado).
+  * En **«Argumentos adicionales»** añade cuatro entradas (una por línea):
+    ```
+    -device
+    virtio-keyboard-device
+    -device
+    virtio-tablet-device
+    ```
+* **Display** (barra lateral): *Emulated Display Card* = **`ramfb`**.
+  Si `ramfb` no está en la lista, deja el display en «None» y usa sólo el Terminal.
+* **Serial:** debe haber un dispositivo *Serial* en modo **Built-in Terminal**
+  (la plantilla Linux lo trae). Si no, añádelo con **+** → *Serial*.
+
+#### 3. Arrancar
+
+* **Play ▶**. Bajo emulación (TCG) tarda ~1 min en llegar al prompt — es normal.
+* La ventana **«Linux»** (display `ramfb`) muestra el log y el banner
+  `antOS · ramfb`. Haz clic en ella para capturar el teclado.
+* Salida esperada (extracto real en UTM):
+  ```text
+  antOS · ramfb   CPU: Cortex-A72 (EL1)   RAM: 512 KiB Heap
+    ramfb        fw_cfg en 0x9020000 · framebuffer 1024x768 enlazado
+    consola      activa en ramfb y serie simultáneamente
+    compositor   desktop shell 2D listo (disponible con el comando 'desktop')
+    virtio-input 2 dispositivo(s) de entrada activos (teclado/ratón/tablet)
+    pcie-xhci    xHCI 1033:0194 presente pero con BAR0 sin asignar · omitido (arranque sin firmware)
+    GICv2        distribuidor y cpu interface activos
+  ...
+  antos>
+  ```
+* La línea `pcie-xhci … BAR0 sin asignar · omitido` es **esperada** (el xHCI de
+  UTM necesita firmware; usas el teclado/ratón VirtIO en su lugar).
+* En el `antos>`: `help`, `ls`, `cat /etc/motd`, y `desktop` (en AArch64 cede a
+  la interfaz gráfica del compositor con cursor).
 
 ---
 
-### Método B: Arranque con Imagen de Disco UEFI (GPT / Limine) — **recomendado para escritorio en UTM**
+### Método B: Arranque con Imagen de Disco UEFI (GPT / Limine)
 
-Con firmware UEFI (EDK2) el arranque es completo: EDK2 programa los BAR PCIe —el
-mismo escenario que VirtualBox ARM64, donde el teclado USB ya está validado—, así
-que **la GPU (`virtio-gpu-pci`) y la entrada USB (xHCI) quedan operativas** y el
-compositor pinta el Desktop Shell sobre el framebuffer GOP de Limine.
+> ⛔ **No funciona hoy en QEMU 10-11 + EDK2 2024.08 (UTM 4.7.x).** Limine
+> arranca, muestra su menú y carga `KERNEL.ELF`, pero el kernel no entrega
+> ninguna salida (ni serie ni framebuffer) y el firmware acaba reiniciando. Es
+> un fallo en el *handoff* de Limine para AArch64, en investigación. **Usa el
+> [Método A](#método-a-arranque-directo-del-kernel--ramfb-el-que-funciona-en-utm)**
+> mientras tanto. El resto de esta sección se conserva para cuando se corrija.
+
+Con firmware UEFI (EDK2) el arranque *debería* ser completo: EDK2 programa los
+BAR PCIe —el mismo escenario que VirtualBox ARM64, donde el teclado USB ya está
+validado—, de modo que la GPU (`virtio-gpu-pci`) y la entrada USB (xHCI)
+quedarían operativas y el compositor pintaría el Desktop Shell sobre el
+framebuffer GOP de Limine.
 
 0. **Generar la imagen (una vez por cambio de código):**
    ```bash
@@ -274,24 +295,33 @@ compositor pinta el Desktop Shell sobre el framebuffer GOP de Limine.
 
 ### Resolución de Problemas en UTM
 
-* **El arranque parece colgado (sin banner tras decenas de segundos):**  
-  Casi siempre es el binario `debug` emulado con TCG. Recompila con `--release`
-  (`system/run-arm.sh --uefi --release --build-only` o `--release --build-only`)
-  y apunta la VM al artefacto de `release/`. Un arranque `release` bajo TCG en un
-  M-series llega al `antos>` en pocos segundos.
-* **En el Método A no aparecen la GPU ni el teclado USB:**  
-  Es esperado: `-kernel` sin firmware no asigna ventanas a los BAR PCIe. El
-  kernel lo avisa (`pcie-xhci … BAR0 sin asignar · omitido`) y la GPU cae por
-  la cadena de framebuffer hasta `modo headless`; ninguno provoca pánico. Usa
-  el **Método B (UEFI)** para escritorio y USB.
-* **La ventana se queda en negro o dice *"Guest has not initialized the display (yet)"*:**  
-  Comportamiento esperado si la VM no expone un `virtio-gpu` que antOS pueda detectar (T26.1): el
-  kernel sigue arrancando normalmente, solo que en modo headless por la UART PL011. Asegúrate de
-  haber añadido un **Puerto Serie** en modo **Terminal** en la configuración de la VM y haz clic
-  en el icono de terminal de la barra superior — ahí verás el arranque completo y, al final, el
-  prompt `antos>` del shell interactivo soberano (T26.5).
-* **Error *"qemu-system-aarch64: -kernel: cannot load elf"***:  
-  Verifica que compilaste para el target `aarch64-unknown-none` y no para el target por defecto del host (`x86_64` o `aarch64-apple-darwin`).
+* **Terminal serie en blanco + ventana con «Guest has not initialized the display (yet)» — nada arranca:**  
+  Los dos culpables, en orden de frecuencia:
+  1. **`UEFI Boot` sigue MARCADO** en la pestaña QEMU (la plantilla *Linux* lo
+     deja así por defecto). UTM arranca EDK2 en vez de tu kernel. Desmárcalo.
+  2. **Binario equivocado.** El de `--features limine` / `--uefi` (~460 KB) no
+     arranca por `-kernel`. Usa el de `system/run-arm.sh --release --build-only`
+     (~8 MB). UTM copia el kernel al *bundle*; puedes sobrescribirlo directo:
+     ```bash
+     cp kernel/target/aarch64-unknown-none/release/kernel \
+       ~/Library/Containers/com.utmapp.UTM/Data/Documents/<VM>.utm/Data/kernel
+     ```
+* **El arranque va lentísimo (pero avanza):**  
+  Normal bajo TCG en Apple Silicon. Asegúrate de usar `--release`; el `debug`
+  puede tardar minutos sólo en llegar al banner.
+* **Arranca pero no puedo teclear en la ventana:**  
+  Faltan los argumentos `-device virtio-keyboard-device` / `-device
+  virtio-tablet-device`, o no has hecho clic dentro de la ventana para capturar
+  el foco. El USB de UTM (`usb-kbd`) no sirve aquí: se omite por BAR sin asignar.
+* **La ventana `ramfb` está negra pero el Terminal serie sí muestra el log:**  
+  El *Emulated Display Card* no está en `ramfb`. Cámbialo en la barra lateral
+  de Dispositivos → Display.
+* **`pcie-xhci … BAR0 sin asignar · omitido` en el log:**  
+  Esperado en el Método A (sin firmware). No es un error; el teclado/ratón van
+  por VirtIO-Input.
+* **Error *"qemu-system-aarch64: -kernel: cannot load elf"* / *"Error loading uncompressed kernel"*:**  
+  El binario no es del target `aarch64-unknown-none` (compilaste para el host) o
+  apuntaste a la imagen `.img` en vez de al ELF `kernel`.
 * **En la UEFI Shell no aparece `FS0:` al escribir `map -r`:**  
   La imagen de disco fue añadida con una interfaz no soportada por el driver UEFI o como lector de CD/DVD. Cambia la interfaz de la unidad a `VirtIO Drive` o `NVMe Drive`.
 
@@ -521,8 +551,8 @@ Comando exacto + resultado esperado por combinación. Los scripts parametrizados
 | **QEMU `-M virt` GICv3 · VirtIO-Input** | `system/run-arm.sh --gic 3 --kbd virtio --gpu ramfb` | `GICv3` (bring-up de redistribuidor + `ICC_*_EL1`), framebuffer por `ramfb` (fw_cfg). |
 | **QEMU `-M virt` UEFI · USB xHCI + GPU PCIe** | sección 6-B + `-device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet` | `pcie-xhci controlador USB 3.0 activo`, `roothub …`, framebuffer por `virtio-gpu-pci`. Requiere firmware (BAR programados). |
 | **QEMU `-M virt` `-kernel` · dispositivos PCIe** | `system/run-arm.sh --kbd usb --gpu virtio-pci` | `pcie-xhci … BAR0 sin asignar · omitido`; `virtio-gpu-pci` cae a `modo headless` (sin pánico); salida por serie. Usar VirtIO-MMIO o el arranque UEFI. |
-| **UTM Método A (`-kernel`, `--release`)** | `system/run-arm.sh --release` (o el comando 4-A) | Serie PL011, MMU, timer 100 Hz, EL0 + syscalls. GICv2 o, con `gic-version=3` / autodetección, GICv3. GPU/USB PCIe omitidos. |
-| **UTM Método B (imagen UEFI, `--release`)** | `system/run-arm.sh --uefi --release` | GOP de Limine pinta el Desktop Shell; `virtio-gpu-pci` + entrada USB xHCI operativos; sin regresión frente a T27–T28.7. |
+| **UTM 4.7.x Método A (`-kernel` + `ramfb`)** | `system/run-arm.sh --release --build-only` → UTM: *Emulate → Linux → boot from kernel image*, Display `ramfb`, args `-device virtio-keyboard-device -device virtio-tablet-device`, `UEFI Boot` OFF | ✅ Verificado: ventana `ramfb` 1024×768, `virtio-input 2 dispositivos`, `pcie-xhci … BAR0 sin asignar · omitido`, GICv2, hasta `antos>` y `desktop`. |
+| **UTM 4.7.x Método B (imagen UEFI / Limine)** | `system/run-arm.sh --uefi --release` | ⛔ No arranca en QEMU 10-11 + EDK2 2024.08: Limine carga `KERNEL.ELF` y el kernel queda mudo. Bug de *handoff* Limine AArch64, en investigación. |
 | **VirtualBox ARM64** | Método 5.1 (VDI, `--release`) | Arranca a `antos>`; GICv3 por ACPI, teclado **USB xHCI** y ratón operativos, cursor rápido sobre GOP crudo. Ver notas abajo. |
 | **VirtualBox x86_64** | Método 5.2 (VDI BIOS) | Teclado y ratón **PS/2**; xHCI opcional si añades un controlador USB 3.0 a la VM. |
 
@@ -580,8 +610,13 @@ la VM real:
 * **Arranque directo sin firmware (`-kernel`, UTM Método A):** QEMU `-M virt`
   no ejecuta un asignador de recursos PCI, así que los BAR de las funciones
   PCIe (`qemu-xhci`, `virtio-gpu-pci`) quedan a cero. El kernel los detecta
-  (`BAR0 sin asignar`), los omite y continúa por serie. Para GPU y USB usa el
-  **Método B (UEFI)**, donde EDK2 programa los BAR.
+  (`BAR0 sin asignar`), los omite y continúa. La salida gráfica se obtiene con
+  **`ramfb`** (`-device ramfb` / *Display Card = ramfb* en UTM), que va por
+  `fw_cfg` y no necesita BAR; la entrada, con `-device virtio-keyboard-device`
+  / `-device virtio-tablet-device`.
+* **El Método B (imagen UEFI / Limine) no arranca hoy** en QEMU 10-11 + EDK2
+  2024.08: Limine carga el kernel y no hay salida posterior. En investigación;
+  usa el Método A + `ramfb` mientras tanto.
 * **GIC en arranque directo:** sin DTB ni ACPI el kernel asume GICv2; si el
   bloque GICC no responde (máquina `gic-version=3`), sondea `GICC_IIDR` con
   recuperación de fallos y conmuta a GICv3 (`init_v3`) por sí mismo. Fijar
