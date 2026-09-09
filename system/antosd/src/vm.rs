@@ -24,8 +24,8 @@
 
 use crate::exec::Change;
 use crate::sandbox::{self, Policy};
-use anyhow::{bail, Context, Result};
 use antos_protocol::{MicrovmConfig, MicrovmExecResult, MicrovmInstance, MicrovmStatus};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -63,10 +63,18 @@ pub fn exec_policy() -> Policy {
 /// which would run it unconfined.
 pub fn run_host_shell_command(command: &str) -> HostExecOutcome {
     if command.trim().is_empty() {
-        return HostExecOutcome { exit_code: 0, stdout: String::new(), stderr: String::new() };
+        return HostExecOutcome {
+            exit_code: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+        };
     }
 
-    match std::process::Command::new("sh").arg("-c").arg(command).output() {
+    match std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .output()
+    {
         Ok(output) => HostExecOutcome {
             exit_code: output.status.code().unwrap_or(0),
             stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -89,7 +97,9 @@ impl MicrovmManager {
         let kvm_available = kvm_path.exists();
 
         let hypervisor_engine = if kvm_available {
-            if Path::new("/usr/bin/cloud-hypervisor").exists() || Path::new("/usr/local/bin/cloud-hypervisor").exists() {
+            if Path::new("/usr/bin/cloud-hypervisor").exists()
+                || Path::new("/usr/local/bin/cloud-hypervisor").exists()
+            {
                 "Cloud-Hypervisor / KVM (Nativo)".to_string()
             } else if Path::new("/usr/bin/firecracker").exists() {
                 "Firecracker / KVM (Nativo)".to_string()
@@ -124,10 +134,16 @@ impl MicrovmManager {
     /// Spawns a new ephemeral microVM instance based on the provided configuration.
     pub fn spawn_vm(state_dir: &Path, config: &MicrovmConfig) -> Result<MicrovmInstance> {
         if config.vcpu_count == 0 || config.vcpu_count > 64 {
-            bail!("vCPU count must be between 1 and 64 (got {})", config.vcpu_count);
+            bail!(
+                "vCPU count must be between 1 and 64 (got {})",
+                config.vcpu_count
+            );
         }
         if config.memory_mb < 64 || config.memory_mb > 65536 {
-            bail!("Memory must be between 64 MB and 64 GB (got {} MB)", config.memory_mb);
+            bail!(
+                "Memory must be between 64 MB and 64 GB (got {} MB)",
+                config.memory_mb
+            );
         }
 
         let mut vms = Self::list_vms(state_dir).unwrap_or_default();
@@ -184,19 +200,33 @@ impl MicrovmManager {
             (0, String::new(), String::new())
         } else {
             let sandbox = sandbox::for_host();
-            let changes = vec![Change::HostShellExec { command: command.to_string() }];
+            let changes = vec![Change::HostShellExec {
+                command: command.to_string(),
+            }];
 
             match sandbox::run(sandbox.as_ref(), &changes, &exec_policy()) {
                 Ok(outputs) => match outputs.first() {
                     Some(raw) => match serde_json::from_str::<HostExecOutcome>(raw) {
                         Ok(outcome) => (outcome.exit_code, outcome.stdout, outcome.stderr),
-                        Err(e) => (-1, String::new(), format!("malformed sandboxed executor response: {e}")),
+                        Err(e) => (
+                            -1,
+                            String::new(),
+                            format!("malformed sandboxed executor response: {e}"),
+                        ),
                     },
-                    None => (-1, String::new(), "sandboxed executor returned no output".to_string()),
+                    None => (
+                        -1,
+                        String::new(),
+                        "sandboxed executor returned no output".to_string(),
+                    ),
                 },
                 // Sandboxing failure must never fall back to running the
                 // command unconfined — surface it as the failed exec it is.
-                Err(e) => (-1, String::new(), format!("sandboxed execution failed: {e:#}")),
+                Err(e) => (
+                    -1,
+                    String::new(),
+                    format!("sandboxed execution failed: {e:#}"),
+                ),
             }
         };
 
@@ -308,10 +338,17 @@ mod tests {
         // opaque `Err` — see `test_run_host_shell_command_*` below for
         // direct coverage of the actual execution logic that runs once
         // inside the confined executor.
-        let exec_res = MicrovmManager::exec_vm(&temp_dir, "vm-qa-agent", "echo 'in microvm'").expect("exec_vm must not error out itself");
-        assert!(!exec_res.success, "sandboxing cannot succeed inside the test harness — see comment above");
+        let exec_res = MicrovmManager::exec_vm(&temp_dir, "vm-qa-agent", "echo 'in microvm'")
+            .expect("exec_vm must not error out itself");
+        assert!(
+            !exec_res.success,
+            "sandboxing cannot succeed inside the test harness — see comment above"
+        );
         assert_eq!(exec_res.exit_code, -1);
-        assert!(exec_res.stdout.is_empty(), "must never leak unconfined output when sandboxing fails");
+        assert!(
+            exec_res.stdout.is_empty(),
+            "must never leak unconfined output when sandboxing fails"
+        );
         assert!(
             exec_res.stderr.contains("sandboxed execution failed"),
             "failure must be attributed to sandboxing, not silently swallowed: {}",
@@ -333,7 +370,8 @@ mod tests {
 
     #[test]
     fn test_microvm_invalid_constraints() {
-        let temp_dir = std::env::temp_dir().join(format!("antos_vm_invalid_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("antos_vm_invalid_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let cfg_zero_cpu = MicrovmConfig {

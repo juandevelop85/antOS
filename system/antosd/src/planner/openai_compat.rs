@@ -72,10 +72,7 @@ pub fn get_free_recommendations() -> Vec<FreeModelRecommendation> {
             display_name: "Google Gemini API (Free Tier)",
             provider_type: "cloud_free",
             default_model: "gemini-2.0-flash",
-            alternative_models: vec![
-                "gemini-1.5-flash",
-                "gemini-1.5-pro",
-            ],
+            alternative_models: vec!["gemini-1.5-flash", "gemini-1.5-pro"],
             endpoint: "https://generativelanguage.googleapis.com/v1beta/openai",
             env_key: "GEMINI_API_KEY",
             description: "API de Google AI Studio con generoso tier gratuito.",
@@ -86,11 +83,7 @@ pub fn get_free_recommendations() -> Vec<FreeModelRecommendation> {
             display_name: "OpenCode / llama.cpp / LocalAI (Local)",
             provider_type: "local",
             default_model: "qwen2.5-coder",
-            alternative_models: vec![
-                "deepseek-coder",
-                "mistral-nemo",
-                "default",
-            ],
+            alternative_models: vec!["deepseek-coder", "mistral-nemo", "default"],
             endpoint: "http://127.0.0.1:8080/v1",
             env_key: "OPENCODE_API_KEY",
             description: "Servidor local OpenAI-compatible sin conexión a la nube.",
@@ -101,11 +94,7 @@ pub fn get_free_recommendations() -> Vec<FreeModelRecommendation> {
             display_name: "Ollama (Local Offline)",
             provider_type: "local",
             default_model: "qwen2.5-coder:latest",
-            alternative_models: vec![
-                "deepseek-coder:latest",
-                "llama3.2:latest",
-                "phi4:latest",
-            ],
+            alternative_models: vec!["deepseek-coder:latest", "llama3.2:latest", "phi4:latest"],
             endpoint: "http://127.0.0.1:11434/v1",
             env_key: "OLLAMA_API_KEY",
             description: "Daemon nativo local de Ollama con endpoint /v1 estándar.",
@@ -142,8 +131,12 @@ impl OpenAiCompatPlanner {
 
         // OpenRouter requires specific headers for free tier ranking
         if planner.provider_id == "openrouter" || planner.endpoint.contains("openrouter.ai") {
-            planner.custom_headers.push(("HTTP-Referer".into(), "https://antos.dev".into()));
-            planner.custom_headers.push(("X-Title".into(), "antOS Developer OS".into()));
+            planner
+                .custom_headers
+                .push(("HTTP-Referer".into(), "https://antos.dev".into()));
+            planner
+                .custom_headers
+                .push(("X-Title".into(), "antOS Developer OS".into()));
         }
 
         planner
@@ -175,8 +168,9 @@ impl OpenAiCompatPlanner {
                 let model = std::env::var("ANTOS_GEMINI_MODEL")
                     .or_else(|_| std::env::var("GEMINI_MODEL"))
                     .unwrap_or_else(|_| "gemini-2.0-flash".into());
-                let endpoint = std::env::var("ANTOS_GEMINI_ENDPOINT")
-                    .unwrap_or_else(|_| "https://generativelanguage.googleapis.com/v1beta/openai".into());
+                let endpoint = std::env::var("ANTOS_GEMINI_ENDPOINT").unwrap_or_else(|_| {
+                    "https://generativelanguage.googleapis.com/v1beta/openai".into()
+                });
                 Ok(Self::new("gemini", endpoint, model, Some(api_key)))
             }
             "opencode" | "localai" | "llamacpp" | "vllm" => {
@@ -257,10 +251,15 @@ impl OpenAiCompatPlanner {
 
         let mut resp = req.call().context("failed to query /models endpoint")?;
         let status = resp.status().as_u16();
-        let value: Value = resp.body_mut().read_json().context("invalid models JSON response")?;
+        let value: Value = resp
+            .body_mut()
+            .read_json()
+            .context("invalid models JSON response")?;
 
         if status >= 400 {
-            let msg = value["error"]["message"].as_str().unwrap_or("error fetching models");
+            let msg = value["error"]["message"]
+                .as_str()
+                .unwrap_or("error fetching models");
             bail!("endpoint responded {status}: {msg}");
         }
 
@@ -318,9 +317,12 @@ impl Planner for OpenAiCompatPlanner {
             req = req.header(h, v);
         }
 
-        let mut resp = req
-            .send_json(&body)
-            .with_context(|| format!("no se pudo conectar con el endpoint LLM en {}", self.endpoint))?;
+        let mut resp = req.send_json(&body).with_context(|| {
+            format!(
+                "no se pudo conectar con el endpoint LLM en {}",
+                self.endpoint
+            )
+        })?;
 
         let status = resp.status().as_u16();
         let value: Value = resp
@@ -333,7 +335,10 @@ impl Planner for OpenAiCompatPlanner {
                 .as_str()
                 .or_else(|| value["error"].as_str())
                 .unwrap_or("error desconocido en llamada LLM");
-            bail!("Proveedor LLM ({}) respondió {status}: {err_msg}", self.provider_id);
+            bail!(
+                "Proveedor LLM ({}) respondió {status}: {err_msg}",
+                self.provider_id
+            );
         }
 
         parse_openai_chat_response(&value)
@@ -592,7 +597,10 @@ mod tests {
     #[test]
     fn test_free_recommendations_not_empty() {
         let recs = get_free_recommendations();
-        assert!(!recs.is_empty(), "recommendations catalogue should not be empty");
+        assert!(
+            !recs.is_empty(),
+            "recommendations catalogue should not be empty"
+        );
         let has_groq = recs.iter().any(|r| r.provider_id == "groq");
         let has_openrouter = recs.iter().any(|r| r.provider_id == "openrouter");
         let has_ollama = recs.iter().any(|r| r.provider_id == "ollama");
@@ -621,10 +629,14 @@ mod tests {
             ]
         });
 
-        let propuesta = parse_openai_chat_response(&raw).expect("should parse stringified tool_calls");
+        let propuesta =
+            parse_openai_chat_response(&raw).expect("should parse stringified tool_calls");
         assert_eq!(propuesta.steps.len(), 1);
         assert_eq!(propuesta.steps[0].capability, "project.init");
-        assert_eq!(propuesta.steps[0].args.get("name").map(String::as_str), Some("api-service"));
+        assert_eq!(
+            propuesta.steps[0].args.get("name").map(String::as_str),
+            Some("api-service")
+        );
         assert_eq!(propuesta.nota.as_deref(), Some("Creando nuevo proyecto"));
     }
 
@@ -659,7 +671,10 @@ mod tests {
         let propuesta = parse_openai_chat_response(&raw).expect("should parse object tool_calls");
         assert_eq!(propuesta.steps.len(), 1);
         assert_eq!(propuesta.steps[0].capability, "net.diagnose_port");
-        assert_eq!(propuesta.steps[0].args.get("port").map(String::as_str), Some("8080"));
+        assert_eq!(
+            propuesta.steps[0].args.get("port").map(String::as_str),
+            Some("8080")
+        );
         assert_eq!(propuesta.nota.as_deref(), Some("Diagnóstico de red"));
     }
 
@@ -676,10 +691,14 @@ mod tests {
             ]
         });
 
-        let propuesta = parse_openai_chat_response(&raw).expect("should parse fallback markdown json");
+        let propuesta =
+            parse_openai_chat_response(&raw).expect("should parse fallback markdown json");
         assert_eq!(propuesta.steps.len(), 1);
         assert_eq!(propuesta.steps[0].capability, "git.branch");
-        assert_eq!(propuesta.steps[0].args.get("name").map(String::as_str), Some("feature-auth"));
+        assert_eq!(
+            propuesta.steps[0].args.get("name").map(String::as_str),
+            Some("feature-auth")
+        );
         assert_eq!(propuesta.nota.as_deref(), Some("Creando rama feature"));
     }
 
@@ -697,12 +716,17 @@ mod tests {
         });
 
         let res = parse_openai_chat_response(&raw);
-        assert!(res.is_err(), "should fail when no capabilities are provided");
+        assert!(
+            res.is_err(),
+            "should fail when no capabilities are provided"
+        );
     }
 
     #[test]
     fn test_build_plan_tool_schema() {
-        let catalog = Catalog { caps: BTreeMap::new() };
+        let catalog = Catalog {
+            caps: BTreeMap::new(),
+        };
         let schema = build_plan_tool_schema(&catalog);
         assert_eq!(schema["type"], "function");
         assert_eq!(schema["function"]["name"], PLAN_TOOL);

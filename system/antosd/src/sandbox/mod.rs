@@ -16,9 +16,9 @@
 
 #[cfg(target_os = "linux")]
 pub mod landlock;
+pub mod quota;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
-pub mod quota;
 
 use crate::blast::Blast;
 use crate::exec::Change;
@@ -158,14 +158,22 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
     let exe = std::env::current_exe().context("no sé cuál es mi propio binario")?;
     let mut cmd = sandbox.command(&exe, policy, EXEC_SUBCOMMAND)?;
     sin_secretos(&mut cmd);
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().context("no pude lanzar el ejecutor confinado")?;
-    let orden = serde_json::to_vec(&Orden { changes: changes.to_vec() })?;
+    let mut child = cmd
+        .spawn()
+        .context("no pude lanzar el ejecutor confinado")?;
+    let orden = serde_json::to_vec(&Orden {
+        changes: changes.to_vec(),
+    })?;
     child
         .stdin
         .take()
-        .ok_or_else(|| anyhow::anyhow!("no se pudo obtener la entrada estándar del ejecutor confinado"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("no se pudo obtener la entrada estándar del ejecutor confinado")
+        })?
         .write_all(&orden)?;
 
     let quota = policy.quota.clone().unwrap_or_default();
@@ -183,7 +191,10 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
     })?;
 
     if !resp.ok {
-        bail!("{}", resp.error.unwrap_or_else(|| "error sin detalle".into()));
+        bail!(
+            "{}",
+            resp.error.unwrap_or_else(|| "error sin detalle".into())
+        );
     }
     Ok(resp.outputs)
 }
@@ -193,10 +204,7 @@ pub fn probe_network(sandbox: &dyn Sandbox, policy: &Policy) -> Result<bool> {
     let exe = std::env::current_exe()?;
     let mut cmd = sandbox.command(&exe, policy, NET_SUBCOMMAND)?;
     sin_secretos(&mut cmd);
-    let out = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()?;
+    let out = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).output()?;
     Ok(String::from_utf8_lossy(&out.stdout).trim() == "conectado")
 }
 
@@ -207,7 +215,11 @@ pub fn probe_network(sandbox: &dyn Sandbox, policy: &Policy) -> Result<bool> {
 /// pero una credencial filtrada no necesita red para hacer daño — basta con
 /// que acabe escrita en algún sitio.
 pub fn sin_secretos(cmd: &mut Command) {
-    for variable in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY_FILE"] {
+    for variable in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY_FILE",
+    ] {
         cmd.env_remove(variable);
     }
 }
@@ -248,7 +260,11 @@ pub fn execute_from_stdin() -> Result<()> {
     self_restrict()?;
 
     let resp = match crate::exec::apply(&orden.changes) {
-        Ok(outputs) => Respuesta { ok: true, outputs, error: None },
+        Ok(outputs) => Respuesta {
+            ok: true,
+            outputs,
+            error: None,
+        },
         Err(e) => Respuesta {
             ok: false,
             outputs: Vec::new(),

@@ -39,7 +39,10 @@ impl Blast {
         system_config: &Path,
         state: &Path,
     ) -> Result<Self> {
-        let mut b = Blast { declared_tier: Tier::Auto, ..Default::default() };
+        let mut b = Blast {
+            declared_tier: Tier::Auto,
+            ..Default::default()
+        };
 
         let mut dirs = BTreeSet::new();
 
@@ -122,7 +125,11 @@ impl Blast {
         if !self.escapes.is_empty() {
             reasons.push(format!(
                 "sale del espacio de trabajo: {}",
-                self.escapes.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+                self.escapes
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
             tier = Tier::Grant;
         }
@@ -192,7 +199,11 @@ fn resolve(
     let expanded = expand_all(tpl, &step.args, workspace, system_config, state);
     let is_dir = expanded.ends_with('/');
     let p = PathBuf::from(expanded.trim_end_matches('/'));
-    let absolute = if p.is_absolute() { p } else { workspace.join(p) };
+    let absolute = if p.is_absolute() {
+        p
+    } else {
+        workspace.join(p)
+    };
     (normalize(&absolute), is_dir)
 }
 
@@ -273,7 +284,9 @@ mod tests {
             planner: "prueba".into(),
             steps: vec![Step {
                 capability: "t.leer".into(),
-                args: [("path".to_string(), path.to_string())].into_iter().collect(),
+                args: [("path".to_string(), path.to_string())]
+                    .into_iter()
+                    .collect(),
             }],
         }
     }
@@ -281,9 +294,19 @@ mod tests {
     #[test]
     fn detecta_la_fuga_aunque_el_parametro_no_este_restringido() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("../../etc/passwd"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("../../etc/passwd"),
+            &catalogo_sin_restricciones(),
+            &ws,
+            Path::new("/tmp/sin-configuracion"),
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
 
-        assert!(!blast.escapes.is_empty(), "una ruta fuera del espacio de trabajo debe registrarse como fuga");
+        assert!(
+            !blast.escapes.is_empty(),
+            "una ruta fuera del espacio de trabajo debe registrarse como fuga"
+        );
         let (tier, reasons) = blast.required_tier();
         assert_eq!(tier, Tier::Grant, "una fuga eleva el nivel al máximo");
         assert!(reasons.iter().any(|r| r.contains("espacio de trabajo")));
@@ -292,10 +315,21 @@ mod tests {
     #[test]
     fn una_ruta_de_dentro_no_escala_el_nivel() {
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("proyecto/src/main.rs"), &catalogo_sin_restricciones(), &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("proyecto/src/main.rs"),
+            &catalogo_sin_restricciones(),
+            &ws,
+            Path::new("/tmp/sin-configuracion"),
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
 
         assert!(blast.escapes.is_empty());
-        assert_eq!(blast.required_tier().0, Tier::Auto, "solo leer dentro del espacio no requiere permiso");
+        assert_eq!(
+            blast.required_tier().0,
+            Tier::Auto,
+            "solo leer dentro del espacio no requiere permiso"
+        );
     }
 
     #[test]
@@ -308,14 +342,36 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}".into()];
 
-        let blast = Blast::compute(&plan_leyendo("uno/dos/fichero.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("uno/dos/fichero.txt"),
+            &catalog,
+            &ws,
+            Path::new("/tmp/sin-configuracion"),
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
 
-        assert!(blast.writes.contains(&ws.join("uno")), "el ancestro que falta debe declararse");
+        assert!(
+            blast.writes.contains(&ws.join("uno")),
+            "el ancestro que falta debe declararse"
+        );
         assert!(blast.writes.contains(&ws.join("uno/dos")));
-        assert!(blast.dirs.contains(&ws.join("uno")), "un ancestro siempre es directorio");
-        assert!(!blast.dirs.contains(&ws.join("uno/dos/fichero.txt")), "la hoja no lo es");
-        assert!(!blast.writes.contains(&ws), "el espacio de trabajo ya existe: no se declara");
-        assert!(blast.escapes.is_empty(), "los ancestros siguen dentro del espacio de trabajo");
+        assert!(
+            blast.dirs.contains(&ws.join("uno")),
+            "un ancestro siempre es directorio"
+        );
+        assert!(
+            !blast.dirs.contains(&ws.join("uno/dos/fichero.txt")),
+            "la hoja no lo es"
+        );
+        assert!(
+            !blast.writes.contains(&ws),
+            "el espacio de trabajo ya existe: no se declara"
+        );
+        assert!(
+            blast.escapes.is_empty(),
+            "los ancestros siguen dentro del espacio de trabajo"
+        );
     }
 
     #[test]
@@ -328,16 +384,30 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["/tmp/configuracion/paquetes.nix".into()];
 
-        let blast = Blast::compute(&plan_leyendo("da igual"), &catalog, &ws, &sistema, Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("da igual"),
+            &catalog,
+            &ws,
+            &sistema,
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
 
         assert!(
             blast.escapes.is_empty(),
             "una raíz declarada no es una fuga aunque esté fuera del espacio de trabajo"
         );
-        assert!(!blast.system.is_empty(), "debe reconocerse como ruta de sistema");
+        assert!(
+            !blast.system.is_empty(),
+            "debe reconocerse como ruta de sistema"
+        );
 
         let (tier, reasons) = blast.required_tier();
-        assert_eq!(tier, Tier::Grant, "tocar el sistema siempre exige concesión");
+        assert_eq!(
+            tier,
+            Tier::Grant,
+            "tocar el sistema siempre exige concesión"
+        );
         assert!(reasons.iter().any(|r| r.contains("sistema")));
     }
 
@@ -349,10 +419,22 @@ mod tests {
         cap.effects.reads.clear();
         cap.effects.writes = vec!["{path}/".into()];
 
-        let blast = Blast::compute(&plan_leyendo("proyecto"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("proyecto"),
+            &catalog,
+            &ws,
+            Path::new("/tmp/sin-configuracion"),
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
         assert!(blast.dirs.contains(&ws.join("proyecto")));
-        assert!(!blast.dirs.iter().any(|d| d.to_string_lossy().ends_with('/')),
-                "la barra es una marca, no parte de la ruta");
+        assert!(
+            !blast
+                .dirs
+                .iter()
+                .any(|d| d.to_string_lossy().ends_with('/')),
+            "la barra es una marca, no parte de la ruta"
+        );
     }
 
     #[test]
@@ -364,10 +446,21 @@ mod tests {
         cap.effects.writes = vec!["{path}".into()];
 
         let ws = PathBuf::from("/tmp/espacio");
-        let blast = Blast::compute(&plan_leyendo("dentro.txt"), &catalog, &ws, Path::new("/tmp/sin-configuracion"), Path::new("/tmp/sin-estado")).unwrap();
+        let blast = Blast::compute(
+            &plan_leyendo("dentro.txt"),
+            &catalog,
+            &ws,
+            Path::new("/tmp/sin-configuracion"),
+            Path::new("/tmp/sin-estado"),
+        )
+        .unwrap();
 
         let (tier, reasons) = blast.required_tier();
-        assert_eq!(tier, Tier::Confirm, "escribir exige confirmación aunque el manifiesto diga auto");
+        assert_eq!(
+            tier,
+            Tier::Confirm,
+            "escribir exige confirmación aunque el manifiesto diga auto"
+        );
         assert!(reasons.iter().any(|r| r.contains("escribe")));
     }
 }

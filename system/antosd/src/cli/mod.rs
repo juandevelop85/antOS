@@ -5,10 +5,10 @@ pub mod commands;
 
 pub use args::Opts;
 
-use anyhow::Result;
 use crate::capability::Catalog;
 use crate::ctx::Ctx;
 use crate::ipc;
+use anyhow::Result;
 
 pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<()> {
     let (opts, rest) = Opts::parse_from(raw_args);

@@ -58,9 +58,24 @@ impl TerminalSession {
     pub fn execute_command(&mut self, cmd_line: &str) -> Result<()> {
         self.buffer.push(TerminalLine {
             spans: vec![
-                AnsiSpan { text: "antos".into(), bold: true, dim: false, color: Some("green".into()) },
-                AnsiSpan { text: " $ ".into(), bold: false, dim: true, color: None },
-                AnsiSpan { text: cmd_line.into(), bold: true, dim: false, color: None },
+                AnsiSpan {
+                    text: "antos".into(),
+                    bold: true,
+                    dim: false,
+                    color: Some("green".into()),
+                },
+                AnsiSpan {
+                    text: " $ ".into(),
+                    bold: false,
+                    dim: true,
+                    color: None,
+                },
+                AnsiSpan {
+                    text: cmd_line.into(),
+                    bold: true,
+                    dim: false,
+                    color: None,
+                },
             ],
             raw: format!("antos $ {cmd_line}"),
         });

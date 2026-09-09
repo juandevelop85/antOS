@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_ports(args: &[String]) -> Result<()> {
     let filtro = args.first().and_then(|a| a.parse::<u16>().ok());
@@ -305,13 +305,21 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
             "claude" => Ok(Box::new(ClaudePlanner::from_env()?)),
             "ollama" | "local-llm" | "local_llm" => Ok(Box::new(OllamaPlanner::from_env()?)),
             "groq" => Ok(Box::new(OpenAiCompatPlanner::from_preset("groq")?)),
-            "openrouter" | "open-router" => Ok(Box::new(OpenAiCompatPlanner::from_preset("openrouter")?)),
+            "openrouter" | "open-router" => {
+                Ok(Box::new(OpenAiCompatPlanner::from_preset("openrouter")?))
+            }
             "gemini" | "google" => Ok(Box::new(OpenAiCompatPlanner::from_preset("gemini")?)),
-            "opencode" | "localai" | "vllm" => Ok(Box::new(OpenAiCompatPlanner::from_preset("opencode")?)),
-            "openai" | "openai_compat" | "compat" => Ok(Box::new(OpenAiCompatPlanner::from_preset("openai")?)),
+            "opencode" | "localai" | "vllm" => {
+                Ok(Box::new(OpenAiCompatPlanner::from_preset("opencode")?))
+            }
+            "openai" | "openai_compat" | "compat" => {
+                Ok(Box::new(OpenAiCompatPlanner::from_preset("openai")?))
+            }
             other => {
                 if other.starts_with("http://") || other.starts_with("https://") {
-                    Ok(Box::new(OpenAiCompatPlanner::new("custom", other, "default", None)))
+                    Ok(Box::new(OpenAiCompatPlanner::new(
+                        "custom", other, "default", None,
+                    )))
                 } else {
                     bail!("planificador desconocido: {other} (usa «local», «ollama», «groq», «openrouter», «gemini», «opencode» o «claude»)")
                 }
@@ -361,7 +369,9 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
             other => {
                 if let Some(endpoint) = custom_endpoint {
                     let model = custom_model.unwrap_or("default");
-                    Ok(Box::new(OpenAiCompatPlanner::new(other, endpoint, model, None)))
+                    Ok(Box::new(OpenAiCompatPlanner::new(
+                        other, endpoint, model, None,
+                    )))
                 } else {
                     OpenAiCompatPlanner::from_preset(other).map(|p| Box::new(p) as Box<dyn Planner>)
                 }
@@ -420,7 +430,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
         "setup" | "init" => {
             println!(
                 "\n{}",
-                paint("antOS · Asistente de Configuración de Motor LLM Local (T19.3)", BOLD)
+                paint(
+                    "antOS · Asistente de Configuración de Motor LLM Local (T19.3)",
+                    BOLD
+                )
             );
             println!("  Este asistente verifica y prepara el motor local Ollama/OpenCode para desarrollo sin conexión.\n");
 
@@ -435,33 +448,69 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!("  [1/3] Detección de servicios locales:");
             if status.ollama_available {
-                println!("    ✓ Ollama detectado y respondiendo en {}", paint("http://127.0.0.1:11434", GREEN));
+                println!(
+                    "    ✓ Ollama detectado y respondiendo en {}",
+                    paint("http://127.0.0.1:11434", GREEN)
+                );
             } else if status.opencode_available {
-                println!("    ✓ OpenCode detectado y respondiendo en {}", paint("http://127.0.0.1:8080/v1", GREEN));
+                println!(
+                    "    ✓ OpenCode detectado y respondiendo en {}",
+                    paint("http://127.0.0.1:8080/v1", GREEN)
+                );
             } else {
                 println!("    ○ Ningún motor local está corriendo actualmente.");
-                println!("      • Para instalar Ollama con antpkg ejecuta: {}", paint("antos pkg install recipes/ollama.toml", YELLOW));
-                println!("      • O inicia el servicio si ya lo tienes:     {}", paint("ollama serve &", CYAN));
+                println!(
+                    "      • Para instalar Ollama con antpkg ejecuta: {}",
+                    paint("antos pkg install recipes/ollama.toml", YELLOW)
+                );
+                println!(
+                    "      • O inicia el servicio si ya lo tienes:     {}",
+                    paint("ollama serve &", CYAN)
+                );
                 println!("      • O descarga Ollama directamente desde:     https://ollama.com\n");
             }
 
             // 2. Recomendaciones de modelos de desarrollo
             println!("  [2/3] Modelos recomendados para antOS antFlow:");
-            println!("    • {} (Recomendado: balance perfecto velocidad y sintaxis de código)", paint("qwen2.5-coder:7b", GREEN));
-            println!("    • {} (Especializado en refactorización y depuración)", paint("deepseek-coder:6.7b", CYAN));
-            println!("    • {} (Ultraligero para portátiles sin GPU dedicada)", paint("qwen2.5-coder:1.5b", DIM));
+            println!(
+                "    • {} (Recomendado: balance perfecto velocidad y sintaxis de código)",
+                paint("qwen2.5-coder:7b", GREEN)
+            );
+            println!(
+                "    • {} (Especializado en refactorización y depuración)",
+                paint("deepseek-coder:6.7b", CYAN)
+            );
+            println!(
+                "    • {} (Ultraligero para portátiles sin GPU dedicada)",
+                paint("qwen2.5-coder:1.5b", DIM)
+            );
 
             // 3. Configuración persistente del motor
             println!("\n  [3/3] Aplicando configuración:");
             config.set_active_provider("ollama", Some(target_model), None);
             config.save_to_state(&ctx.state)?;
 
-            println!("    ✓ Motor predeterminado fijado en: {}", paint("ollama", GREEN));
-            println!("    ✓ Modelo de código seleccionado:  {}", paint(target_model, CYAN));
+            println!(
+                "    ✓ Motor predeterminado fijado en: {}",
+                paint("ollama", GREEN)
+            );
+            println!(
+                "    ✓ Modelo de código seleccionado:  {}",
+                paint(target_model, CYAN)
+            );
             println!("\n  Pasos siguientes:");
-            println!("    1. Si aún no tienes el modelo descargado, ejecuta: {}", paint(&format!("ollama pull {target_model}"), YELLOW));
-            println!("    2. Verifica la inferencia con:                    {}", paint("antos llm test", CYAN));
-            println!("    3. Explora alternativas gratuitas con:            {}\n", paint("antos llm free", CYAN));
+            println!(
+                "    1. Si aún no tienes el modelo descargado, ejecuta: {}",
+                paint(&format!("ollama pull {target_model}"), YELLOW)
+            );
+            println!(
+                "    2. Verifica la inferencia con:                    {}",
+                paint("antos llm test", CYAN)
+            );
+            println!(
+                "    3. Explora alternativas gratuitas con:            {}\n",
+                paint("antos llm free", CYAN)
+            );
             return Ok(());
         }
         "use" | "set" | "select" => {
@@ -474,7 +523,9 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                     );
                     println!("  Proveedores soportados: groq, openrouter, gemini, ollama, opencode, claude, local, auto");
                     println!("  Ejemplo: antos llm use groq --model llama-3.3-70b-versatile");
-                    println!("  Ejemplo: antos llm use openrouter --model deepseek/deepseek-r1:free");
+                    println!(
+                        "  Ejemplo: antos llm use openrouter --model deepseek/deepseek-r1:free"
+                    );
                     println!("  Ejemplo: antos llm use ollama --model qwen2.5-coder");
                     println!("  Para ver opciones gratuitas: antos llm free\n");
                     return Ok(());
@@ -525,7 +576,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
         "free" | "gratis" => {
             println!(
                 "\n{}",
-                paint("antOS · Catálogo de Modelos y Proveedores 100% Gratuitos (T19.2)", BOLD)
+                paint(
+                    "antOS · Catálogo de Modelos y Proveedores 100% Gratuitos (T19.2)",
+                    BOLD
+                )
             );
             println!("  antOS está diseñado para funcionar con coste $0 usando modelos locales o cloud tiers gratuitos:\n");
 
@@ -545,7 +599,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!(
                     "  │  Activar:       {}",
                     paint(
-                        &format!("antos llm use {} --model {}", r.provider_id, r.default_model),
+                        &format!(
+                            "antos llm use {} --model {}",
+                            r.provider_id, r.default_model
+                        ),
                         YELLOW
                     )
                 );
@@ -558,7 +615,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
                 println!("  └─────────────────────────────────────────────────────────────────────────────\n");
             }
-            println!("  Para probar el motor actual: {}\n", paint("antos llm test", CYAN));
+            println!(
+                "  Para probar el motor actual: {}\n",
+                paint("antos llm test", CYAN)
+            );
         }
         "test" | "ping" => {
             let prompt = args
@@ -611,7 +671,11 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 Err(e) => {
                     let elapsed = start.elapsed();
                     println!("  Latencia: {} ms", elapsed.as_millis());
-                    println!("\n  {} Fallo al ejecutar la prueba: {:#}\n", paint("✗ Error:", RED), e);
+                    println!(
+                        "\n  {} Fallo al ejecutar la prueba: {:#}\n",
+                        paint("✗ Error:", RED),
+                        e
+                    );
                 }
             }
         }
@@ -629,7 +693,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
             if let Ok(ollama) = crate::planner::ollama::OllamaPlanner::from_env() {
                 if ollama.is_available() {
                     if let Ok(models) = ollama.list_models() {
-                        println!("  ● Modelos descargados en Ollama local ({}):", models.len());
+                        println!(
+                            "  ● Modelos descargados en Ollama local ({}):",
+                            models.len()
+                        );
                         for m in models {
                             println!("    • {}", paint(&m, CYAN));
                         }
@@ -649,12 +716,18 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                     paint(e, DIM)
                 );
             }
-            println!("\n  Para cambiar de motor: {}\n", paint("antos llm use <proveedor>", CYAN));
+            println!(
+                "\n  Para cambiar de motor: {}\n",
+                paint("antos llm use <proveedor>", CYAN)
+            );
         }
         "status" | _ => {
             println!(
                 "\n{}",
-                paint("antOS · Estado de Motores de Inferencia Multi-LLM (T19.2)", BOLD)
+                paint(
+                    "antOS · Estado de Motores de Inferencia Multi-LLM (T19.2)",
+                    BOLD
+                )
             );
 
             let active_disp = if config.active_provider == "auto" {
@@ -684,9 +757,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("     Modelo: {}", paint("llama-3.3-70b-versatile", BOLD));
 
             // 2. OpenRouter (Free)
-            let or_ok = crate::planner::openai_compat::OpenAiCompatPlanner::from_preset("openrouter")
-                .map(|p| p.is_available())
-                .unwrap_or(false);
+            let or_ok =
+                crate::planner::openai_compat::OpenAiCompatPlanner::from_preset("openrouter")
+                    .map(|p| p.is_available())
+                    .unwrap_or(false);
             let or_badge = if or_ok {
                 paint("● Conectado (Free Tier)", GREEN)
             } else {
@@ -711,7 +785,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             // 4. Ollama Local (Offline)
             let ollama_inst = crate::planner::ollama::OllamaPlanner::from_env();
-            let ollama_ok = ollama_inst.as_ref().map(|o| o.is_available()).unwrap_or(false);
+            let ollama_ok = ollama_inst
+                .as_ref()
+                .map(|o| o.is_available())
+                .unwrap_or(false);
             let ollama_badge = if ollama_ok {
                 paint("● Online (Local Offline)", GREEN)
             } else {
@@ -726,7 +803,8 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("     Endpoint: {}", paint(ollama_ep, BOLD));
 
             // 5. OpenCode / llama.cpp (Local)
-            let oc_inst = crate::planner::openai_compat::OpenAiCompatPlanner::from_preset("opencode");
+            let oc_inst =
+                crate::planner::openai_compat::OpenAiCompatPlanner::from_preset("opencode");
             let oc_ok = oc_inst.as_ref().map(|p| p.is_available()).unwrap_or(false);
             let oc_badge = if oc_ok {
                 paint("● Online (Local /v1)", GREEN)
@@ -947,9 +1025,8 @@ pub fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
                         "perfil desconocido «{p}». Opciones válidas: rust, node, python, go, base"
                     )
                 })?,
-                None => {
-                    crate::env::EnvEngine::detect_stack(&ctx.workspace).unwrap_or(crate::env::EnvProfile::Base)
-                }
+                None => crate::env::EnvEngine::detect_stack(&ctx.workspace)
+                    .unwrap_or(crate::env::EnvProfile::Base),
             };
 
             let summary = crate::env::EnvEngine::init_profile(&ctx.workspace, profile, true, true)?;
@@ -1175,11 +1252,14 @@ pub fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
     // Otherwise it is treated as a git target ref.
 
     let antos_root = ctx.antos_root.clone();
-    let workspace  = &ctx.workspace;
+    let workspace = &ctx.workspace;
 
     println!(
         "\n{}",
-        paint("antOS · Visor Interactivo de Diffs y Parches (T8.1 / T17.2)", BOLD)
+        paint(
+            "antOS · Visor Interactivo de Diffs y Parches (T8.1 / T17.2)",
+            BOLD
+        )
     );
     println!(
         "  Espacio de trabajo: {}",
@@ -1190,9 +1270,15 @@ pub fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
     let (project_path, target) = parse_diff_args(args, workspace, ctx.current_project.as_deref());
 
     if let Some(ref p) = project_path {
-        println!("  Proyecto:           {}", paint(&p.display().to_string(), DIM));
+        println!(
+            "  Proyecto:           {}",
+            paint(&p.display().to_string(), DIM)
+        );
     } else if let Some(ref p) = ctx.current_project {
-        println!("  Proyecto activo:    {}", paint(&p.display().to_string(), DIM));
+        println!(
+            "  Proyecto activo:    {}",
+            paint(&p.display().to_string(), DIM)
+        );
     }
     println!("  Objetivo:           {}\n", paint(&target, BOLD));
 
@@ -1225,10 +1311,15 @@ pub fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
     );
 
     for proj in &projects {
-        let proj_name = proj.file_name()
+        let proj_name = proj
+            .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| proj.display().to_string());
-        println!("  {} {}", paint("┌ proyecto:", BOLD), paint(&proj_name, CYAN));
+        println!(
+            "  {} {}",
+            paint("┌ proyecto:", BOLD),
+            paint(&proj_name, CYAN)
+        );
         diff_single_project(proj, &target, antos_root.as_deref());
     }
 
@@ -1277,12 +1368,9 @@ fn parse_diff_args(
 /// own `.git` before invoking `git diff`. If it does not, prints an informative
 /// file listing and actionable guidance.
 
-fn diff_single_project(
-    proj: &std::path::Path,
-    target: &str,
-    antos_root: Option<&std::path::Path>,
-) {
-    let project_name = proj.file_name()
+fn diff_single_project(proj: &std::path::Path, target: &str, antos_root: Option<&std::path::Path>) {
+    let project_name = proj
+        .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| proj.display().to_string());
 
@@ -1325,11 +1413,16 @@ fn diff_single_project(
 
     // Check if HEAD exists. If not, the repo is newly initialized with no commits.
     let mut check_head = std::process::Command::new("git");
-    check_head.current_dir(proj).args(["rev-parse", "--verify", "HEAD"]);
+    check_head
+        .current_dir(proj)
+        .args(["rev-parse", "--verify", "HEAD"]);
     if !ceiling_val.is_empty() {
         check_head.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
     }
-    let has_commits = check_head.output().map(|o| o.status.success()).unwrap_or(false);
+    let has_commits = check_head
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
 
     if !has_commits && target == "HEAD" {
         let mut status_cmd = std::process::Command::new("git");
@@ -1400,7 +1493,6 @@ fn diff_single_project(
         }
     }
 }
-
 
 // ----------------------------------------------------------- project / git (T17.3)
 
@@ -1474,7 +1566,10 @@ pub fn cmd_project_init(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     println!(
         "\n{}",
-        paint("antOS · Inicialización Declarativa de Proyecto Git (T17.3)", BOLD)
+        paint(
+            "antOS · Inicialización Declarativa de Proyecto Git (T17.3)",
+            BOLD
+        )
     );
     println!(
         "  Espacio de trabajo: {}",
@@ -1487,7 +1582,10 @@ pub fn cmd_project_init(ctx: &Ctx, args: &[String]) -> Result<()> {
         .unwrap_or_else(|| project_dir.display().to_string());
 
     println!("  Proyecto:           {}", paint(&display_name, CYAN));
-    println!("  Ruta física:        {}", paint(&project_dir.display().to_string(), DIM));
+    println!(
+        "  Ruta física:        {}",
+        paint(&project_dir.display().to_string(), DIM)
+    );
     println!("  Rama principal:     {}", paint(&branch, GREEN));
 
     let res = crate::exec::init_project_git_repo(&project_dir, &branch, language_hint.as_deref())?;
@@ -1623,12 +1721,17 @@ pub fn cmd_use(ctx: &Ctx, args: &[String]) -> Result<()> {
             paint("antOS ·", BOLD)
         );
         if let Some(ref cur) = ctx.current_project {
-            let name = cur.file_name().and_then(|n| n.to_str()).unwrap_or("desconocido");
+            let name = cur
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("desconocido");
             println!("  • Proyecto seleccionado: {}", paint(name, GREEN));
             println!("  • Ruta en disco:         {}", cur.display());
             if let Ok(active_name) = std::fs::read_to_string(&active_file) {
                 if active_name.trim() == name {
-                    println!("  • Origen:                Configurado persistentemente vía 'antos use'");
+                    println!(
+                        "  • Origen:                Configurado persistentemente vía 'antos use'"
+                    );
                 } else {
                     println!("  • Origen:                Detectado automáticamente por directorio actual (CWD)");
                 }
@@ -1636,7 +1739,10 @@ pub fn cmd_use(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!("  • Origen:                Detectado automáticamente por directorio actual (CWD)");
             }
         } else {
-            println!("  • Proyecto seleccionado: {}", paint("(ninguno / ámbito del sistema)", YELLOW));
+            println!(
+                "  • Proyecto seleccionado: {}",
+                paint("(ninguno / ámbito del sistema)", YELLOW)
+            );
             println!("  • Espacio de trabajo:    {}", ctx.workspace.display());
         }
         println!("\n  Uso:");
@@ -1665,7 +1771,10 @@ pub fn cmd_git(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint("antOS Git · Estado de", BOLD),
                 paint(&proj_name, CYAN)
             );
-            println!("  Directorio: {}", paint(&target_dir.display().to_string(), DIM));
+            println!(
+                "  Directorio: {}",
+                paint(&target_dir.display().to_string(), DIM)
+            );
 
             let antos_root = ctx.antos_root.as_deref();
             if crate::git::find_git_root_with_ceiling(target_dir, antos_root).is_none() {
@@ -2301,7 +2410,11 @@ pub fn cmd_reproduce(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     let error_input = if let Some(ref path) = log_path {
         let p = std::path::Path::new(path);
-        let resolved = if p.is_absolute() { p.to_path_buf() } else { ctx.workspace.join(p) };
+        let resolved = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            ctx.workspace.join(p)
+        };
         std::fs::read_to_string(&resolved)
             .with_context(|| format!("No se pudo leer el archivo de log {}", resolved.display()))?
     } else if !positional.is_empty() {
@@ -2310,7 +2423,13 @@ pub fn cmd_reproduce(ctx: &Ctx, args: &[String]) -> Result<()> {
         bail!("Uso: antos reproduce \"<stack trace / log de error>\" [--target <archivo>] [--log <ruta_log>]");
     };
 
-    println!("\n{}", paint("🧪 antOS TDD Engine · Reproducción Autónoma de Bugs (T20.2)", BOLD));
+    println!(
+        "\n{}",
+        paint(
+            "🧪 antOS TDD Engine · Reproducción Autónoma de Bugs (T20.2)",
+            BOLD
+        )
+    );
     println!("  Analizando traza y aislando contexto de falla...");
 
     let report = crate::reproduce::TddEngine::run_reproduce_pipeline(
@@ -2321,25 +2440,55 @@ pub fn cmd_reproduce(ctx: &Ctx, args: &[String]) -> Result<()> {
     )?;
 
     println!("\n  {} [{}]", paint("ID del Caso:", CYAN), report.id);
-    println!("  {} {:?}", paint("Lenguaje Detectado:", BOLD), report.diagnostic.language);
-    println!("  {} {}", paint("Tipo de Error:", YELLOW), report.diagnostic.error_type);
+    println!(
+        "  {} {:?}",
+        paint("Lenguaje Detectado:", BOLD),
+        report.diagnostic.language
+    );
+    println!(
+        "  {} {}",
+        paint("Tipo de Error:", YELLOW),
+        report.diagnostic.error_type
+    );
     println!("  {} {}", paint("Mensaje:", RED), report.diagnostic.message);
 
     if let Some(ref f) = report.diagnostic.target_file {
-        println!("  {} {}:{}", paint("Ubicación:", BOLD), f, report.diagnostic.target_line.unwrap_or(0));
+        println!(
+            "  {} {}:{}",
+            paint("Ubicación:", BOLD),
+            f,
+            report.diagnostic.target_line.unwrap_or(0)
+        );
     }
     if let Some(ref fn_name) = report.diagnostic.target_function {
         println!("  {} {}", paint("Función / Símbolo:", BOLD), fn_name);
     }
     if !report.diagnostic.frames.is_empty() {
-        println!("  {} ({} niveles capturados):", paint("Pila de Llamadas:", DIM), report.diagnostic.frames.len());
+        println!(
+            "  {} ({} niveles capturados):",
+            paint("Pila de Llamadas:", DIM),
+            report.diagnostic.frames.len()
+        );
         for frame in report.diagnostic.frames.iter().take(3) {
-            println!("    • {}:{} [{}]", frame.file, frame.line.unwrap_or(0), frame.function.as_deref().unwrap_or("fn"));
+            println!(
+                "    • {}:{} [{}]",
+                frame.file,
+                frame.line.unwrap_or(0),
+                frame.function.as_deref().unwrap_or("fn")
+            );
         }
     }
 
-    println!("\n  {} {}", paint("Fase del Ciclo:", BOLD), paint(report.phase.label(), GREEN));
-    println!("  {} {}", paint("Test de Regresión:", CYAN), report.test_file);
+    println!(
+        "\n  {} {}",
+        paint("Fase del Ciclo:", BOLD),
+        paint(report.phase.label(), GREEN)
+    );
+    println!(
+        "  {} {}",
+        paint("Test de Regresión:", CYAN),
+        report.test_file
+    );
     if let Some(ref fix) = report.fix_summary {
         println!("  {} {}", paint("Propuesta Correctiva:", GREEN), fix);
     }
@@ -2347,12 +2496,19 @@ pub fn cmd_reproduce(ctx: &Ctx, args: &[String]) -> Result<()> {
         "  {} {}",
         paint("Auditoría antOS:", BOLD),
         if report.audited {
-            paint("✅ Aislado en sandbox y certificado contra regresiones", GREEN)
+            paint(
+                "✅ Aislado en sandbox y certificado contra regresiones",
+                GREEN,
+            )
         } else {
             paint("⚠️ Pendiente de validación", YELLOW)
         }
     );
-    println!("  {} .antos/reproduce/{}/\n", paint("Artefactos:", DIM), report.id);
+    println!(
+        "  {} .antos/reproduce/{}/\n",
+        paint("Artefactos:", DIM),
+        report.id
+    );
 
     Ok(())
 }
@@ -2393,7 +2549,13 @@ pub fn cmd_testgen(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     let target = target.unwrap_or_else(|| "src/lib.rs".into());
 
-    println!("\n{}", paint("⚡ antOS TestGen · Generador Autónomo de Tests (T20.2)", BOLD));
+    println!(
+        "\n{}",
+        paint(
+            "⚡ antOS TestGen · Generador Autónomo de Tests (T20.2)",
+            BOLD
+        )
+    );
     println!("  Generando suite de tests para «{}»...", target);
 
     let report = crate::reproduce::TddEngine::generate_tests_for_target(
@@ -2404,10 +2566,23 @@ pub fn cmd_testgen(ctx: &Ctx, args: &[String]) -> Result<()> {
     )?;
 
     println!("\n  {} [{}]", paint("ID de Suite:", CYAN), report.id);
-    println!("  {} {:?}", paint("Lenguaje:", BOLD), report.diagnostic.language);
+    println!(
+        "  {} {:?}",
+        paint("Lenguaje:", BOLD),
+        report.diagnostic.language
+    );
     println!("  {} {}", paint("Objetivo:", CYAN), target);
-    println!("  {} {} ({} casos)", paint("Tipo de Suite:", YELLOW), suite, cases);
-    println!("  {} {}", paint("Archivo Generado:", GREEN), report.test_file);
+    println!(
+        "  {} {} ({} casos)",
+        paint("Tipo de Suite:", YELLOW),
+        suite,
+        cases
+    );
+    println!(
+        "  {} {}",
+        paint("Archivo Generado:", GREEN),
+        report.test_file
+    );
     if let Some(ref summary) = report.fix_summary {
         println!("  {} {}\n", paint("Resumen:", DIM), summary);
     }
@@ -2440,7 +2615,13 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            println!("\n{}", paint("📸 antOS Time Machine · Creando Instantánea Atómica (T20.4)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "📸 antOS Time Machine · Creando Instantánea Atómica (T20.4)",
+                    BOLD
+                )
+            );
             let meta = crate::time_machine::TimeMachineEngine::create_snapshot(
                 &ctx.workspace,
                 &ctx.state,
@@ -2454,14 +2635,32 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
             println!("  {} {}", paint("Autor:", BOLD), meta.author);
             if let Some(ref br) = meta.git_branch {
-                println!("  {} {} ({})", paint("Rama Git:", BOLD), br, meta.git_commit.as_deref().unwrap_or("?"));
+                println!(
+                    "  {} {} ({})",
+                    paint("Rama Git:", BOLD),
+                    br,
+                    meta.git_commit.as_deref().unwrap_or("?")
+                );
             }
-            println!("  {} {} archivos ({} KiB)", paint("Árbol de Código:", BOLD), meta.files_count, meta.total_bytes / 1024);
+            println!(
+                "  {} {} archivos ({} KiB)",
+                paint("Árbol de Código:", BOLD),
+                meta.files_count,
+                meta.total_bytes / 1024
+            );
             if !meta.services_included.is_empty() {
-                println!("  {} {}", paint("Servicios Respaldados:", YELLOW), meta.services_included.join(", "));
+                println!(
+                    "  {} {}",
+                    paint("Servicios Respaldados:", YELLOW),
+                    meta.services_included.join(", ")
+                );
             }
             if meta.memory_graph_included {
-                println!("  {} {}", paint("Memoria Semántica:", CYAN), "Grafo de contexto preservado");
+                println!(
+                    "  {} {}",
+                    paint("Memoria Semántica:", CYAN),
+                    "Grafo de contexto preservado"
+                );
             }
             println!("  {} {}", paint("Mecanismo CoW:", DIM), meta.method);
             println!("  Estado del entorno congelado y protegido con capacidad de rollback.\n");
@@ -2469,24 +2668,45 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         "list" | "ls" | "status" => {
             let list = crate::time_machine::TimeMachineEngine::list_snapshots(&ctx.state)?;
-            println!("\n{}", paint("⏱️ antOS Time Machine · Cronología de Instantáneas de Estado (T20.4)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "⏱️ antOS Time Machine · Cronología de Instantáneas de Estado (T20.4)",
+                    BOLD
+                )
+            );
             if list.is_empty() {
                 println!("  No hay instantáneas registradas en .antos/snapshots/dev/\n");
                 println!("  Crea una nueva con: antos snapshot create [etiqueta]\n");
                 return Ok(());
             }
 
-            println!("  {:<26} {:<18} {:<10} {:<12} {:<10}",
-                paint("ID", BOLD), paint("ETIQUETA", BOLD), paint("ARCHIVOS", BOLD), paint("TAMAÑO", BOLD), paint("RAMA", BOLD));
+            println!(
+                "  {:<26} {:<18} {:<10} {:<12} {:<10}",
+                paint("ID", BOLD),
+                paint("ETIQUETA", BOLD),
+                paint("ARCHIVOS", BOLD),
+                paint("TAMAÑO", BOLD),
+                paint("RAMA", BOLD)
+            );
             println!("  {}", "─".repeat(80));
             for s in &list {
                 let lbl = s.label.as_deref().unwrap_or("—");
                 let size_str = format!("{} KiB", s.total_bytes / 1024);
                 let branch_str = s.git_branch.as_deref().unwrap_or("—");
-                println!("  {:<26} {:<18} {:<10} {:<12} {:<10}",
-                    paint(&s.id, CYAN), lbl, s.files_count, size_str, branch_str);
+                println!(
+                    "  {:<26} {:<18} {:<10} {:<12} {:<10}",
+                    paint(&s.id, CYAN),
+                    lbl,
+                    s.files_count,
+                    size_str,
+                    branch_str
+                );
             }
-            println!("\n  Total: {} instantánea(s) disponibles para restauración inmediata.\n", list.len());
+            println!(
+                "\n  Total: {} instantánea(s) disponibles para restauración inmediata.\n",
+                list.len()
+            );
             Ok(())
         }
         "restore" | "restaurar" | "revert" => {
@@ -2496,7 +2716,13 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
             let create_rescue = !args.iter().any(|a| a == "--no-rescue");
 
-            println!("\n{}", paint("⏪ antOS Time Machine · Restaurando Estado del Entorno (T20.4)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "⏪ antOS Time Machine · Restaurando Estado del Entorno (T20.4)",
+                    BOLD
+                )
+            );
             println!("  Objetivo: «{}»", paint(id_or_label, CYAN));
 
             let res = crate::time_machine::TimeMachineEngine::restore_snapshot(
@@ -2506,18 +2732,45 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
                 create_rescue,
             )?;
 
-            println!("  {} {}", paint("Instantánea Restaurada:", GREEN), res.snapshot_id);
+            println!(
+                "  {} {}",
+                paint("Instantánea Restaurada:", GREEN),
+                res.snapshot_id
+            );
             if let Some(ref rescue) = res.rescue_snapshot_id {
-                println!("  {} [{}]", paint("Snapshot de Rescate Creado:", YELLOW), rescue);
+                println!(
+                    "  {} [{}]",
+                    paint("Snapshot de Rescate Creado:", YELLOW),
+                    rescue
+                );
             }
-            println!("  {} {} archivos actualizados / {}", paint("Operaciones de Archivo:", BOLD), res.files_restored, paint(&format!("{} archivos eliminados (untracked)", res.files_deleted), DIM));
+            println!(
+                "  {} {} archivos actualizados / {}",
+                paint("Operaciones de Archivo:", BOLD),
+                res.files_restored,
+                paint(
+                    &format!("{} archivos eliminados (untracked)", res.files_deleted),
+                    DIM
+                )
+            );
             if !res.services_restored.is_empty() {
-                println!("  {} {}", paint("Servicios Restaurados:", YELLOW), res.services_restored.join(", "));
+                println!(
+                    "  {} {}",
+                    paint("Servicios Restaurados:", YELLOW),
+                    res.services_restored.join(", ")
+                );
             }
             if res.memory_graph_restored {
-                println!("  {} Grafo vectorial reestablecido", paint("Memoria Semántica:", CYAN));
+                println!(
+                    "  {} Grafo vectorial reestablecido",
+                    paint("Memoria Semántica:", CYAN)
+                );
             }
-            println!("  {} {} ms", paint("Tiempo de Inversión:", BOLD), res.duration_ms);
+            println!(
+                "  {} {} ms",
+                paint("Tiempo de Inversión:", BOLD),
+                res.duration_ms
+            );
             println!("  ✅ Entorno revertido con éxito al punto exacto capturado.\n");
             Ok(())
         }
@@ -2526,9 +2779,19 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
             let Some(id_or_label) = target else {
                 bail!("Uso: antos snapshot delete <id|etiqueta>");
             };
-            println!("\n{}", paint("🗑️ antOS Time Machine · Eliminando Instantánea (T20.4)", BOLD));
-            let deleted = crate::time_machine::TimeMachineEngine::delete_snapshot(&ctx.state, id_or_label)?;
-            println!("  Instantánea [{}] eliminada correctamente y espacio liberado.\n", paint(&deleted, CYAN));
+            println!(
+                "\n{}",
+                paint(
+                    "🗑️ antOS Time Machine · Eliminando Instantánea (T20.4)",
+                    BOLD
+                )
+            );
+            let deleted =
+                crate::time_machine::TimeMachineEngine::delete_snapshot(&ctx.state, id_or_label)?;
+            println!(
+                "  Instantánea [{}] eliminada correctamente y espacio liberado.\n",
+                paint(&deleted, CYAN)
+            );
             Ok(())
         }
         _ => {
@@ -2571,10 +2834,18 @@ pub fn cmd_bench(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            println!("\n{}", paint("⚡ antOS Bench Diff · Comparador de Rendimiento en Worktrees (T21.1)", BOLD));
-            println!("  Comparando contra rama base: «{}» (umbral regresión: {:.1}%)",
+            println!(
+                "\n{}",
+                paint(
+                    "⚡ antOS Bench Diff · Comparador de Rendimiento en Worktrees (T21.1)",
+                    BOLD
+                )
+            );
+            println!(
+                "  Comparando contra rama base: «{}» (umbral regresión: {:.1}%)",
                 paint(against.unwrap_or("master"), CYAN),
-                threshold.unwrap_or(15.0));
+                threshold.unwrap_or(15.0)
+            );
 
             let report = crate::bench::BenchEngine::compare_benchmark(
                 &ctx.workspace,
@@ -2584,14 +2855,20 @@ pub fn cmd_bench(ctx: &Ctx, args: &[String]) -> Result<()> {
             )?;
 
             println!("\n  {} [{}]", paint("ID Comparación:", BOLD), report.id);
-            println!("  {} vs {}", paint(&report.base_branch, DIM), paint(&report.target_branch, CYAN));
+            println!(
+                "  {} vs {}",
+                paint(&report.base_branch, DIM),
+                paint(&report.target_branch, CYAN)
+            );
             println!("  {}", "─".repeat(84));
-            println!("  {:<26} {:<14} {:<14} {:<12} {}",
+            println!(
+                "  {:<26} {:<14} {:<14} {:<12} {}",
                 paint("BENCHMARK", BOLD),
                 paint("BASE (MEDIA)", BOLD),
                 paint("OBJETIVO", BOLD),
                 paint("VARIACIÓN Δ", BOLD),
-                paint("ESTADO", BOLD));
+                paint("ESTADO", BOLD)
+            );
             println!("  {}", "─".repeat(84));
 
             for c in &report.comparisons {
@@ -2610,73 +2887,113 @@ pub fn cmd_bench(ctx: &Ctx, args: &[String]) -> Result<()> {
                     paint("ÓPTIMO", GREEN)
                 };
 
-                println!("  {:<26} {:<14} {:<14} {:<12} {}",
+                println!(
+                    "  {:<26} {:<14} {:<14} {:<12} {}",
                     paint(&c.name, CYAN),
                     format!("{} ns", c.base_mean_ns),
                     format!("{} ns", c.target_mean_ns),
                     color_delta,
-                    status_badge);
+                    status_badge
+                );
             }
             println!("  {}", "─".repeat(84));
-            println!("\n  {} {}", paint("Veredicto Auditor antFlow:", BOLD), report.auditor_verdict);
+            println!(
+                "\n  {} {}",
+                paint("Veredicto Auditor antFlow:", BOLD),
+                report.auditor_verdict
+            );
             println!();
             Ok(())
         }
         "history" | "historial" | "hist" => {
             let history = crate::bench::BenchEngine::load_history(&ctx.state);
-            println!("\n{}", paint("📈 antOS Bench · Historial de Rendimiento Continuo (T21.1)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "📈 antOS Bench · Historial de Rendimiento Continuo (T21.1)",
+                    BOLD
+                )
+            );
             if history.is_empty() {
                 println!("  No hay registros de benchmarks previos en .antos/bench_history.json\n");
                 println!("  Ejecuta uno con: antos bench\n");
                 return Ok(());
             }
 
-            println!("  {:<22} {:<16} {:<10} {:<14} {}",
-                paint("ID", BOLD), paint("RAMA", BOLD), paint("SUITE", BOLD), paint("MÉTRICAS", BOLD), paint("DURACIÓN", BOLD));
+            println!(
+                "  {:<22} {:<16} {:<10} {:<14} {}",
+                paint("ID", BOLD),
+                paint("RAMA", BOLD),
+                paint("SUITE", BOLD),
+                paint("MÉTRICAS", BOLD),
+                paint("DURACIÓN", BOLD)
+            );
             println!("  {}", "─".repeat(75));
             for h in &history {
-                println!("  {:<22} {:<16} {:<10} {:<14} {} ms",
+                println!(
+                    "  {:<22} {:<16} {:<10} {:<14} {} ms",
                     paint(&h.id, CYAN),
                     h.branch,
                     h.suite_name,
                     format!("{} pruebas", h.metrics.len()),
-                    h.total_duration_ms);
+                    h.total_duration_ms
+                );
             }
             println!("\n  Total: {} corridas registradas.\n", history.len());
             Ok(())
         }
         _ => {
-            let target = if sub != "run" { Some(sub) } else { args.get(1).map(String::as_str) };
-            println!("\n{}", paint("⚡ antOS Continuous Benchmarking · Ejecución de Suite (T21.1)", BOLD));
+            let target = if sub != "run" {
+                Some(sub)
+            } else {
+                args.get(1).map(String::as_str)
+            };
+            println!(
+                "\n{}",
+                paint(
+                    "⚡ antOS Continuous Benchmarking · Ejecución de Suite (T21.1)",
+                    BOLD
+                )
+            );
             if let Some(t) = target {
                 println!("  Objetivo específico: «{}»", paint(t, CYAN));
             }
 
-            let report = crate::bench::BenchEngine::run_benchmark(
-                &ctx.workspace,
-                &ctx.state,
-                target,
-            )?;
+            let report =
+                crate::bench::BenchEngine::run_benchmark(&ctx.workspace, &ctx.state, target)?;
 
             println!("  {} [{}]", paint("ID Ejecución:", BOLD), report.id);
-            println!("  {} {} ({})", paint("Contexto Git:", BOLD), report.branch, report.commit.as_deref().unwrap_or("—"));
-            println!("  {} {} ms\n", paint("Tiempo Total:", BOLD), report.total_duration_ms);
+            println!(
+                "  {} {} ({})",
+                paint("Contexto Git:", BOLD),
+                report.branch,
+                report.commit.as_deref().unwrap_or("—")
+            );
+            println!(
+                "  {} {} ms\n",
+                paint("Tiempo Total:", BOLD),
+                report.total_duration_ms
+            );
 
-            println!("  {:<26} {:<12} {:<12} {:<12} {:<14}",
+            println!(
+                "  {:<26} {:<12} {:<12} {:<12} {:<14}",
                 paint("MÉTRICA", BOLD),
                 paint("MEDIA", BOLD),
                 paint("P95", BOLD),
                 paint("P99", BOLD),
-                paint("RENDIMIENTO", BOLD));
+                paint("RENDIMIENTO", BOLD)
+            );
             println!("  {}", "─".repeat(78));
 
             for m in &report.metrics {
-                println!("  {:<26} {:<12} {:<12} {:<12} {:<14}",
+                println!(
+                    "  {:<26} {:<12} {:<12} {:<12} {:<14}",
                     paint(&m.name, CYAN),
                     format!("{} ns", m.mean_ns),
                     format!("{} ns", m.p95_ns),
                     format!("{} ns", m.p99_ns),
-                    format!("{:.0} ops/s", m.ops_per_sec));
+                    format!("{:.0} ops/s", m.ops_per_sec)
+                );
             }
             println!("  {}\n", "─".repeat(78));
             Ok(())
@@ -2690,49 +3007,83 @@ pub fn cmd_issue(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("list");
     match sub {
         "list" | "ls" => {
-            println!("\n{}", paint("🐙 antOS Git Forge · Issues Abiertos en Repositorio Remoto (T21.2)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "🐙 antOS Git Forge · Issues Abiertos en Repositorio Remoto (T21.2)",
+                    BOLD
+                )
+            );
             let issues = crate::forge::ForgeEngine::list_issues(&ctx.workspace, &ctx.state)?;
             if issues.is_empty() {
                 println!("  No se encontraron issues abiertos en el repositorio remoto.\n");
                 return Ok(());
             }
 
-            println!("  {:<8} {:<42} {:<16} {}",
+            println!(
+                "  {:<8} {:<42} {:<16} {}",
                 paint("NUM", BOLD),
                 paint("TÍTULO", BOLD),
                 paint("AUTOR", BOLD),
-                paint("ETIQUETAS", BOLD));
+                paint("ETIQUETAS", BOLD)
+            );
             println!("  {}", "─".repeat(84));
 
             for issue in &issues {
-                let tags = if issue.labels.is_empty() { "—".to_string() } else { issue.labels.join(", ") };
-                println!("  #{:<7} {:<42} @{:<15} {}",
+                let tags = if issue.labels.is_empty() {
+                    "—".to_string()
+                } else {
+                    issue.labels.join(", ")
+                };
+                println!(
+                    "  #{:<7} {:<42} @{:<15} {}",
                     paint(&issue.number.to_string(), CYAN),
-                    if issue.title.len() > 40 { format!("{}...", &issue.title[..37]) } else { issue.title.clone() },
+                    if issue.title.len() > 40 {
+                        format!("{}...", &issue.title[..37])
+                    } else {
+                        issue.title.clone()
+                    },
                     issue.author,
-                    paint(&tags, DIM));
+                    paint(&tags, DIM)
+                );
             }
             println!("  {}", "─".repeat(84));
-            println!("\n  Importa un issue a ticket técnico local con: antos issue import <numero>\n");
+            println!(
+                "\n  Importa un issue a ticket técnico local con: antos issue import <numero>\n"
+            );
             Ok(())
         }
         "import" | "sync" => {
             let id = args.get(1).map(String::as_str).unwrap_or("42");
-            println!("\n{}", paint("📥 antOS Git Forge · Importando Issue Remoto (T21.2)", BOLD));
+            println!(
+                "\n{}",
+                paint("📥 antOS Git Forge · Importando Issue Remoto (T21.2)", BOLD)
+            );
 
-            let (ticket_id, path, title) = crate::forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, id)?;
+            let (ticket_id, path, title) =
+                crate::forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, id)?;
 
             println!("  Ticket Creado: [{}]", paint(&ticket_id, CYAN));
             println!("  Título:        {}", title);
-            println!("  Ubicación:     {}", paint(&path.display().to_string(), DIM));
-            println!("\n  El issue ha sido estructurado con criterios de aceptación en docs/tickets/.");
-            println!("  Despáchalo al equipo con: antos agent run {}\n", ticket_id);
+            println!(
+                "  Ubicación:     {}",
+                paint(&path.display().to_string(), DIM)
+            );
+            println!(
+                "\n  El issue ha sido estructurado con criterios de aceptación en docs/tickets/."
+            );
+            println!(
+                "  Despáchalo al equipo con: antos agent run {}\n",
+                ticket_id
+            );
             Ok(())
         }
         _ => {
             println!("\nUso:");
             println!("  antos issue list                  Lista issues abiertos en GitHub/GitLab");
-            println!("  antos issue import <id_o_url>     Importa issue y genera ticket técnico local\n");
+            println!(
+                "  antos issue import <id_o_url>     Importa issue y genera ticket técnico local\n"
+            );
             Ok(())
         }
     }
@@ -2768,7 +3119,13 @@ pub fn cmd_pr(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            println!("\n{}", paint("🚀 antOS Git Forge · Publicando Pull Request / Merge Request (T21.2)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "🚀 antOS Git Forge · Publicando Pull Request / Merge Request (T21.2)",
+                    BOLD
+                )
+            );
             let pr = crate::forge::ForgeEngine::create_pull_request(
                 &ctx.workspace,
                 &ctx.state,
@@ -2777,23 +3134,63 @@ pub fn cmd_pr(ctx: &Ctx, args: &[String]) -> Result<()> {
                 draft,
             )?;
 
-            println!("  PR #{}:      {}", paint(&pr.number.to_string(), CYAN), paint(&pr.title, BOLD));
-            println!("  Rama:        {} -> {}", paint(&pr.head_branch, DIM), paint(&pr.base_branch, CYAN));
-            println!("  Modo:        {}", if pr.draft { "Borrador (Draft PR)" } else { "Listo para Revisión (Ready)" });
+            println!(
+                "  PR #{}:      {}",
+                paint(&pr.number.to_string(), CYAN),
+                paint(&pr.title, BOLD)
+            );
+            println!(
+                "  Rama:        {} -> {}",
+                paint(&pr.head_branch, DIM),
+                paint(&pr.base_branch, CYAN)
+            );
+            println!(
+                "  Modo:        {}",
+                if pr.draft {
+                    "Borrador (Draft PR)"
+                } else {
+                    "Listo para Revisión (Ready)"
+                }
+            );
             println!("  Enlace Web:  {}", paint(&pr.url, CYAN));
             println!("\n  Pull Request formulado y publicado exitosamente con certificación del Auditor.\n");
             Ok(())
         }
         "status" | "info" => {
-            let pr_num = args.get(1).and_then(|n| n.trim_start_matches('#').parse::<u64>().ok());
-            println!("\n{}", paint("🔍 antOS Git Forge · Estado de Pull Request Remoto (T21.2)", BOLD));
+            let pr_num = args
+                .get(1)
+                .and_then(|n| n.trim_start_matches('#').parse::<u64>().ok());
+            println!(
+                "\n{}",
+                paint(
+                    "🔍 antOS Git Forge · Estado de Pull Request Remoto (T21.2)",
+                    BOLD
+                )
+            );
 
             let status = crate::forge::ForgeEngine::get_pull_request_status(&ctx.state, pr_num)?;
 
-            println!("  PR #{}:      {}", paint(&status.number.to_string(), CYAN), status.title);
-            println!("  Estado:      {}", paint(&status.state.to_uppercase(), GREEN));
-            println!("  Fusión:      {}", if status.mergeable { "Limpia (Sin conflictos)" } else { "Conflictos detectados" });
-            println!("  CI Checks:   {}", status.ci_status.as_deref().unwrap_or("En progreso"));
+            println!(
+                "  PR #{}:      {}",
+                paint(&status.number.to_string(), CYAN),
+                status.title
+            );
+            println!(
+                "  Estado:      {}",
+                paint(&status.state.to_uppercase(), GREEN)
+            );
+            println!(
+                "  Fusión:      {}",
+                if status.mergeable {
+                    "Limpia (Sin conflictos)"
+                } else {
+                    "Conflictos detectados"
+                }
+            );
+            println!(
+                "  CI Checks:   {}",
+                status.ci_status.as_deref().unwrap_or("En progreso")
+            );
             println!("  URL:         {}\n", paint(&status.url, DIM));
             Ok(())
         }
@@ -2852,9 +3249,16 @@ pub fn cmd_doc(ctx: &Ctx, args: &[String]) -> Result<()> {
                     paint(out_path, CYAN)
                 );
             } else {
-                println!("\n{}", paint("📐 antOS Living Architecture · Diagramas Vivos de Arquitectura (T21.3)", BOLD));
+                println!(
+                    "\n{}",
+                    paint(
+                        "📐 antOS Living Architecture · Diagramas Vivos de Arquitectura (T21.3)",
+                        BOLD
+                    )
+                );
                 println!("  Tipo:         {}", paint(report.kind.name(), CYAN));
-                println!("  Topología:    {} crates | {} módulos demonio | {} capacidades",
+                println!(
+                    "  Topología:    {} crates | {} módulos demonio | {} capacidades",
                     paint(&report.crates_count.to_string(), CYAN),
                     paint(&report.modules_count.to_string(), CYAN),
                     paint(&report.caps_count.to_string(), CYAN)
@@ -2865,12 +3269,24 @@ pub fn cmd_doc(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         "sync" => {
             let target_file = args.get(1).map(String::as_str);
-            println!("\n{}", paint("🔄 antOS Doc Sync · Sincronizando Documentación Viva de Arquitectura (T21.3)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "🔄 antOS Doc Sync · Sincronizando Documentación Viva de Arquitectura (T21.3)",
+                    BOLD
+                )
+            );
 
             let report = crate::doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file)?;
 
-            println!("  Archivos escaneados:    {}", paint(&report.files_scanned.to_string(), CYAN));
-            println!("  Archivos actualizados:  {}", paint(&report.files_updated.to_string(), GREEN));
+            println!(
+                "  Archivos escaneados:    {}",
+                paint(&report.files_scanned.to_string(), CYAN)
+            );
+            println!(
+                "  Archivos actualizados:  {}",
+                paint(&report.files_updated.to_string(), GREEN)
+            );
             for p in &report.updated_paths {
                 println!("    • {}", paint(p, CYAN));
             }
@@ -2879,7 +3295,13 @@ pub fn cmd_doc(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         "check" => {
             let target_file = args.get(1).map(String::as_str);
-            println!("\n{}", paint("🔍 antOS Doc Check · Verificación de Sincronización Arquitectónica (T21.3)", BOLD));
+            println!(
+                "\n{}",
+                paint(
+                    "🔍 antOS Doc Check · Verificación de Sincronización Arquitectónica (T21.3)",
+                    BOLD
+                )
+            );
 
             match crate::doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file) {
                 Ok(report) => {
@@ -2895,7 +3317,9 @@ pub fn cmd_doc(ctx: &Ctx, args: &[String]) -> Result<()> {
         _ => {
             println!("\nUso:");
             println!("  antos doc arch [--type components|flow|antflow|all] [--output <file>]");
-            println!("  antos doc sync [--file <path>]    Sincroniza e incrusta diagramas en markdown");
+            println!(
+                "  antos doc sync [--file <path>]    Sincroniza e incrusta diagramas en markdown"
+            );
             println!("  antos doc check [--file <path>]   Verifica modo CI si la doc está sincronizada\n");
             Ok(())
         }
@@ -3034,4 +3458,3 @@ pub fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // -------------------------------------------------------- disk & partitioning (T15.1)
-

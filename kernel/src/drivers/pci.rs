@@ -3,9 +3,9 @@
 //! Provides PCI configuration space enumeration via x86 I/O ports 0xCF8 (CONFIG_ADDRESS)
 //! and 0xCFC (CONFIG_DATA), BAR decoding, and bus mastering configuration.
 
-use alloc::vec::Vec;
 #[cfg(target_arch = "x86_64")]
 use crate::arch::x86_64::port::{inl, inw, outl, outw};
+use alloc::vec::Vec;
 
 #[cfg(target_arch = "x86_64")]
 const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
@@ -129,7 +129,12 @@ pub fn decode_bar(bar_lo: u32, bar_hi: u32) -> (PciBar, bool) {
         return (PciBar::None, false);
     }
     if bar_lo & 1 == 1 {
-        return (PciBar::Io { port: (bar_lo & 0xFFFC) as u16 }, false);
+        return (
+            PciBar::Io {
+                port: (bar_lo & 0xFFFC) as u16,
+            },
+            false,
+        );
     }
     let prefetchable = bar_lo & 0x08 != 0;
     let is_64bit = (bar_lo >> 1) & 0x03 == 0x02;
@@ -295,8 +300,8 @@ pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
         // probe (see read_config_u32) and extract the requested halfword.
         let aligned = addr & !0b11;
         let shift = (addr & 0b10) * 8;
-        let word = crate::arch::aarch64::exceptions::safe_probe_read_u32(aligned)
-            .unwrap_or(0xFFFF_FFFF);
+        let word =
+            crate::arch::aarch64::exceptions::safe_probe_read_u32(aligned).unwrap_or(0xFFFF_FFFF);
         ((word >> shift) & 0xFFFF) as u16
     }
     #[cfg(not(target_arch = "aarch64"))]
@@ -487,7 +492,6 @@ pub fn find_storage_controllers() -> Vec<PciDevice> {
         .collect()
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,7 +505,10 @@ mod tests {
         assert_eq!(ecam_offset(0, 0, 5, 0), 5 << 12);
         assert_eq!(ecam_offset(0, 0, 0, 0x3C), 0x3C);
         assert_eq!(ecam_offset(0, 0, 0, 0x1FFF) & 0xFFF, 0xFFF); // reg masked to 12 bits
-        assert_eq!(ecam_offset(2, 6, 1, 0x10), (2 << 20) | (6 << 15) | (1 << 12) | 0x10);
+        assert_eq!(
+            ecam_offset(2, 6, 1, 0x10),
+            (2 << 20) | (6 << 15) | (1 << 12) | 0x10
+        );
     }
 
     #[test]
@@ -515,11 +522,23 @@ mod tests {
     fn decode_bar_memory32() {
         // 32-bit, non-prefetchable, base 0x1000_0000
         let (bar, two) = decode_bar(0x1000_0000, 0);
-        assert_eq!(bar, PciBar::Memory32 { addr: 0x1000_0000, prefetchable: false });
+        assert_eq!(
+            bar,
+            PciBar::Memory32 {
+                addr: 0x1000_0000,
+                prefetchable: false
+            }
+        );
         assert!(!two);
         // prefetchable bit (0x08)
         let (bar, _) = decode_bar(0x1000_0008, 0);
-        assert_eq!(bar, PciBar::Memory32 { addr: 0x1000_0000, prefetchable: true });
+        assert_eq!(
+            bar,
+            PciBar::Memory32 {
+                addr: 0x1000_0000,
+                prefetchable: true
+            }
+        );
     }
 
     #[test]
@@ -528,7 +547,10 @@ mod tests {
         let (bar, two) = decode_bar(0x8000_0004, 0x0000_0001);
         assert_eq!(
             bar,
-            PciBar::Memory64 { addr: 0x1_8000_0000, prefetchable: false }
+            PciBar::Memory64 {
+                addr: 0x1_8000_0000,
+                prefetchable: false
+            }
         );
         assert!(two);
     }

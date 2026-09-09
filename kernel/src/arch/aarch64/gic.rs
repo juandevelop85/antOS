@@ -422,10 +422,7 @@ mod tests {
 
     #[test]
     fn detects_v3_from_compatible_list() {
-        assert_eq!(
-            gic_version_from_compatible(b"arm,gic-v3\0"),
-            GicVersion::V3
-        );
+        assert_eq!(gic_version_from_compatible(b"arm,gic-v3\0"), GicVersion::V3);
         assert_eq!(
             gic_version_from_compatible(b"arm,gic-v3\0arm,cortex-a15-gic\0"),
             GicVersion::V3
@@ -438,9 +435,15 @@ mod tests {
             gic_version_from_compatible(b"arm,cortex-a15-gic\0"),
             GicVersion::V2
         );
-        assert_eq!(gic_version_from_compatible(b"arm,gic-400\0"), GicVersion::V2);
+        assert_eq!(
+            gic_version_from_compatible(b"arm,gic-400\0"),
+            GicVersion::V2
+        );
         assert_eq!(gic_version_from_compatible(b""), GicVersion::V2);
-        assert_eq!(gic_version_from_compatible(b"something-else"), GicVersion::V2);
+        assert_eq!(
+            gic_version_from_compatible(b"something-else"),
+            GicVersion::V2
+        );
     }
 
     #[test]

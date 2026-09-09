@@ -99,15 +99,35 @@ pub fn init() {
         set(idt, 0, divide_error as *const () as usize, 0);
         set(idt, 3, breakpoint as *const () as usize, 0);
         set(idt, 6, invalid_opcode as *const () as usize, 0);
-        set(idt, 8, double_fault as *const () as usize, gdt::DOUBLE_FAULT_IST_INDEX as u8 + 1);
+        set(
+            idt,
+            8,
+            double_fault as *const () as usize,
+            gdt::DOUBLE_FAULT_IST_INDEX as u8 + 1,
+        );
         set(idt, 13, general_protection as *const () as usize, 0);
         set(idt, 14, page_fault as *const () as usize, 0);
 
         // Hardware interrupts.
-        set(idt, TIMER_VECTOR as usize, timer_interrupt_entry as *const () as usize, 0);
-        set(idt, KEYBOARD_VECTOR as usize, keyboard as *const () as usize, 0);
+        set(
+            idt,
+            TIMER_VECTOR as usize,
+            timer_interrupt_entry as *const () as usize,
+            0,
+        );
+        set(
+            idt,
+            KEYBOARD_VECTOR as usize,
+            keyboard as *const () as usize,
+            0,
+        );
         set(idt, MOUSE_VECTOR as usize, mouse as *const () as usize, 0);
-        set(idt, SPURIOUS_VECTOR as usize, spurious as *const () as usize, 0);
+        set(
+            idt,
+            SPURIOUS_VECTOR as usize,
+            spurious as *const () as usize,
+            0,
+        );
 
         let pointer = DescriptorTablePointer {
             limit: (core::mem::size_of_val(idt) - 1) as u16,
@@ -211,15 +231,24 @@ fn fault(frame: &InterruptStackFrame, description: core::fmt::Arguments) -> ! {
 }
 
 extern "x86-interrupt" fn breakpoint(frame: InterruptStackFrame) {
-    println!("  exception · breakpoint at {:#x}", frame.instruction_pointer);
+    println!(
+        "  exception · breakpoint at {:#x}",
+        frame.instruction_pointer
+    );
 }
 
 extern "x86-interrupt" fn divide_error(frame: InterruptStackFrame) {
-    fault(&frame, format_args!("divide by zero at {:#x}", frame.instruction_pointer));
+    fault(
+        &frame,
+        format_args!("divide by zero at {:#x}", frame.instruction_pointer),
+    );
 }
 
 extern "x86-interrupt" fn invalid_opcode(frame: InterruptStackFrame) {
-    fault(&frame, format_args!("invalid opcode at {:#x}", frame.instruction_pointer));
+    fault(
+        &frame,
+        format_args!("invalid opcode at {:#x}", frame.instruction_pointer),
+    );
 }
 
 extern "x86-interrupt" fn general_protection(frame: InterruptStackFrame, error_code: u64) {

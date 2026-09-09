@@ -148,8 +148,6 @@ pub struct DiffFile {
     pub hunks: Vec<DiffHunk>,
 }
 
-
-
 // ---------------------------------------------------------------- proposal
 
 /// What is presented to a user before touching anything.
@@ -216,4 +214,3 @@ pub type Radio = BlastRadius;
 pub type Recinto = Enclosure;
 #[deprecated(note = "use ExecutionResult")]
 pub type Resultado = ExecutionResult;
-

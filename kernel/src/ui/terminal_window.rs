@@ -4,12 +4,12 @@
 //! vertical scrolling, ANSI color escape sequence parsing, interactive prompt,
 //! and bidirectional tie-in to the sovereign userspace shell (`/bin/init`).
 
-use alloc::string::String;
-use alloc::vec::Vec;
 use super::color::{palette, Color};
 use super::rect::Rect;
 use super::surface::Surface;
 use crate::console::font::{FONT_HEIGHT, FONT_WIDTH};
+use alloc::string::String;
+use alloc::vec::Vec;
 
 /// A single rendered line of text in the terminal window with associated color attribute.
 #[derive(Debug, Clone)]
@@ -57,11 +57,15 @@ impl TerminalWindow {
             color: palette::ACCENT_CYAN,
         });
         win.lines.push(TerminalLine {
-            text: String::from("Input Subsystem: xHCI USB Keyboard/Mouse & VirtIO event queue active"),
+            text: String::from(
+                "Input Subsystem: xHCI USB Keyboard/Mouse & VirtIO event queue active",
+            ),
             color: palette::ACCENT_GREEN,
         });
         win.lines.push(TerminalLine {
-            text: String::from("------------------------------------------------------------------------"),
+            text: String::from(
+                "------------------------------------------------------------------------",
+            ),
             color: palette::STATUSBAR_BORDER,
         });
 
@@ -272,10 +276,15 @@ impl TerminalWindow {
             }
         }
 
-
         // 6. Interactive current line with cursor
         if line_y + (FONT_HEIGHT as i32) < r.bottom() - 6 {
-            surface.draw_text(left_padding, line_y, &self.current_line, self.current_color, None);
+            surface.draw_text(
+                left_padding,
+                line_y,
+                &self.current_line,
+                self.current_color,
+                None,
+            );
 
             let cursor_x = left_padding + (self.current_line.len() * FONT_WIDTH) as i32;
             let cursor_color = if self.focused {
@@ -340,4 +349,3 @@ mod tests {
         assert_eq!(term.input_text(), "");
     }
 }
-

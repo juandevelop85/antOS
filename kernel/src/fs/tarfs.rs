@@ -3,13 +3,13 @@
 //! Parses standard POSIX USTAR archives from memory or block devices,
 //! indexing files and providing zero-copy or sector-buffered file reads.
 
+use super::vfs::{DirEntry, FileInfo, FsError};
+#[cfg(target_arch = "x86_64")]
+use crate::drivers::virtio_blk;
 use alloc::string::{String, ToString};
 #[cfg(target_arch = "x86_64")]
 use alloc::vec;
 use alloc::vec::Vec;
-#[cfg(target_arch = "x86_64")]
-use crate::drivers::virtio_blk;
-use super::vfs::{DirEntry, FileInfo, FsError};
 
 /// Storage backing for the tar filesystem.
 #[derive(Debug, Clone, Copy)]
@@ -61,8 +61,13 @@ impl TarFs {
                 // header field, so a corrupted or hostile value must not be
                 // able to wrap `offset` around and desynchronize the parser
                 // from the real layout of the file.
-                let block_bytes = size.div_ceil(512).checked_mul(512).ok_or(FsError::IoError)?;
-                offset = data_offset.checked_add(block_bytes).ok_or(FsError::IoError)?;
+                let block_bytes = size
+                    .div_ceil(512)
+                    .checked_mul(512)
+                    .ok_or(FsError::IoError)?;
+                offset = data_offset
+                    .checked_add(block_bytes)
+                    .ok_or(FsError::IoError)?;
             } else {
                 offset += 512;
             }
@@ -194,7 +199,9 @@ impl TarFs {
         for e in &self.entries {
             if e.path.starts_with(&prefix) && e.path != norm_dir {
                 let remainder = &e.path[prefix.len()..];
-                if !remainder.contains('/') || (e.is_dir && remainder.chars().filter(|&c| c == '/').count() == 0) {
+                if !remainder.contains('/')
+                    || (e.is_dir && remainder.chars().filter(|&c| c == '/').count() == 0)
+                {
                     let name = remainder.trim_matches('/').to_string();
                     if !name.is_empty() && !results.iter().any(|r: &DirEntry| r.name == name) {
                         results.push(DirEntry {
@@ -337,7 +344,10 @@ mod tests {
     #[test]
     fn test_normalize_path_never_escapes_the_root() {
         assert_eq!(normalize_path("../../etc/passwd"), "/etc/passwd");
-        assert_eq!(normalize_path("../../../../../../etc/shadow"), "/etc/shadow");
+        assert_eq!(
+            normalize_path("../../../../../../etc/shadow"),
+            "/etc/shadow"
+        );
         assert_eq!(normalize_path(".."), "/");
         assert_eq!(normalize_path("a/../.."), "/");
     }
@@ -369,6 +379,9 @@ mod tests {
             is_dir: false,
             sector_or_offset: 8,
         };
-        assert!(fs.read_file(&entry).is_err(), "start + size overflow must be rejected, not wrap into a valid slice");
+        assert!(
+            fs.read_file(&entry).is_err(),
+            "start + size overflow must be rejected, not wrap into a valid slice"
+        );
     }
 }

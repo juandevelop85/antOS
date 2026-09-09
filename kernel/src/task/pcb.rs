@@ -238,12 +238,7 @@ pub struct ProcessControlBlock {
 }
 
 impl ProcessControlBlock {
-    pub fn new(
-        pid: u64,
-        name: &'static str,
-        page_table_root: u64,
-        is_user: bool,
-    ) -> Self {
+    pub fn new(pid: u64, name: &'static str, page_table_root: u64, is_user: bool) -> Self {
         Self {
             pid,
             name,

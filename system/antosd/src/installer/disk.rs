@@ -35,7 +35,9 @@ impl DiskManager {
         });
         if found.is_none() {
             found = Self::synthetic_disk_devices().into_iter().find(|d| {
-                d.path == device_path || d.path.ends_with(device_path) || device_path.ends_with(&d.path)
+                d.path == device_path
+                    || d.path.ends_with(device_path)
+                    || device_path.ends_with(&d.path)
             });
         }
         Ok(found)
@@ -46,11 +48,18 @@ impl DiskManager {
         let disk = match Self::inspect_disk(device_path)? {
             Some(d) => d,
             None => {
-                bail!("Dispositivo de almacenamiento «{}» no encontrado", device_path);
+                bail!(
+                    "Dispositivo de almacenamiento «{}» no encontrado",
+                    device_path
+                );
             }
         };
 
-        let sector_size = if disk.sector_size > 0 { disk.sector_size as u64 } else { 512 };
+        let sector_size = if disk.sector_size > 0 {
+            disk.sector_size as u64
+        } else {
+            512
+        };
         let disk_bytes = disk.size_bytes;
 
         if disk_bytes < 8 * 1024 * 1024 * 1024 {
@@ -114,13 +123,28 @@ impl DiskManager {
     ) -> Result<String> {
         if dry_run {
             let mut summary = Vec::new();
-            summary.push(format!("Simulación de particionado GPT para «{}» (Dry-Run):", device_path));
-            summary.push(format!("  • Alineación inicial:  Sector LBA {}", plan.aligned_start_sector));
-            summary.push(format!("  • Partición 1 (ESP):   {} MiB (FAT32, Type: EFI System)", plan.efi_partition_bytes / (1024 * 1024)));
+            summary.push(format!(
+                "Simulación de particionado GPT para «{}» (Dry-Run):",
+                device_path
+            ));
+            summary.push(format!(
+                "  • Alineación inicial:  Sector LBA {}",
+                plan.aligned_start_sector
+            ));
+            summary.push(format!(
+                "  • Partición 1 (ESP):   {} MiB (FAT32, Type: EFI System)",
+                plan.efi_partition_bytes / (1024 * 1024)
+            ));
             if plan.swap_partition_bytes > 0 {
-                summary.push(format!("  • Partición 2 (Swap):  {} MiB (Linux Swap)", plan.swap_partition_bytes / (1024 * 1024)));
+                summary.push(format!(
+                    "  • Partición 2 (Swap):  {} MiB (Linux Swap)",
+                    plan.swap_partition_bytes / (1024 * 1024)
+                ));
             }
-            summary.push(format!("  • Partición 3 (Raíz):  {} MiB (ext4/btrfs, Type: Linux Root)", plan.root_partition_bytes / (1024 * 1024)));
+            summary.push(format!(
+                "  • Partición 3 (Raíz):  {} MiB (ext4/btrfs, Type: Linux Root)",
+                plan.root_partition_bytes / (1024 * 1024)
+            ));
             for w in &plan.warnings {
                 summary.push(format!("  ! {}", w));
             }
@@ -137,16 +161,27 @@ impl DiskManager {
             if !status.success() {
                 bail!("Fallo la inicialización de tabla GPT en {}", device_path);
             }
-            return Ok(format!("✓ Tabla de particiones GPT creada con éxito en {}", device_path));
+            return Ok(format!(
+                "✓ Tabla de particiones GPT creada con éxito en {}",
+                device_path
+            ));
         }
 
-        Ok(format!("✓ Particionado simulado para {} (herramienta parted no presente en el anfitrión)", device_path))
+        Ok(format!(
+            "✓ Particionado simulado para {} (herramienta parted no presente en el anfitrión)",
+            device_path
+        ))
     }
 
     // --- Sondeo de Linux (`lsblk`) ---
     fn probe_linux_lsblk() -> Result<Vec<DiskDevice>> {
         let out = Command::new("lsblk")
-            .args(["-J", "-b", "-o", "NAME,PATH,MODEL,SIZE,TYPE,FSTYPE,MOUNTPOINTS,PARTUUID,RO"])
+            .args([
+                "-J",
+                "-b",
+                "-o",
+                "NAME,PATH,MODEL,SIZE,TYPE,FSTYPE,MOUNTPOINTS,PARTUUID,RO",
+            ])
             .output()?;
 
         if !out.status.success() {
@@ -168,8 +203,17 @@ impl DiskManager {
                 continue;
             }
 
-            let path = dev.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let model = dev.get("model").and_then(|v| v.as_str()).unwrap_or("Generic Disk").trim().to_string();
+            let path = dev
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let model = dev
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Generic Disk")
+                .trim()
+                .to_string();
             let size_bytes = dev.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
             let is_ro = dev.get("ro").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -181,17 +225,32 @@ impl DiskManager {
                 "sata"
             } else {
                 "block"
-            }.to_string();
+            }
+            .to_string();
 
             let mut partitions = Vec::new();
             if let Some(children) = dev.get("children").and_then(|v| v.as_array()) {
                 for (idx, child) in children.iter().enumerate() {
-                    let c_path = child.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let c_path = child
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let c_size = child.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let c_fs = child.get("fstype").and_then(|v| v.as_str()).map(String::from);
-                    let c_mount = child.get("mountpoints").and_then(|v| v.as_array())
-                        .and_then(|arr| arr.first()).and_then(|v| v.as_str()).map(String::from);
-                    let c_uuid = child.get("partuuid").and_then(|v| v.as_str()).map(String::from);
+                    let c_fs = child
+                        .get("fstype")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let c_mount = child
+                        .get("mountpoints")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    let c_uuid = child
+                        .get("partuuid")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
 
                     let is_efi = c_mount.as_deref() == Some("/boot/efi")
                         || c_mount.as_deref() == Some("/boot")
@@ -227,9 +286,7 @@ impl DiskManager {
 
     // --- Sondeo de macOS (`diskutil`) ---
     fn probe_macos_diskutil() -> Result<Vec<DiskDevice>> {
-        let out = Command::new("diskutil")
-            .arg("list")
-            .output()?;
+        let out = Command::new("diskutil").arg("list").output()?;
 
         if !out.status.success() {
             bail!("diskutil list devolvió error");

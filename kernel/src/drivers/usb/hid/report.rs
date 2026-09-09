@@ -492,12 +492,8 @@ impl HidDevice {
                                 USAGE_X if field.flags.relative => dx += val,
                                 USAGE_Y if field.flags.relative => dy += val,
                                 USAGE_WHEEL if field.flags.relative => wheel += val,
-                                USAGE_X => {
-                                    abs_x = Some(normalize_abs(raw, field.logical_max))
-                                }
-                                USAGE_Y => {
-                                    abs_y = Some(normalize_abs(raw, field.logical_max))
-                                }
+                                USAGE_X => abs_x = Some(normalize_abs(raw, field.logical_max)),
+                                USAGE_Y => abs_y = Some(normalize_abs(raw, field.logical_max)),
                                 USAGE_Z | USAGE_WHEEL => wheel += val,
                                 _ => {}
                             }
@@ -776,7 +772,10 @@ mod tests {
         let report = [0x01, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x20];
         let events = dev.decode(&report);
         assert!(events.contains(&InputEvent::MouseButtonPress(MouseButton::Left)));
-        assert!(events.contains(&InputEvent::MouseAbsolute { x: 0x4000, y: 0x2000 }));
+        assert!(events.contains(&InputEvent::MouseAbsolute {
+            x: 0x4000,
+            y: 0x2000
+        }));
     }
 
     #[test]
@@ -820,7 +819,10 @@ mod tests {
         assert_eq!(mods.usage_min, 0xE0);
         assert_eq!(mods.usage_max, 0xE7);
 
-        let keys = fields.iter().find(|f| !f.flags.variable && !f.flags.constant).unwrap();
+        let keys = fields
+            .iter()
+            .find(|f| !f.flags.variable && !f.flags.constant)
+            .unwrap();
         assert_eq!(keys.bit_offset, 16);
         assert_eq!(keys.bit_size, 8);
         assert_eq!(keys.report_count, 6);

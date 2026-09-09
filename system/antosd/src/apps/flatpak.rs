@@ -4,8 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use antos_protocol::{
+    AppActionResult, AppLaunchResult, AppProgress, AppSearchResult, AppSource, DesktopApp,
+};
 use anyhow::{Context, Result};
-use antos_protocol::{AppActionResult, AppLaunchResult, AppProgress, AppSearchResult, AppSource, DesktopApp};
 
 /// Client for querying, installing, and executing Flatpak applications.
 pub struct FlatpakClient;
@@ -13,7 +15,12 @@ pub struct FlatpakClient;
 impl FlatpakClient {
     /// Detects if the `flatpak` CLI tool is available on the system PATH or standard system locations.
     pub fn is_available() -> bool {
-        if Command::new("flatpak").arg("--version").output().map(|o| o.status.success()).unwrap_or(false) {
+        if Command::new("flatpak")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
             return true;
         }
 
@@ -39,10 +46,21 @@ impl FlatpakClient {
                 name: "Visual Studio Code".to_string(),
                 version: "1.93.0".to_string(),
                 source: AppSource::Flatpak,
-                description: "Code editing. Redefined. High performance editor with Rich IDE features.".to_string(),
+                description:
+                    "Code editing. Redefined. High performance editor with Rich IDE features."
+                        .to_string(),
                 icon: Some("com.visualstudio.code".to_string()),
-                categories: vec!["Development".to_string(), "IDE".to_string(), "TextEditor".to_string()],
-                permissions: vec!["wayland".to_string(), "network".to_string(), "ipc".to_string(), "filesystem=host".to_string()],
+                categories: vec![
+                    "Development".to_string(),
+                    "IDE".to_string(),
+                    "TextEditor".to_string(),
+                ],
+                permissions: vec![
+                    "wayland".to_string(),
+                    "network".to_string(),
+                    "ipc".to_string(),
+                    "filesystem=host".to_string(),
+                ],
                 installed: false,
                 exec_cmd: "flatpak run com.visualstudio.code".to_string(),
             },
@@ -51,10 +69,15 @@ impl FlatpakClient {
                 name: "Mozilla Firefox".to_string(),
                 version: "130.0".to_string(),
                 source: AppSource::Flatpak,
-                description: "Fast, Private & Safe Web Browser with modern Web standards.".to_string(),
+                description: "Fast, Private & Safe Web Browser with modern Web standards."
+                    .to_string(),
                 icon: Some("org.mozilla.firefox".to_string()),
                 categories: vec!["Network".to_string(), "WebBrowser".to_string()],
-                permissions: vec!["wayland".to_string(), "network".to_string(), "pulseaudio".to_string()],
+                permissions: vec![
+                    "wayland".to_string(),
+                    "network".to_string(),
+                    "pulseaudio".to_string(),
+                ],
                 installed: false,
                 exec_cmd: "flatpak run org.mozilla.firefox".to_string(),
             },
@@ -63,7 +86,8 @@ impl FlatpakClient {
                 name: "Google Chrome".to_string(),
                 version: "128.0.6613.119".to_string(),
                 source: AppSource::Flatpak,
-                description: "Fast, secure, and reliable web browser built for the modern web.".to_string(),
+                description: "Fast, secure, and reliable web browser built for the modern web."
+                    .to_string(),
                 icon: Some("com.google.Chrome".to_string()),
                 categories: vec!["Network".to_string(), "WebBrowser".to_string()],
                 permissions: vec!["wayland".to_string(), "network".to_string()],
@@ -75,7 +99,8 @@ impl FlatpakClient {
                 name: "Brave Browser".to_string(),
                 version: "1.69.160".to_string(),
                 source: AppSource::Flatpak,
-                description: "Privacy-first browser with built-in ad and tracker blocking.".to_string(),
+                description: "Privacy-first browser with built-in ad and tracker blocking."
+                    .to_string(),
                 icon: Some("com.brave.Browser".to_string()),
                 categories: vec!["Network".to_string(), "WebBrowser".to_string()],
                 permissions: vec!["wayland".to_string(), "network".to_string()],
@@ -89,8 +114,16 @@ impl FlatpakClient {
                 source: AppSource::Flatpak,
                 description: "Digital music, podcast, and video streaming service.".to_string(),
                 icon: Some("com.spotify.Client".to_string()),
-                categories: vec!["Audio".to_string(), "Music".to_string(), "Player".to_string()],
-                permissions: vec!["wayland".to_string(), "network".to_string(), "pulseaudio".to_string()],
+                categories: vec![
+                    "Audio".to_string(),
+                    "Music".to_string(),
+                    "Player".to_string(),
+                ],
+                permissions: vec![
+                    "wayland".to_string(),
+                    "network".to_string(),
+                    "pulseaudio".to_string(),
+                ],
                 installed: false,
                 exec_cmd: "flatpak run com.spotify.Client".to_string(),
             },
@@ -99,7 +132,8 @@ impl FlatpakClient {
                 name: "VLC Media Player".to_string(),
                 version: "3.0.21".to_string(),
                 source: AppSource::Flatpak,
-                description: "Universal multimedia player and framework for audio and video.".to_string(),
+                description: "Universal multimedia player and framework for audio and video."
+                    .to_string(),
                 icon: Some("org.videolan.VLC".to_string()),
                 categories: vec!["AudioVideo".to_string(), "Player".to_string()],
                 permissions: vec!["wayland".to_string(), "pulseaudio".to_string()],
@@ -111,10 +145,19 @@ impl FlatpakClient {
                 name: "Slack".to_string(),
                 version: "4.39.0".to_string(),
                 source: AppSource::Flatpak,
-                description: "Team communication, channels, and collaborative messaging.".to_string(),
+                description: "Team communication, channels, and collaborative messaging."
+                    .to_string(),
                 icon: Some("com.slack.Slack".to_string()),
-                categories: vec!["Network".to_string(), "Chat".to_string(), "InstantMessaging".to_string()],
-                permissions: vec!["wayland".to_string(), "network".to_string(), "pulseaudio".to_string()],
+                categories: vec![
+                    "Network".to_string(),
+                    "Chat".to_string(),
+                    "InstantMessaging".to_string(),
+                ],
+                permissions: vec![
+                    "wayland".to_string(),
+                    "network".to_string(),
+                    "pulseaudio".to_string(),
+                ],
                 installed: false,
                 exec_cmd: "flatpak run com.slack.Slack".to_string(),
             },
@@ -135,10 +178,15 @@ impl FlatpakClient {
                 name: "Discord".to_string(),
                 version: "0.0.60".to_string(),
                 source: AppSource::Flatpak,
-                description: "Voice, video, and text communication platform for communities.".to_string(),
+                description: "Voice, video, and text communication platform for communities."
+                    .to_string(),
                 icon: Some("com.discordapp.Discord".to_string()),
                 categories: vec!["Network".to_string(), "Chat".to_string()],
-                permissions: vec!["wayland".to_string(), "network".to_string(), "pulseaudio".to_string()],
+                permissions: vec![
+                    "wayland".to_string(),
+                    "network".to_string(),
+                    "pulseaudio".to_string(),
+                ],
                 installed: false,
                 exec_cmd: "flatpak run com.discordapp.Discord".to_string(),
             },
@@ -171,7 +219,8 @@ impl FlatpakClient {
                 name: "GNU Image Manipulation Program".to_string(),
                 version: "2.10.38".to_string(),
                 source: AppSource::Flatpak,
-                description: "Extensible raster graphics editor for photo manipulation.".to_string(),
+                description: "Extensible raster graphics editor for photo manipulation."
+                    .to_string(),
                 icon: Some("org.gimp.GIMP".to_string()),
                 categories: vec!["Graphics".to_string(), "2DGraphics".to_string()],
                 permissions: vec!["wayland".to_string()],
@@ -197,7 +246,11 @@ impl FlatpakClient {
                 source: AppSource::Flatpak,
                 description: "Powerful and free office productivity suite.".to_string(),
                 icon: Some("org.libreoffice.LibreOffice".to_string()),
-                categories: vec!["Office".to_string(), "WordProcessor".to_string(), "Spreadsheet".to_string()],
+                categories: vec![
+                    "Office".to_string(),
+                    "WordProcessor".to_string(),
+                    "Spreadsheet".to_string(),
+                ],
                 permissions: vec!["wayland".to_string(), "pulseaudio".to_string()],
                 installed: false,
                 exec_cmd: "flatpak run org.libreoffice.LibreOffice".to_string(),
@@ -243,7 +296,11 @@ impl FlatpakClient {
         let mut results = Vec::new();
         if Self::is_available() {
             if let Ok(output) = Command::new("flatpak")
-                .args(["search", "--columns=application,name,version,description", query])
+                .args([
+                    "search",
+                    "--columns=application,name,version,description",
+                    query,
+                ])
                 .output()
             {
                 if output.status.success() {
@@ -270,7 +327,10 @@ impl FlatpakClient {
             let id_matches = app.id.to_lowercase().contains(&q_lower);
             let name_matches = app.name.to_lowercase().contains(&q_lower);
             let desc_matches = app.description.to_lowercase().contains(&q_lower);
-            let cat_matches = app.categories.iter().any(|c| c.to_lowercase().contains(&q_lower));
+            let cat_matches = app
+                .categories
+                .iter()
+                .any(|c| c.to_lowercase().contains(&q_lower));
 
             if id_matches || name_matches || desc_matches || cat_matches || q_lower.is_empty() {
                 if !results.iter().any(|r| r.id == app.id) {
@@ -306,7 +366,11 @@ impl FlatpakClient {
         // 2. Query system flatpak CLI if available to discover external installs
         if Self::is_available() {
             if let Ok(output) = Command::new("flatpak")
-                .args(["list", "--app", "--columns=application,name,version,description,origin"])
+                .args([
+                    "list",
+                    "--app",
+                    "--columns=application,name,version,description,origin",
+                ])
                 .output()
             {
                 if output.status.success() {
@@ -346,24 +410,28 @@ impl FlatpakClient {
         progress_cb(AppProgress {
             app_id: id.to_string(),
             percentage: 10.0,
-            status: "Resolving Flathub application metadata and runtime dependencies...".to_string(),
+            status: "Resolving Flathub application metadata and runtime dependencies..."
+                .to_string(),
             done: false,
         });
 
         // 1. Find matching app metadata
         let catalog = Self::get_flathub_catalog();
-        let mut app_meta = catalog.into_iter().find(|a| a.id == id).unwrap_or_else(|| DesktopApp {
-            id: id.to_string(),
-            name: id.split('.').last().unwrap_or(id).to_string(),
-            version: "1.0.0".to_string(),
-            source: AppSource::Flatpak,
-            description: format!("Flatpak application {}", id),
-            icon: Some(id.to_string()),
-            categories: vec!["Utility".to_string()],
-            permissions: vec!["wayland".to_string(), "network".to_string()],
-            installed: true,
-            exec_cmd: format!("flatpak run {}", id),
-        });
+        let mut app_meta = catalog
+            .into_iter()
+            .find(|a| a.id == id)
+            .unwrap_or_else(|| DesktopApp {
+                id: id.to_string(),
+                name: id.split('.').last().unwrap_or(id).to_string(),
+                version: "1.0.0".to_string(),
+                source: AppSource::Flatpak,
+                description: format!("Flatpak application {}", id),
+                icon: Some(id.to_string()),
+                categories: vec!["Utility".to_string()],
+                permissions: vec!["wayland".to_string(), "network".to_string()],
+                installed: true,
+                exec_cmd: format!("flatpak run {}", id),
+            });
         app_meta.installed = true;
 
         progress_cb(AppProgress {
@@ -405,7 +473,10 @@ impl FlatpakClient {
         progress_cb(AppProgress {
             app_id: id.to_string(),
             percentage: 100.0,
-            status: format!("Application '{}' successfully installed into antOS", app_meta.name),
+            status: format!(
+                "Application '{}' successfully installed into antOS",
+                app_meta.name
+            ),
             done: true,
         });
 
@@ -413,7 +484,10 @@ impl FlatpakClient {
             app_id: id.to_string(),
             action: "install".to_string(),
             success: true,
-            message: format!("Application '{}' (v{}) installed successfully via Flatpak", app_meta.name, app_meta.version),
+            message: format!(
+                "Application '{}' (v{}) installed successfully via Flatpak",
+                app_meta.name, app_meta.version
+            ),
         })
     }
 
@@ -442,7 +516,10 @@ impl FlatpakClient {
             app_id: id.to_string(),
             action: "uninstall".to_string(),
             success: true,
-            message: format!("Flatpak application '{}' uninstalled and permissions revoked", id),
+            message: format!(
+                "Flatpak application '{}' uninstalled and permissions revoked",
+                id
+            ),
         })
     }
 
@@ -458,7 +535,8 @@ impl FlatpakClient {
             anyhow::anyhow!("Flatpak application '{}' is not installed in antOS. Run 'antos app install {}' first.", id, id)
         })?;
 
-        let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
+        let wayland_display =
+            std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
         let workspace_str = workspace
             .map(|w| w.display().to_string())
             .or_else(|| std::env::var("ANTOS_WORKSPACE").ok())
@@ -474,7 +552,8 @@ impl FlatpakClient {
         };
 
         let launcher_item = antos_protocol::LauncherAppItem::from_desktop_app(&app);
-        let effective_args = antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
+        let effective_args =
+            antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
 
         if Self::is_available() {
             cmd.arg("run");
@@ -487,7 +566,10 @@ impl FlatpakClient {
         cmd.env("WAYLAND_DISPLAY", &wayland_display);
         cmd.env("XDG_CURRENT_DESKTOP", "antOS");
         cmd.env("ANTOS_WORKSPACE", &workspace_str);
-        cmd.env("ANTOS_SOCKET", state_dir.join("ipc.sock").display().to_string());
+        cmd.env(
+            "ANTOS_SOCKET",
+            state_dir.join("ipc.sock").display().to_string(),
+        );
 
         let child = cmd.spawn();
         let pid = match child {
@@ -500,7 +582,10 @@ impl FlatpakClient {
             pid,
             workspace: Some(workspace_str),
             success: true,
-            message: format!("Launched '{}' (Flatpak) linked to Wayland [{}] and workspace", app.name, wayland_display),
+            message: format!(
+                "Launched '{}' (Flatpak) linked to Wayland [{}] and workspace",
+                app.name, wayland_display
+            ),
         })
     }
 }

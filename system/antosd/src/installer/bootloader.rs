@@ -238,7 +238,17 @@ impl BootloaderEngine {
         if !config.dry_run {
             // En Linux real con soporte efivarfs
             let _ = std::process::Command::new("efibootmgr")
-                .args(["-c", "-d", &config.target_device, "-p", &config.efi_partition.to_string(), "-L", "antOS Linux", "-l", "\\EFI\\antOS\\antos.efi"])
+                .args([
+                    "-c",
+                    "-d",
+                    &config.target_device,
+                    "-p",
+                    &config.efi_partition.to_string(),
+                    "-L",
+                    "antOS Linux",
+                    "-l",
+                    "\\EFI\\antOS\\antos.efi",
+                ])
                 .output();
         }
 
@@ -268,7 +278,10 @@ mod tests {
 
     fn make_test_esp_dir(tag: &str) -> PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let path = std::env::temp_dir().join(format!("antos-bootloader-{tag}-{now}"));
         let _ = fs::create_dir_all(&path);
         path
@@ -281,11 +294,16 @@ mod tests {
         assert!(conf.contains("timeout      10"));
         assert!(conf.contains("console-mode max"));
 
-        let antos_entry = BootloaderEngine::generate_antos_entry("/EFI/antOS/vmlinuz", "/EFI/antOS/initrd", "uuid-root-test");
+        let antos_entry = BootloaderEngine::generate_antos_entry(
+            "/EFI/antOS/vmlinuz",
+            "/EFI/antOS/initrd",
+            "uuid-root-test",
+        );
         assert!(antos_entry.contains("title    antOS"));
         assert!(antos_entry.contains("root=UUID=uuid-root-test"));
 
-        let win_entry = BootloaderEngine::generate_windows_entry("\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
+        let win_entry =
+            BootloaderEngine::generate_windows_entry("\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
         assert!(win_entry.contains("title Windows Boot Manager"));
         assert!(win_entry.contains("/EFI/Microsoft/Boot/bootmgfw.efi"));
     }
@@ -324,7 +342,9 @@ mod tests {
         let report = BootloaderEngine::install_bootloader(&cfg).expect("install bootloader");
         assert!(report.success);
         assert!(report.entries_configured.len() >= 2);
-        assert!(report.efibootmgr_command.contains("efibootmgr -c -d /dev/nvme0n1 -p 1 -L \"antOS Linux\""));
+        assert!(report
+            .efibootmgr_command
+            .contains("efibootmgr -c -d /dev/nvme0n1 -p 1 -L \"antOS Linux\""));
         assert!(esp.join("loader/loader.conf").exists());
         assert!(esp.join("loader/entries/antos.conf").exists());
         assert!(esp.join("loader/entries/windows.conf").exists());

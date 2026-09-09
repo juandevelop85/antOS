@@ -304,7 +304,12 @@ fn build_ui(app: &Application) {
 
     // Query initial git status and system telemetry
     query_git_status_async(git_badge.clone());
-    query_telemetry_async(ebpf_badge.clone(), profiler_badge.clone(), pair_badge.clone(), mesh_badge.clone());
+    query_telemetry_async(
+        ebpf_badge.clone(),
+        profiler_badge.clone(),
+        pair_badge.clone(),
+        mesh_badge.clone(),
+    );
 
     // Schedule periodic telemetry refresh (every 3 seconds)
     {
@@ -365,7 +370,12 @@ fn build_ui(app: &Application) {
                 Ok((stream, events)) => {
                     *stream_writer.borrow_mut() = Some(stream);
                     render_waiting(&content);
-                    listen_events(events, content.clone(), stream_writer.clone(), input_ref.clone());
+                    listen_events(
+                        events,
+                        content.clone(),
+                        stream_writer.clone(),
+                        input_ref.clone(),
+                    );
                 }
                 Err(err) => render_error(&content, &err),
             }
@@ -383,7 +393,9 @@ fn build_ui(app: &Application) {
             window_ref.close();
             return gtk4::glib::Propagation::Stop;
         }
-        if (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A) && modifier.contains(gtk4::gdk::ModifierType::SUPER_MASK) {
+        if (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A)
+            && modifier.contains(gtk4::gdk::ModifierType::SUPER_MASK)
+        {
             empty_box(&content_ref);
             load_kanban_board_async(content_ref.clone(), input_ref.clone(), writer_ref.clone());
             return gtk4::glib::Propagation::Stop;
@@ -399,7 +411,8 @@ fn build_ui(app: &Application) {
     if args.iter().any(|a| a == "--panel" || a == "--board") {
         load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone());
     } else {
-        let initial_intent: Option<String> = args.iter()
+        let initial_intent: Option<String> = args
+            .iter()
             .position(|a| a == "--intencion" || a == "--intent")
             .and_then(|i| args.get(i + 1).cloned());
 
@@ -490,7 +503,9 @@ fn query_telemetry_async(
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
             if reader.read_line(&mut line).is_ok() {
-                if let Ok(Event::BarraTelemetryStatus(t)) = serde_json::from_str::<Event>(line.trim()) {
+                if let Ok(Event::BarraTelemetryStatus(t)) =
+                    serde_json::from_str::<Event>(line.trim())
+                {
                     let eb = ebpf_badge.clone();
                     let pb = profiler_badge.clone();
                     let prb = pair_badge.clone();
@@ -561,7 +576,10 @@ fn load_kanban_board_async(
     input: Entry,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
-    content.append(&make_label("Cargando Centro de Control y Tablero...", "radio"));
+    content.append(&make_label(
+        "Cargando Centro de Control y Tablero...",
+        "radio",
+    ));
 
     std::thread::spawn(move || {
         let path = socket_path();
@@ -584,7 +602,8 @@ fn load_kanban_board_async(
                 let mut reader = BufReader::new(&stream);
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Event::TicketList(list)) = serde_json::from_str::<Event>(line.trim()) {
+                    if let Ok(Event::TicketList(list)) = serde_json::from_str::<Event>(line.trim())
+                    {
                         tickets = list;
                     }
                 }
@@ -610,7 +629,13 @@ fn load_kanban_board_async(
 
         gtk4::glib::idle_add_local(move || {
             empty_box(&content);
-            render_kanban_view(&content, &tickets, &flows, input.clone(), stream_writer.clone());
+            render_kanban_view(
+                &content,
+                &tickets,
+                &flows,
+                input.clone(),
+                stream_writer.clone(),
+            );
             gtk4::glib::ControlFlow::Break
         });
     });
@@ -629,7 +654,10 @@ fn render_kanban_view(
     sheet.add_css_class("flow");
 
     // Title and Agent Monitor Graph
-    sheet.append(&make_label("antOS · CENTRO DE CONTROL DE AGENTES & TABLERO KANBAN", "etiqueta"));
+    sheet.append(&make_label(
+        "antOS · CENTRO DE CONTROL DE AGENTES & TABLERO KANBAN",
+        "etiqueta",
+    ));
 
     let agent_bar = GtkBox::new(Orientation::Horizontal, 12);
     agent_bar.add_css_class("agent-monitor-bar");
@@ -667,21 +695,27 @@ fn render_kanban_view(
     );
     let col_progress = create_kanban_column(
         "🔄 EN PROGRESO",
-        tickets.iter().filter(|t| t.status == TicketStatus::InProgress),
+        tickets
+            .iter()
+            .filter(|t| t.status == TicketStatus::InProgress),
         input.clone(),
         stream_writer.clone(),
         false,
     );
     let col_review = create_kanban_column(
         "🔍 EN REVISIÓN",
-        tickets.iter().filter(|t| t.status == TicketStatus::InReview),
+        tickets
+            .iter()
+            .filter(|t| t.status == TicketStatus::InReview),
         input.clone(),
         stream_writer.clone(),
         false,
     );
     let col_done = create_kanban_column(
         "✅ COMPLETADO",
-        tickets.iter().filter(|t| t.status == TicketStatus::Completed),
+        tickets
+            .iter()
+            .filter(|t| t.status == TicketStatus::Completed),
         input.clone(),
         stream_writer.clone(),
         false,
@@ -845,8 +879,17 @@ fn listen_events(
                     ..
                 } => {
                     let role_label = role.map(|r| r.name()).unwrap_or("System");
-                    let model_suffix = model.as_deref().map(|m| format!(" · {m}")).unwrap_or_default();
-                    let transition_text = format!("{}: {} [{}{}]", new_state.label(), detail, role_label, model_suffix);
+                    let model_suffix = model
+                        .as_deref()
+                        .map(|m| format!(" · {m}"))
+                        .unwrap_or_default();
+                    let transition_text = format!(
+                        "{}: {} [{}{}]",
+                        new_state.label(),
+                        detail,
+                        role_label,
+                        model_suffix
+                    );
                     content.append(&make_label(&transition_text, "paso"));
                 }
                 Event::Output(text) => content.append(&make_label(&text, "paso")),
@@ -995,7 +1038,11 @@ fn render_flow_task(
 
     sheet.append(&make_label("antFlow · TAREA DE AGENTES", "etiqueta"));
     sheet.append(&make_label(
-        &format!("Ticket: {} | Estado: {}", task.ticket_id, task.state.label()),
+        &format!(
+            "Ticket: {} | Estado: {}",
+            task.ticket_id,
+            task.state.label()
+        ),
         "nivel",
     ));
 
@@ -1151,7 +1198,9 @@ fn render_launcher_results(
         }
         details_box.append(&title_box);
 
-        let desc_text = app.generic_name.as_deref()
+        let desc_text = app
+            .generic_name
+            .as_deref()
             .or(app.comment.as_deref())
             .unwrap_or(&app.exec);
         let subtitle = make_label(&truncate_str(desc_text, 60), "launcher-subtitle");
@@ -1222,7 +1271,11 @@ fn create_app_icon_widget(app: &LauncherAppItem) -> GtkBox {
     // Fallback emoji icon based on category
     let emoji = if app.is_editor {
         "💻"
-    } else if app.categories.iter().any(|c| c == "Network" || c == "WebBrowser") {
+    } else if app
+        .categories
+        .iter()
+        .any(|c| c == "Network" || c == "WebBrowser")
+    {
         "🌐"
     } else if app.categories.iter().any(|c| c == "TerminalEmulator") {
         "⚡"
@@ -1260,7 +1313,8 @@ fn launch_desktop_application_async(app: LauncherAppItem, window: ApplicationWin
             }
         } else {
             // Local fallback spawn if daemon socket is unreachable
-            let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
+            let wayland_display =
+                std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
             let first_token = app.exec.split_whitespace().next().unwrap_or(&app.id);
             let mut cmd = std::process::Command::new(first_token);
             for a in &args {
@@ -1295,7 +1349,9 @@ fn load_installed_apps_async(installed_apps: Rc<RefCell<Vec<LauncherAppItem>>>) 
                 let mut reader = BufReader::new(&stream);
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Event::DesktopAppList(list)) = serde_json::from_str::<Event>(line.trim()) {
+                    if let Ok(Event::DesktopAppList(list)) =
+                        serde_json::from_str::<Event>(line.trim())
+                    {
                         for item in list {
                             apps.push(LauncherAppItem::from_desktop_summary(&item));
                         }
@@ -1313,7 +1369,9 @@ fn load_installed_apps_async(installed_apps: Rc<RefCell<Vec<LauncherAppItem>>>) 
                     let mut reader2 = BufReader::new(&stream2);
                     let mut line2 = String::new();
                     if reader2.read_line(&mut line2).is_ok() {
-                        if let Ok(Event::AppList(list)) = serde_json::from_str::<Event>(line2.trim()) {
+                        if let Ok(Event::AppList(list)) =
+                            serde_json::from_str::<Event>(line2.trim())
+                        {
                             for item in list {
                                 if !apps.iter().any(|a| a.id == item.id) {
                                     apps.push(LauncherAppItem::from_desktop_app(&item));
@@ -1340,13 +1398,82 @@ fn load_installed_apps_async(installed_apps: Rc<RefCell<Vec<LauncherAppItem>>>) 
 /// Fallback catalog apps for demo and offline execution.
 fn get_default_catalog_apps() -> Vec<LauncherAppItem> {
     vec![
-        LauncherAppItem::new("firefox", "Firefox", Some("Web Browser".to_string()), Some("Navegador web libre y seguro".to_string()), "firefox %u", Some("firefox".to_string()), None, vec!["Network".to_string(), "WebBrowser".to_string()], "antpkg"),
-        LauncherAppItem::new("chromium", "Chromium", Some("Web Browser".to_string()), Some("Navegador Chromium portable".to_string()), "chromium", Some("chromium".to_string()), None, vec!["Network".to_string(), "WebBrowser".to_string()], "antpkg"),
-        LauncherAppItem::new("vscode", "Visual Studio Code", Some("Code Editor".to_string()), Some("Editor de código extensible".to_string()), "code --ozone-platform=wayland %F", Some("vscode".to_string()), None, vec!["Development".to_string(), "IDE".to_string()], "antpkg"),
-        LauncherAppItem::new("zed", "Zed", Some("Code Editor".to_string()), Some("Editor de código ultrarrápido en Rust".to_string()), "zed", Some("zed".to_string()), None, vec!["Development".to_string(), "IDE".to_string()], "antpkg"),
-        LauncherAppItem::new("cursor", "Cursor", Some("AI Code Editor".to_string()), Some("Editor de código potenciado por IA".to_string()), "cursor --ozone-platform=wayland", Some("cursor".to_string()), None, vec!["Development".to_string(), "IDE".to_string()], "antpkg"),
-        LauncherAppItem::new("postman", "Postman", Some("API Platform".to_string()), Some("Suite de pruebas de API REST".to_string()), "postman", Some("postman".to_string()), None, vec!["Development".to_string()], "antpkg"),
-        LauncherAppItem::new("alacritty", "Alacritty", Some("Terminal".to_string()), Some("Terminal acelerado por GPU".to_string()), "alacritty", Some("alacritty".to_string()), None, vec!["System".to_string(), "TerminalEmulator".to_string()], "antpkg"),
+        LauncherAppItem::new(
+            "firefox",
+            "Firefox",
+            Some("Web Browser".to_string()),
+            Some("Navegador web libre y seguro".to_string()),
+            "firefox %u",
+            Some("firefox".to_string()),
+            None,
+            vec!["Network".to_string(), "WebBrowser".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "chromium",
+            "Chromium",
+            Some("Web Browser".to_string()),
+            Some("Navegador Chromium portable".to_string()),
+            "chromium",
+            Some("chromium".to_string()),
+            None,
+            vec!["Network".to_string(), "WebBrowser".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "vscode",
+            "Visual Studio Code",
+            Some("Code Editor".to_string()),
+            Some("Editor de código extensible".to_string()),
+            "code --ozone-platform=wayland %F",
+            Some("vscode".to_string()),
+            None,
+            vec!["Development".to_string(), "IDE".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "zed",
+            "Zed",
+            Some("Code Editor".to_string()),
+            Some("Editor de código ultrarrápido en Rust".to_string()),
+            "zed",
+            Some("zed".to_string()),
+            None,
+            vec!["Development".to_string(), "IDE".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "cursor",
+            "Cursor",
+            Some("AI Code Editor".to_string()),
+            Some("Editor de código potenciado por IA".to_string()),
+            "cursor --ozone-platform=wayland",
+            Some("cursor".to_string()),
+            None,
+            vec!["Development".to_string(), "IDE".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "postman",
+            "Postman",
+            Some("API Platform".to_string()),
+            Some("Suite de pruebas de API REST".to_string()),
+            "postman",
+            Some("postman".to_string()),
+            None,
+            vec!["Development".to_string()],
+            "antpkg",
+        ),
+        LauncherAppItem::new(
+            "alacritty",
+            "Alacritty",
+            Some("Terminal".to_string()),
+            Some("Terminal acelerado por GPU".to_string()),
+            "alacritty",
+            Some("alacritty".to_string()),
+            None,
+            vec!["System".to_string(), "TerminalEmulator".to_string()],
+            "antpkg",
+        ),
     ]
 }
-

@@ -57,8 +57,7 @@ const BASE_REVISION_NUMBER: u64 = 2;
 
 #[used]
 #[unsafe(link_section = ".requests")]
-pub static BASE_REVISION: [u64; 3] =
-    [0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, BASE_REVISION_NUMBER];
+pub static BASE_REVISION: [u64; 3] = [0xf9562b2d5c95a6c8, 0x6a7b384944536bdc, BASE_REVISION_NUMBER];
 
 /// Every Limine executable using base revision 2+ must bracket its requests
 /// with these markers so the bootloader can find the whole block reliably
@@ -102,7 +101,12 @@ pub struct HhdmResponse {
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static HHDM_REQUEST: HhdmRequest = HhdmRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0x48dcf1cb8ad2b852, 0x63984e959a98244b],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0x48dcf1cb8ad2b852,
+        0x63984e959a98244b,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };
@@ -140,7 +144,12 @@ pub const MEMMAP_USABLE: u64 = 0;
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static MEMMAP_REQUEST: MemmapRequest = MemmapRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0x67cf3d9d378a806f, 0xe304acdfc50c3c62],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0x67cf3d9d378a806f,
+        0xe304acdfc50c3c62,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };
@@ -192,7 +201,12 @@ pub struct Framebuffer {
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0x9d5827dcd881dd75, 0xa3148604f6fab11b],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0x9d5827dcd881dd75,
+        0xa3148604f6fab11b,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };
@@ -226,7 +240,12 @@ unsafe impl Sync for ExecutableAddressRequest {}
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static EXECUTABLE_ADDRESS_REQUEST: ExecutableAddressRequest = ExecutableAddressRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0x71ba76863cc55f63, 0xb2644a48c516a487],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0x71ba76863cc55f63,
+        0xb2644a48c516a487,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };
@@ -254,7 +273,12 @@ unsafe impl Sync for DtbRequest {}
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static DTB_REQUEST: DtbRequest = DtbRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0xb40ddb48fb54bac7, 0x545081493f81ffb7],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0xb40ddb48fb54bac7,
+        0x545081493f81ffb7,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };
@@ -281,7 +305,12 @@ unsafe impl Sync for RsdpRequest {}
 #[used]
 #[unsafe(link_section = ".requests")]
 pub static RSDP_REQUEST: RsdpRequest = RsdpRequest {
-    id: [COMMON_MAGIC[0], COMMON_MAGIC[1], 0xc5e77b6b397e7b43, 0x27637845accdcf3c],
+    id: [
+        COMMON_MAGIC[0],
+        COMMON_MAGIC[1],
+        0xc5e77b6b397e7b43,
+        0x27637845accdcf3c,
+    ],
     revision: 0,
     response: core::ptr::null(),
 };

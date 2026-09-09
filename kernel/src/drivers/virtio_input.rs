@@ -116,7 +116,12 @@ struct VirtQueueBuffer {
 impl VirtQueueBuffer {
     const fn zeroed() -> Self {
         Self {
-            descriptors: [VirtqDesc { addr: 0, len: 0, flags: 0, next: 0 }; QUEUE_SIZE],
+            descriptors: [VirtqDesc {
+                addr: 0,
+                len: 0,
+                flags: 0,
+                next: 0,
+            }; QUEUE_SIZE],
             avail_flags: 0,
             avail_idx: 0,
             avail_ring: [0; QUEUE_SIZE],
@@ -136,7 +141,11 @@ impl VirtQueueBuffer {
 const MAX_DEVICES: usize = 4;
 
 const EMPTY_VRING: VirtQueueBuffer = VirtQueueBuffer::zeroed();
-const EMPTY_EVENT: VirtioInputRawEvent = VirtioInputRawEvent { event_type: 0, code: 0, value: 0 };
+const EMPTY_EVENT: VirtioInputRawEvent = VirtioInputRawEvent {
+    event_type: 0,
+    code: 0,
+    value: 0,
+};
 
 static mut EVENT_VRINGS: [VirtQueueBuffer; MAX_DEVICES] = [EMPTY_VRING; MAX_DEVICES];
 static mut STATUS_VRINGS: [VirtQueueBuffer; MAX_DEVICES] = [EMPTY_VRING; MAX_DEVICES];
@@ -213,7 +222,11 @@ impl VirtioInputDevice {
             write32(mmio_base, MMIO_DEVICE_FEATURES_SEL, 1);
             let dev_hi = read32(mmio_base, MMIO_DEVICE_FEATURES);
             write32(mmio_base, MMIO_DRIVER_FEATURES_SEL, 1);
-            write32(mmio_base, MMIO_DRIVER_FEATURES, dev_hi & VIRTIO_F_VERSION_1_HI);
+            write32(
+                mmio_base,
+                MMIO_DRIVER_FEATURES,
+                dev_hi & VIRTIO_F_VERSION_1_HI,
+            );
             write32(mmio_base, MMIO_DEVICE_FEATURES_SEL, 0);
             write32(mmio_base, MMIO_DRIVER_FEATURES_SEL, 0);
             write32(mmio_base, MMIO_DRIVER_FEATURES, 0);
@@ -389,11 +402,7 @@ impl VirtioInputDevice {
         if self.kind != DeviceKind::Keyboard {
             return;
         }
-        let updates = [
-            (LED_CAPSL, caps),
-            (LED_NUML, num),
-            (LED_SCROLLL, scroll),
-        ];
+        let updates = [(LED_CAPSL, caps), (LED_NUML, num), (LED_SCROLLL, scroll)];
         let vring = unsafe { &mut *core::ptr::addr_of_mut!(STATUS_VRINGS[self.device_index]) };
 
         for (led, on) in updates {
@@ -409,7 +418,9 @@ impl VirtioInputDevice {
                 };
             }
             vring.descriptors[buf_idx] = VirtqDesc {
-                addr: unsafe { core::ptr::addr_of!(STATUS_BUFS[self.device_index][buf_idx]) as u64 },
+                addr: unsafe {
+                    core::ptr::addr_of!(STATUS_BUFS[self.device_index][buf_idx]) as u64
+                },
                 len: core::mem::size_of::<VirtioInputRawEvent>() as u32,
                 flags: 0, // device-readable
                 next: 0,
@@ -485,7 +496,11 @@ unsafe fn setup_queue(
         return Err(());
     }
     write32(base, MMIO_QUEUE_NUM, QUEUE_SIZE as u32);
-    core::ptr::write_bytes(vring_ptr as *mut u8, 0, core::mem::size_of::<VirtQueueBuffer>());
+    core::ptr::write_bytes(
+        vring_ptr as *mut u8,
+        0,
+        core::mem::size_of::<VirtQueueBuffer>(),
+    );
 
     let ring_paddr = vring_ptr as u64;
     if version >= 2 {

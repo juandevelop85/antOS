@@ -105,7 +105,12 @@ impl Daemon {
             std::thread::sleep(Duration::from_millis(50));
         }
 
-        Daemon { child, socket, workspace, root }
+        Daemon {
+            child,
+            socket,
+            workspace,
+            root,
+        }
     }
 }
 
@@ -171,21 +176,32 @@ fn daemon_speaks_the_bar_protocol_over_the_ipc_socket() {
         "el demonio no emitió ningún evento por el canal IPC"
     );
     match &events[0] {
-        Event::Start { intent: got, planner } => {
-            assert_eq!(got, intent, "el primer evento no refleja la intención enviada");
+        Event::Start {
+            intent: got,
+            planner,
+        } => {
+            assert_eq!(
+                got, intent,
+                "el primer evento no refleja la intención enviada"
+            );
             assert_eq!(planner, "local");
         }
         other => panic!("el primer evento debería ser Event::Start, fue {other:?}"),
     }
     assert_eq!(
-        events.iter().filter(|e| matches!(e, Event::Start { .. })).count(),
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Start { .. }))
+            .count(),
         1,
         "la sesión emitió más de un Event::Start; eventos: {events:?}"
     );
 
     // ── 2. Consulta de estado de git (la insignia de git de la barra).
     let mut stream = UnixStream::connect(&daemon.socket).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
     let request = Request::QueryGitStatus {
         workspace_path: daemon.workspace.to_string_lossy().into_owned(),
     };

@@ -52,7 +52,10 @@ pub struct Task {
 
 impl Task {
     pub fn new(future: impl Future<Output = ()> + 'static) -> Task {
-        Task { id: TaskId::next(), future: Box::pin(future) }
+        Task {
+            id: TaskId::next(),
+            future: Box::pin(future),
+        }
     }
 
     fn poll(&mut self, context: &mut Context) -> Poll<()> {

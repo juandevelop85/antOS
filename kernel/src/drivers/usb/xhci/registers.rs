@@ -5,30 +5,30 @@
 
 /// Bit masks for USBCMD (USB Command Register).
 pub mod usbcmd {
-    pub const RS: u32 = 1 << 0;     // Run/Stop: 1 = Run, 0 = Stop
-    pub const HCRST: u32 = 1 << 1;  // Host Controller Reset
-    pub const INTE: u32 = 1 << 2;   // Interrupter Enable
-    pub const HSEE: u32 = 1 << 3;   // Host System Error Enable
+    pub const RS: u32 = 1 << 0; // Run/Stop: 1 = Run, 0 = Stop
+    pub const HCRST: u32 = 1 << 1; // Host Controller Reset
+    pub const INTE: u32 = 1 << 2; // Interrupter Enable
+    pub const HSEE: u32 = 1 << 3; // Host System Error Enable
 }
 
 /// Bit masks for USBSTS (USB Status Register).
 pub mod usbsts {
-    pub const HCH: u32 = 1 << 0;    // HC Halted: 1 = Halted, 0 = Running
-    pub const HSE: u32 = 1 << 2;    // Host System Error
-    pub const EINT: u32 = 1 << 3;   // Event Interrupt
-    pub const PCD: u32 = 1 << 4;    // Port Change Detect
-    pub const CNR: u32 = 1 << 11;   // Controller Not Ready: 1 = Not ready
+    pub const HCH: u32 = 1 << 0; // HC Halted: 1 = Halted, 0 = Running
+    pub const HSE: u32 = 1 << 2; // Host System Error
+    pub const EINT: u32 = 1 << 3; // Event Interrupt
+    pub const PCD: u32 = 1 << 4; // Port Change Detect
+    pub const CNR: u32 = 1 << 11; // Controller Not Ready: 1 = Not ready
 }
 
 /// Bit masks and shifts for PORTSC (Port Status and Control Register).
 pub mod portsc {
-    pub const CCS: u32 = 1 << 0;    // Current Connect Status: 1 = Device connected
-    pub const PED: u32 = 1 << 1;    // Port Enabled/Disabled
-    pub const OCA: u32 = 1 << 3;    // Over-current Active
-    pub const PR: u32 = 1 << 4;     // Port Reset
-    pub const PP: u32 = 1 << 9;     // Port Power
-    pub const CSC: u32 = 1 << 17;   // Connect Status Change (W1C)
-    pub const PRC: u32 = 1 << 21;   // Port Reset Change (W1C)
+    pub const CCS: u32 = 1 << 0; // Current Connect Status: 1 = Device connected
+    pub const PED: u32 = 1 << 1; // Port Enabled/Disabled
+    pub const OCA: u32 = 1 << 3; // Over-current Active
+    pub const PR: u32 = 1 << 4; // Port Reset
+    pub const PP: u32 = 1 << 9; // Port Power
+    pub const CSC: u32 = 1 << 17; // Connect Status Change (W1C)
+    pub const PRC: u32 = 1 << 21; // Port Reset Change (W1C)
 
     pub const PLS_SHIFT: u32 = 5;
     pub const PLS_MASK: u32 = 0xF;
@@ -36,16 +36,16 @@ pub mod portsc {
     pub const SPEED_SHIFT: u32 = 10;
     pub const SPEED_MASK: u32 = 0xF;
 
-    pub const SPEED_FULL: u32 = 1;  // Full-speed (12 Mb/s)
-    pub const SPEED_LOW: u32 = 2;   // Low-speed (1.5 Mb/s)
-    pub const SPEED_HIGH: u32 = 3;  // High-speed (480 Mb/s)
+    pub const SPEED_FULL: u32 = 1; // Full-speed (12 Mb/s)
+    pub const SPEED_LOW: u32 = 2; // Low-speed (1.5 Mb/s)
+    pub const SPEED_HIGH: u32 = 3; // High-speed (480 Mb/s)
     pub const SPEED_SUPER: u32 = 4; // SuperSpeed (5 Gb/s)
 }
 
 /// Bit masks for Interrupter registers (IMAN).
 pub mod iman {
-    pub const IP: u32 = 1 << 0;     // Interrupt Pending
-    pub const IE: u32 = 1 << 1;     // Interrupt Enable
+    pub const IP: u32 = 1 << 0; // Interrupt Pending
+    pub const IE: u32 = 1 << 1; // Interrupt Enable
 }
 
 /// Decoded capability parameters from HCSPARAMS1 and HCCPARAMS1.
@@ -201,25 +201,37 @@ impl XhciRegisters {
 
     pub fn set_interrupter0_erstsz(&self, size: u32) {
         unsafe {
-            core::ptr::write_volatile((self.base + self.interrupter0_offset() + 0x08) as *mut u32, size);
+            core::ptr::write_volatile(
+                (self.base + self.interrupter0_offset() + 0x08) as *mut u32,
+                size,
+            );
         }
     }
 
     pub fn set_interrupter0_erstba(&self, addr: u64) {
         unsafe {
-            core::ptr::write_volatile((self.base + self.interrupter0_offset() + 0x10) as *mut u64, addr);
+            core::ptr::write_volatile(
+                (self.base + self.interrupter0_offset() + 0x10) as *mut u64,
+                addr,
+            );
         }
     }
 
     pub fn set_interrupter0_erdp(&self, addr: u64) {
         unsafe {
-            core::ptr::write_volatile((self.base + self.interrupter0_offset() + 0x18) as *mut u64, addr);
+            core::ptr::write_volatile(
+                (self.base + self.interrupter0_offset() + 0x18) as *mut u64,
+                addr,
+            );
         }
     }
 
     pub fn set_interrupter0_iman(&self, val: u32) {
         unsafe {
-            core::ptr::write_volatile((self.base + self.interrupter0_offset() + 0x00) as *mut u32, val);
+            core::ptr::write_volatile(
+                (self.base + self.interrupter0_offset() + 0x00) as *mut u32,
+                val,
+            );
         }
     }
 

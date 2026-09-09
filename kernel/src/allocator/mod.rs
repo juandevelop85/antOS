@@ -31,7 +31,9 @@ pub struct Locked<A> {
 
 impl<A> Locked<A> {
     pub const fn new(inner: A) -> Self {
-        Locked { inner: SpinLock::new(inner) }
+        Locked {
+            inner: SpinLock::new(inner),
+        }
     }
 
     pub fn lock(&self) -> SpinGuard<'_, A> {

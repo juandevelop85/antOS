@@ -4,11 +4,11 @@
 //! Each package is stored in an immutable content-addressed directory under `/var/antos/store/`
 //! or `$ANTOS_STATE/store/<hash>-<name>-<version>/`, atomically linked to `$ANTOS_STATE/current/bin/`.
 
-use anyhow::{bail, Context, Result};
 use antos_protocol::{
     DesktopAppSummary, DesktopEntryManifest, DesktopValidationReport, IconAsset, PackageAppType,
     PackageGeneration, PackageInstallReport, PackageManifest, PackageStoreStatus, PackageSummary,
 };
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,18 +19,20 @@ pub mod crypto {
     /// Computes the SHA-256 digest of input bytes according to FIPS 180-4.
     pub fn sha256(data: &[u8]) -> String {
         let mut h: [u32; 8] = [
-            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-            0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+            0x5be0cd19,
         ];
         let k: [u32; 64] = [
-            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-            0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-            0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-            0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-            0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-            0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-            0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-            0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+            0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+            0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+            0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+            0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+            0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+            0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+            0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+            0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+            0xc67178f2,
         ];
 
         let mut msg = data.to_vec();
@@ -44,12 +46,20 @@ pub mod crypto {
         for chunk in msg.chunks_exact(64) {
             let mut w = [0u32; 64];
             for i in 0..16 {
-                w[i] = u32::from_be_bytes([chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3]]);
+                w[i] = u32::from_be_bytes([
+                    chunk[i * 4],
+                    chunk[i * 4 + 1],
+                    chunk[i * 4 + 2],
+                    chunk[i * 4 + 3],
+                ]);
             }
             for i in 16..64 {
                 let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
                 let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-                w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+                w[i] = w[i - 16]
+                    .wrapping_add(s0)
+                    .wrapping_add(w[i - 7])
+                    .wrapping_add(s1);
             }
 
             let mut a = h[0];
@@ -64,7 +74,11 @@ pub mod crypto {
             for i in 0..64 {
                 let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
                 let ch = (e & f) ^ ((!e) & g);
-                let temp1 = h_val.wrapping_add(s1).wrapping_add(ch).wrapping_add(k[i]).wrapping_add(w[i]);
+                let temp1 = h_val
+                    .wrapping_add(s1)
+                    .wrapping_add(ch)
+                    .wrapping_add(k[i])
+                    .wrapping_add(w[i]);
                 let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
                 let maj = (a & b) ^ (a & c) ^ (b & c);
                 let temp2 = s0.wrapping_add(maj);
@@ -213,11 +227,18 @@ impl PackageEngine {
 
     /// Parses a package recipe from a TOML string.
     pub fn parse_recipe(content: &str) -> Result<PackageManifest> {
-        let raw: RawRecipe = toml::from_str(content)
-            .context("Failed to parse package recipe TOML (antpkg.toml)")?;
+        let raw: RawRecipe =
+            toml::from_str(content).context("Failed to parse package recipe TOML (antpkg.toml)")?;
 
-        let binaries = raw.package.binaries.unwrap_or_else(|| vec![raw.package.name.clone()]);
-        let description = raw.package.description.clone().unwrap_or_else(|| format!("antOS package {}", raw.package.name));
+        let binaries = raw
+            .package
+            .binaries
+            .unwrap_or_else(|| vec![raw.package.name.clone()]);
+        let description = raw
+            .package
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("antOS package {}", raw.package.name));
 
         let app_type = match raw.package.app_type.as_deref() {
             Some(t) if t.eq_ignore_ascii_case("gui") => PackageAppType::Gui,
@@ -230,7 +251,12 @@ impl PackageEngine {
                 name: d.name.unwrap_or_else(|| raw.package.name.clone()),
                 generic_name: d.generic_name,
                 comment: d.comment.or_else(|| raw.package.description.clone()),
-                exec: d.exec.unwrap_or_else(|| binaries.first().cloned().unwrap_or_else(|| raw.package.name.clone())),
+                exec: d.exec.unwrap_or_else(|| {
+                    binaries
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| raw.package.name.clone())
+                }),
                 icon: d.icon.or_else(|| Some(raw.package.name.clone())),
                 categories: d.categories.unwrap_or_default(),
                 mime_types: d.mime_types.unwrap_or_default(),
@@ -242,7 +268,10 @@ impl PackageEngine {
                 name: raw.package.name.clone(),
                 generic_name: None,
                 comment: raw.package.description.clone(),
-                exec: binaries.first().cloned().unwrap_or_else(|| raw.package.name.clone()),
+                exec: binaries
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| raw.package.name.clone()),
                 icon: Some(raw.package.name.clone()),
                 categories: vec!["Utility".to_string()],
                 mime_types: Vec::new(),
@@ -254,11 +283,16 @@ impl PackageEngine {
         };
 
         let icons = if let Some(raw_icons) = raw.icons {
-            raw_icons.into_iter().map(|i| IconAsset {
-                resolution: i.resolution.unwrap_or_else(|| "scalable".to_string()),
-                format: i.format.unwrap_or_else(|| "svg".to_string()),
-                path: i.path.unwrap_or_else(|| format!("share/icons/hicolor/scalable/apps/{}.svg", raw.package.name)),
-            }).collect()
+            raw_icons
+                .into_iter()
+                .map(|i| IconAsset {
+                    resolution: i.resolution.unwrap_or_else(|| "scalable".to_string()),
+                    format: i.format.unwrap_or_else(|| "svg".to_string()),
+                    path: i.path.unwrap_or_else(|| {
+                        format!("share/icons/hicolor/scalable/apps/{}.svg", raw.package.name)
+                    }),
+                })
+                .collect()
         } else if app_type == PackageAppType::Gui {
             vec![IconAsset {
                 resolution: "scalable".to_string(),
@@ -300,18 +334,36 @@ impl PackageEngine {
         })
     }
 
-pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
-    ("firefox", include_str!("../../../recipes/browsers/firefox.toml")),
-    ("chromium", include_str!("../../../recipes/browsers/chromium.toml")),
-    ("vscode", include_str!("../../../recipes/editors/vscode.toml")),
-    ("cursor", include_str!("../../../recipes/editors/cursor.toml")),
-    ("zed", include_str!("../../../recipes/editors/zed.toml")),
-    ("postman", include_str!("../../../recipes/tools/postman.toml")),
-    ("alacritty", include_str!("../../../recipes/tools/alacritty.toml")),
-    ("neovim", include_str!("../../../recipes/neovim.toml")),
-    ("ollama", include_str!("../../../recipes/ollama.toml")),
-    ("opencode", include_str!("../../../recipes/opencode.toml")),
-];
+    pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
+        (
+            "firefox",
+            include_str!("../../../recipes/browsers/firefox.toml"),
+        ),
+        (
+            "chromium",
+            include_str!("../../../recipes/browsers/chromium.toml"),
+        ),
+        (
+            "vscode",
+            include_str!("../../../recipes/editors/vscode.toml"),
+        ),
+        (
+            "cursor",
+            include_str!("../../../recipes/editors/cursor.toml"),
+        ),
+        ("zed", include_str!("../../../recipes/editors/zed.toml")),
+        (
+            "postman",
+            include_str!("../../../recipes/tools/postman.toml"),
+        ),
+        (
+            "alacritty",
+            include_str!("../../../recipes/tools/alacritty.toml"),
+        ),
+        ("neovim", include_str!("../../../recipes/neovim.toml")),
+        ("ollama", include_str!("../../../recipes/ollama.toml")),
+        ("opencode", include_str!("../../../recipes/opencode.toml")),
+    ];
 
     /// Recursively search for a recipe file (.toml) in a directory matching the name or relative path.
     pub fn find_recipe_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
@@ -339,7 +391,9 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                     let path = entry.path();
                     if path.is_dir() {
                         stack.push(path);
-                    } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                    } else if path.is_file()
+                        && path.extension().and_then(|s| s.to_str()) == Some("toml")
+                    {
                         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                             if stem.eq_ignore_ascii_case(target_stem) {
                                 return Some(path);
@@ -376,7 +430,8 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
 
     /// Returns all official manifests from both embedded recipes and local `recipes/` directory.
     pub fn get_all_official_manifests() -> Result<Vec<PackageManifest>> {
-        let mut map: std::collections::HashMap<String, PackageManifest> = std::collections::HashMap::new();
+        let mut map: std::collections::HashMap<String, PackageManifest> =
+            std::collections::HashMap::new();
 
         // 1. Load embedded official recipes
         for (_, content) in Self::OFFICIAL_RECIPES {
@@ -395,7 +450,9 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                         let path = entry.path();
                         if path.is_dir() {
                             stack.push(path);
-                        } else if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                        } else if path.is_file()
+                            && path.extension().and_then(|s| s.to_str()) == Some("toml")
+                        {
                             if let Ok(content) = fs::read_to_string(&path) {
                                 if let Ok(m) = Self::parse_recipe(&content) {
                                     map.insert(m.name.clone(), m);
@@ -427,12 +484,21 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                     || p.description.to_lowercase().contains(&q)
                     || p.binaries.iter().any(|b| b.to_lowercase().contains(&q))
                     || p.dependencies.iter().any(|d| d.to_lowercase().contains(&q))
-                    || p.desktop_entry.as_ref().map(|d| {
-                        d.name.to_lowercase().contains(&q)
-                            || d.categories.iter().any(|c| c.to_lowercase().contains(&q))
-                            || d.generic_name.as_ref().map(|g| g.to_lowercase().contains(&q)).unwrap_or(false)
-                            || d.comment.as_ref().map(|c| c.to_lowercase().contains(&q)).unwrap_or(false)
-                    }).unwrap_or(false)
+                    || p.desktop_entry
+                        .as_ref()
+                        .map(|d| {
+                            d.name.to_lowercase().contains(&q)
+                                || d.categories.iter().any(|c| c.to_lowercase().contains(&q))
+                                || d.generic_name
+                                    .as_ref()
+                                    .map(|g| g.to_lowercase().contains(&q))
+                                    .unwrap_or(false)
+                                || d.comment
+                                    .as_ref()
+                                    .map(|c| c.to_lowercase().contains(&q))
+                                    .unwrap_or(false)
+                        })
+                        .unwrap_or(false)
             })
             .collect();
 
@@ -449,7 +515,9 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
         }
 
         // Check in recipes/ directory recursively
-        if let Some(recipe_file) = Self::find_recipe_in_dir(Path::new("recipes"), recipe_path_or_name) {
+        if let Some(recipe_file) =
+            Self::find_recipe_in_dir(Path::new("recipes"), recipe_path_or_name)
+        {
             let content = fs::read_to_string(&recipe_file)
                 .with_context(|| format!("Failed to read recipe file {}", recipe_file.display()))?;
             return Self::parse_recipe(&content);
@@ -533,18 +601,102 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                     path: "share/icons/hicolor/scalable/apps/alacritty.svg".to_string(),
                 }],
             ),
-            "ollama" => ("0.5.7", "Local LLM inference daemon for CPUs and GPUs", vec!["ollama".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "opencode" => ("1.0.0", "Local OpenAI-compatible inference server", vec!["opencode".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "ripgrep" | "rg" => ("14.1.0", "Fast line-oriented search tool", vec!["rg".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "fd" => ("9.0.0", "Fast user-friendly find alternative", vec!["fd".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "bat" => ("0.24.0", "Cat clone with syntax highlighting and git integration", vec!["bat".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "jq" => ("1.7.1", "Command-line JSON processor", vec!["jq".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "git" => ("2.44.0", "Fast, scalable, distributed revision control system", vec!["git".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "curl" => ("8.6.0", "Command line tool for transferring data with URLs", vec!["curl".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "tree" => ("2.1.1", "Recursive directory indentation listing program", vec!["tree".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "htop" => ("3.3.0", "Interactive process viewer and process manager", vec!["htop".to_string()], PackageAppType::Cli, None, Vec::new()),
-            "neovim" | "nvim" => ("0.10.0", "Vim-fork focused on extensibility and usability", vec!["nvim".to_string()], PackageAppType::Cli, None, Vec::new()),
-            name => ("1.0.0", "antOS declarative package", vec![name.to_string()], PackageAppType::Cli, None, Vec::new()),
+            "ollama" => (
+                "0.5.7",
+                "Local LLM inference daemon for CPUs and GPUs",
+                vec!["ollama".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "opencode" => (
+                "1.0.0",
+                "Local OpenAI-compatible inference server",
+                vec!["opencode".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "ripgrep" | "rg" => (
+                "14.1.0",
+                "Fast line-oriented search tool",
+                vec!["rg".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "fd" => (
+                "9.0.0",
+                "Fast user-friendly find alternative",
+                vec!["fd".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "bat" => (
+                "0.24.0",
+                "Cat clone with syntax highlighting and git integration",
+                vec!["bat".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "jq" => (
+                "1.7.1",
+                "Command-line JSON processor",
+                vec!["jq".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "git" => (
+                "2.44.0",
+                "Fast, scalable, distributed revision control system",
+                vec!["git".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "curl" => (
+                "8.6.0",
+                "Command line tool for transferring data with URLs",
+                vec!["curl".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "tree" => (
+                "2.1.1",
+                "Recursive directory indentation listing program",
+                vec!["tree".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "htop" => (
+                "3.3.0",
+                "Interactive process viewer and process manager",
+                vec!["htop".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            "neovim" | "nvim" => (
+                "0.10.0",
+                "Vim-fork focused on extensibility and usability",
+                vec!["nvim".to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
+            name => (
+                "1.0.0",
+                "antOS declarative package",
+                vec![name.to_string()],
+                PackageAppType::Cli,
+                None,
+                Vec::new(),
+            ),
         };
 
         let manifest = PackageManifest {
@@ -575,7 +727,11 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                 name: manifest.name.clone(),
                 generic_name: None,
                 comment: Some(manifest.description.clone()),
-                exec: manifest.binaries.first().cloned().unwrap_or_else(|| manifest.name.clone()),
+                exec: manifest
+                    .binaries
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| manifest.name.clone()),
                 icon: Some(manifest.name.clone()),
                 categories: vec!["Utility".to_string()],
                 mime_types: Vec::new(),
@@ -641,7 +797,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             }
 
             if !has_group_header {
-                errors.push(format!("Línea {}: entrada previa al encabezado '[Desktop Entry]'", line_no + 1));
+                errors.push(format!(
+                    "Línea {}: entrada previa al encabezado '[Desktop Entry]'",
+                    line_no + 1
+                ));
                 continue;
             }
 
@@ -659,7 +818,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                     }
                     "Type" => {
                         if value != "Application" && value != "Link" && value != "Directory" {
-                            errors.push(format!("Valor no soportado para 'Type': '{}' (debe ser Application)", value));
+                            errors.push(format!(
+                                "Valor no soportado para 'Type': '{}' (debe ser Application)",
+                                value
+                            ));
                         } else {
                             has_type = true;
                         }
@@ -689,7 +851,11 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                     _ => {}
                 }
             } else {
-                warnings.push(format!("Línea {} no contiene un par clave=valor válido: '{}'", line_no + 1, trimmed));
+                warnings.push(format!(
+                    "Línea {} no contiene un par clave=valor válido: '{}'",
+                    line_no + 1,
+                    trimmed
+                ));
             }
         }
 
@@ -746,7 +912,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             let msg = format!("{}:{}", manifest.name, manifest.version);
             sig_ok = crypto::verify_ed25519(pubkey, msg.as_bytes(), sig);
             if !sig_ok {
-                bail!("Cryptographic signature verification failed for package «{}»", manifest.name);
+                bail!(
+                    "Cryptographic signature verification failed for package «{}»",
+                    manifest.name
+                );
             }
         }
 
@@ -789,8 +958,12 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
         }
 
         // Create immutable package directory structure
-        fs::create_dir_all(&pkg_bin_dir)
-            .with_context(|| format!("Failed to create package bin directory {}", pkg_bin_dir.display()))?;
+        fs::create_dir_all(&pkg_bin_dir).with_context(|| {
+            format!(
+                "Failed to create package bin directory {}",
+                pkg_bin_dir.display()
+            )
+        })?;
 
         let mut installed_size: u64 = 0;
         let mut binaries_linked = Vec::new();
@@ -822,14 +995,19 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
 
         if manifest.app_type == PackageAppType::Gui || manifest.desktop_entry.is_some() {
             let store_apps_dir = pkg_dir.join("share").join("applications");
-            fs::create_dir_all(&store_apps_dir)
-                .with_context(|| format!("Failed to create applications directory {}", store_apps_dir.display()))?;
+            fs::create_dir_all(&store_apps_dir).with_context(|| {
+                format!(
+                    "Failed to create applications directory {}",
+                    store_apps_dir.display()
+                )
+            })?;
 
             let desktop_content = Self::generate_desktop_entry(&manifest);
             let desktop_name = format!("{}.desktop", manifest.name);
             let desktop_path = store_apps_dir.join(&desktop_name);
-            fs::write(&desktop_path, desktop_content.as_bytes())
-                .with_context(|| format!("Failed to write desktop entry {}", desktop_path.display()))?;
+            fs::write(&desktop_path, desktop_content.as_bytes()).with_context(|| {
+                format!("Failed to write desktop entry {}", desktop_path.display())
+            })?;
 
             installed_size += desktop_content.len() as u64;
             desktop_entries_linked.push(desktop_name.clone());
@@ -841,9 +1019,18 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
                 .and_then(|d| d.icon.clone())
                 .unwrap_or_else(|| manifest.name.clone());
 
-            let store_icons_dir = pkg_dir.join("share").join("icons").join("hicolor").join("scalable").join("apps");
-            fs::create_dir_all(&store_icons_dir)
-                .with_context(|| format!("Failed to create icons directory {}", store_icons_dir.display()))?;
+            let store_icons_dir = pkg_dir
+                .join("share")
+                .join("icons")
+                .join("hicolor")
+                .join("scalable")
+                .join("apps");
+            fs::create_dir_all(&store_icons_dir).with_context(|| {
+                format!(
+                    "Failed to create icons directory {}",
+                    store_icons_dir.display()
+                )
+            })?;
 
             let icon_file = format!("{}.svg", icon_name);
             let icon_path = store_icons_dir.join(&icon_file);
@@ -891,7 +1078,9 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             checksum_verified: true,
             signature_verified: sig_ok,
             success: true,
-            message: format!("Package installed into store [{store_prefix}] at generation {new_gen}"),
+            message: format!(
+                "Package installed into store [{store_prefix}] at generation {new_gen}"
+            ),
         })
     }
 
@@ -900,7 +1089,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
         let current_pkgs = Self::list(state_dir)?;
         let exists = current_pkgs.iter().any(|p| p.name == package_name);
         if !exists {
-            bail!("Package «{}» is not installed in the active profile", package_name);
+            bail!(
+                "Package «{}» is not installed in the active profile",
+                package_name
+            );
         }
 
         let current_gen = Self::get_current_generation(state_dir)?;
@@ -927,7 +1119,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             checksum_verified: true,
             signature_verified: true,
             success: true,
-            message: format!("Package «{}» removed from profile. Advanced to generation {new_gen}", package_name),
+            message: format!(
+                "Package «{}» removed from profile. Advanced to generation {new_gen}",
+                package_name
+            ),
         })
     }
 
@@ -1031,13 +1226,19 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             version: format!("generation {target}"),
             store_path: target_file.display().to_string(),
             generation: target,
-            binaries_linked: data.packages.iter().flat_map(|p| p.binaries.clone()).collect(),
+            binaries_linked: data
+                .packages
+                .iter()
+                .flat_map(|p| p.binaries.clone())
+                .collect(),
             desktop_entries_linked: all_dt,
             icons_linked: all_ic,
             checksum_verified: true,
             signature_verified: true,
             success: true,
-            message: format!("Successfully rolled back profile from generation {current_gen} to {target}"),
+            message: format!(
+                "Successfully rolled back profile from generation {current_gen} to {target}"
+            ),
         })
     }
 
@@ -1059,7 +1260,11 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
 
             if !pkg_path.exists() {
                 all_valid = false;
-                details.push(format!("✗ {}: Store directory {} missing!", p.name, pkg_path.display()));
+                details.push(format!(
+                    "✗ {}: Store directory {} missing!",
+                    p.name,
+                    pkg_path.display()
+                ));
                 continue;
             }
 
@@ -1074,7 +1279,13 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
             }
 
             if pkg_ok {
-                details.push(format!("✓ {} v{} [hash {}]: Integrity OK ({} binaries)", p.name, p.version, &p.store_hash[..8], checked_bins));
+                details.push(format!(
+                    "✓ {} v{} [hash {}]: Integrity OK ({} binaries)",
+                    p.name,
+                    p.version,
+                    &p.store_hash[..8],
+                    checked_bins
+                ));
             } else {
                 all_valid = false;
             }
@@ -1215,7 +1426,10 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
 
             // Link XDG Desktop Entries
             if let Some(desktop_file) = &p.desktop_file {
-                let src_desktop = pkg_dir.join("share").join("applications").join(desktop_file);
+                let src_desktop = pkg_dir
+                    .join("share")
+                    .join("applications")
+                    .join(desktop_file);
                 let link_desktop = current_apps.join(desktop_file);
 
                 if src_desktop.exists() {
@@ -1277,30 +1491,37 @@ pub const OFFICIAL_RECIPES: &[(&str, &str)] = &[
 
         for p in pkgs {
             if p.app_type == PackageAppType::Gui || p.desktop_entry.is_some() {
-                let desktop_filename = p.desktop_file.clone().unwrap_or_else(|| format!("{}.desktop", p.name));
+                let desktop_filename = p
+                    .desktop_file
+                    .clone()
+                    .unwrap_or_else(|| format!("{}.desktop", p.name));
                 let desktop_path = current_apps_dir.join(&desktop_filename);
 
-                let (name, generic_name, comment, exec, icon, categories, mime_types) = if let Some(d) = &p.desktop_entry {
-                    (
-                        d.name.clone(),
-                        d.generic_name.clone(),
-                        d.comment.clone(),
-                        d.exec.clone(),
-                        d.icon.clone(),
-                        d.categories.clone(),
-                        d.mime_types.clone(),
-                    )
-                } else {
-                    (
-                        p.name.clone(),
-                        None,
-                        Some(p.description.clone()),
-                        p.binaries.first().cloned().unwrap_or_else(|| p.name.clone()),
-                        Some(p.name.clone()),
-                        vec!["Utility".to_string()],
-                        Vec::new(),
-                    )
-                };
+                let (name, generic_name, comment, exec, icon, categories, mime_types) =
+                    if let Some(d) = &p.desktop_entry {
+                        (
+                            d.name.clone(),
+                            d.generic_name.clone(),
+                            d.comment.clone(),
+                            d.exec.clone(),
+                            d.icon.clone(),
+                            d.categories.clone(),
+                            d.mime_types.clone(),
+                        )
+                    } else {
+                        (
+                            p.name.clone(),
+                            None,
+                            Some(p.description.clone()),
+                            p.binaries
+                                .first()
+                                .cloned()
+                                .unwrap_or_else(|| p.name.clone()),
+                            Some(p.name.clone()),
+                            vec!["Utility".to_string()],
+                            Vec::new(),
+                        )
+                    };
 
                 let icon_path = p.icons_linked.first().map(|icon_file| {
                     Self::current_icons_dir(state_dir)
@@ -1413,7 +1634,8 @@ mod tests {
 
     #[test]
     fn test_parse_ollama_recipe() {
-        let manifest = PackageEngine::resolve_manifest("ollama").expect("should resolve ollama recipe");
+        let manifest =
+            PackageEngine::resolve_manifest("ollama").expect("should resolve ollama recipe");
         assert_eq!(manifest.name, "ollama");
         assert_eq!(manifest.binaries, vec!["ollama".to_string()]);
     }
@@ -1449,8 +1671,12 @@ mod tests {
 
         let list2 = PackageEngine::list(&temp_dir).unwrap();
         assert_eq!(list2.len(), 2);
-        assert!(PackageEngine::current_bin_dir(&temp_dir).join("jq").exists());
-        assert!(PackageEngine::current_bin_dir(&temp_dir).join("rg").exists());
+        assert!(PackageEngine::current_bin_dir(&temp_dir)
+            .join("jq")
+            .exists());
+        assert!(PackageEngine::current_bin_dir(&temp_dir)
+            .join("rg")
+            .exists());
 
         // 4. Verify integrity
         let (all_valid, count, details) = PackageEngine::verify(&temp_dir).unwrap();
@@ -1465,8 +1691,12 @@ mod tests {
         let list_after_rollback = PackageEngine::list(&temp_dir).unwrap();
         assert_eq!(list_after_rollback.len(), 1);
         assert_eq!(list_after_rollback[0].name, "ripgrep");
-        assert!(PackageEngine::current_bin_dir(&temp_dir).join("rg").exists());
-        assert!(!PackageEngine::current_bin_dir(&temp_dir).join("jq").exists());
+        assert!(PackageEngine::current_bin_dir(&temp_dir)
+            .join("rg")
+            .exists());
+        assert!(!PackageEngine::current_bin_dir(&temp_dir)
+            .join("jq")
+            .exists());
 
         // Note: jq still exists in immutable store without orphans!
         assert!(Path::new(&rep2.store_path).exists());
@@ -1479,7 +1709,9 @@ mod tests {
         let remove_rep = PackageEngine::remove(&temp_dir, "curl").unwrap();
         assert_eq!(remove_rep.generation, 3);
         assert_eq!(PackageEngine::list(&temp_dir).unwrap().len(), 1);
-        assert!(!PackageEngine::current_bin_dir(&temp_dir).join("curl").exists());
+        assert!(!PackageEngine::current_bin_dir(&temp_dir)
+            .join("curl")
+            .exists());
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
@@ -1558,7 +1790,11 @@ mod tests {
         assert!(content.contains("StartupNotify=true"));
 
         let report = PackageEngine::validate_desktop_entry(&content);
-        assert!(report.valid, "Generated desktop entry must be valid. Errors: {:?}", report.errors);
+        assert!(
+            report.valid,
+            "Generated desktop entry must be valid. Errors: {:?}",
+            report.errors
+        );
         assert!(report.errors.is_empty());
 
         // Validate invalid desktop entry
@@ -1580,17 +1816,27 @@ mod tests {
         let rep1 = PackageEngine::install(&temp_dir, "firefox", false).unwrap();
         assert_eq!(rep1.generation, 1);
         assert!(rep1.success);
-        assert_eq!(rep1.desktop_entries_linked, vec!["firefox.desktop".to_string()]);
+        assert_eq!(
+            rep1.desktop_entries_linked,
+            vec!["firefox.desktop".to_string()]
+        );
         assert_eq!(rep1.icons_linked, vec!["firefox.svg".to_string()]);
 
         // Check symlinks
         let current_apps = PackageEngine::current_applications_dir(&temp_dir);
-        let current_icons = PackageEngine::current_icons_dir(&temp_dir).join("hicolor/scalable/apps");
+        let current_icons =
+            PackageEngine::current_icons_dir(&temp_dir).join("hicolor/scalable/apps");
         let firefox_desktop_symlink = current_apps.join("firefox.desktop");
         let firefox_icon_symlink = current_icons.join("firefox.svg");
 
-        assert!(firefox_desktop_symlink.exists(), "firefox.desktop symlink must exist");
-        assert!(firefox_icon_symlink.exists(), "firefox.svg icon symlink must exist");
+        assert!(
+            firefox_desktop_symlink.exists(),
+            "firefox.desktop symlink must exist"
+        );
+        assert!(
+            firefox_icon_symlink.exists(),
+            "firefox.svg icon symlink must exist"
+        );
 
         // Verify desktop entry content from symlink
         let desktop_raw = fs::read_to_string(&firefox_desktop_symlink).unwrap();
@@ -1607,7 +1853,10 @@ mod tests {
         // 3. Install Alacritty (GUI)
         let rep2 = PackageEngine::install(&temp_dir, "alacritty", false).unwrap();
         assert_eq!(rep2.generation, 2);
-        assert_eq!(rep2.desktop_entries_linked, vec!["alacritty.desktop".to_string()]);
+        assert_eq!(
+            rep2.desktop_entries_linked,
+            vec!["alacritty.desktop".to_string()]
+        );
 
         let apps2 = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
         assert_eq!(apps2.len(), 2);
@@ -1621,8 +1870,14 @@ mod tests {
         let apps_after_rollback = PackageEngine::list_desktop_apps(&temp_dir).unwrap();
         assert_eq!(apps_after_rollback.len(), 1);
         assert_eq!(apps_after_rollback[0].name, "Firefox");
-        assert!(!current_apps.join("alacritty.desktop").exists(), "Alacritty desktop entry should be removed after rollback");
-        assert!(!current_icons.join("alacritty.svg").exists(), "Alacritty icon should be removed after rollback");
+        assert!(
+            !current_apps.join("alacritty.desktop").exists(),
+            "Alacritty desktop entry should be removed after rollback"
+        );
+        assert!(
+            !current_icons.join("alacritty.svg").exists(),
+            "Alacritty icon should be removed after rollback"
+        );
         assert!(current_apps.join("firefox.desktop").exists());
 
         // 5. Remove Firefox
@@ -1638,21 +1893,49 @@ mod tests {
 
     #[test]
     fn test_all_official_recipes_validation() {
-        let all = PackageEngine::get_all_official_manifests().expect("should load all official recipes");
-        assert!(all.len() >= 10, "Expected at least 10 official recipes, got {}", all.len());
+        let all =
+            PackageEngine::get_all_official_manifests().expect("should load all official recipes");
+        assert!(
+            all.len() >= 10,
+            "Expected at least 10 official recipes, got {}",
+            all.len()
+        );
 
         for manifest in &all {
             assert!(!manifest.name.is_empty(), "Recipe name must not be empty");
-            assert!(!manifest.version.is_empty(), "Recipe version must not be empty");
-            assert!(manifest.source_url.is_some(), "Official recipe {} should have a source url", manifest.name);
-            let sha = manifest.sha256.as_ref().expect("Official recipe should have a sha256");
-            assert_eq!(sha.len(), 64, "SHA-256 for {} should be 64 characters", manifest.name);
+            assert!(
+                !manifest.version.is_empty(),
+                "Recipe version must not be empty"
+            );
+            assert!(
+                manifest.source_url.is_some(),
+                "Official recipe {} should have a source url",
+                manifest.name
+            );
+            let sha = manifest
+                .sha256
+                .as_ref()
+                .expect("Official recipe should have a sha256");
+            assert_eq!(
+                sha.len(),
+                64,
+                "SHA-256 for {} should be 64 characters",
+                manifest.name
+            );
 
             if manifest.app_type == PackageAppType::Gui {
-                assert!(manifest.desktop_entry.is_some(), "GUI package {} must have desktop entry", manifest.name);
+                assert!(
+                    manifest.desktop_entry.is_some(),
+                    "GUI package {} must have desktop entry",
+                    manifest.name
+                );
                 let desktop_entry_content = PackageEngine::generate_desktop_entry(manifest);
                 let report = PackageEngine::validate_desktop_entry(&desktop_entry_content);
-                assert!(report.valid, "Desktop entry for {} must be valid. Errors: {:?}", manifest.name, report.errors);
+                assert!(
+                    report.valid,
+                    "Desktop entry for {} must be valid. Errors: {:?}",
+                    manifest.name, report.errors
+                );
             }
         }
     }
@@ -1680,4 +1963,3 @@ mod tests {
         assert!(all.len() >= 10);
     }
 }
-

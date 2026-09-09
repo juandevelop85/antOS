@@ -27,9 +27,11 @@ use zeroize::Zeroize;
 /// hosts). Secrets — tokens, key material — must never be derived from the
 /// clock, a hostname, or any other predictable input.
 pub fn secure_random_bytes(n: usize) -> Result<Vec<u8>> {
-    let mut f = fs::File::open("/dev/urandom").context("opening /dev/urandom for secure randomness")?;
+    let mut f =
+        fs::File::open("/dev/urandom").context("opening /dev/urandom for secure randomness")?;
     let mut buf = vec![0u8; n];
-    f.read_exact(&mut buf).context("reading secure randomness from /dev/urandom")?;
+    f.read_exact(&mut buf)
+        .context("reading secure randomness from /dev/urandom")?;
     Ok(buf)
 }
 
@@ -79,10 +81,12 @@ impl Ed25519Keypair {
     /// — never from the clock, a hostname, or any other guessable input.
     pub fn generate() -> Result<Self> {
         let seed = secure_random_bytes(32)?;
-        let seed_arr: [u8; 32] = seed
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("secure_random_bytes(32) returned an unexpected length"))?;
-        Ok(Self { signing_key: SigningKey::from_bytes(&seed_arr) })
+        let seed_arr: [u8; 32] = seed.try_into().map_err(|_| {
+            anyhow::anyhow!("secure_random_bytes(32) returned an unexpected length")
+        })?;
+        Ok(Self {
+            signing_key: SigningKey::from_bytes(&seed_arr),
+        })
     }
 
     /// Reconstructs a keypair from its hex-encoded secret half.
@@ -91,7 +95,9 @@ impl Ed25519Keypair {
         let arr: [u8; 32] = bytes
             .try_into()
             .map_err(|_| anyhow::anyhow!("Ed25519 secret key must be exactly 32 bytes"))?;
-        Ok(Self { signing_key: SigningKey::from_bytes(&arr) })
+        Ok(Self {
+            signing_key: SigningKey::from_bytes(&arr),
+        })
     }
 
     /// The secret key, hex-encoded. Callers must treat this the way they
@@ -118,12 +124,17 @@ pub fn verify_signature(public_key_hex: &str, message: &[u8], signature_hex: &st
     verify_signature_checked(public_key_hex, message, signature_hex).unwrap_or(false)
 }
 
-fn verify_signature_checked(public_key_hex: &str, message: &[u8], signature_hex: &str) -> Result<bool> {
+fn verify_signature_checked(
+    public_key_hex: &str,
+    message: &[u8],
+    signature_hex: &str,
+) -> Result<bool> {
     let pk_bytes = from_hex(public_key_hex).context("malformed public key hex")?;
     let pk_arr: [u8; 32] = pk_bytes
         .try_into()
         .map_err(|_| anyhow::anyhow!("public key must be exactly 32 bytes"))?;
-    let verifying_key = VerifyingKey::from_bytes(&pk_arr).context("not a valid Ed25519 public key")?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&pk_arr).context("not a valid Ed25519 public key")?;
 
     let sig_bytes = from_hex(signature_hex).context("malformed signature hex")?;
     let sig_arr: [u8; 64] = sig_bytes
@@ -140,7 +151,11 @@ fn verify_signature_checked(public_key_hex: &str, message: &[u8], signature_hex:
 /// Small helper for call sites that want a hard error instead of a bare
 /// `bool` when verification fails — e.g. surfacing *why* to a caller that
 /// will report it, rather than only "yes/no".
-pub fn verify_signature_or_err(public_key_hex: &str, message: &[u8], signature_hex: &str) -> Result<()> {
+pub fn verify_signature_or_err(
+    public_key_hex: &str,
+    message: &[u8],
+    signature_hex: &str,
+) -> Result<()> {
     if verify_signature(public_key_hex, message, signature_hex) {
         Ok(())
     } else {
@@ -182,9 +197,9 @@ pub fn aead_decrypt(key: &[u8; 32], data: &[u8]) -> Result<Vec<u8>> {
     let cipher = ChaCha20Poly1305::new(Key::from_slice(key));
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| anyhow::anyhow!("AEAD decryption failed — wrong key or corrupted/tampered data"))
+    cipher.decrypt(nonce, ciphertext).map_err(|_| {
+        anyhow::anyhow!("AEAD decryption failed — wrong key or corrupted/tampered data")
+    })
 }
 
 // ------------------------------------------------------------ secret hygiene
@@ -242,10 +257,15 @@ pub fn write_secret_file(path: &Path, contents: &[u8]) -> Result<()> {
     let parent = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("refusing to write {}: no parent directory", path.display()))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("refusing to write {}: no parent directory", path.display())
+        })?;
     fs::create_dir_all(parent)?;
 
-    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("secret");
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("secret");
     let tmp_path = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
     // A previous attempt may have died mid-write and left this behind;
     // `create_new` below must start from a clean slate.
@@ -266,10 +286,12 @@ pub fn write_secret_file(path: &Path, contents: &[u8]) -> Result<()> {
     }
     #[cfg(not(unix))]
     {
-        fs::write(&tmp_path, contents).with_context(|| format!("writing {}", tmp_path.display()))?;
+        fs::write(&tmp_path, contents)
+            .with_context(|| format!("writing {}", tmp_path.display()))?;
     }
 
-    fs::rename(&tmp_path, path).with_context(|| format!("renaming {} to {}", tmp_path.display(), path.display()))?;
+    fs::rename(&tmp_path, path)
+        .with_context(|| format!("renaming {} to {}", tmp_path.display(), path.display()))?;
     Ok(())
 }
 
@@ -323,7 +345,11 @@ mod tests {
         let keypair = Ed25519Keypair::generate().unwrap();
         let signature = keypair.sign(b"original message");
 
-        assert!(!verify_signature(&keypair.public_hex(), b"tampered message", &signature));
+        assert!(!verify_signature(
+            &keypair.public_hex(),
+            b"tampered message",
+            &signature
+        ));
     }
 
     #[test]
@@ -333,7 +359,11 @@ mod tests {
         let message = b"who am I really talking to?";
         let signature = signer.sign(message);
 
-        assert!(!verify_signature(&impostor.public_hex(), message, &signature));
+        assert!(!verify_signature(
+            &impostor.public_hex(),
+            message,
+            &signature
+        ));
     }
 
     #[test]
@@ -361,7 +391,11 @@ mod tests {
         let plaintext = b"antOS vault secret payload";
         let ciphertext = aead_encrypt(&key, plaintext).unwrap();
 
-        assert_ne!(ciphertext.as_slice(), plaintext, "ciphertext must not equal the plaintext");
+        assert_ne!(
+            ciphertext.as_slice(),
+            plaintext,
+            "ciphertext must not equal the plaintext"
+        );
         assert!(
             !ciphertext.windows(plaintext.len()).any(|w| w == plaintext),
             "the plaintext must not appear anywhere in the ciphertext"
@@ -409,7 +443,10 @@ mod tests {
     fn test_secret_value_debug_never_prints_the_plaintext() {
         let secret = SecretValue::new("sk_live_super_secret_token".to_string());
         let printed = format!("{secret:?}");
-        assert!(!printed.contains("sk_live_super_secret_token"), "got: {printed}");
+        assert!(
+            !printed.contains("sk_live_super_secret_token"),
+            "got: {printed}"
+        );
         assert!(printed.contains("REDACTED"));
     }
 
@@ -421,7 +458,10 @@ mod tests {
 
     #[test]
     fn test_write_secret_file_is_atomic_and_owner_only() {
-        let dir = std::env::temp_dir().join(format!("antos_test_write_secret_file_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "antos_test_write_secret_file_{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let target = dir.join("secret.bin");
@@ -463,14 +503,21 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 use std::os::unix::fs::PermissionsExt;
 
-                let dir = std::env::temp_dir().join(format!("antos_test_write_secret_file_umask_{}", std::process::id()));
+                let dir = std::env::temp_dir().join(format!(
+                    "antos_test_write_secret_file_umask_{}",
+                    std::process::id()
+                ));
                 let _ = fs::remove_dir_all(&dir);
                 fs::create_dir_all(&dir).unwrap();
                 let target = dir.join("secret.bin");
 
                 write_secret_file(&target, b"sensitive").unwrap();
                 let mode = fs::metadata(&target).unwrap().permissions().mode();
-                assert_eq!(mode & 0o777, 0o600, "must be 0600 even with a permissive umask");
+                assert_eq!(
+                    mode & 0o777,
+                    0o600,
+                    "must be 0600 even with a permissive umask"
+                );
 
                 let _ = fs::remove_dir_all(&dir);
             });

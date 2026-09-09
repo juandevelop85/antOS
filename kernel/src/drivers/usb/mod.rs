@@ -8,7 +8,7 @@ pub mod hid;
 pub mod hub;
 pub mod xhci;
 
-pub use xhci::{XhciController, PortInfo};
+pub use xhci::{PortInfo, XhciController};
 
 use crate::sync::SpinLock;
 

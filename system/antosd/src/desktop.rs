@@ -26,7 +26,8 @@ impl DesktopManager {
             DesktopHotkey {
                 key: "Super+A".into(),
                 action: "toggle_agent_center".into(),
-                description: "Desplegar el Centro de Control de Agentes y Tablero de Tickets".into(),
+                description: "Desplegar el Centro de Control de Agentes y Tablero de Tickets"
+                    .into(),
             },
             DesktopHotkey {
                 key: "Super+Return".into(),
@@ -46,7 +47,8 @@ impl DesktopManager {
             DesktopHotkey {
                 key: "Super+W".into(),
                 action: "open_dev_workspace".into(),
-                description: "Abrir el espacio de trabajo integrado Dev TUI (Neovim + antOS)".into(),
+                description: "Abrir el espacio de trabajo integrado Dev TUI (Neovim + antOS)"
+                    .into(),
             },
             DesktopHotkey {
                 key: "Super+Q".into(),
@@ -75,7 +77,9 @@ impl DesktopManager {
     pub fn get_status() -> DesktopSessionStatus {
         let wayland_display = env::var("WAYLAND_DISPLAY").ok();
         let running_in_wayland = wayland_display.is_some()
-            || env::var("XDG_SESSION_TYPE").map(|v| v == "wayland").unwrap_or(false);
+            || env::var("XDG_SESSION_TYPE")
+                .map(|v| v == "wayland")
+                .unwrap_or(false);
 
         // Detectar compositor activo mediante pgrep o variables de entorno
         let compositor_name = if let Ok(comp) = env::var("ANTOS_COMPOSITOR") {
@@ -92,7 +96,8 @@ impl DesktopManager {
             "ninguno (sesión no gráfica o headless)".into()
         };
 
-        let is_running = running_in_wayland || is_process_running("labwc") || is_process_running("sway");
+        let is_running =
+            running_in_wayland || is_process_running("labwc") || is_process_running("sway");
 
         DesktopSessionStatus {
             running: is_running,
@@ -105,7 +110,9 @@ impl DesktopManager {
 
     /// Prepara e instala las configuraciones declarativas del escritorio en `~/.config/labwc`.
     pub fn sync_configuration(workspace_path: &Path) -> Result<PathBuf> {
-        let home_dir = env::var("HOME").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("/tmp"));
+        let home_dir = env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/tmp"));
         let target_dir = home_dir.join(".config").join("labwc");
         fs::create_dir_all(&target_dir)
             .with_context(|| format!("No se pudo crear {}", target_dir.display()))?;
@@ -134,8 +141,9 @@ impl DesktopManager {
 
     /// Lanza o diagnostica la sesión de escritorio mediante `start-session.sh`.
     pub fn start_session(workspace_path: &Path, nested: bool) -> Result<String> {
-        let desktop_dir = find_desktop_dir(workspace_path)
-            .ok_or_else(|| anyhow::anyhow!("No se encontró el directorio system/desktop en el espacio de trabajo"))?;
+        let desktop_dir = find_desktop_dir(workspace_path).ok_or_else(|| {
+            anyhow::anyhow!("No se encontró el directorio system/desktop en el espacio de trabajo")
+        })?;
         let script = desktop_dir.join("start-session.sh");
         if !script.exists() {
             anyhow::bail!("No se encontró el script de inicio {}", script.display());
@@ -147,7 +155,8 @@ impl DesktopManager {
             cmd.arg("--nested");
         }
 
-        let output = cmd.output()
+        let output = cmd
+            .output()
             .with_context(|| format!("Error al ejecutar {}", script.display()))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -211,7 +220,10 @@ mod tests {
     #[test]
     fn test_desktop_status_inspection() {
         let status = DesktopManager::get_status();
-        assert_eq!(status.registered_hotkeys.len(), DesktopManager::get_hotkeys().len());
+        assert_eq!(
+            status.registered_hotkeys.len(),
+            DesktopManager::get_hotkeys().len()
+        );
         // En entorno de test sin display, informa estado no ejecutable limpiamente
         if env::var("WAYLAND_DISPLAY").is_err() {
             assert!(!status.compositor_name.is_empty());

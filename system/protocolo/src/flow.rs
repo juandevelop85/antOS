@@ -37,8 +37,6 @@ pub struct SwarmStatus {
     pub total_tasks: usize,
 }
 
-
-
 // ---------------------------------------------------- antFlow: multi-agent (T3.1)
 
 /// Specialized agent role within the antFlow lifecycle.
@@ -79,9 +77,7 @@ impl AgentRole {
 
     pub fn description(&self) -> &'static str {
         match self {
-            AgentRole::Architect => {
-                "Technical planning, ticket breakdown and architecture design."
-            }
+            AgentRole::Architect => "Technical planning, ticket breakdown and architecture design.",
             AgentRole::Coder => {
                 "Modular implementation of changes and refactoring in the worktree."
             }
@@ -376,4 +372,3 @@ pub struct TddRegressionReport {
     pub fix_summary: Option<String>,
     pub audited: bool,
 }
-

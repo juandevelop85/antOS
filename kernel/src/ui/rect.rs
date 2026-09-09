@@ -21,7 +21,10 @@ pub struct Size {
 }
 
 impl Size {
-    pub const ZERO: Size = Size { width: 0, height: 0 };
+    pub const ZERO: Size = Size {
+        width: 0,
+        height: 0,
+    };
 
     pub const fn new(width: u32, height: u32) -> Self {
         Size { width, height }
@@ -37,10 +40,20 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const ZERO: Rect = Rect { x: 0, y: 0, width: 0, height: 0 };
+    pub const ZERO: Rect = Rect {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    };
 
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Rect { x, y, width, height }
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     #[inline]

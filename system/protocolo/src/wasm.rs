@@ -29,4 +29,3 @@ pub struct PluginResult {
     pub success: bool,
     pub error: Option<String>,
 }
-

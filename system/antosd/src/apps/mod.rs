@@ -5,12 +5,12 @@ pub mod flatpak;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::Result;
+use crate::pkg::PackageEngine;
 use antos_protocol::{
     AppActionResult, AppLaunchResult, AppProgress, AppSearchResult, AppSource, DesktopApp,
 };
+use anyhow::Result;
 pub use flatpak::FlatpakClient;
-use crate::pkg::PackageEngine;
 
 /// Unified Application Engine for antOS.
 pub struct AppEngine;
@@ -63,16 +63,27 @@ impl AppEngine {
         let native_recipes = [
             ("firefox", "Mozilla Firefox Web Browser", "130.0"),
             ("code", "Visual Studio Code", "1.93.0"),
-            ("zed-editor", "Zed High-Performance Multiplayer Editor", "0.140.0"),
+            (
+                "zed-editor",
+                "Zed High-Performance Multiplayer Editor",
+                "0.140.0",
+            ),
             ("alacritty", "Alacritty GPU-accelerated Terminal", "0.13.2"),
             ("ripgrep", "Fast line-oriented search tool", "14.1.0"),
             ("jq", "Command-line JSON processor", "1.7.1"),
-            ("curl", "Command line tool for transferring data with URLs", "8.9.1"),
+            (
+                "curl",
+                "Command line tool for transferring data with URLs",
+                "8.9.1",
+            ),
             ("ollama", "Run language models locally", "0.3.9"),
         ];
 
         for (name, desc, ver) in native_recipes {
-            if name.to_lowercase().contains(&q_lower) || desc.to_lowercase().contains(&q_lower) || q_lower.is_empty() {
+            if name.to_lowercase().contains(&q_lower)
+                || desc.to_lowercase().contains(&q_lower)
+                || q_lower.is_empty()
+            {
                 results.push(AppSearchResult {
                     id: name.to_string(),
                     name: name.to_string(),
@@ -132,7 +143,10 @@ impl AppEngine {
             progress_cb(AppProgress {
                 app_id: id.to_string(),
                 percentage: 100.0,
-                status: format!("Package '{}' installed into antOS generation {}", id, rep.generation),
+                status: format!(
+                    "Package '{}' installed into antOS generation {}",
+                    id, rep.generation
+                ),
                 done: true,
             });
 
@@ -140,7 +154,10 @@ impl AppEngine {
                 app_id: id.to_string(),
                 action: "install".to_string(),
                 success: true,
-                message: format!("Installed '{}' into antOS immutable store (generation {})", id, rep.generation),
+                message: format!(
+                    "Installed '{}' into antOS immutable store (generation {})",
+                    id, rep.generation
+                ),
             })
         } else {
             FlatpakClient::install(state_dir, id, progress_cb)
@@ -157,7 +174,10 @@ impl AppEngine {
                     app_id: id.to_string(),
                     action: "uninstall".to_string(),
                     success: true,
-                    message: format!("Package '{}' removed from active profile (new generation {})", id, rep.generation),
+                    message: format!(
+                        "Package '{}' removed from active profile (new generation {})",
+                        id, rep.generation
+                    ),
                 });
             }
         }
@@ -181,8 +201,12 @@ impl AppEngine {
 
         // 2. Check native package
         let pkg_apps = PackageEngine::list_desktop_apps(state_dir)?;
-        if let Some(app) = pkg_apps.into_iter().find(|p| p.id == id || p.package_name == id) {
-            let wayland_display = std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
+        if let Some(app) = pkg_apps
+            .into_iter()
+            .find(|p| p.id == id || p.package_name == id)
+        {
+            let wayland_display =
+                std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
             let workspace_str = workspace
                 .map(|w| w.display().to_string())
                 .or_else(|| std::env::var("ANTOS_WORKSPACE").ok())
@@ -201,7 +225,8 @@ impl AppEngine {
             };
 
             let launcher_item = antos_protocol::LauncherAppItem::from_desktop_summary(&app);
-            let effective_args = antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
+            let effective_args =
+                antos_protocol::inject_workspace_args(&launcher_item, &workspace_str, args);
 
             for a in &effective_args {
                 cmd.arg(a);
@@ -210,7 +235,10 @@ impl AppEngine {
             cmd.env("WAYLAND_DISPLAY", &wayland_display);
             cmd.env("XDG_CURRENT_DESKTOP", "antOS");
             cmd.env("ANTOS_WORKSPACE", &workspace_str);
-            cmd.env("ANTOS_SOCKET", state_dir.join("ipc.sock").display().to_string());
+            cmd.env(
+                "ANTOS_SOCKET",
+                state_dir.join("ipc.sock").display().to_string(),
+            );
 
             let child = cmd.spawn();
             let pid = match child {
@@ -227,7 +255,11 @@ impl AppEngine {
             });
         }
 
-        anyhow::bail!("Application '{}' is not installed in antOS. Run 'antos app install {}' first.", id, id)
+        anyhow::bail!(
+            "Application '{}' is not installed in antOS. Run 'antos app install {}' first.",
+            id,
+            id
+        )
     }
 }
 
@@ -249,7 +281,10 @@ mod tests {
         assert!(catalog.iter().any(|a| a.id == "org.mozilla.firefox"));
         assert!(catalog.iter().any(|a| a.id == "org.videolan.VLC"));
 
-        let vscode = catalog.iter().find(|a| a.id == "com.visualstudio.code").unwrap();
+        let vscode = catalog
+            .iter()
+            .find(|a| a.id == "com.visualstudio.code")
+            .unwrap();
         assert_eq!(vscode.source, AppSource::Flatpak);
         assert!(vscode.categories.contains(&"Development".to_string()));
         assert!(vscode.permissions.contains(&"wayland".to_string()));
@@ -289,7 +324,8 @@ mod tests {
             move |p| {
                 p_clone.lock().unwrap().push(p);
             },
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(res.success);
         assert_eq!(res.action, "install");
@@ -313,11 +349,15 @@ mod tests {
             "com.visualstudio.code",
             Some(Path::new("/workspace/myproject")),
             &["--new-window".to_string()],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert!(launch_res.success);
         assert!(launch_res.pid.is_some());
-        assert_eq!(launch_res.workspace, Some("/workspace/myproject".to_string()));
+        assert_eq!(
+            launch_res.workspace,
+            Some("/workspace/myproject".to_string())
+        );
 
         // 4. Uninstall app
         let uninst_res = AppEngine::uninstall_app(&temp_dir, "com.visualstudio.code").unwrap();
@@ -337,16 +377,27 @@ mod tests {
         fs::create_dir_all(&temp_dir).unwrap();
 
         // Install Flatpak app
-        let _ = AppEngine::install_app(&temp_dir, "org.videolan.VLC", Some(AppSource::Flatpak), |_| {}).unwrap();
+        let _ = AppEngine::install_app(
+            &temp_dir,
+            "org.videolan.VLC",
+            Some(AppSource::Flatpak),
+            |_| {},
+        )
+        .unwrap();
 
         // Install native package app (Firefox)
-        let _ = AppEngine::install_app(&temp_dir, "firefox", Some(AppSource::NativePkg), |_| {}).unwrap();
+        let _ = AppEngine::install_app(&temp_dir, "firefox", Some(AppSource::NativePkg), |_| {})
+            .unwrap();
 
         // List all
         let all_apps = AppEngine::list_apps(&temp_dir, None).unwrap();
         assert_eq!(all_apps.len(), 2);
-        assert!(all_apps.iter().any(|a| a.id == "org.videolan.VLC" && a.source == AppSource::Flatpak));
-        assert!(all_apps.iter().any(|a| a.id == "firefox" && a.source == AppSource::NativePkg));
+        assert!(all_apps
+            .iter()
+            .any(|a| a.id == "org.videolan.VLC" && a.source == AppSource::Flatpak));
+        assert!(all_apps
+            .iter()
+            .any(|a| a.id == "firefox" && a.source == AppSource::NativePkg));
 
         // Filter only Flatpak
         let flatpak_only = AppEngine::list_apps(&temp_dir, Some(AppSource::Flatpak)).unwrap();

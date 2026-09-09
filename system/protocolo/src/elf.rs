@@ -13,9 +13,9 @@ pub const ELFDATA2LSB: u8 = 1; // 2's complement, little endian
 pub const EV_CURRENT: u32 = 1;
 
 pub const ET_EXEC: u16 = 2; // Executable file
-pub const ET_DYN: u16 = 3;  // Position-independent executable (PIE) / shared library
+pub const ET_DYN: u16 = 3; // Position-independent executable (PIE) / shared library
 
-pub const EM_X86_64: u16 = 0x3E;  // AMD x86-64
+pub const EM_X86_64: u16 = 0x3E; // AMD x86-64
 pub const EM_AARCH64: u16 = 0xB7; // ARM 64-bit (AArch64)
 
 pub const PT_NULL: u32 = 0;
@@ -421,7 +421,10 @@ mod tests {
     #[test]
     fn test_unsupported_arch_rejected() {
         let image = create_synthetic_elf(0x03 /* EM_386 */, ELFCLASS64, ELFDATA2LSB);
-        assert_eq!(parse_elf64(&image), Err(ElfError::UnsupportedArchitecture(3)));
+        assert_eq!(
+            parse_elf64(&image),
+            Err(ElfError::UnsupportedArchitecture(3))
+        );
     }
 
     #[test]
@@ -429,7 +432,10 @@ mod tests {
         let image = create_synthetic_elf(EM_X86_64, ELFCLASS64, ELFDATA2LSB);
         // Truncate to just header size without room for program header
         let truncated = &image[..64];
-        assert_eq!(parse_elf64(truncated), Err(ElfError::TruncatedProgramHeaders));
+        assert_eq!(
+            parse_elf64(truncated),
+            Err(ElfError::TruncatedProgramHeaders)
+        );
     }
 
     #[test]

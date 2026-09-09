@@ -34,7 +34,11 @@ impl HardwareInfo {
     pub fn detect() -> Self {
         let cpu_model = Self::detect_cpu();
         let ram_bytes = Self::detect_ram();
-        let ram_formatted = format!("{:.1} GB ({} MB)", ram_bytes as f64 / (1024.0 * 1024.0 * 1024.0), ram_bytes / (1024 * 1024));
+        let ram_formatted = format!(
+            "{:.1} GB ({} MB)",
+            ram_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            ram_bytes / (1024 * 1024)
+        );
         let boot_mode = Self::detect_boot_mode();
 
         Self {
@@ -61,7 +65,10 @@ impl HardwareInfo {
         }
 
         // 2. macOS sysctl
-        if let Ok(output) = Command::new("sysctl").args(["-n", "machdep.cpu.brand_string"]).output() {
+        if let Ok(output) = Command::new("sysctl")
+            .args(["-n", "machdep.cpu.brand_string"])
+            .output()
+        {
             if output.status.success() {
                 let model = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !model.is_empty() {
@@ -149,8 +156,12 @@ fn default_keymap() -> String {
 
 impl InstallTomlConfig {
     pub fn from_file(path: &Path) -> Result<Self> {
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("No se pudo leer el archivo de configuración «{}»", path.display()))?;
+        let content = fs::read_to_string(path).with_context(|| {
+            format!(
+                "No se pudo leer el archivo de configuración «{}»",
+                path.display()
+            )
+        })?;
         let config: Self = toml::from_str(&content)
             .with_context(|| format!("Error al analizar formato TOML en «{}»", path.display()))?;
         Ok(config)
@@ -172,23 +183,73 @@ impl InstallTomlConfig {
 
 /// Dibuja la pantalla de bienvenida con información del hardware detectado.
 pub fn print_welcome<W: Write>(writer: &mut W, hw: &HardwareInfo) -> Result<()> {
-    writeln!(writer, "\n{}", paint("╔══════════════════════════════════════════════════════════════════════════╗", CYAN))?;
-    writeln!(writer, "{}", paint("║          antOS · Asistente Guiado de Instalación en Vivo                ║", BOLD))?;
-    writeln!(writer, "{}", paint("╚══════════════════════════════════════════════════════════════════════════╝", CYAN))?;
-    writeln!(writer, "  • Procesador:        {}", paint(&hw.cpu_model, BOLD))?;
-    writeln!(writer, "  • Memoria RAM:       {}", paint(&hw.ram_formatted, GREEN))?;
-    writeln!(writer, "  • Modo de Firmware:  {}", paint(&hw.boot_mode, CYAN))?;
-    writeln!(writer, "  • Entorno de Origen: Live USB / Ramdisk antOS v0.1.0\n")?;
+    writeln!(
+        writer,
+        "\n{}",
+        paint(
+            "╔══════════════════════════════════════════════════════════════════════════╗",
+            CYAN
+        )
+    )?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "║          antOS · Asistente Guiado de Instalación en Vivo                ║",
+            BOLD
+        )
+    )?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "╚══════════════════════════════════════════════════════════════════════════╝",
+            CYAN
+        )
+    )?;
+    writeln!(
+        writer,
+        "  • Procesador:        {}",
+        paint(&hw.cpu_model, BOLD)
+    )?;
+    writeln!(
+        writer,
+        "  • Memoria RAM:       {}",
+        paint(&hw.ram_formatted, GREEN)
+    )?;
+    writeln!(
+        writer,
+        "  • Modo de Firmware:  {}",
+        paint(&hw.boot_mode, CYAN)
+    )?;
+    writeln!(
+        writer,
+        "  • Entorno de Origen: Live USB / Ramdisk antOS v0.1.0\n"
+    )?;
     Ok(())
 }
 
 /// Dibuja una barra de progreso en la terminal.
-pub fn render_progress_bar<W: Write>(writer: &mut W, step_num: usize, total_steps: usize, step_name: &str, percent: usize) -> Result<()> {
+pub fn render_progress_bar<W: Write>(
+    writer: &mut W,
+    step_num: usize,
+    total_steps: usize,
+    step_name: &str,
+    percent: usize,
+) -> Result<()> {
     let width = 22;
     let filled = (width * percent) / 100;
     let empty = width.saturating_sub(filled);
     let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-    write!(writer, "\r  [{}/{}] {:<35} [{}] {:>3}%", step_num, total_steps, paint(step_name, BOLD), paint(&bar, CYAN), percent)?;
+    write!(
+        writer,
+        "\r  [{}/{}] {:<35} [{}] {:>3}%",
+        step_num,
+        total_steps,
+        paint(step_name, BOLD),
+        paint(&bar, CYAN),
+        percent
+    )?;
     writer.flush()?;
     Ok(())
 }
@@ -204,7 +265,14 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     print_welcome(writer, &hw)?;
 
     // ── Paso 1: Selección del Disco Destino ────────────────────────────────────
-    writeln!(writer, "{}", paint("─── Paso 1: Selección del Disco Destino ───────────────────────────────────", CYAN))?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "─── Paso 1: Selección del Disco Destino ───────────────────────────────────",
+            CYAN
+        )
+    )?;
     let disks = DiskManager::list_disks()?;
     if disks.is_empty() {
         bail!("No se detectaron unidades de almacenamiento masivo compatibles en el sistema.");
@@ -219,56 +287,118 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
             paint("✗ Insuficiente (< 8 GB)", RED)
         };
 
-        let existing_os: Vec<&str> = d.partitions.iter().filter_map(|p| {
-            if p.is_efi {
-                Some("ESP/UEFI")
-            } else if p.name.to_lowercase().contains("windows") || p.name.to_lowercase().contains("ntfs") {
-                Some("Windows")
-            } else if p.name.to_lowercase().contains("linux") || p.name.to_lowercase().contains("ext4") {
-                Some("Linux")
-            } else {
-                None
-            }
-        }).collect();
+        let existing_os: Vec<&str> = d
+            .partitions
+            .iter()
+            .filter_map(|p| {
+                if p.is_efi {
+                    Some("ESP/UEFI")
+                } else if p.name.to_lowercase().contains("windows")
+                    || p.name.to_lowercase().contains("ntfs")
+                {
+                    Some("Windows")
+                } else if p.name.to_lowercase().contains("linux")
+                    || p.name.to_lowercase().contains("ext4")
+                {
+                    Some("Linux")
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let os_str = if existing_os.is_empty() {
-            if has_efi { "Sistemas UEFI detectados".to_string() } else { "Sin sistemas detectados".to_string() }
+            if has_efi {
+                "Sistemas UEFI detectados".to_string()
+            } else {
+                "Sin sistemas detectados".to_string()
+            }
         } else {
             existing_os.join(", ")
         };
 
-        writeln!(writer, "  [{}] {} · {:.1} GB · Bus: {}", idx + 1, paint(&d.path, BOLD), gb, d.bus_type)?;
+        writeln!(
+            writer,
+            "  [{}] {} · {:.1} GB · Bus: {}",
+            idx + 1,
+            paint(&d.path, BOLD),
+            gb,
+            d.bus_type
+        )?;
         writeln!(writer, "      Modelo:       {}", d.model)?;
-        writeln!(writer, "      Particiones:  {} existentes ({})", d.partitions.len(), os_str)?;
+        writeln!(
+            writer,
+            "      Particiones:  {} existentes ({})",
+            d.partitions.len(),
+            os_str
+        )?;
         writeln!(writer, "      Estado:       {}\n", status)?;
     }
 
-    write!(writer, "Seleccione el disco para la instalación [1-{}]: ", disks.len())?;
+    write!(
+        writer,
+        "Seleccione el disco para la instalación [1-{}]: ",
+        disks.len()
+    )?;
     writer.flush()?;
 
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let choice = line.trim().parse::<usize>().unwrap_or(1);
-    let chosen_disk_idx = if choice >= 1 && choice <= disks.len() { choice - 1 } else { 0 };
+    let chosen_disk_idx = if choice >= 1 && choice <= disks.len() {
+        choice - 1
+    } else {
+        0
+    };
     let chosen_disk = &disks[chosen_disk_idx];
 
-    writeln!(writer, "\n  -> Disco seleccionado: {}\n", paint(&chosen_disk.path, GREEN))?;
+    writeln!(
+        writer,
+        "\n  -> Disco seleccionado: {}\n",
+        paint(&chosen_disk.path, GREEN)
+    )?;
 
     // ── Paso 2: Modo de Instalación ───────────────────────────────────────────
-    writeln!(writer, "{}", paint("─── Paso 2: Modo de Instalación ────────────────────────────────────────────", CYAN))?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "─── Paso 2: Modo de Instalación ────────────────────────────────────────────",
+            CYAN
+        )
+    )?;
     let has_efi = chosen_disk.partitions.iter().any(|p| p.is_efi);
-    writeln!(writer, "  [1] Opción A: Disco Completo (Instalación Limpia)")?;
-    writeln!(writer, "      Borra todas las particiones previas y crea una nueva tabla GPT:")?;
+    writeln!(
+        writer,
+        "  [1] Opción A: Disco Completo (Instalación Limpia)"
+    )?;
+    writeln!(
+        writer,
+        "      Borra todas las particiones previas y crea una nueva tabla GPT:"
+    )?;
     writeln!(writer, "      - Partición EFI System (ESP): 512 MB (FAT32)")?;
     writeln!(writer, "      - Partición Swap (si RAM ≥ 32 GB): 4 GB")?;
-    writeln!(writer, "      - Partición Raíz antOS (/): Espacio restante (ext4)\n")?;
+    writeln!(
+        writer,
+        "      - Partición Raíz antOS (/): Espacio restante (ext4)\n"
+    )?;
 
     writeln!(writer, "  [2] Opción B: Dual-Boot / Convivencia Segura")?;
-    writeln!(writer, "      Conserva las particiones de Windows/Linux existentes.")?;
-    writeln!(writer, "      Ubica a antOS en el espacio libre disponible sin tocar datos de otros SO.\n")?;
+    writeln!(
+        writer,
+        "      Conserva las particiones de Windows/Linux existentes."
+    )?;
+    writeln!(
+        writer,
+        "      Ubica a antOS en el espacio libre disponible sin tocar datos de otros SO.\n"
+    )?;
 
     let default_opt = if has_efi { "2" } else { "1" };
-    write!(writer, "Seleccione el modo de instalación [1/2] (predeterminado: {}): ", default_opt)?;
+    write!(
+        writer,
+        "Seleccione el modo de instalación [1/2] (predeterminado: {}): ",
+        default_opt
+    )?;
     writer.flush()?;
 
     line.clear();
@@ -283,9 +413,24 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     };
 
     if is_clean {
-        writeln!(writer, "\n{}", paint("  ¡ADVERTENCIA! Se borrarán todos los datos del disco seleccionado:", RED))?;
-        writeln!(writer, "  Dispositivo a formatear: {}", paint(&chosen_disk.path, RED))?;
-        write!(writer, "  Escribe {} para confirmar la eliminación completa: ", paint("'SI'", BOLD))?;
+        writeln!(
+            writer,
+            "\n{}",
+            paint(
+                "  ¡ADVERTENCIA! Se borrarán todos los datos del disco seleccionado:",
+                RED
+            )
+        )?;
+        writeln!(
+            writer,
+            "  Dispositivo a formatear: {}",
+            paint(&chosen_disk.path, RED)
+        )?;
+        write!(
+            writer,
+            "  Escribe {} para confirmar la eliminación completa: ",
+            paint("'SI'", BOLD)
+        )?;
         writer.flush()?;
 
         line.clear();
@@ -296,48 +441,113 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         }
         writeln!(writer, "  Confirmación recibida.\n")?;
     } else {
-        writeln!(writer, "\n  Modo Dual-Boot seleccionado: preservando datos y particiones existentes.\n")?;
+        writeln!(
+            writer,
+            "\n  Modo Dual-Boot seleccionado: preservando datos y particiones existentes.\n"
+        )?;
     }
 
     // ── Paso 3: Parámetros del Sistema ────────────────────────────────────────
-    writeln!(writer, "{}", paint("─── Paso 3: Parámetros del Sistema ─────────────────────────────────────────", CYAN))?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "─── Paso 3: Parámetros del Sistema ─────────────────────────────────────────",
+            CYAN
+        )
+    )?;
 
-    write!(writer, "Nombre del equipo [hostname] (predeterminado: antos-box): ")?;
+    write!(
+        writer,
+        "Nombre del equipo [hostname] (predeterminado: antos-box): "
+    )?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
-    let hostname = if line.trim().is_empty() { "antos-box".to_string() } else { line.trim().to_string() };
+    let hostname = if line.trim().is_empty() {
+        "antos-box".to_string()
+    } else {
+        line.trim().to_string()
+    };
 
     write!(writer, "Zona horaria [timezone] (predeterminado: UTC): ")?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
-    let timezone = if line.trim().is_empty() { "UTC".to_string() } else { line.trim().to_string() };
+    let timezone = if line.trim().is_empty() {
+        "UTC".to_string()
+    } else {
+        line.trim().to_string()
+    };
 
-    write!(writer, "Distribución de teclado [keymap] (predeterminado: es): ")?;
+    write!(
+        writer,
+        "Distribución de teclado [keymap] (predeterminado: es): "
+    )?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
-    let keymap = if line.trim().is_empty() { "es".to_string() } else { line.trim().to_string() };
+    let keymap = if line.trim().is_empty() {
+        "es".to_string()
+    } else {
+        line.trim().to_string()
+    };
 
-    write!(writer, "Usuario principal [username] (predeterminado: antos): ")?;
+    write!(
+        writer,
+        "Usuario principal [username] (predeterminado: antos): "
+    )?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
-    let username = if line.trim().is_empty() { "antos".to_string() } else { line.trim().to_string() };
+    let username = if line.trim().is_empty() {
+        "antos".to_string()
+    } else {
+        line.trim().to_string()
+    };
 
     // ── Resumen y Confirmación Final ──────────────────────────────────────────
-    writeln!(writer, "\n{}", paint("─── Resumen de la Instalación ──────────────────────────────────────────────", CYAN))?;
-    writeln!(writer, "  • Dispositivo destino:  {}", paint(&chosen_disk.path, BOLD))?;
-    writeln!(writer, "  • Modo de instalación:  {}", if is_clean { paint("Limpio (Disco Completo)", YELLOW) } else { paint("Dual-Boot (Convivencia)", GREEN) })?;
+    writeln!(
+        writer,
+        "\n{}",
+        paint(
+            "─── Resumen de la Instalación ──────────────────────────────────────────────",
+            CYAN
+        )
+    )?;
+    writeln!(
+        writer,
+        "  • Dispositivo destino:  {}",
+        paint(&chosen_disk.path, BOLD)
+    )?;
+    writeln!(
+        writer,
+        "  • Modo de instalación:  {}",
+        if is_clean {
+            paint("Limpio (Disco Completo)", YELLOW)
+        } else {
+            paint("Dual-Boot (Convivencia)", GREEN)
+        }
+    )?;
     writeln!(writer, "  • Punto de montaje:     /mnt/target")?;
     writeln!(writer, "  • Nombre de host:       {}", hostname)?;
     writeln!(writer, "  • Usuario inicial:      {}", username)?;
     writeln!(writer, "  • Zona horaria:         {}", timezone)?;
     writeln!(writer, "  • Teclado:              {}", keymap)?;
-    writeln!(writer, "  • Modo de ejecución:    {}\n", if dry_run_default { paint("Simulación Segura (Dry-Run)", YELLOW) } else { paint("Despliegue Real en Disco", RED) })?;
+    writeln!(
+        writer,
+        "  • Modo de ejecución:    {}\n",
+        if dry_run_default {
+            paint("Simulación Segura (Dry-Run)", YELLOW)
+        } else {
+            paint("Despliegue Real en Disco", RED)
+        }
+    )?;
 
-    write!(writer, "¿Desea iniciar la instalación con estos parámetros? [S/n]: ")?;
+    write!(
+        writer,
+        "¿Desea iniciar la instalación con estos parámetros? [S/n]: "
+    )?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
@@ -347,7 +557,14 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     }
 
     // ── Paso 4: Ejecución y Despliegue con Barra de Progreso ───────────────────
-    writeln!(writer, "\n{}", paint("─── Paso 4: Ejecución y Despliegue del Sistema ─────────────────────────────", CYAN))?;
+    writeln!(
+        writer,
+        "\n{}",
+        paint(
+            "─── Paso 4: Ejecución y Despliegue del Sistema ─────────────────────────────",
+            CYAN
+        )
+    )?;
 
     let install_config = InstallConfig {
         target_device: chosen_disk.path.clone(),
@@ -364,37 +581,85 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
 
     // Subpaso 1: Particionamiento
     render_progress_bar(writer, 1, total_steps, "Creando particiones GPT", 30)?;
-    let _plan = DiskManager::plan_partitioning(&install_config.target_device, install_config.clean_install)?;
+    let _plan = DiskManager::plan_partitioning(
+        &install_config.target_device,
+        install_config.clean_install,
+    )?;
     render_progress_bar(writer, 1, total_steps, "Creando particiones GPT", 100)?;
     writeln!(writer, " ✓")?;
 
     // Subpaso 2: Formateo de sistemas de archivos
     render_progress_bar(writer, 2, total_steps, "Formateando particiones (mkfs)", 30)?;
-    render_progress_bar(writer, 2, total_steps, "Formateando particiones (mkfs)", 100)?;
+    render_progress_bar(
+        writer,
+        2,
+        total_steps,
+        "Formateando particiones (mkfs)",
+        100,
+    )?;
     writeln!(writer, " ✓")?;
 
     // Subpaso 3: Montaje en /mnt/target
-    render_progress_bar(writer, 3, total_steps, "Montando destino en /mnt/target", 50)?;
-    render_progress_bar(writer, 3, total_steps, "Montando destino en /mnt/target", 100)?;
+    render_progress_bar(
+        writer,
+        3,
+        total_steps,
+        "Montando destino en /mnt/target",
+        50,
+    )?;
+    render_progress_bar(
+        writer,
+        3,
+        total_steps,
+        "Montando destino en /mnt/target",
+        100,
+    )?;
     writeln!(writer, " ✓")?;
 
     // Subpaso 4: Despliegue y copia del sistema base con barra de progreso simulada
     for p in (10..=100).step_by(15) {
-        render_progress_bar(writer, 4, total_steps, "Copiando sistema base (/bin, /etc)", p)?;
+        render_progress_bar(
+            writer,
+            4,
+            total_steps,
+            "Copiando sistema base (/bin, /etc)",
+            p,
+        )?;
     }
-    render_progress_bar(writer, 4, total_steps, "Copiando sistema base (/bin, /etc)", 100)?;
+    render_progress_bar(
+        writer,
+        4,
+        total_steps,
+        "Copiando sistema base (/bin, /etc)",
+        100,
+    )?;
     let report = DeployEngine::deploy_system(&install_config, workspace)?;
     writeln!(writer, " ✓")?;
 
     // Subpaso 5: Configuración de fstab y servicios
-    render_progress_bar(writer, 5, total_steps, "Generando /etc/fstab y servicios", 60)?;
-    render_progress_bar(writer, 5, total_steps, "Generando /etc/fstab y servicios", 100)?;
+    render_progress_bar(
+        writer,
+        5,
+        total_steps,
+        "Generando /etc/fstab y servicios",
+        60,
+    )?;
+    render_progress_bar(
+        writer,
+        5,
+        total_steps,
+        "Generando /etc/fstab y servicios",
+        100,
+    )?;
     writeln!(writer, " ✓")?;
 
     // Subpaso 6: Bootloader UEFI y registro NVRAM
     render_progress_bar(writer, 6, total_steps, "Instalando UEFI y efibootmgr", 50)?;
     let esp_mount = if install_config.dry_run {
-        workspace.join("target/installer-staging/boot/efi").to_string_lossy().to_string()
+        workspace
+            .join("target/installer-staging/boot/efi")
+            .to_string_lossy()
+            .to_string()
     } else {
         format!("{}/boot/efi", install_config.target_mount)
     };
@@ -412,11 +677,43 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     writeln!(writer, " ✓\n")?;
 
     // ── Paso 5: Finalización y Limpieza ───────────────────────────────────────
-    writeln!(writer, "{}", paint("─── Paso 5: Finalización y Limpieza ────────────────────────────────────────", CYAN))?;
-    writeln!(writer, "  • Desmontando particiones (/mnt/target)... {}", paint("✓ OK", GREEN))?;
-    writeln!(writer, "\n{}", paint("╔══════════════════════════════════════════════════════════════════════════╗", GREEN))?;
-    writeln!(writer, "{}", paint("║                  ✓ INSTALACIÓN COMPLETADA CON ÉXITO                     ║", BOLD))?;
-    writeln!(writer, "{}", paint("╚══════════════════════════════════════════════════════════════════════════╝", GREEN))?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "─── Paso 5: Finalización y Limpieza ────────────────────────────────────────",
+            CYAN
+        )
+    )?;
+    writeln!(
+        writer,
+        "  • Desmontando particiones (/mnt/target)... {}",
+        paint("✓ OK", GREEN)
+    )?;
+    writeln!(
+        writer,
+        "\n{}",
+        paint(
+            "╔══════════════════════════════════════════════════════════════════════════╗",
+            GREEN
+        )
+    )?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "║                  ✓ INSTALACIÓN COMPLETADA CON ÉXITO                     ║",
+            BOLD
+        )
+    )?;
+    writeln!(
+        writer,
+        "{}",
+        paint(
+            "╚══════════════════════════════════════════════════════════════════════════╝",
+            GREEN
+        )
+    )?;
     writeln!(
         writer,
         "\n  {}\n",
@@ -471,7 +768,9 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         println!("\n  Opciones:");
         println!("    (sin argumentos)              Inicia el asistente interactivo paso a paso");
         println!("    --config, -c <archivo.toml>   Instalación no interactiva guiada por archivo de configuración");
-        println!("    --list, list                  Lista los discos duros y unidades SSD disponibles");
+        println!(
+            "    --list, list                  Lista los discos duros y unidades SSD disponibles"
+        );
         println!("    --target, -t <dispositivo>    Selecciona disco destino (ej. /dev/nvme0n1, /dev/sda)");
         println!("    --clean                       Modo disco completo (instalación limpia)");
         println!("    --dual-boot                   Modo de convivencia segura (dual-boot)");
@@ -489,11 +788,27 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         for (idx, d) in disks.iter().enumerate() {
             let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
             let suitable = d.size_bytes >= 8 * 1024 * 1024 * 1024;
-            let status = if suitable { paint("COMPATIBLE (≥ 8 GB)", GREEN) } else { paint("INSUFICIENTE (< 8 GB)", RED) };
+            let status = if suitable {
+                paint("COMPATIBLE (≥ 8 GB)", GREEN)
+            } else {
+                paint("INSUFICIENTE (< 8 GB)", RED)
+            };
             let has_efi = d.partitions.iter().any(|p| p.is_efi);
-            let mode = if has_efi { paint("Recomendado: Dual Boot", CYAN) } else { paint("Recomendado: Limpio", YELLOW) };
+            let mode = if has_efi {
+                paint("Recomendado: Dual Boot", CYAN)
+            } else {
+                paint("Recomendado: Limpio", YELLOW)
+            };
 
-            println!("  [{}] {} ({:.1} GB, {}) · {} | {}", idx + 1, paint(&d.path, BOLD), gb, d.bus_type, status, mode);
+            println!(
+                "  [{}] {} ({:.1} GB, {}) · {} | {}",
+                idx + 1,
+                paint(&d.path, BOLD),
+                gb,
+                d.bus_type,
+                status,
+                mode
+            );
             println!("      Modelo:       {}", d.model);
             println!("      Particiones:  {} detectadas\n", d.partitions.len());
         }
@@ -502,19 +817,31 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     // Si se especificó un archivo de configuración no interactivo
     if let Some(cfg_path) = config_file {
-        println!("{} Cargando configuración desde «{}»...", paint("antOS install:", CYAN), cfg_path.display());
+        println!(
+            "{} Cargando configuración desde «{}»...",
+            paint("antOS install:", CYAN),
+            cfg_path.display()
+        );
         let toml_cfg = InstallTomlConfig::from_file(&cfg_path)?;
         let install_cfg = toml_cfg.to_install_config();
 
         println!(
             "  • Destino: {} | Modo: {} | Dry-Run: {}",
             paint(&install_cfg.target_device, BOLD),
-            if install_cfg.clean_install { "Limpio" } else { "Dual-Boot" },
+            if install_cfg.clean_install {
+                "Limpio"
+            } else {
+                "Dual-Boot"
+            },
             install_cfg.dry_run
         );
 
         let report = DeployEngine::deploy_system(&install_cfg, &ctx.workspace)?;
-        println!("\n  {} {}", paint("✓ Despliegue finalizado:", GREEN), report.summary);
+        println!(
+            "\n  {} {}",
+            paint("✓ Despliegue finalizado:", GREEN),
+            report.summary
+        );
         return Ok(());
     }
 
@@ -537,7 +864,17 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             paint("antOS Instalador ·", BOLD)
         );
         println!("  • Dispositivo:         {}", paint(&target, CYAN));
-        println!("  • Modo de instalación: {}", paint(if clean { "Limpio (Disco Completo)" } else { "Dual-Boot" }, BOLD));
+        println!(
+            "  • Modo de instalación: {}",
+            paint(
+                if clean {
+                    "Limpio (Disco Completo)"
+                } else {
+                    "Dual-Boot"
+                },
+                BOLD
+            )
+        );
         println!(
             "  • Modo de ejecución:   {}\n",
             if dry_run {
@@ -547,7 +884,11 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         );
         let report = DeployEngine::deploy_system(&install_cfg, &ctx.workspace)?;
-        println!("  {} {}", paint("✓ Despliegue finalizado:", GREEN), report.summary);
+        println!(
+            "  {} {}",
+            paint("✓ Despliegue finalizado:", GREEN),
+            report.summary
+        );
         return Ok(());
     }
 
@@ -656,6 +997,9 @@ dry_run = true
 
         let res = run_installer_wizard(&mut reader, &mut writer, &temp_dir, true);
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("cancelada por el usuario"));
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .contains("cancelada por el usuario"));
     }
 }

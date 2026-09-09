@@ -26,34 +26,36 @@ impl BarraManager {
     /// Recopila y consolida la telemetría del sistema en tiempo real.
     pub fn get_telemetry(&self) -> BarraTelemetry {
         // 1. Estado de eBPF LSM
-        let (ebpf_lsm_active, ebpf_violations_count) = if let Ok(st) = crate::ebpf::EbpfSentinelEngine::global().status() {
-            (st.lsm_enabled, st.total_violations_blocked)
-        } else {
-            (false, 0)
-        };
+        let (ebpf_lsm_active, ebpf_violations_count) =
+            if let Ok(st) = crate::ebpf::EbpfSentinelEngine::global().status() {
+                (st.lsm_enabled, st.total_violations_blocked)
+            } else {
+                (false, 0)
+            };
 
         let ws = crate::ctx::Ctx::discover()
             .map(|c| c.workspace)
-            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+            .unwrap_or_else(|_| {
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+            });
 
         // 2. Estado del Profiler de procesos
         let profiler_reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
-        let (profiler_rss_bytes, profiler_cpu_percent) = if let Some(last) = profiler_reports.first() {
-            let total_cpu = (last.cpu_user_ms + last.cpu_sys_ms) as f32;
-            let percent = if last.duration_ms > 0 {
-                (total_cpu / last.duration_ms as f32) * 100.0
+        let (profiler_rss_bytes, profiler_cpu_percent) =
+            if let Some(last) = profiler_reports.first() {
+                let total_cpu = (last.cpu_user_ms + last.cpu_sys_ms) as f32;
+                let percent = if last.duration_ms > 0 {
+                    (total_cpu / last.duration_ms as f32) * 100.0
+                } else {
+                    0.0
+                };
+                (last.peak_memory_bytes, percent.min(100.0))
             } else {
-                0.0
+                (28 * 1024 * 1024, 0.5) // Medición base en reposo
             };
-            (last.peak_memory_bytes, percent.min(100.0))
-        } else {
-            (28 * 1024 * 1024, 0.5) // Medición base en reposo
-        };
 
         // 3. Estado de Pair Programming / Collab
-        let (active_pair_session, active_ghost_text_count) = {
-            (None, 0)
-        };
+        let (active_pair_session, active_ghost_text_count) = { (None, 0) };
 
         // 4. Estado de antMesh P2P
         let mesh_peers_count = 0;
@@ -61,7 +63,12 @@ impl BarraManager {
         // 5. Notificaciones activas
         let active_notifications_count = {
             let notif_hub = crate::notification::NotificationEngine::global();
-            notif_hub.list(&ws).unwrap_or_default().iter().filter(|n| !n.read).count()
+            notif_hub
+                .list(&ws)
+                .unwrap_or_default()
+                .iter()
+                .filter(|n| !n.read)
+                .count()
         };
 
         BarraTelemetry {

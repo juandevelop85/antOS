@@ -375,7 +375,10 @@ pub fn find_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> O
 
 /// Finds an existing tickets directory within the ceiling, or creates `<inicio>/docs/tickets/`
 /// with an initial project-scoped `README.md`.
-pub fn find_or_create_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> Result<PathBuf> {
+pub fn find_or_create_tickets_dir_with_ceiling(
+    inicio: &Path,
+    ceiling: Option<&Path>,
+) -> Result<PathBuf> {
     if let Some(d) = find_tickets_dir_with_ceiling(inicio, ceiling) {
         return Ok(d);
     }
@@ -818,7 +821,9 @@ mod tests {
     #[test]
     fn test_workspace_project_does_not_inherit_system_tickets() {
         let antos_root = crate::git::detect_antos_root().expect("antos root");
-        let ws_project = antos_root.join("workspace").join(format!("test_no_tickets_{}", std::process::id()));
+        let ws_project = antos_root
+            .join("workspace")
+            .join(format!("test_no_tickets_{}", std::process::id()));
         let _ = fs::create_dir_all(&ws_project);
 
         let engine = SpecEngine::global();
@@ -837,7 +842,9 @@ mod tests {
     #[test]
     fn test_project_tickets_lifecycle_isolated() {
         let antos_root = crate::git::detect_antos_root().expect("antos root");
-        let ws_project = antos_root.join("workspace").join(format!("test_proj_spec_{}", std::process::id()));
+        let ws_project = antos_root
+            .join("workspace")
+            .join(format!("test_proj_spec_{}", std::process::id()));
         let _ = fs::remove_dir_all(&ws_project);
         fs::create_dir_all(&ws_project).expect("create proj");
 

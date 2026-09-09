@@ -3,11 +3,11 @@
 //! Manages process and thread scheduling, fair time-slice allocation,
 //! interrupt-driven preemption hooks, and address space switching.
 
+use crate::sync::SpinLock;
+use crate::task::pcb::{CpuContext, ProcessControlBlock, ThreadControlBlock, ThreadState};
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::SpinLock;
-use crate::task::pcb::{CpuContext, ProcessControlBlock, ThreadControlBlock, ThreadState};
 
 /// Default quantum in timer ticks (e.g. 2 ticks = 20 ms at 100 Hz).
 pub const DEFAULT_QUANTUM_TICKS: u32 = 2;
@@ -162,7 +162,8 @@ impl Scheduler {
                 self.default_quantum,
             );
             kernel_tcb.mark_ready();
-            self.processes.insert(0, Arc::new(SpinLock::new(kernel_pcb)));
+            self.processes
+                .insert(0, Arc::new(SpinLock::new(kernel_pcb)));
             self.threads.insert(0, Arc::new(SpinLock::new(kernel_tcb)));
             self.ready_queue.push_back(0);
         } else if let Some(curr_tid) = self.current_tid {
@@ -213,9 +214,9 @@ impl Scheduler {
 
             // Check if address space switch is needed
             let next_pid = next.pid;
-            let current_pid = self.current_tid.and_then(|tid| {
-                self.threads.get(&tid).map(|t| t.lock().pid)
-            });
+            let current_pid = self
+                .current_tid
+                .and_then(|tid| self.threads.get(&tid).map(|t| t.lock().pid));
 
             if Some(next_pid) != current_pid {
                 if let Some(pcb_arc) = self.processes.get(&next_pid).cloned() {
@@ -284,7 +285,8 @@ impl Scheduler {
                     let mut pcb = pcb_arc.lock();
                     // Check if all threads in this process are terminated
                     let all_terminated = pcb.threads.iter().all(|&tid| {
-                        self.threads.get(&tid)
+                        self.threads
+                            .get(&tid)
                             .map(|t| t.lock().state == ThreadState::Terminated)
                             .unwrap_or(true)
                     });
@@ -364,7 +366,15 @@ pub fn spawn_process(
     is_user: bool,
     arg: u64,
 ) -> (u64, u64) {
-    SCHEDULER.lock().spawn_process(name, page_table_root, entry, user_sp, kernel_sp, is_user, arg)
+    SCHEDULER.lock().spawn_process(
+        name,
+        page_table_root,
+        entry,
+        user_sp,
+        kernel_sp,
+        is_user,
+        arg,
+    )
 }
 
 /// Spawns a secondary thread inside an existing process.
@@ -376,7 +386,9 @@ pub fn spawn_thread(
     is_user: bool,
     arg: u64,
 ) -> Option<u64> {
-    SCHEDULER.lock().spawn_thread(pid, entry, user_sp, kernel_sp, is_user, arg)
+    SCHEDULER
+        .lock()
+        .spawn_thread(pid, entry, user_sp, kernel_sp, is_user, arg)
 }
 
 /// Invoked from the timer interrupt service routine.
@@ -478,7 +490,9 @@ pub fn exit_current_syscall(exit_code: u64) -> bool {
             if let Some(pcb_arc) = sched.processes.get(&pid).cloned() {
                 let mut pcb = pcb_arc.lock();
                 let all_terminated = pcb.threads.iter().all(|&tid| {
-                    sched.threads.get(&tid)
+                    sched
+                        .threads
+                        .get(&tid)
                         .map(|t| t.lock().state == ThreadState::Terminated)
                         .unwrap_or(true)
                 });

@@ -6,13 +6,16 @@
 use std::vec::Vec;
 
 /// Default live utility fallback shell script payload if no native ELF is supplied.
-pub const FALLBACK_SH_PAYLOAD: &[u8] = b"#!/bin/sh\n# antOS Live Minimal Shell\necho 'antOS Live Environment Ready.'\n";
+pub const FALLBACK_SH_PAYLOAD: &[u8] =
+    b"#!/bin/sh\n# antOS Live Minimal Shell\necho 'antOS Live Environment Ready.'\n";
 
 /// Default parted utility script payload.
-pub const FALLBACK_PARTED_PAYLOAD: &[u8] = b"#!/bin/sh\n# antOS Parted CLI Helper\necho 'antOS Storage Partitioner Tool'\n";
+pub const FALLBACK_PARTED_PAYLOAD: &[u8] =
+    b"#!/bin/sh\n# antOS Parted CLI Helper\necho 'antOS Storage Partitioner Tool'\n";
 
 /// Default mkfs utility script payload.
-pub const FALLBACK_MKFS_PAYLOAD: &[u8] = b"#!/bin/sh\n# antOS mkfs.ext4 CLI Helper\necho 'antOS Filesystem Creation Tool'\n";
+pub const FALLBACK_MKFS_PAYLOAD: &[u8] =
+    b"#!/bin/sh\n# antOS mkfs.ext4 CLI Helper\necho 'antOS Filesystem Creation Tool'\n";
 
 /// Appends a single file or directory entry to a USTAR tar archive buffer.
 pub fn add_tar_entry(out: &mut Vec<u8>, path: &str, content: &[u8], is_dir: bool, mode: u32) {
@@ -95,8 +98,20 @@ pub fn build_live_ramdisk(user_binary: Option<&[u8]>) -> Vec<u8> {
     add_tar_entry(&mut tar, "bin/antos", bin_payload, false, 0o755);
     add_tar_entry(&mut tar, "bin/antosd", bin_payload, false, 0o755);
     add_tar_entry(&mut tar, "bin/sh", FALLBACK_SH_PAYLOAD, false, 0o755);
-    add_tar_entry(&mut tar, "bin/parted", FALLBACK_PARTED_PAYLOAD, false, 0o755);
-    add_tar_entry(&mut tar, "bin/mkfs.ext4", FALLBACK_MKFS_PAYLOAD, false, 0o755);
+    add_tar_entry(
+        &mut tar,
+        "bin/parted",
+        FALLBACK_PARTED_PAYLOAD,
+        false,
+        0o755,
+    );
+    add_tar_entry(
+        &mut tar,
+        "bin/mkfs.ext4",
+        FALLBACK_MKFS_PAYLOAD,
+        false,
+        0o755,
+    );
     add_tar_entry(&mut tar, "sbin/init", bin_payload, false, 0o755);
 
     // 3. Configuration Files in /etc (mode 0644)

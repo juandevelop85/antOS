@@ -1,11 +1,11 @@
 //! Filesystem operations, project scaffolding, declarations, and syntax guard interception.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use super::{Change, Pendiente};
+use crate::ctx::Ctx;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use crate::ctx::Ctx;
-use super::{Change, Pendiente};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 pub fn changes_for(
     cap: &str,
@@ -14,16 +14,22 @@ pub fn changes_for(
     pendiente: &Pendiente,
 ) -> Result<Option<Vec<Change>>> {
     match cap {
-        "fs.read" => Ok(Some(vec![Change::Read { path: abs(ctx, &a["path"]) }])),
+        "fs.read" => Ok(Some(vec![Change::Read {
+            path: abs(ctx, &a["path"]),
+        }])),
 
         "fs.write" => Ok(Some(vec![Change::Write {
             path: abs(ctx, &a["path"]),
             content: a["content"].clone(),
         }])),
 
-        "fs.delete" => Ok(Some(vec![Change::Delete { path: abs(ctx, &a["path"]) }])),
+        "fs.delete" => Ok(Some(vec![Change::Delete {
+            path: abs(ctx, &a["path"]),
+        }])),
 
-        "fs.mkdir" => Ok(Some(vec![Change::Mkdir { path: abs(ctx, &a["path"]) }])),
+        "fs.mkdir" => Ok(Some(vec![Change::Mkdir {
+            path: abs(ctx, &a["path"]),
+        }])),
 
         "project.scaffold" => {
             let name = &a["name"];
@@ -33,7 +39,10 @@ pub fn changes_for(
             // newly scaffolded project starts with a clean, isolated Git repository.
             let mut changes: Vec<Change> = scaffold(language, name)
                 .into_iter()
-                .map(|(rel, content)| Change::Write { path: root.join(rel), content })
+                .map(|(rel, content)| Change::Write {
+                    path: root.join(rel),
+                    content,
+                })
                 .collect();
             changes.push(Change::ProjectGitInit {
                 project_dir: root,
@@ -80,8 +89,16 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             let guard = crate::vfs_guard::VfsGuardEngine::global();
             let val = guard.intercept_write(&path.display().to_string(), content)?;
             if !val.is_valid {
-                let err_msgs: Vec<String> = val.errors.iter().map(|e| format!("  • L{}:{}: {}", e.line, e.column, e.message)).collect();
-                bail!("escritura rechazada por el interceptor sintáctico VFS ({}):\n{}", path.display(), err_msgs.join("\n"));
+                let err_msgs: Vec<String> = val
+                    .errors
+                    .iter()
+                    .map(|e| format!("  • L{}:{}: {}", e.line, e.column, e.message))
+                    .collect();
+                bail!(
+                    "escritura rechazada por el interceptor sintáctico VFS ({}):\n{}",
+                    path.display(),
+                    err_msgs.join("\n")
+                );
             }
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)
@@ -117,7 +134,11 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
 pub fn abs(ctx: &Ctx, raw: &str) -> PathBuf {
     let expanded = crate::blast::expand(raw, &BTreeMap::new(), &ctx.workspace);
     let p = PathBuf::from(expanded);
-    if p.is_absolute() { p } else { ctx.workspace.join(p) }
+    if p.is_absolute() {
+        p
+    } else {
+        ctx.workspace.join(p)
+    }
 }
 
 fn leer_con_pendiente(path: &Path, pendiente: &Pendiente) -> String {
@@ -217,7 +238,8 @@ const PACKAGES_HEADER: &str = "\
 
 pub fn declare_package(previo: &str, package: &str, version: &str) -> Result<String> {
     let mut file: PackagesFile = toml::from_str(previo).unwrap_or_default();
-    file.packages.insert(package.to_string(), version.to_string());
+    file.packages
+        .insert(package.to_string(), version.to_string());
     Ok(format!("{PACKAGES_HEADER}\n{}", toml::to_string(&file)?))
 }
 
@@ -226,8 +248,17 @@ pub fn declare_package(previo: &str, package: &str, version: &str) -> Result<Str
 pub fn collect_project_files(dir: &std::path::Path, limit: usize) -> Vec<String> {
     let mut results = Vec::new();
     let skip_dirs: &[&str] = &[
-        ".git", ".cargo", "target", "node_modules", "__pycache__",
-        ".venv", "venv", "dist", "build", ".idea", ".vscode",
+        ".git",
+        ".cargo",
+        "target",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".idea",
+        ".vscode",
     ];
     collect_files_recursive(dir, dir, &mut results, limit, skip_dirs);
     results
@@ -243,7 +274,9 @@ fn collect_files_recursive(
     if out.len() >= limit {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
@@ -317,7 +350,10 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let projects = scan_workspace_projects(&tmp);
         let _ = std::fs::remove_dir_all(&tmp);
-        assert!(projects.is_empty(), "empty workspace should return no projects");
+        assert!(
+            projects.is_empty(),
+            "empty workspace should return no projects"
+        );
     }
 
     #[test]
@@ -332,9 +368,18 @@ mod tests {
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert!(names.contains(&"api-service".to_string()), "api-service must be detected");
-        assert!(names.contains(&"frontend".to_string()), "frontend must be detected");
-        assert!(!names.contains(&".hidden".to_string()), "hidden dirs must be excluded");
+        assert!(
+            names.contains(&"api-service".to_string()),
+            "api-service must be detected"
+        );
+        assert!(
+            names.contains(&"frontend".to_string()),
+            "frontend must be detected"
+        );
+        assert!(
+            !names.contains(&".hidden".to_string()),
+            "hidden dirs must be excluded"
+        );
     }
 
     #[test]

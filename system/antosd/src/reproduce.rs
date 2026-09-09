@@ -20,17 +20,23 @@ impl TddEngine {
         let trimmed = raw.trim();
 
         // 1. Rust Panic / Backtrace detection
-        if trimmed.contains("panicked at") || trimmed.contains("thread '") || trimmed.contains(".rs:") {
+        if trimmed.contains("panicked at")
+            || trimmed.contains("thread '")
+            || trimmed.contains(".rs:")
+        {
             return Self::parse_rust_panic(trimmed);
         }
 
         // 2. Python Traceback detection
-        if trimmed.contains("Traceback (most recent call last)") || trimmed.contains(".py\", line") {
+        if trimmed.contains("Traceback (most recent call last)") || trimmed.contains(".py\", line")
+        {
             return Self::parse_python_traceback(trimmed);
         }
 
         // 3. JavaScript / TypeScript error detection
-        if trimmed.contains("at ") && (trimmed.contains(".js:") || trimmed.contains(".ts:") || trimmed.contains("Error:")) {
+        if trimmed.contains("at ")
+            && (trimmed.contains(".js:") || trimmed.contains(".ts:") || trimmed.contains("Error:"))
+        {
             return Self::parse_javascript_error(trimmed);
         }
 
@@ -95,14 +101,20 @@ impl TddEngine {
             } else if l.contains(" at ") && l.contains(".rs:") {
                 // Stack frame line e.g. "2: antosd::parser::parse at ./src/parser.rs:42:15"
                 if let Some((fn_part, loc_part)) = l.split_once(" at ") {
-                    let func_name = fn_part.trim().trim_start_matches(|c: char| c.is_ascii_digit() || c == ':').trim();
+                    let func_name = fn_part
+                        .trim()
+                        .trim_start_matches(|c: char| c.is_ascii_digit() || c == ':')
+                        .trim();
                     if target_function.is_none() && !func_name.is_empty() {
                         target_function = Some(func_name.to_string());
                     }
 
                     if let Some((path_str, line_str)) = loc_part.split_once(".rs:") {
                         let file_path = format!("{}.rs", path_str.trim().trim_start_matches("./"));
-                        let line_num = line_str.split(':').next().and_then(|n| n.trim().parse::<u32>().ok());
+                        let line_num = line_str
+                            .split(':')
+                            .next()
+                            .and_then(|n| n.trim().parse::<u32>().ok());
                         frames.push(ParsedStackFrame {
                             file: file_path,
                             line: line_num,
@@ -148,7 +160,10 @@ impl TddEngine {
 
                     let rest = parts[2];
                     if let Some((_, line_rest)) = rest.split_once("line ") {
-                        let line_num = line_rest.split(',').next().and_then(|n| n.trim().parse::<u32>().ok());
+                        let line_num = line_rest
+                            .split(',')
+                            .next()
+                            .and_then(|n| n.trim().parse::<u32>().ok());
                         target_line = line_num;
                     }
                     if let Some((_, fn_part)) = rest.split_once("in ") {
@@ -218,7 +233,12 @@ impl TddEngine {
                 let loc_clean = loc_part.trim();
                 let parts: Vec<&str> = loc_clean.rsplit(':').collect();
                 if parts.len() >= 3 {
-                    let file_path = parts[2..].iter().rev().cloned().collect::<Vec<&str>>().join(":");
+                    let file_path = parts[2..]
+                        .iter()
+                        .rev()
+                        .cloned()
+                        .collect::<Vec<&str>>()
+                        .join(":");
                     let line_num = parts[1].parse::<u32>().ok();
                     let col_num = parts[0].parse::<u32>().ok();
 
@@ -271,7 +291,10 @@ impl TddEngine {
         _workspace: &Path,
     ) -> Result<(String, String)> {
         let test_id = format!("t_{:x}", crc32_simple(diag.message.as_bytes()));
-        let target_name = diag.target_function.as_deref().unwrap_or("target_operation");
+        let target_name = diag
+            .target_function
+            .as_deref()
+            .unwrap_or("target_operation");
 
         match diag.language {
             ErrorLanguage::Rust => {
@@ -360,7 +383,10 @@ test('reproduce regression {test_id}', () => {{
         fs::create_dir_all(&rep_dir)
             .with_context(|| format!("No se pudo crear directorio {}", rep_dir.display()))?;
 
-        fs::write(rep_dir.join("diagnostic.json"), serde_json::to_string_pretty(&diag)?)?;
+        fs::write(
+            rep_dir.join("diagnostic.json"),
+            serde_json::to_string_pretty(&diag)?,
+        )?;
         fs::write(rep_dir.join("reproduce_test.src"), &test_code)?;
 
         // In autonomous mode, synthesize corrective summary and confirm Verified status
@@ -380,7 +406,10 @@ test('reproduce regression {test_id}', () => {{
             audited: true,
         };
 
-        fs::write(rep_dir.join("report.json"), serde_json::to_string_pretty(&report)?)?;
+        fs::write(
+            rep_dir.join("report.json"),
+            serde_json::to_string_pretty(&report)?,
+        )?;
 
         Ok(report)
     }
@@ -395,13 +424,19 @@ test('reproduce regression {test_id}', () => {{
         let (lang, ext) = if target.ends_with(".py") {
             (ErrorLanguage::Python, "py")
         } else if target.ends_with(".ts") || target.ends_with(".js") {
-            (ErrorLanguage::JavaScript, if target.ends_with(".ts") { "ts" } else { "js" })
+            (
+                ErrorLanguage::JavaScript,
+                if target.ends_with(".ts") { "ts" } else { "js" },
+            )
         } else {
             (ErrorLanguage::Rust, "rs")
         };
 
         let target_path = Path::new(target);
-        let base_stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("target");
+        let base_stem = target_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("target");
         let run_id = format!("gen-{:x}", crc32_simple(target.as_bytes()));
 
         let (test_file, test_code) = match lang {
@@ -458,7 +493,9 @@ test('reproduce regression {test_id}', () => {{
         let diag = ParsedErrorDiagnostic {
             language: lang,
             error_type: "TestSuiteGeneration".into(),
-            message: format!("Generación de suite {suite_type} para `{target}` ({cases_count} casos)"),
+            message: format!(
+                "Generación de suite {suite_type} para `{target}` ({cases_count} casos)"
+            ),
             target_file: Some(target.to_string()),
             target_line: Some(1),
             target_function: Some(base_stem.to_string()),
@@ -471,7 +508,9 @@ test('reproduce regression {test_id}', () => {{
             test_code,
             test_file,
             phase: TddPhase::Verified,
-            fix_summary: Some(format!("Generados {cases_count} casos de prueba {suite_type} en {target}")),
+            fix_summary: Some(format!(
+                "Generados {cases_count} casos de prueba {suite_type} en {target}"
+            )),
             audited: true,
         })
     }
@@ -565,7 +604,8 @@ TypeError: Cannot read properties of undefined (reading 'token')
             frames: Vec::new(),
         };
 
-        let (code, path) = TddEngine::generate_regression_test(&diag, Path::new("/tmp")).expect("generate");
+        let (code, path) =
+            TddEngine::generate_regression_test(&diag, Path::new("/tmp")).expect("generate");
         assert!(path.starts_with("tests/regression_"));
         assert!(path.ends_with(".rs"));
         assert!(code.contains("#[test]"));
@@ -574,13 +614,15 @@ TypeError: Cannot read properties of undefined (reading 'token')
 
     #[test]
     fn test_run_reproduce_pipeline_lifecycle() {
-        let temp_state = std::env::temp_dir().join(format!("test_tdd_pipeline_{}", std::process::id()));
+        let temp_state =
+            std::env::temp_dir().join(format!("test_tdd_pipeline_{}", std::process::id()));
         let temp_ws = std::env::temp_dir().join(format!("test_tdd_ws_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_state);
         let _ = fs::create_dir_all(&temp_ws);
 
         let error_log = "thread 'worker' panicked at 'division by zero', src/calc.rs:25:9";
-        let report = TddEngine::run_reproduce_pipeline(error_log, None, &temp_ws, &temp_state).expect("pipeline");
+        let report = TddEngine::run_reproduce_pipeline(error_log, None, &temp_ws, &temp_state)
+            .expect("pipeline");
 
         assert_eq!(report.diagnostic.language, ErrorLanguage::Rust);
         assert_eq!(report.phase, TddPhase::Verified);
@@ -597,9 +639,13 @@ TypeError: Cannot read properties of undefined (reading 'token')
         let temp_ws = std::env::temp_dir().join(format!("test_tdd_gen_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_ws);
 
-        let report = TddEngine::generate_tests_for_target("src/service.rs", "unit", 4, &temp_ws).expect("gen tests");
+        let report = TddEngine::generate_tests_for_target("src/service.rs", "unit", 4, &temp_ws)
+            .expect("gen tests");
         assert_eq!(report.diagnostic.language, ErrorLanguage::Rust);
-        assert_eq!(report.diagnostic.target_function.as_deref(), Some("service"));
+        assert_eq!(
+            report.diagnostic.target_function.as_deref(),
+            Some("service")
+        );
         assert!(report.test_file.starts_with("tests/test_service_"));
         assert!(report.test_code.contains("test_service_case_4"));
         assert!(temp_ws.join(&report.test_file).exists());
@@ -607,4 +653,3 @@ TypeError: Cannot read properties of undefined (reading 'token')
         let _ = fs::remove_dir_all(&temp_ws);
     }
 }
-

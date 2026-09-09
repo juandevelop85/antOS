@@ -4,8 +4,8 @@
 //! and workspace context injection used by `system/barra` and `system/antosd`
 //! for the Raycast/Spotlight-style Wayland application launcher.
 
-use serde::{Deserialize, Serialize};
 use crate::system::{DesktopApp, DesktopAppSummary};
+use serde::{Deserialize, Serialize};
 
 /// Normalized representation of a desktop application ready for the launcher.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,16 +89,35 @@ impl LauncherAppItem {
         let name_lower = name.to_lowercase();
 
         let known_editor_ids = [
-            "code", "vscode", "visual-studio-code", "com.visualstudio.code",
-            "zed", "zed-editor", "dev.zed.Zed",
-            "cursor", "cursor-ai",
-            "neovim", "nvim", "io.neovim.nvim",
-            "sublime_text", "sublime-text", "com.sublimetext.three",
-            "clion", "intellij", "pycharm", "webstorm", "rustrover",
-            "alacritty", "kitty", "foot",
+            "code",
+            "vscode",
+            "visual-studio-code",
+            "com.visualstudio.code",
+            "zed",
+            "zed-editor",
+            "dev.zed.Zed",
+            "cursor",
+            "cursor-ai",
+            "neovim",
+            "nvim",
+            "io.neovim.nvim",
+            "sublime_text",
+            "sublime-text",
+            "com.sublimetext.three",
+            "clion",
+            "intellij",
+            "pycharm",
+            "webstorm",
+            "rustrover",
+            "alacritty",
+            "kitty",
+            "foot",
         ];
 
-        if known_editor_ids.iter().any(|k| id_lower.contains(k) || name_lower.contains(k)) {
+        if known_editor_ids
+            .iter()
+            .any(|k| id_lower.contains(k) || name_lower.contains(k))
+        {
             return true;
         }
 
@@ -117,7 +136,8 @@ pub fn match_applications(query: &str, apps: &[LauncherAppItem]) -> Vec<Launcher
     }
 
     // Strip common launcher command prefixes
-    let clean_q = if let Some(stripped) = q.strip_prefix("open ")
+    let clean_q = if let Some(stripped) = q
+        .strip_prefix("open ")
         .or_else(|| q.strip_prefix("abrir "))
         .or_else(|| q.strip_prefix("run "))
         .or_else(|| q.strip_prefix("lanzar "))
@@ -145,7 +165,10 @@ pub fn match_applications(query: &str, apps: &[LauncherAppItem]) -> Vec<Launcher
                 score += 1000;
             } else if name_lower.starts_with(clean_q) || id_lower.starts_with(clean_q) {
                 score += 500;
-            } else if name_lower.split_whitespace().any(|w| w.starts_with(clean_q)) {
+            } else if name_lower
+                .split_whitespace()
+                .any(|w| w.starts_with(clean_q))
+            {
                 score += 300;
             } else if gen_lower.starts_with(clean_q) {
                 score += 250;
@@ -153,9 +176,18 @@ pub fn match_applications(query: &str, apps: &[LauncherAppItem]) -> Vec<Launcher
                 score += 100;
             } else if gen_lower.contains(clean_q) || exec_lower.contains(clean_q) {
                 score += 50;
-            } else if app.categories.iter().any(|c| c.to_lowercase().contains(clean_q)) {
+            } else if app
+                .categories
+                .iter()
+                .any(|c| c.to_lowercase().contains(clean_q))
+            {
                 score += 30;
-            } else if app.comment.as_deref().map(|c| c.to_lowercase().contains(clean_q)).unwrap_or(false) {
+            } else if app
+                .comment
+                .as_deref()
+                .map(|c| c.to_lowercase().contains(clean_q))
+                .unwrap_or(false)
+            {
                 score += 10;
             }
 
@@ -180,17 +212,59 @@ pub fn is_app_query(query: &str, apps: &[LauncherAppItem]) -> bool {
     }
 
     // Explicit application launch verbs
-    if q.starts_with("open ") || q.starts_with("abrir ") || q.starts_with("run ") || q.starts_with("lanzar ") {
+    if q.starts_with("open ")
+        || q.starts_with("abrir ")
+        || q.starts_with("run ")
+        || q.starts_with("lanzar ")
+    {
         return true;
     }
 
     // Explicit AI Intent prefixes that should not activate the application launcher
     let intent_prefixes = [
-        "haz ", "arregla ", "crea ", "analiza ", "commit", "libera ", "deshacer", "undo",
-        "t1.", "t2.", "t3.", "t4.", "t5.", "t6.", "t7.", "t8.", "t9.", "t10.", "t11.",
-        "t12.", "t13.", "t14.", "t15.", "t16.", "t17.", "t18.", "t19.", "t20.", "t21.",
-        "t22.", "t23.", "t24.", "t25.", "panel", "board", "tablero", "status", "git ",
-        "inicia ", "muestra ", "comprueba ", "revisa ", "ejecuta prueba",
+        "haz ",
+        "arregla ",
+        "crea ",
+        "analiza ",
+        "commit",
+        "libera ",
+        "deshacer",
+        "undo",
+        "t1.",
+        "t2.",
+        "t3.",
+        "t4.",
+        "t5.",
+        "t6.",
+        "t7.",
+        "t8.",
+        "t9.",
+        "t10.",
+        "t11.",
+        "t12.",
+        "t13.",
+        "t14.",
+        "t15.",
+        "t16.",
+        "t17.",
+        "t18.",
+        "t19.",
+        "t20.",
+        "t21.",
+        "t22.",
+        "t23.",
+        "t24.",
+        "t25.",
+        "panel",
+        "board",
+        "tablero",
+        "status",
+        "git ",
+        "inicia ",
+        "muestra ",
+        "comprueba ",
+        "revisa ",
+        "ejecuta prueba",
     ];
 
     if intent_prefixes.iter().any(|p| q.starts_with(p)) {
@@ -266,7 +340,11 @@ mod tests {
                 "zed",
                 Some("zed".to_string()),
                 None,
-                vec!["Development".to_string(), "IDE".to_string(), "TextEditor".to_string()],
+                vec![
+                    "Development".to_string(),
+                    "IDE".to_string(),
+                    "TextEditor".to_string(),
+                ],
                 "antpkg",
             ),
             LauncherAppItem::new(

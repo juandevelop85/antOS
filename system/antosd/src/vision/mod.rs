@@ -61,13 +61,22 @@ impl VisionEngine {
 
     /// Codifica datos binarios a Base64 estándar (RFC 4648).
     pub fn encode_base64(data: &[u8]) -> String {
-        const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        const CHARSET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
 
         for chunk in data.chunks(3) {
             let b0 = chunk[0] as usize;
-            let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-            let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+            let b1 = if chunk.len() > 1 {
+                chunk[1] as usize
+            } else {
+                0
+            };
+            let b2 = if chunk.len() > 2 {
+                chunk[2] as usize
+            } else {
+                0
+            };
 
             let n = (b0 << 16) | (b1 << 8) | b2;
 
@@ -145,7 +154,12 @@ impl VisionEngine {
         let mut format_name = "bmp".to_string();
 
         // Si existe grim (Wayland)
-        if Command::new("grim").arg("-h").stderr(std::process::Stdio::null()).output().is_ok() {
+        if Command::new("grim")
+            .arg("-h")
+            .stderr(std::process::Stdio::null())
+            .output()
+            .is_ok()
+        {
             let tmp_png = std::env::temp_dir().join(format!("grim_{}.png", std::process::id()));
             if Command::new("grim")
                 .arg(&tmp_png)
@@ -163,7 +177,13 @@ impl VisionEngine {
         }
 
         // Si existe screencapture (macOS)
-        if raw_bytes.is_none() && Command::new("screencapture").arg("-h").stderr(std::process::Stdio::null()).output().is_ok() {
+        if raw_bytes.is_none()
+            && Command::new("screencapture")
+                .arg("-h")
+                .stderr(std::process::Stdio::null())
+                .output()
+                .is_ok()
+        {
             let tmp_png = std::env::temp_dir().join(format!("mac_{}.png", std::process::id()));
             if Command::new("screencapture")
                 .args(["-x", "-m"])
@@ -273,7 +293,8 @@ impl VisionEngine {
                     findings.push(VisualFinding {
                         category: "alignment".into(),
                         severity: "info".into(),
-                        description: "Márgenes horizontales centrados simétricamente a 100px".into(),
+                        description: "Márgenes horizontales centrados simétricamente a 100px"
+                            .into(),
                         coordinates: Some("x: 100, y: 60, w: 1080, h: 560".into()),
                         recommendation: "Alineación geométrica correcta".into(),
                     });
@@ -360,7 +381,9 @@ mod tests {
     #[test]
     fn test_synthetic_frame_generation_and_capture() {
         let engine = VisionEngine::global();
-        let cap = engine.capture_screen(Some("antOS-Barra"), None).expect("capture screen");
+        let cap = engine
+            .capture_screen(Some("antOS-Barra"), None)
+            .expect("capture screen");
         assert_eq!(cap.target, "antOS-Barra");
         assert_eq!(cap.width, 1280);
         assert_eq!(cap.height, 720);
@@ -375,7 +398,9 @@ mod tests {
             "Verificar contraste de color accesible".to_string(),
             "Revisar alineación de ventana".to_string(),
         ];
-        let report = engine.inspect_visual("antOS-Barra", &criteria, None).expect("inspect visual");
+        let report = engine
+            .inspect_visual("antOS-Barra", &criteria, None)
+            .expect("inspect visual");
         assert_eq!(report.target, "antOS-Barra");
         assert!(report.pass);
         assert!(report.findings.len() >= 2);

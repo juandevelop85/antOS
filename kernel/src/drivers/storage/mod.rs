@@ -61,7 +61,11 @@ pub fn list_devices() -> Vec<BlockDeviceInfo> {
 
 /// Retrieves metadata for a specific block device name (e.g. `/dev/sda`).
 pub fn get_device(name: &str) -> Option<BlockDeviceInfo> {
-    BLOCK_DEVICES.lock().iter().find(|d| d.name == name).cloned()
+    BLOCK_DEVICES
+        .lock()
+        .iter()
+        .find(|d| d.name == name)
+        .cloned()
 }
 
 /// Registers a VirtIO block device into the global device registry.
@@ -184,7 +188,12 @@ pub fn detect_and_init_storage(
 }
 
 /// Reads blocks from a named block device.
-pub fn read_device_blocks(name: &str, lba: u64, count: u16, buf: &mut [u8]) -> Result<(), StorageError> {
+pub fn read_device_blocks(
+    name: &str,
+    lba: u64,
+    count: u16,
+    buf: &mut [u8],
+) -> Result<(), StorageError> {
     let device = get_device(name).ok_or(StorageError::DeviceNotFound)?;
 
     match device.driver_type {
@@ -198,7 +207,9 @@ pub fn read_device_blocks(name: &str, lba: u64, count: u16, buf: &mut [u8]) -> R
                     let disk_letter = (b'a' + (disk.port_index as u8 % 26)) as char;
                     let target_name = alloc::format!("/dev/sd{}", disk_letter);
                     if target_name == name {
-                        return disk.read_sectors(lba, count, buf).map_err(|_| StorageError::IoError);
+                        return disk
+                            .read_sectors(lba, count, buf)
+                            .map_err(|_| StorageError::IoError);
                     }
                 }
             }
@@ -210,7 +221,9 @@ pub fn read_device_blocks(name: &str, lba: u64, count: u16, buf: &mut [u8]) -> R
                 for ns in &ctrl.namespaces {
                     let target_name = alloc::format!("/dev/nvme{}n{}", ctrl_idx, ns.nsid);
                     if target_name == name {
-                        return ns.read_blocks(lba, count, buf).map_err(|_| StorageError::IoError);
+                        return ns
+                            .read_blocks(lba, count, buf)
+                            .map_err(|_| StorageError::IoError);
                     }
                 }
             }
@@ -220,7 +233,12 @@ pub fn read_device_blocks(name: &str, lba: u64, count: u16, buf: &mut [u8]) -> R
 }
 
 /// Writes blocks to a named block device.
-pub fn write_device_blocks(name: &str, lba: u64, count: u16, buf: &[u8]) -> Result<(), StorageError> {
+pub fn write_device_blocks(
+    name: &str,
+    lba: u64,
+    count: u16,
+    buf: &[u8],
+) -> Result<(), StorageError> {
     let device = get_device(name).ok_or(StorageError::DeviceNotFound)?;
     if device.read_only {
         return Err(StorageError::ReadOnly);
@@ -237,7 +255,9 @@ pub fn write_device_blocks(name: &str, lba: u64, count: u16, buf: &[u8]) -> Resu
                     let disk_letter = (b'a' + (disk.port_index as u8 % 26)) as char;
                     let target_name = alloc::format!("/dev/sd{}", disk_letter);
                     if target_name == name {
-                        return disk.write_sectors(lba, count, buf).map_err(|_| StorageError::IoError);
+                        return disk
+                            .write_sectors(lba, count, buf)
+                            .map_err(|_| StorageError::IoError);
                     }
                 }
             }
@@ -249,7 +269,9 @@ pub fn write_device_blocks(name: &str, lba: u64, count: u16, buf: &[u8]) -> Resu
                 for ns in &ctrl.namespaces {
                     let target_name = alloc::format!("/dev/nvme{}n{}", ctrl_idx, ns.nsid);
                     if target_name == name {
-                        return ns.write_blocks(lba, count, buf).map_err(|_| StorageError::IoError);
+                        return ns
+                            .write_blocks(lba, count, buf)
+                            .map_err(|_| StorageError::IoError);
                     }
                 }
             }

@@ -101,7 +101,10 @@ impl NotificationEngine {
                         "Aprobación concedida: cambios del ticket {} fusionados con éxito.",
                         notif.ticket_id
                     ),
-                    Err(e) => format!("Error al aprobar cambios del ticket {}: {e:#}", notif.ticket_id),
+                    Err(e) => format!(
+                        "Error al aprobar cambios del ticket {}: {e:#}",
+                        notif.ticket_id
+                    ),
                 }
             }
             NotificationAction::Reject => {
@@ -159,7 +162,11 @@ impl NotificationEngine {
 }
 
 /// Helper to create an approval notification for a finished ticket task.
-pub fn notify_ticket_ready_for_review(workspace: &Path, ticket_id: &str, title: &str) -> Result<()> {
+pub fn notify_ticket_ready_for_review(
+    workspace: &Path,
+    ticket_id: &str,
+    title: &str,
+) -> Result<()> {
     let notif = NotificationItem {
         id: format!("notif-{}", ticket_id.to_lowercase().replace('.', "-")),
         ticket_id: ticket_id.to_string(),
@@ -210,7 +217,9 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, "notif-t82");
 
-        let (ok, msg) = engine.handle_action(&temp, "notif-t82", NotificationAction::Dismiss).unwrap();
+        let (ok, msg) = engine
+            .handle_action(&temp, "notif-t82", NotificationAction::Dismiss)
+            .unwrap();
         assert!(ok);
         assert!(msg.contains("descartada"));
 
@@ -233,7 +242,10 @@ mod tests {
             let _guard = NOTIF_LOCK.lock().unwrap();
             panic!("intentional panic to poison NOTIF_LOCK for this test");
         });
-        assert!(handle.join().is_err(), "the spawned thread must actually have panicked");
+        assert!(
+            handle.join().is_err(),
+            "the spawned thread must actually have panicked"
+        );
 
         // A plain `.lock().unwrap()` inside `list`/`notify` would panic
         // again here, taking this test (and, in production, every other

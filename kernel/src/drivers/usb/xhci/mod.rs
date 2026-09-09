@@ -7,12 +7,12 @@ pub mod context;
 pub mod registers;
 pub mod ring;
 
-use alloc::vec::Vec;
-use registers::{XhciRegisters, usbcmd, usbsts, portsc, iman, HcParams};
-use ring::{CommandRing, EventRing, EventRingSegmentEntry, TransferRing, Trb, RING_SIZE};
 use crate::drivers::pci::{self, PciDevice};
 use crate::drivers::usb::hid::{UsbHidKeyboard, UsbHidMouse};
 use crate::drivers::usb::hub;
+use alloc::vec::Vec;
+use registers::{iman, portsc, usbcmd, usbsts, HcParams, XhciRegisters};
+use ring::{CommandRing, EventRing, EventRingSegmentEntry, TransferRing, Trb, RING_SIZE};
 
 /// Maximum number of device slots the driver backs with DMA structures. Raised
 /// from 4 so a `usb-hub` plus several downstream devices all fit.
@@ -146,7 +146,6 @@ pub fn delay_ms(ms: u64) {
         }
     }
 }
-
 
 /// Translates a USB endpoint `bInterval` into the value the xHCI Endpoint
 /// Context "Interval" field expects (a `125 µs * 2^Interval` period).
@@ -381,7 +380,8 @@ impl XhciController {
             // that gates further Event TRBs on IP being clear — the VirtualBox
             // model behaves this way — keeps delivering after the first event.
             let iman = self.registers.read_interrupter0_iman();
-            self.registers.set_interrupter0_iman(iman | iman::IP | iman::IE);
+            self.registers
+                .set_interrupter0_iman(iman | iman::IP | iman::IE);
             self.registers.set_interrupter0_erdp(erdp | (1 << 3)); // EHB = 1
         }
     }
@@ -417,7 +417,6 @@ impl XhciController {
     pub fn reset_port(&mut self, port: u8) -> Result<u8, &'static str> {
         let mut sc = self.registers.read_portsc(port);
         if (sc & portsc::CCS) == 0 {
-
             return Err("Port not connected");
         }
 
@@ -468,7 +467,6 @@ impl XhciController {
         }
         let speed = ((final_sc >> portsc::SPEED_SHIFT) & portsc::SPEED_MASK) as u8;
         Ok(speed)
-
     }
 
     /// Submits an Enable Slot command and returns the allocated Slot ID.
@@ -499,18 +497,21 @@ impl XhciController {
         let dma = &raw mut XHCI_DMA;
 
         unsafe {
-            let dev_ctx_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].device_context) as u64);
+            let dev_ctx_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].device_context) as u64);
             (*dma).dcbaa[slot_id as usize] = dev_ctx_phys;
 
             (*dma).slots[slot_idx].input_context.fill(0);
             (*dma).slots[slot_idx].device_context.fill(0);
 
-            let ep0_ring_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep0_ring) as u64);
+            let ep0_ring_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep0_ring) as u64);
             (*dma).slots[slot_idx].ep0_ring = ring::TransferRing::new();
             (*dma).slots[slot_idx].ep0_ring.init_link(ep0_ring_phys);
 
             let csz = self.params.csz_64;
-            let mut view = context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
+            let mut view =
+                context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
 
             if let Some(mut icc) = view.input_control() {
                 icc.set_add_flags((1 << 0) | (1 << 1)); // Slot + EP0
@@ -537,7 +538,8 @@ impl XhciController {
                 ep0.set_transfer_info(8, 0);
             }
 
-            let input_ctx_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].input_context) as u64);
+            let input_ctx_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].input_context) as u64);
             let trb = Trb::make_address_device(input_ctx_phys, slot_id, false);
             self.send_command_and_wait(trb)?;
         }
@@ -610,7 +612,8 @@ impl XhciController {
                                 if is_in && xfer_len > 0 {
                                     if let Some(ref mut dest) = data {
                                         let len = (xfer_len as usize).min(dest.len());
-                                        dest[..len].copy_from_slice(&slot_dma.control_buffer[..len]);
+                                        dest[..len]
+                                            .copy_from_slice(&slot_dma.control_buffer[..len]);
                                     }
                                 }
                                 return Ok(xfer_len as usize);
@@ -707,13 +710,15 @@ impl XhciController {
         unsafe {
             (*dma).slots[slot_idx].input_context.fill(0);
 
-            let ep_int_ring_phys =
-                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].ep_int_ring[ep_slot]) as u64);
+            let ep_int_ring_phys = virt_to_phys(core::ptr::addr_of!(
+                (*dma).slots[slot_idx].ep_int_ring[ep_slot]
+            ) as u64);
             (*dma).slots[slot_idx].ep_int_ring[ep_slot] = ring::TransferRing::new();
             (*dma).slots[slot_idx].ep_int_ring[ep_slot].init_link(ep_int_ring_phys);
 
             let csz = self.params.csz_64;
-            let mut view = context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
+            let mut view =
+                context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
 
             if let Some(mut icc) = view.input_control() {
                 icc.set_add_flags((1 << 0) | (1 << dci));
@@ -737,13 +742,15 @@ impl XhciController {
                 ep_ctx.set_transfer_info(max_packet.max(8), max_packet.max(8));
             }
 
-            let input_ctx_phys = virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].input_context) as u64);
+            let input_ctx_phys =
+                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].input_context) as u64);
             let trb = Trb::make_configure_endpoint(input_ctx_phys, slot_id);
             self.send_command_and_wait(trb)?;
 
             // Queue first Normal TRB on this endpoint's Interrupt Ring
-            let report_phys =
-                virt_to_phys(core::ptr::addr_of!((*dma).slots[slot_idx].report_buffer[ep_slot]) as u64);
+            let report_phys = virt_to_phys(core::ptr::addr_of!(
+                (*dma).slots[slot_idx].report_buffer[ep_slot]
+            ) as u64);
             let normal_trb = Trb::make_normal(report_phys, max_packet.max(8) as u32);
             (*dma).slots[slot_idx].ep_int_ring[ep_slot].push(normal_trb)?;
 
@@ -774,7 +781,8 @@ impl XhciController {
             if sc != 0 {
                 crate::println!(
                     "    usb-debug  portsc[{}]={:#010x} ccs={} ped={} pp={} pr={} spd={}",
-                    port, sc,
+                    port,
+                    sc,
                     (sc & portsc::CCS != 0) as u8,
                     (sc & portsc::PED != 0) as u8,
                     (sc & portsc::PP != 0) as u8,
@@ -802,7 +810,11 @@ impl XhciController {
             }
         };
         if let Err(e) = self.enumerate_device(port_num, speed, 0, 0, 0) {
-            crate::println!("    usb-debug  puerto {}: enumeracion fallo: {}", port_num, e);
+            crate::println!(
+                "    usb-debug  puerto {}: enumeracion fallo: {}",
+                port_num,
+                e
+            );
         }
     }
 
@@ -818,7 +830,14 @@ impl XhciController {
         parent_port: u8,
     ) -> Result<(), &'static str> {
         let slot_id = self.enable_slot()?;
-        self.address_device(slot_id, root_port, speed, route_string, parent_hub_slot, parent_port)?;
+        self.address_device(
+            slot_id,
+            root_port,
+            speed,
+            route_string,
+            parent_hub_slot,
+            parent_port,
+        )?;
 
         // 1. Device Descriptor (18 bytes) — carries bDeviceClass at offset 4.
         let mut dev_desc_buf = [0u8; 18];
@@ -827,10 +846,13 @@ impl XhciController {
         let device_class = dev_desc_buf[4];
         crate::println!(
             "    usb-debug  slot {} pto {}: devdesc={:?} {:04x}:{:04x} class={:#x} proto={:#x}",
-            slot_id, root_port, dd,
+            slot_id,
+            root_port,
+            dd,
             u16::from_le_bytes([dev_desc_buf[8], dev_desc_buf[9]]),
             u16::from_le_bytes([dev_desc_buf[10], dev_desc_buf[11]]),
-            device_class, dev_desc_buf[6],
+            device_class,
+            dev_desc_buf[6],
         );
 
         // 2. Configuration Descriptor: 9-byte header first for wTotalLength,
@@ -920,19 +942,35 @@ impl XhciController {
                 || iface.interface_protocol == crate::drivers::usb::descriptor::PROTOCOL_MOUSE;
             let mut boot_ok = false;
             if wants_boot {
-                let set_protocol =
-                    [0x21, 0x0B, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                let set_protocol = [
+                    0x21,
+                    0x0B,
+                    0x00,
+                    0x00,
+                    iface.interface_number,
+                    0x00,
+                    0x00,
+                    0x00,
+                ];
                 let sp_ok = self
                     .control_transfer(slot_id, set_protocol, None, false)
                     .is_ok();
-                let set_idle = [0x21, 0x0A, 0x00, 0x00, iface.interface_number, 0x00, 0x00, 0x00];
+                let set_idle = [
+                    0x21,
+                    0x0A,
+                    0x00,
+                    0x00,
+                    iface.interface_number,
+                    0x00,
+                    0x00,
+                    0x00,
+                ];
                 let _ = self.control_transfer(slot_id, set_idle, None, false);
                 boot_ok = sp_ok && is_boot_subclass;
             }
 
-            let (rd_kbd, rd_mouse) = crate::drivers::usb::descriptor::classify_report_descriptor(
-                &desc_buf[..rd_valid],
-            );
+            let (rd_kbd, rd_mouse) =
+                crate::drivers::usb::descriptor::classify_report_descriptor(&desc_buf[..rd_valid]);
             let mut hid_model =
                 crate::drivers::usb::hid::HidDevice::from_descriptor(&desc_buf[..rd_valid]);
             let use_generic = !boot_ok && !hid_model.is_empty();
@@ -941,8 +979,12 @@ impl XhciController {
             // interface, so a mis-classified device is visible in the boot log.
             crate::println!(
                 "    usb-debug  slot {} iface {}: rd_len={:?} role={:?} rid={} boot_ok={}",
-                slot_id, iface.interface_number, rd_len,
-                hid_model.role, hid_model.uses_report_id(), boot_ok,
+                slot_id,
+                iface.interface_number,
+                rd_len,
+                hid_model.role,
+                hid_model.uses_report_id(),
+                boot_ok,
             );
 
             let ep_slot = match alloc_ep_slot(used_mask) {
@@ -1107,12 +1149,7 @@ impl XhciController {
 
         for port in 1..=desc.num_ports {
             if let Err(e) = self.enumerate_hub_port(hub_slot, root_port, route_string, tier, port) {
-                crate::println!(
-                    "    usb-debug  hub {} puerto {}: {}",
-                    hub_slot,
-                    port,
-                    e
-                );
+                crate::println!("    usb-debug  hub {} puerto {}: {}", hub_slot, port, e);
             }
         }
 
@@ -1135,7 +1172,8 @@ impl XhciController {
         unsafe {
             (*dma).slots[slot_idx].input_context.fill(0);
             let csz = self.params.csz_64;
-            let mut view = context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
+            let mut view =
+                context::ContextView::new(&mut (*dma).slots[slot_idx].input_context, csz);
             if let Some(mut icc) = view.input_control() {
                 icc.set_add_flags(1 << 0); // Slot context only
             }
@@ -1318,8 +1356,7 @@ impl XhciController {
         }
 
         // Re-arm this interface's interrupt transfer.
-        let report_phys =
-            virt_to_phys(core::ptr::addr_of!(slot_dma.report_buffer[ep_slot]) as u64);
+        let report_phys = virt_to_phys(core::ptr::addr_of!(slot_dma.report_buffer[ep_slot]) as u64);
         let norm = Trb::make_normal(report_phys, dev.ep_int_max_packet as u32);
         let _ = slot_dma.ep_int_ring[ep_slot].push(norm);
         self.registers.ring_doorbell(slot_id, dev.ep_int_dci);

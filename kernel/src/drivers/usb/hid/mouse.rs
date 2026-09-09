@@ -4,8 +4,8 @@
 //! emitting `InputEvent::MouseMove`, `InputEvent::MouseAbsolute`,
 //! `InputEvent::MouseButtonPress`, and `InputEvent::MouseButtonRelease`.
 
-use alloc::vec::Vec;
 use crate::input::{InputEvent, MouseButton};
+use alloc::vec::Vec;
 
 /// Tracks mouse buttons and coordinates.
 #[derive(Debug, Clone, Default)]
@@ -57,10 +57,7 @@ impl UsbHidMouse {
                 let raw_x = u16::from_le_bytes([report[4], report[5]]) as u32;
                 let raw_y = u16::from_le_bytes([report[6], report[7]]) as u32;
 
-                events.push(InputEvent::MouseAbsolute {
-                    x: raw_x,
-                    y: raw_y,
-                });
+                events.push(InputEvent::MouseAbsolute { x: raw_x, y: raw_y });
 
                 let wheel = report[1] as i8 as i32;
                 let pan = report[2] as i8 as i32;
@@ -76,10 +73,7 @@ impl UsbHidMouse {
                 let raw_x = u16::from_le_bytes([report[1], report[2]]) as u32;
                 let raw_y = u16::from_le_bytes([report[3], report[4]]) as u32;
 
-                events.push(InputEvent::MouseAbsolute {
-                    x: raw_x,
-                    y: raw_y,
-                });
+                events.push(InputEvent::MouseAbsolute { x: raw_x, y: raw_y });
             }
         } else if report.len() >= 3 {
             // Relative mouse: byte 1 = dx, byte 2 = dy
@@ -127,7 +121,10 @@ mod tests {
         let events2 = mouse.process_report(&report2);
 
         assert_eq!(events2.len(), 2);
-        assert_eq!(events2[0], InputEvent::MouseButtonRelease(MouseButton::Left));
+        assert_eq!(
+            events2[0],
+            InputEvent::MouseButtonRelease(MouseButton::Left)
+        );
         assert_eq!(events2[1], InputEvent::MouseAbsolute { x: 0, y: 0 });
     }
 
@@ -142,6 +139,12 @@ mod tests {
         assert_eq!(events.len(), 3);
         assert_eq!(events[0], InputEvent::MouseButtonPress(MouseButton::Right));
         assert_eq!(events[1], InputEvent::MouseMove { dx: 10, dy: -5 });
-        assert_eq!(events[2], InputEvent::Scroll { delta_x: 0, delta_y: 1 });
+        assert_eq!(
+            events[2],
+            InputEvent::Scroll {
+                delta_x: 0,
+                delta_y: 1
+            }
+        );
     }
 }

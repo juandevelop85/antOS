@@ -85,8 +85,6 @@ impl GitRepoStatus {
     }
 }
 
-
-
 // --------------------------------------------------- git forge & issues / PRs (T21.2)
 
 /// Type of collaborative Git hosting forge (T21.2).
@@ -156,4 +154,3 @@ pub struct PullRequestStatusReport {
     pub ci_status: Option<String>,
     pub url: String,
 }
-

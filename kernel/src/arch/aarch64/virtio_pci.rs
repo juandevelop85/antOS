@@ -125,8 +125,7 @@ pub unsafe fn discover_regions(dev: &PciDevice) -> Option<VirtioPciRegions> {
                     VIRTIO_PCI_CAP_COMMON_CFG => regions.common_cfg = region,
                     VIRTIO_PCI_CAP_NOTIFY_CFG => {
                         regions.notify_base = region;
-                        regions.notify_off_multiplier =
-                            cap.notify_off_multiplier.unwrap_or(0);
+                        regions.notify_off_multiplier = cap.notify_off_multiplier.unwrap_or(0);
                     }
                     VIRTIO_PCI_CAP_ISR_CFG => regions.isr_cfg = region,
                     VIRTIO_PCI_CAP_DEVICE_CFG => regions.device_cfg = region,

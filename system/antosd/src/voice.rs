@@ -48,16 +48,18 @@ pub type Voz = Voice;
 
 impl Voice {
     pub fn discover() -> Result<Self> {
-        let whisper = match std::env::var_os("ANTOS_WHISPER").or_else(|| std::env::var_os("SYSO_WHISPER")) {
+        let whisper = match std::env::var_os("ANTOS_WHISPER")
+            .or_else(|| std::env::var_os("SYSO_WHISPER"))
+        {
             Some(path) => PathBuf::from(path),
             None => find_in_path(&["whisper-cli", "whisper-cpp"]).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "cannot find whisper. Install with:\n  brew install whisper-cpp"
-                )
+                anyhow::anyhow!("cannot find whisper. Install with:\n  brew install whisper-cpp")
             })?,
         };
 
-        let model = match std::env::var_os("ANTOS_MODELO_VOZ").or_else(|| std::env::var_os("SYSO_MODELO_VOZ")) {
+        let model = match std::env::var_os("ANTOS_MODELO_VOZ")
+            .or_else(|| std::env::var_os("SYSO_MODELO_VOZ"))
+        {
             Some(path) => PathBuf::from(path),
             None => default_model(),
         };
@@ -151,8 +153,8 @@ impl Voice {
 
     /// Mean audio level in decibels.
     fn level_db(&self, wav: &Path) -> Result<f32> {
-        let ffmpeg = find_in_path(&["ffmpeg"])
-            .ok_or_else(|| anyhow::anyhow!("cannot find ffmpeg"))?;
+        let ffmpeg =
+            find_in_path(&["ffmpeg"]).ok_or_else(|| anyhow::anyhow!("cannot find ffmpeg"))?;
 
         let mut cmd = Command::new(&ffmpeg);
         crate::sandbox::sin_secretos(&mut cmd);
@@ -238,11 +240,19 @@ impl Voice {
 
     /// Audio devices visible to macOS, with their index.
     pub fn devices() -> Result<String> {
-        let ffmpeg = find_in_path(&["ffmpeg"])
-            .ok_or_else(|| anyhow::anyhow!("cannot find ffmpeg"))?;
+        let ffmpeg =
+            find_in_path(&["ffmpeg"]).ok_or_else(|| anyhow::anyhow!("cannot find ffmpeg"))?;
 
         let output = Command::new(&ffmpeg)
-            .args(["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""])
+            .args([
+                "-hide_banner",
+                "-f",
+                "avfoundation",
+                "-list_devices",
+                "true",
+                "-i",
+                "",
+            ])
             .output()
             .context("could not launch ffmpeg")?;
 
@@ -290,8 +300,7 @@ impl Voice {
 /// Whisper marks silences and noises with brackets or parentheses
 /// — `[BLANK_AUDIO]`, `(background music)` — and that is not an intent.
 fn clean_transcription(text: &str) -> String {
-    text
-        .lines()
+    text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .filter(|line| !(line.starts_with('[') || line.starts_with('(')))

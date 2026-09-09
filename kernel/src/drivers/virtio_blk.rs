@@ -24,7 +24,7 @@ const VRING_DESC_F_NEXT: u16 = 1;
 const VRING_DESC_F_WRITE: u16 = 2;
 
 // VirtIO Block Request Types
-const VIRTIO_BLK_T_IN: u32 = 0;  // Read
+const VIRTIO_BLK_T_IN: u32 = 0; // Read
 const VIRTIO_BLK_T_OUT: u32 = 1; // Write
 
 #[repr(C)]
@@ -168,12 +168,20 @@ impl VirtioBlock {
     }
 
     /// Reads a single 512-byte sector at the specified LBA.
-    pub fn read_sector(&mut self, sector: u64, buf: &mut [u8; SECTOR_SIZE]) -> Result<(), VirtioError> {
+    pub fn read_sector(
+        &mut self,
+        sector: u64,
+        buf: &mut [u8; SECTOR_SIZE],
+    ) -> Result<(), VirtioError> {
         self.perform_io(VIRTIO_BLK_T_IN, sector, buf)
     }
 
     /// Writes a single 512-byte sector at the specified LBA.
-    pub fn write_sector(&mut self, sector: u64, buf: &[u8; SECTOR_SIZE]) -> Result<(), VirtioError> {
+    pub fn write_sector(
+        &mut self,
+        sector: u64,
+        buf: &[u8; SECTOR_SIZE],
+    ) -> Result<(), VirtioError> {
         let mut temp = *buf;
         self.perform_io(VIRTIO_BLK_T_OUT, sector, &mut temp)
     }
@@ -243,7 +251,11 @@ impl VirtioBlock {
 
             // If write operation, copy user buffer into bounce buffer
             if type_ == VIRTIO_BLK_T_OUT {
-                core::ptr::copy_nonoverlapping(buf.as_ptr(), self.virt_base.add(data_offset), SECTOR_SIZE);
+                core::ptr::copy_nonoverlapping(
+                    buf.as_ptr(),
+                    self.virt_base.add(data_offset),
+                    SECTOR_SIZE,
+                );
             }
 
             // 3. Setup Descriptor 0: Header
@@ -310,7 +322,11 @@ impl VirtioBlock {
 
             // If read operation, copy from bounce buffer back to user
             if type_ == VIRTIO_BLK_T_IN {
-                core::ptr::copy_nonoverlapping(self.virt_base.add(data_offset), buf.as_mut_ptr(), SECTOR_SIZE);
+                core::ptr::copy_nonoverlapping(
+                    self.virt_base.add(data_offset),
+                    buf.as_mut_ptr(),
+                    SECTOR_SIZE,
+                );
             }
 
             Ok(())
@@ -328,7 +344,11 @@ pub fn is_available() -> bool {
 
 /// Returns total capacity in sectors from global block device.
 pub fn capacity_sectors() -> u64 {
-    BLOCK_DEVICE.lock().as_ref().map(|d| d.capacity_sectors()).unwrap_or(0)
+    BLOCK_DEVICE
+        .lock()
+        .as_ref()
+        .map(|d| d.capacity_sectors())
+        .unwrap_or(0)
 }
 
 /// Reads contiguous 512-byte blocks from the global VirtIO block device.

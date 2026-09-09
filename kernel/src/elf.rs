@@ -51,7 +51,11 @@ fn checked_bounds(
 /// header table, checked (T31.3). Used both by `parse_elf` and by every
 /// loader that re-walks the table on its own, so none of them depend on a
 /// remote validation having already run.
-fn checked_program_header_offset(ph_offset: usize, ph_size: usize, index: usize) -> Result<usize, &'static str> {
+fn checked_program_header_offset(
+    ph_offset: usize,
+    ph_size: usize,
+    index: usize,
+) -> Result<usize, &'static str> {
     let stride = index
         .checked_mul(ph_size)
         .ok_or("desbordamiento al calcular el desplazamiento de una cabecera de programa")?;
@@ -175,7 +179,9 @@ pub fn parse_elf(image: &[u8]) -> Result<ElfInfo, &'static str> {
                 "segmento PT_LOAD desborda la imagen del archivo",
             )?;
             if ph.file_size > ph.memory_size {
-                return Err("el tamaño en archivo del segmento PT_LOAD excede su tamaño en memoria");
+                return Err(
+                    "el tamaño en archivo del segmento PT_LOAD excede su tamaño en memoria",
+                );
             }
 
             let start = ph.virtual_address;
@@ -238,8 +244,9 @@ pub unsafe fn load(
             "desbordamiento al calcular el desplazamiento de una cabecera de programa",
             "cabecera de programa desbordada",
         )?;
-        let segment: ProgramHeader =
-            unsafe { core::ptr::read_unaligned(image.as_ptr().add(offset) as *const ProgramHeader) };
+        let segment: ProgramHeader = unsafe {
+            core::ptr::read_unaligned(image.as_ptr().add(offset) as *const ProgramHeader)
+        };
 
         if segment.segment_type != PT_LOAD {
             continue;
@@ -272,7 +279,9 @@ unsafe fn load_segment(
     let mut page = first_page;
     while page <= last_page {
         if mapper.translate(page).is_none() {
-            let frame = allocator.allocate().ok_or("sin marcos físicos para el programa")?;
+            let frame = allocator
+                .allocate()
+                .ok_or("sin marcos físicos para el programa")?;
             unsafe {
                 mapper.map(page, frame, PRESENT | WRITABLE | USER, allocator)?;
                 core::ptr::write_bytes(page as *mut u8, 0, PAGE_SIZE as usize);
@@ -510,7 +519,9 @@ mod tests {
     fn to_bytes<T>(v: &T) -> &[u8] {
         // SAFETY: test-only, reading a plain-old-data `#[repr(C)]` struct as
         // bytes to build a synthetic image buffer.
-        unsafe { core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>()) }
+        unsafe {
+            core::slice::from_raw_parts(v as *const T as *const u8, core::mem::size_of::<T>())
+        }
     }
 
     fn image_with_header(header: &Header, extra_len: usize) -> Vec<u8> {
@@ -529,7 +540,10 @@ mod tests {
         let header = base_header(u64::MAX - 4, ph_size, 1);
         let image = image_with_header(&header, 64);
 
-        assert!(parse_elf(&image).is_err(), "an implausible program_header_offset must be rejected, not overflow");
+        assert!(
+            parse_elf(&image).is_err(),
+            "an implausible program_header_offset must be rejected, not overflow"
+        );
     }
 
     #[test]
@@ -543,7 +557,10 @@ mod tests {
         // Deliberately far too small an image for `u16::MAX` headers.
         let image = image_with_header(&header, 8);
 
-        assert!(parse_elf(&image).is_err(), "a program header table that doesn't fit must be rejected");
+        assert!(
+            parse_elf(&image).is_err(),
+            "a program header table that doesn't fit must be rejected"
+        );
     }
 
     #[test]
@@ -564,7 +581,10 @@ mod tests {
         };
         write_program_header(&mut image, core::mem::size_of::<Header>(), &ph);
 
-        assert!(parse_elf(&image).is_err(), "a segment offset near u64::MAX must be rejected, not overflow");
+        assert!(
+            parse_elf(&image).is_err(),
+            "a segment offset near u64::MAX must be rejected, not overflow"
+        );
     }
 
     #[test]
@@ -588,7 +608,10 @@ mod tests {
         };
         write_program_header(&mut image, ph_start, &ph);
 
-        assert!(parse_elf(&image).is_err(), "file_size > memory_size must be rejected");
+        assert!(
+            parse_elf(&image).is_err(),
+            "file_size > memory_size must be rejected"
+        );
     }
 
     #[test]
@@ -598,7 +621,10 @@ mod tests {
         let ph_start = core::mem::size_of::<Header>();
         let data_start = ph_start + core::mem::size_of::<ProgramHeader>();
         let payload = b"hello, antOS init!";
-        let mut image = image_with_header(&header, core::mem::size_of::<ProgramHeader>() + payload.len());
+        let mut image = image_with_header(
+            &header,
+            core::mem::size_of::<ProgramHeader>() + payload.len(),
+        );
 
         let ph = ProgramHeader {
             segment_type: PT_LOAD,
@@ -613,7 +639,8 @@ mod tests {
         write_program_header(&mut image, ph_start, &ph);
         image[data_start..data_start + payload.len()].copy_from_slice(payload);
 
-        let info = parse_elf(&image).expect("a well-formed ELF must still parse after the checked-arithmetic rewrite");
+        let info = parse_elf(&image)
+            .expect("a well-formed ELF must still parse after the checked-arithmetic rewrite");
         assert_eq!(info.loadable_segments, 1);
         assert_eq!(info.entry, 0x1000);
         assert_eq!(info.machine, MACHINE_X86_64);
@@ -626,7 +653,14 @@ mod tests {
         // field that yields a small power-of-two line size (16-256 bytes);
         // this guards against a misreading of the field.
         let line = dcache_line_size();
-        assert!(line >= 4 && line <= 2048, "unexpected cache line size: {line}");
-        assert_eq!(line & (line - 1), 0, "cache line size must be a power of two");
+        assert!(
+            line >= 4 && line <= 2048,
+            "unexpected cache line size: {line}"
+        );
+        assert_eq!(
+            line & (line - 1),
+            0,
+            "cache line size must be a power of two"
+        );
     }
 }

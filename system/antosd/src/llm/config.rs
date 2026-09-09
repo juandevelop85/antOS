@@ -107,8 +107,9 @@ impl LlmConfig {
             std::fs::create_dir_all(parent)?;
         }
         let serialized = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, serialized)
-            .with_context(|| format!("no se pudo escribir la configuración en {}", path.display()))?;
+        std::fs::write(&path, serialized).with_context(|| {
+            format!("no se pudo escribir la configuración en {}", path.display())
+        })?;
         Ok(())
     }
 
@@ -161,7 +162,8 @@ impl LlmConfig {
 
     /// Sets the assigned model for an antFlow role (T19.4).
     pub fn set_role_model(&mut self, role: &str, model: &str) {
-        self.role_models.insert(role.to_lowercase(), model.to_string());
+        self.role_models
+            .insert(role.to_lowercase(), model.to_string());
     }
 
     /// Returns the full map of role-to-model assignments (T19.4).
@@ -236,8 +238,14 @@ mod tests {
     #[test]
     fn test_role_models_configuration() {
         let mut config = LlmConfig::default();
-        assert_eq!(config.get_role_model("architect"), "openrouter:deepseek/deepseek-r1:free");
-        assert_eq!(config.get_role_model("coder"), "ollama:qwen2.5-coder:latest");
+        assert_eq!(
+            config.get_role_model("architect"),
+            "openrouter:deepseek/deepseek-r1:free"
+        );
+        assert_eq!(
+            config.get_role_model("coder"),
+            "ollama:qwen2.5-coder:latest"
+        );
 
         config.set_role_model("coder", "groq:qwen2.5-coder");
         assert_eq!(config.get_role_model("coder"), "groq:qwen2.5-coder");

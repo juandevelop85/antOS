@@ -101,7 +101,12 @@ impl UsbManager {
         }
 
         for mp in &dev.mount_points {
-            if mp == "/" || mp == "/boot" || mp == "/boot/efi" || mp == "/home" || mp.starts_with("/System") {
+            if mp == "/"
+                || mp == "/boot"
+                || mp == "/boot/efi"
+                || mp == "/home"
+                || mp.starts_with("/System")
+            {
                 bail!(
                     "El dispositivo «{}» tiene puntos de montaje críticos del sistema («{}»).",
                     dev.path,
@@ -125,10 +130,7 @@ impl UsbManager {
 
         // 2. Linux
         if Command::new("umount").arg("--version").output().is_ok() {
-            let _ = Command::new("umount")
-                .arg("-q")
-                .arg(target)
-                .output();
+            let _ = Command::new("umount").arg("-q").arg(target).output();
         }
 
         Ok(())
@@ -222,15 +224,57 @@ impl UsbManager {
         }
 
         // 1. Mostrar información clara del dispositivo y advertencia
-        writeln!(writer, "\n{}", paint("╔══════════════════════════════════════════════════════════════════════════╗", CYAN))?;
-        writeln!(writer, "{}", paint("║           antOS · Grabador de Medios Extraíbles Live USB                ║", BOLD))?;
-        writeln!(writer, "{}\n", paint("╚══════════════════════════════════════════════════════════════════════════╝", CYAN))?;
+        writeln!(
+            writer,
+            "\n{}",
+            paint(
+                "╔══════════════════════════════════════════════════════════════════════════╗",
+                CYAN
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "║           antOS · Grabador de Medios Extraíbles Live USB                ║",
+                BOLD
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}\n",
+            paint(
+                "╚══════════════════════════════════════════════════════════════════════════╝",
+                CYAN
+            )
+        )?;
 
-        writeln!(writer, "  • Imagen de origen:     {}", paint(&image_path.display().to_string(), BOLD))?;
-        writeln!(writer, "  • Tamaño de imagen:     {:.1} MB", image_size as f64 / (1024.0 * 1024.0))?;
-        writeln!(writer, "  • Dispositivo destino:  {}", paint(&dev.path, CYAN))?;
-        writeln!(writer, "  • Fabricante / Modelo:  {} {}", dev.vendor, dev.model)?;
-        writeln!(writer, "  • Capacidad USB:        {:.1} GB ({} Bytes)", dev.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0), dev.size_bytes)?;
+        writeln!(
+            writer,
+            "  • Imagen de origen:     {}",
+            paint(&image_path.display().to_string(), BOLD)
+        )?;
+        writeln!(
+            writer,
+            "  • Tamaño de imagen:     {:.1} MB",
+            image_size as f64 / (1024.0 * 1024.0)
+        )?;
+        writeln!(
+            writer,
+            "  • Dispositivo destino:  {}",
+            paint(&dev.path, CYAN)
+        )?;
+        writeln!(
+            writer,
+            "  • Fabricante / Modelo:  {} {}",
+            dev.vendor, dev.model
+        )?;
+        writeln!(
+            writer,
+            "  • Capacidad USB:        {:.1} GB ({} Bytes)",
+            dev.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            dev.size_bytes
+        )?;
         writeln!(writer, "  • Tipo de Bus:          {}", dev.bus_type)?;
         writeln!(
             writer,
@@ -263,17 +307,31 @@ impl UsbManager {
             && !trimmed_answer.eq_ignore_ascii_case("S")
             && !trimmed_answer.eq_ignore_ascii_case("YES")
         {
-            writeln!(writer, "\n{}", paint("  Operación cancelada por el usuario. No se modificó ningún disco.\n", YELLOW))?;
+            writeln!(
+                writer,
+                "\n{}",
+                paint(
+                    "  Operación cancelada por el usuario. No se modificó ningún disco.\n",
+                    YELLOW
+                )
+            )?;
             bail!("Operación cancelada: No se confirmó la escritura destructiva.");
         }
 
         // 3. Desmontaje
         writeln!(writer, "\n  [1/3] Desmontando particiones previas...")?;
         Self::unmount_target(&dev.path)?;
-        writeln!(writer, "        {}", paint("✓ Particiones desmontadas", GREEN))?;
+        writeln!(
+            writer,
+            "        {}",
+            paint("✓ Particiones desmontadas", GREEN)
+        )?;
 
         // 4. Copia / Volcado en bloques de 4 MiB
-        writeln!(writer, "  [2/3] Grabando imagen bit a bit en bloques de 4 MiB...")?;
+        writeln!(
+            writer,
+            "  [2/3] Grabando imagen bit a bit en bloques de 4 MiB..."
+        )?;
         let start_time = Instant::now();
         let mut bytes_written = 0u64;
 
@@ -313,7 +371,13 @@ impl UsbManager {
 
             if percentage >= last_percentage + 10 || bytes_written == image_size {
                 last_percentage = percentage;
-                Self::render_flash_progress(writer, percentage, speed_mbps, mb_written, image_size as f64 / (1024.0 * 1024.0))?;
+                Self::render_flash_progress(
+                    writer,
+                    percentage,
+                    speed_mbps,
+                    mb_written,
+                    image_size as f64 / (1024.0 * 1024.0),
+                )?;
             }
         }
 
@@ -326,10 +390,20 @@ impl UsbManager {
         let total_duration = start_time.elapsed().as_secs_f64().max(0.001);
         let average_speed = (bytes_written as f64 / (1024.0 * 1024.0)) / total_duration;
 
-        writeln!(writer, "\n        {}", paint("✓ Grabación finalizada y sincronizada con el hardware.", GREEN))?;
+        writeln!(
+            writer,
+            "\n        {}",
+            paint(
+                "✓ Grabación finalizada y sincronizada con el hardware.",
+                GREEN
+            )
+        )?;
 
         // 5. Verificación de integridad SHA-256
-        writeln!(writer, "  [3/3] Verificando integridad SHA-256 de los sectores grabados...")?;
+        writeln!(
+            writer,
+            "  [3/3] Verificando integridad SHA-256 de los sectores grabados..."
+        )?;
 
         // Calcular hash original de la ISO
         let iso_all_bytes = fs::read(image_path)?;
@@ -342,8 +416,19 @@ impl UsbManager {
             read_back_file.read_exact(&mut read_buf)?;
             let actual_sha = sha256(&read_buf);
             if actual_sha != expected_sha {
-                writeln!(writer, "        {}", paint("❌ Error: Los datos verificados no coinciden con la imagen original", RED))?;
-                bail!("Fallo de verificación: SHA-256 no coincide (Esperado: {}, Obtenido: {})", expected_sha, actual_sha);
+                writeln!(
+                    writer,
+                    "        {}",
+                    paint(
+                        "❌ Error: Los datos verificados no coinciden con la imagen original",
+                        RED
+                    )
+                )?;
+                bail!(
+                    "Fallo de verificación: SHA-256 no coincide (Esperado: {}, Obtenido: {})",
+                    expected_sha,
+                    actual_sha
+                );
             }
             true
         } else {
@@ -354,13 +439,37 @@ impl UsbManager {
         writeln!(
             writer,
             "        {} (Hash: {}...)\n",
-            paint("✓ Verificación SHA-256 exitosa: La memoria USB contiene datos 100% íntegros.", GREEN),
+            paint(
+                "✓ Verificación SHA-256 exitosa: La memoria USB contiene datos 100% íntegros.",
+                GREEN
+            ),
             &expected_sha[..12]
         )?;
 
-        writeln!(writer, "{}", paint("╔══════════════════════════════════════════════════════════════════════════╗", GREEN))?;
-        writeln!(writer, "{}", paint("║              ✓ MEMORIA LIVE USB CREADA SATISFACTORIAMENTE                ║", BOLD))?;
-        writeln!(writer, "{}\n", paint("╚══════════════════════════════════════════════════════════════════════════╝", GREEN))?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "╔══════════════════════════════════════════════════════════════════════════╗",
+                GREEN
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "║              ✓ MEMORIA LIVE USB CREADA SATISFACTORIAMENTE                ║",
+                BOLD
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}\n",
+            paint(
+                "╚══════════════════════════════════════════════════════════════════════════╝",
+                GREEN
+            )
+        )?;
 
         let summary = format!(
             "Live USB preparado en «{}» ({:.1} MB escritos a {:.1} MB/s, Duración: {:.1}s, SHA-256: {})",
@@ -393,7 +502,8 @@ impl UsbManager {
         let mut dev_file = File::open(target_device)
             .with_context(|| format!("Abriendo dispositivo {} para lectura", target_device))?;
         let mut dev_bytes = vec![0u8; image_bytes.len()];
-        dev_file.read_exact(&mut dev_bytes)
+        dev_file
+            .read_exact(&mut dev_bytes)
             .with_context(|| format!("Leyendo bloques de {}", target_device))?;
 
         let actual_sha = sha256(&dev_bytes);
@@ -411,11 +521,7 @@ impl UsbManager {
         let filled = (bar_width * percentage as usize) / 100;
         let empty = bar_width.saturating_sub(filled);
 
-        let bar = format!(
-            "[{}{}]",
-            "█".repeat(filled),
-            "░".repeat(empty)
-        );
+        let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
 
         write!(
             writer,
@@ -432,9 +538,7 @@ impl UsbManager {
 
     // --- Sondeo de macOS (`diskutil`) ---
     fn probe_macos_diskutil() -> Result<Vec<UsbDeviceInfo>> {
-        let out = Command::new("diskutil")
-            .arg("list")
-            .output()?;
+        let out = Command::new("diskutil").arg("list").output()?;
         if !out.status.success() {
             bail!("diskutil list falló");
         }
@@ -443,7 +547,10 @@ impl UsbManager {
         let mut results = Vec::new();
 
         for line in stdout.lines() {
-            if line.starts_with("/dev/disk") && !line.contains("(synthesized)") && !line.contains("(disk image)") {
+            if line.starts_with("/dev/disk")
+                && !line.contains("(synthesized)")
+                && !line.contains("(disk image)")
+            {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if let Some(node) = parts.first() {
                     let disk_id = node.trim_start_matches("/dev/");
@@ -461,9 +568,7 @@ impl UsbManager {
     }
 
     fn probe_macos_disk_info(disk_id: &str) -> Result<UsbDeviceInfo> {
-        let out = Command::new("diskutil")
-            .args(["info", disk_id])
-            .output()?;
+        let out = Command::new("diskutil").args(["info", disk_id]).output()?;
         if !out.status.success() {
             bail!("diskutil info {} falló", disk_id);
         }
@@ -534,7 +639,12 @@ impl UsbManager {
     // --- Sondeo de Linux (`lsblk`) ---
     fn probe_linux_lsblk() -> Result<Vec<UsbDeviceInfo>> {
         let out = Command::new("lsblk")
-            .args(["-J", "-b", "-o", "NAME,PATH,MODEL,VENDOR,SIZE,TYPE,TRAN,RM,RO,MOUNTPOINTS"])
+            .args([
+                "-J",
+                "-b",
+                "-o",
+                "NAME,PATH,MODEL,VENDOR,SIZE,TYPE,TRAN,RM,RO,MOUNTPOINTS",
+            ])
             .output()?;
         if !out.status.success() {
             bail!("lsblk falló");
@@ -555,11 +665,29 @@ impl UsbManager {
                 continue;
             }
 
-            let path = dev.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let model = dev.get("model").and_then(|v| v.as_str()).unwrap_or("USB Flash Drive").trim().to_string();
-            let vendor = dev.get("vendor").and_then(|v| v.as_str()).unwrap_or("Generic").trim().to_string();
+            let path = dev
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let model = dev
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("USB Flash Drive")
+                .trim()
+                .to_string();
+            let vendor = dev
+                .get("vendor")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Generic")
+                .trim()
+                .to_string();
             let size_bytes = dev.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
-            let tran = dev.get("tran").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+            let tran = dev
+                .get("tran")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_lowercase();
             let rm = dev.get("rm").and_then(|v| v.as_bool()).unwrap_or(false);
 
             let mut mount_points = Vec::new();
@@ -648,7 +776,10 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
                     d.bus_type
                 );
                 println!("      Fabricante / Modelo: {} {}", d.vendor, d.model);
-                println!("      Extraíble:           {}", paint("Sí (Elegible)", GREEN));
+                println!(
+                    "      Extraíble:           {}",
+                    paint("Sí (Elegible)", GREEN)
+                );
                 if !d.mount_points.is_empty() {
                     println!("      Puntos de montaje:   {}", d.mount_points.join(", "));
                 }
@@ -687,10 +818,21 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             let report = UsbManager::build_live_iso(&ctx.workspace, arch, out_path.as_deref())?;
 
-            println!("  {} {}", paint("✓ Imagen generada:", GREEN), report.iso_path);
-            println!("  {} {}", paint("✓ Suma de control:", CYAN), report.sha256_path);
+            println!(
+                "  {} {}",
+                paint("✓ Imagen generada:", GREEN),
+                report.iso_path
+            );
+            println!(
+                "  {} {}",
+                paint("✓ Suma de control:", CYAN),
+                report.sha256_path
+            );
             println!("  • SHA-256: {}", report.sha256_checksum);
-            println!("  • Tamaño:  {:.1} MB\n", report.size_bytes as f64 / (1024.0 * 1024.0));
+            println!(
+                "  • Tamaño:  {:.1} MB\n",
+                report.size_bytes as f64 / (1024.0 * 1024.0)
+            );
         }
         "flash" => {
             let mut image_path: Option<PathBuf> = None;
@@ -772,7 +914,12 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
                 None => bail!("Especifique el dispositivo USB con --target <device>"),
             };
 
-            println!("{} Verificando integridad de «{}» contra «{}»...", paint("antOS USB ·", CYAN), tgt, img.display());
+            println!(
+                "{} Verificando integridad de «{}» contra «{}»...",
+                paint("antOS USB ·", CYAN),
+                tgt,
+                img.display()
+            );
             let ok = UsbManager::verify_usb(&img, &tgt)?;
             if ok {
                 println!("  {}\n", paint("✓ Verificación exitosa: El pendrive coincide byte a byte con la imagen ISO.", GREEN));
@@ -864,7 +1011,10 @@ mod tests {
 
         let res = UsbManager::is_safe_target(&huge_disk);
         assert!(res.is_err());
-        assert!(res.unwrap_err().to_string().contains("supera el límite de seguridad"));
+        assert!(res
+            .unwrap_err()
+            .to_string()
+            .contains("supera el límite de seguridad"));
     }
 
     #[test]
@@ -872,7 +1022,8 @@ mod tests {
         let temp = std::env::temp_dir().join(format!("antos-usb-abort-{}", std::process::id()));
         let _ = fs::create_dir_all(&temp);
         let fake_iso = temp.join("antos-live.iso");
-        fs::write(&fake_iso, b"ANTOS_LIVE_IMAGE_CONTENT_TEST_BUFFER_123456").expect("write fake iso");
+        fs::write(&fake_iso, b"ANTOS_LIVE_IMAGE_CONTENT_TEST_BUFFER_123456")
+            .expect("write fake iso");
 
         let mut input = Cursor::new(b"NO\n");
         let mut output = Vec::new();
@@ -931,4 +1082,3 @@ mod tests {
         let _ = fs::remove_dir_all(&temp);
     }
 }
-

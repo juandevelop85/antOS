@@ -61,7 +61,10 @@ fn main() {
         .current_dir(&user_dir)
         .args(["build", "--target", user_target, "--target-dir"])
         .arg(&target_dir)
-        .env("RUSTFLAGS", "-C relocation-model=static -C link-arg=--image-base=0x400000")
+        .env(
+            "RUSTFLAGS",
+            "-C relocation-model=static -C link-arg=--image-base=0x400000",
+        )
         .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .env_remove("RUSTC")
         .env_remove("RUSTC_WRAPPER")
@@ -81,15 +84,31 @@ fn main() {
     add_tar_file(&mut tar, "bin/init", &binary_bytes);
     add_tar_file(&mut tar, "bin/antos", &binary_bytes);
     add_tar_file(&mut tar, "bin/antosd", &binary_bytes);
-    add_tar_file(&mut tar, "bin/sh", b"#!/bin/sh\necho 'antOS Live Minimal Shell ready'\n");
-    add_tar_file(&mut tar, "bin/parted", b"#!/bin/sh\necho 'antOS parted partition tool'\n");
-    add_tar_file(&mut tar, "bin/mkfs.ext4", b"#!/bin/sh\necho 'antOS mkfs filesystem formatter'\n");
+    add_tar_file(
+        &mut tar,
+        "bin/sh",
+        b"#!/bin/sh\necho 'antOS Live Minimal Shell ready'\n",
+    );
+    add_tar_file(
+        &mut tar,
+        "bin/parted",
+        b"#!/bin/sh\necho 'antOS parted partition tool'\n",
+    );
+    add_tar_file(
+        &mut tar,
+        "bin/mkfs.ext4",
+        b"#!/bin/sh\necho 'antOS mkfs filesystem formatter'\n",
+    );
     add_tar_file(&mut tar, "bin/worker", &binary_bytes);
     add_tar_file(&mut tar, "sbin/init", &binary_bytes);
 
     add_tar_file(&mut tar, "etc/hostname", b"antos-live\n");
     add_tar_file(&mut tar, "etc/os-release", b"NAME=\"antOS\"\nID=antos\nPRETTY_NAME=\"antOS Live Developer OS\"\nVERSION=\"0.1.0-alpha\"\n");
-    add_tar_file(&mut tar, "etc/fstab", b"rootfs / tmpfs rw 0 0\nproc /proc proc defaults 0 0\nsysfs /sys sysfs defaults 0 0\n");
+    add_tar_file(
+        &mut tar,
+        "etc/fstab",
+        b"rootfs / tmpfs rw 0 0\nproc /proc proc defaults 0 0\nsysfs /sys sysfs defaults 0 0\n",
+    );
     let conf = b"# antOS System Configuration\nhostname=antos-live\nversion=0.1.0-alpha\nscheduler=round-robin\nquantum_ms=20\nvfs=tarfs\nroot_device=initrd\nkeyboard_layout=us\npointer_sensitivity=100\npointer_accel=40\nrepeat_delay_ms=500\nrepeat_rate_hz=30\n";
     add_tar_file(&mut tar, "etc/antos.conf", conf);
 
@@ -103,7 +122,10 @@ fn main() {
     std::fs::write(&initrd_path, &tar).expect("could not write initrd.tar");
 
     // Also write a copy to the kernel's own debug target directory, if it exists
-    let debug_dir = Path::new(&manifest).join("target").join(&kernel_target).join("debug");
+    let debug_dir = Path::new(&manifest)
+        .join("target")
+        .join(&kernel_target)
+        .join("debug");
     if debug_dir.exists() {
         let _ = std::fs::write(debug_dir.join("initrd.tar"), &tar);
     }
@@ -122,8 +144,16 @@ fn main() {
     let limine_build = std::env::var("CARGO_FEATURE_LIMINE").is_ok();
 
     if kernel_target.contains("aarch64") {
-        let linker_script_name = if limine_build { "linker_limine.ld" } else { "linker.ld" };
-        let linker_script = Path::new(&manifest).join("src").join("arch").join("aarch64").join(linker_script_name);
+        let linker_script_name = if limine_build {
+            "linker_limine.ld"
+        } else {
+            "linker.ld"
+        };
+        let linker_script = Path::new(&manifest)
+            .join("src")
+            .join("arch")
+            .join("aarch64")
+            .join(linker_script_name);
         println!("cargo:rustc-link-arg=-T{}", linker_script.display());
         println!("cargo:rerun-if-changed={}", linker_script.display());
     } else if limine_build {
@@ -136,11 +166,32 @@ fn main() {
         println!("cargo:rustc-link-arg=--image-base=0xffffffff80000000");
     }
 
-    println!("cargo:rerun-if-changed={}", user_dir.join("src/main.rs").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("Cargo.toml").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/lib.rs").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/syscall.rs").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/io.rs").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/allocator.rs").display());
-    println!("cargo:rerun-if-changed={}", user_dir.join("libantos/src/channel.rs").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("src/main.rs").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("Cargo.toml").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("libantos/src/lib.rs").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("libantos/src/syscall.rs").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("libantos/src/io.rs").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("libantos/src/allocator.rs").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        user_dir.join("libantos/src/channel.rs").display()
+    );
 }

@@ -118,10 +118,20 @@ impl NvmeNamespace {
                 let chunk_blocks = 1u16; // 1 block (4 KiB) per bounce buffer
                 let chunk_bytes = (chunk_blocks as usize) * self.block_size;
 
-                ctrl.submit_io_command(self.nsid, cur_lba, chunk_blocks, ctrl.dma_buf_phys, NVME_NVM_CMD_READ)?;
+                ctrl.submit_io_command(
+                    self.nsid,
+                    cur_lba,
+                    chunk_blocks,
+                    ctrl.dma_buf_phys,
+                    NVME_NVM_CMD_READ,
+                )?;
 
                 // Copy from DMA bounce buffer to destination
-                core::ptr::copy_nonoverlapping(ctrl.dma_buf_virt, buf.as_mut_ptr().add(offset), chunk_bytes);
+                core::ptr::copy_nonoverlapping(
+                    ctrl.dma_buf_virt,
+                    buf.as_mut_ptr().add(offset),
+                    chunk_bytes,
+                );
 
                 blocks_left -= chunk_blocks;
                 cur_lba += chunk_blocks as u64;
@@ -152,9 +162,19 @@ impl NvmeNamespace {
                 let chunk_bytes = (chunk_blocks as usize) * self.block_size;
 
                 // Copy to DMA bounce buffer
-                core::ptr::copy_nonoverlapping(buf.as_ptr().add(offset), ctrl.dma_buf_virt, chunk_bytes);
+                core::ptr::copy_nonoverlapping(
+                    buf.as_ptr().add(offset),
+                    ctrl.dma_buf_virt,
+                    chunk_bytes,
+                );
 
-                ctrl.submit_io_command(self.nsid, cur_lba, chunk_blocks, ctrl.dma_buf_phys, NVME_NVM_CMD_WRITE)?;
+                ctrl.submit_io_command(
+                    self.nsid,
+                    cur_lba,
+                    chunk_blocks,
+                    ctrl.dma_buf_phys,
+                    NVME_NVM_CMD_WRITE,
+                )?;
 
                 blocks_left -= chunk_blocks;
                 cur_lba += chunk_blocks as u64;
@@ -225,25 +245,35 @@ impl NvmeController {
         // Allocate Admin Queues (4 KiB each)
         let asq_phys = allocator.allocate().ok_or(NvmeError::QueueAllocFailed)?;
         let asq_v = (asq_phys + phys_offset) as *mut NvmeCmd;
-        unsafe { core::ptr::write_bytes(asq_v as *mut u8, 0, 4096); }
+        unsafe {
+            core::ptr::write_bytes(asq_v as *mut u8, 0, 4096);
+        }
 
         let acq_phys = allocator.allocate().ok_or(NvmeError::QueueAllocFailed)?;
         let acq_v = (acq_phys + phys_offset) as *mut NvmeCqe;
-        unsafe { core::ptr::write_bytes(acq_v as *mut u8, 0, 4096); }
+        unsafe {
+            core::ptr::write_bytes(acq_v as *mut u8, 0, 4096);
+        }
 
         // Allocate I/O Queues (4 KiB each)
         let iosq_phys = allocator.allocate().ok_or(NvmeError::QueueAllocFailed)?;
         let iosq_v = (iosq_phys + phys_offset) as *mut NvmeCmd;
-        unsafe { core::ptr::write_bytes(iosq_v as *mut u8, 0, 4096); }
+        unsafe {
+            core::ptr::write_bytes(iosq_v as *mut u8, 0, 4096);
+        }
 
         let iocq_phys = allocator.allocate().ok_or(NvmeError::QueueAllocFailed)?;
         let iocq_v = (iocq_phys + phys_offset) as *mut NvmeCqe;
-        unsafe { core::ptr::write_bytes(iocq_v as *mut u8, 0, 4096); }
+        unsafe {
+            core::ptr::write_bytes(iocq_v as *mut u8, 0, 4096);
+        }
 
         // Allocate DMA bounce buffer (4 KiB)
         let dma_buf_phys = allocator.allocate().ok_or(NvmeError::QueueAllocFailed)?;
         let dma_buf_v = (dma_buf_phys + phys_offset) as *mut u8;
-        unsafe { core::ptr::write_bytes(dma_buf_v, 0, 4096); }
+        unsafe {
+            core::ptr::write_bytes(dma_buf_v, 0, 4096);
+        }
 
         // Read CAP (Controller Capabilities)
         let cap = unsafe { core::ptr::read_volatile(mmio_base as *const u64) };
@@ -316,7 +346,11 @@ impl NvmeController {
             core::ptr::write_volatile(acq_reg, self.acq_phys);
 
             // 5. Configure and Enable Controller (CC)
-            cc = NVME_CC_EN | NVME_CC_CSS_NVM | NVME_CC_MPS_4K | NVME_CC_IOSQES_64 | NVME_CC_IOCQES_16;
+            cc = NVME_CC_EN
+                | NVME_CC_CSS_NVM
+                | NVME_CC_MPS_4K
+                | NVME_CC_IOSQES_64
+                | NVME_CC_IOCQES_16;
             core::ptr::write_volatile(cc_ptr, cc);
 
             // 6. Wait until RDY == 1
@@ -516,7 +550,11 @@ impl NvmeController {
         }
 
         // 2. Identify Namespace 1 (CNS = 0, NSID = 1)
-        let max_ns = if num_namespaces == 0 { 1 } else { num_namespaces.min(4) };
+        let max_ns = if num_namespaces == 0 {
+            1
+        } else {
+            num_namespaces.min(4)
+        };
         for nsid in 1..=max_ns {
             let mut id_ns = NvmeCmd::default();
             id_ns.cdw0 = NVME_ADMIN_CMD_IDENTIFY as u32;

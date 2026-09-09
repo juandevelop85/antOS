@@ -95,7 +95,10 @@ impl ContextGraph {
     }
 
     pub fn add_edge(&mut self, source: &str, target: &str, kind: EdgeKind) {
-        let exists = self.edges.iter().any(|e| e.source == source && e.target == target && e.kind == kind);
+        let exists = self
+            .edges
+            .iter()
+            .any(|e| e.source == source && e.target == target && e.kind == kind);
         if !exists {
             self.edges.push(GraphEdge {
                 source: source.to_string(),
@@ -151,8 +154,9 @@ impl MemoryEngine {
     /// Loads the memory store from disk or creates an empty one.
     pub fn load(db_path: &Path) -> Result<MemoryStore> {
         if db_path.exists() {
-            let content = std::fs::read_to_string(db_path)
-                .with_context(|| format!("failed to read memory store from {}", db_path.display()))?;
+            let content = std::fs::read_to_string(db_path).with_context(|| {
+                format!("failed to read memory store from {}", db_path.display())
+            })?;
             let store: MemoryStore = serde_json::from_str(&content)
                 .with_context(|| "failed to parse memory store JSON")?;
             Ok(store)
@@ -172,8 +176,8 @@ impl MemoryEngine {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
-        let serialized = serde_json::to_string_pretty(store)
-            .context("failed to serialize memory store")?;
+        let serialized =
+            serde_json::to_string_pretty(store).context("failed to serialize memory store")?;
         let tmp_path = db_path.with_extension("tmp");
         std::fs::write(&tmp_path, serialized)
             .with_context(|| format!("failed to write temporary file {}", tmp_path.display()))?;
@@ -209,7 +213,10 @@ impl MemoryEngine {
                 Err(_) => continue,
             };
 
-            let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or_default();
+            let ext = file_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
             let parsed_chunks = parse_file_chunks(&rel_path, &content, ext);
 
             for chunk in parsed_chunks {
@@ -228,7 +235,11 @@ impl MemoryEngine {
                 // Check for ticket references like T1.1, T2.2 in content
                 for word in chunk.content.split_whitespace() {
                     let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.');
-                    if clean.starts_with('T') && clean.contains('.') && clean.len() >= 4 && clean.len() <= 6 {
+                    if clean.starts_with('T')
+                        && clean.contains('.')
+                        && clean.len() >= 4
+                        && clean.len() <= 6
+                    {
                         let ticket_node_id = format!("ticket:{}", clean);
                         graph.add_node(&ticket_node_id, clean, "ticket", None);
                         graph.add_edge(&file_node_id, &ticket_node_id, EdgeKind::ImplementsTicket);
@@ -279,7 +290,11 @@ impl MemoryEngine {
         }
 
         // Sort descending by score
-        scored_hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        scored_hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         scored_hits.truncate(limit);
         scored_hits
     }
@@ -289,7 +304,14 @@ impl MemoryEngine {
 fn scan_workspace_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let ignored_names: BTreeSet<&str> = [
-        "target", ".git", "node_modules", ".antos", ".idea", ".vscode", "dist", "build",
+        "target",
+        ".git",
+        "node_modules",
+        ".antos",
+        ".idea",
+        ".vscode",
+        "dist",
+        "build",
     ]
     .into_iter()
     .collect();
@@ -316,8 +338,14 @@ fn scan_workspace_files(dir: &Path) -> Result<Vec<PathBuf>> {
             if path.is_dir() {
                 stack.push(path);
             } else if path.is_file() {
-                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
-                if matches!(ext, "rs" | "toml" | "md" | "json" | "sh" | "c" | "h" | "nix") {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or_default();
+                if matches!(
+                    ext,
+                    "rs" | "toml" | "md" | "json" | "sh" | "c" | "h" | "nix"
+                ) {
                     files.push(path);
                 }
             }
@@ -348,7 +376,11 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
             if line.starts_with("# ") || line.starts_with("## ") {
                 if !current_lines.is_empty() {
                     let chunk_text = current_lines.join("\n");
-                    let kind = if is_ticket { ChunkKind::TicketSpec } else { ChunkKind::Documentation };
+                    let kind = if is_ticket {
+                        ChunkKind::TicketSpec
+                    } else {
+                        ChunkKind::Documentation
+                    };
                     let vector = compute_term_vector(&chunk_text);
                     chunks.push(SemanticChunk {
                         id: format!("{}:{}-{}", rel_path, start_idx, i),
@@ -370,7 +402,11 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
 
         if !current_lines.is_empty() {
             let chunk_text = current_lines.join("\n");
-            let kind = if is_ticket { ChunkKind::TicketSpec } else { ChunkKind::Documentation };
+            let kind = if is_ticket {
+                ChunkKind::TicketSpec
+            } else {
+                ChunkKind::Documentation
+            };
             let vector = compute_term_vector(&chunk_text);
             chunks.push(SemanticChunk {
                 id: format!("{}:{}-{}", rel_path, start_idx, lines.len()),
@@ -418,7 +454,10 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
 
             if is_symbol_decl {
                 let parts: Vec<&str> = trimmed.split_whitespace().collect();
-                if let Some(pos) = parts.iter().position(|p| *p == "fn" || *p == "struct" || *p == "enum") {
+                if let Some(pos) = parts
+                    .iter()
+                    .position(|p| *p == "fn" || *p == "struct" || *p == "enum")
+                {
                     if let Some(name) = parts.get(pos + 1) {
                         let clean_name = name.split('(').next().unwrap_or(name).trim();
                         current_title = clean_name.to_string();
@@ -513,7 +552,11 @@ pub fn cosine_similarity(v1: &HashMap<String, f32>, v2: &HashMap<String, f32>) -
         return 0.0;
     }
 
-    let (smaller, larger) = if v1.len() < v2.len() { (v1, v2) } else { (v2, v1) };
+    let (smaller, larger) = if v1.len() < v2.len() {
+        (v1, v2)
+    } else {
+        (v2, v1)
+    };
     let mut dot = 0.0;
     for (k, val1) in smaller {
         if let Some(val2) = larger.get(k) {
@@ -587,18 +630,33 @@ mod tests {
         let sim_12 = cosine_similarity(&v1, &v2);
         let sim_13 = cosine_similarity(&v1, &v3);
 
-        assert!(sim_12 > 0.1, "worktree terms should have positive similarity");
-        assert!(sim_12 > sim_13, "worktree should be more similar than postgres");
+        assert!(
+            sim_12 > 0.1,
+            "worktree terms should have positive similarity"
+        );
+        assert!(
+            sim_12 > sim_13,
+            "worktree should be more similar than postgres"
+        );
     }
 
     #[test]
     fn test_context_graph_relationships() {
         let mut graph = ContextGraph::new();
         graph.add_node("file:src/git.rs", "src/git.rs", "file", Some("src/git.rs"));
-        graph.add_node("symbol:src/git.rs:create_worktree", "create_worktree", "symbol", Some("src/git.rs"));
+        graph.add_node(
+            "symbol:src/git.rs:create_worktree",
+            "create_worktree",
+            "symbol",
+            Some("src/git.rs"),
+        );
         graph.add_node("ticket:T2.2", "T2.2", "ticket", None);
 
-        graph.add_edge("file:src/git.rs", "symbol:src/git.rs:create_worktree", EdgeKind::Defines);
+        graph.add_edge(
+            "file:src/git.rs",
+            "symbol:src/git.rs:create_worktree",
+            EdgeKind::Defines,
+        );
         graph.add_edge("file:src/git.rs", "ticket:T2.2", EdgeKind::ImplementsTicket);
 
         let related = graph.related_to("file:src/git.rs");
@@ -623,7 +681,10 @@ pub fn kill_port_listener(port: u16) -> Result<()> {
         assert!(!store.chunks.is_empty());
 
         let hits = MemoryEngine::search(&store, "liberar puerto listener", 5);
-        assert!(!hits.is_empty(), "debe encontrar la funcion de liberacion de puertos");
+        assert!(
+            !hits.is_empty(),
+            "debe encontrar la funcion de liberacion de puertos"
+        );
         assert_eq!(hits[0].path, "src/net.rs");
 
         let _ = std::fs::remove_dir_all(&temp_dir);

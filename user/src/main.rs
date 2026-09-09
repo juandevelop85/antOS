@@ -183,9 +183,7 @@ pub extern "C" fn _start(mode: u64) -> ! {
 
     // 5. SMAP / EFAULT protection test: passing kernel pointer to syscall
     let kernel_ptr = 0x100_0000_0000u64 as *const u8;
-    let attack_res = unsafe {
-        raw_syscall(SYS_WRITE, kernel_ptr as u64, 16, 0)
-    };
+    let attack_res = unsafe { raw_syscall(SYS_WRITE, kernel_ptr as u64, 16, 0) };
     if attack_res == EFAULT {
         let _ = write("[init] kernel pointer rejected with EFAULT (-14) as expected\n");
     } else {
@@ -248,8 +246,14 @@ fn builtins() -> BTreeMap<&'static str, &'static str> {
     table.insert("info", "arquitectura, versión y memoria libre del kernel");
     table.insert("ls", "lista ficheros del VFS/ramdisk — uso: ls [ruta]");
     table.insert("cat", "muestra un fichero de texto — uso: cat <ruta>");
-    table.insert("desktop", "lanza o conmuta a la sesión gráfica del Desktop Shell");
-    table.insert("agent", "encola una intención de antFlow en el canal IPC — uso: agent <texto>");
+    table.insert(
+        "desktop",
+        "lanza o conmuta a la sesión gráfica del Desktop Shell",
+    );
+    table.insert(
+        "agent",
+        "encola una intención de antFlow en el canal IPC — uso: agent <texto>",
+    );
     table
 }
 
@@ -350,7 +354,9 @@ fn cmd_desktop() {
     // whatever eventually drives its own redraw loop.
     match launch_desktop() {
         Ok(()) => println!("[shell] sesión gráfica renderizada (compositor 2D activo)"),
-        Err(_) => println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)"),
+        Err(_) => {
+            println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)")
+        }
     }
 }
 
@@ -358,10 +364,11 @@ fn cmd_desktop() {
 fn cmd_desktop() {
     match launch_desktop() {
         Ok(()) => println!("[shell] sesión gráfica del Compositor 2D activada"),
-        Err(_) => println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)"),
+        Err(_) => {
+            println!("[shell] sesión gráfica no disponible en este arranque (sin framebuffer)")
+        }
     }
 }
-
 
 fn cmd_agent(intent: &str) {
     if intent.is_empty() {
@@ -414,7 +421,11 @@ fn write_hex(mut n: u64) {
     while n > 0 {
         pos -= 1;
         let digit = (n & 0xF) as u8;
-        buf[pos] = if digit < 10 { b'0' + digit } else { b'a' + digit - 10 };
+        buf[pos] = if digit < 10 {
+            b'0' + digit
+        } else {
+            b'a' + digit - 10
+        };
         n >>= 4;
     }
     if let Ok(s) = core::str::from_utf8(&buf[pos..]) {

@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_caps(catalog: &Catalog, ctx: &Ctx) -> Result<()> {
     let grants = Grants::load(&ctx.grants_path())?;
@@ -186,7 +186,8 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
         quota: None,
     };
     let alcanzable_declarando = crate::sandbox::probe_network(&*jail, &con_red).unwrap_or(false);
-    let alcanzable_sin_declarar = crate::sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
+    let alcanzable_sin_declarar =
+        crate::sandbox::probe_network(&*jail, &solo_workspace).unwrap_or(false);
 
     match (alcanzable_declarando, alcanzable_sin_declarar) {
         (true, false) => marca(true, "red: alcanzable al declararla, bloqueada si no"),
@@ -228,11 +229,19 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
     );
 
     // Ollama / LLM
-    let llm_icon = if info.ollama_available { paint("✓", GREEN) } else { paint("✗", YELLOW) };
+    let llm_icon = if info.ollama_available {
+        paint("✓", GREEN)
+    } else {
+        paint("✗", YELLOW)
+    };
     println!(
         "  {} ollama: {}",
         llm_icon,
-        if info.ollama_available { "reachable" } else { "not detected" }
+        if info.ollama_available {
+            "reachable"
+        } else {
+            "not detected"
+        }
     );
     if let Some(ref ep) = info.local_llm_endpoint {
         println!("    endpoint: {}", paint(ep, DIM));
@@ -844,8 +853,6 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
     crate::installer::usb::cmd_usb(ctx, args)
 }
 
-
-
 // ---------------------------------------------------- bootloader & uefi (T15.3)
 
 pub fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
@@ -1057,7 +1064,10 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 i += 1;
             }
 
-            println!("\n{} Instanciando microVM con aislamiento por hipervisor...", paint("antOS MicroVM ·", BOLD));
+            println!(
+                "\n{} Instanciando microVM con aislamiento por hipervisor...",
+                paint("antOS MicroVM ·", BOLD)
+            );
             let cfg = antos_protocol::MicrovmConfig {
                 vm_id: vm_id.clone(),
                 vcpu_count,
@@ -1070,7 +1080,11 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
             };
 
             let instance = crate::vm::MicrovmManager::spawn_vm(&ctx.state, &cfg)?;
-            println!("  {} MicroVM «{}» arrancada exitosamente", paint("✓", GREEN), paint(&instance.id, BOLD));
+            println!(
+                "  {} MicroVM «{}» arrancada exitosamente",
+                paint("✓", GREEN),
+                paint(&instance.id, BOLD)
+            );
             println!("    • PID:          {}", instance.pid);
             println!("    • vCPUs:        {}", instance.vcpus);
             println!("    • Memoria:      {} MB", instance.memory_mb);
@@ -1078,16 +1092,26 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    • Estado:       {}\n", paint(&instance.status, GREEN));
         }
         "exec" => {
-            let vm_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos vm exec <VM_ID> <comando>"))?;
+            let vm_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("Uso: antos vm exec <VM_ID> <comando>"))?;
             let command = if args.len() > 2 {
                 args[2..].join(" ")
             } else {
                 bail!("Uso: antos vm exec <VM_ID> <comando>");
             };
 
-            println!("\n{} Ejecutando comando en microVM «{}»...", paint("antOS MicroVM ·", BOLD), paint(vm_id, CYAN));
+            println!(
+                "\n{} Ejecutando comando en microVM «{}»...",
+                paint("antOS MicroVM ·", BOLD),
+                paint(vm_id, CYAN)
+            );
             let res = crate::vm::MicrovmManager::exec_vm(&ctx.state, vm_id, &command)?;
-            let status_badge = if res.success { paint("EXITOSO", GREEN) } else { paint("FALLIDO", RED) };
+            let status_badge = if res.success {
+                paint("EXITOSO", GREEN)
+            } else {
+                paint("FALLIDO", RED)
+            };
             println!("  Resultado:  {} (código {})", status_badge, res.exit_code);
             println!("  Duración:   {} ms", res.duration_ms);
             if !res.stdout.is_empty() {
@@ -1099,13 +1123,17 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!();
         }
         "list" | "ls" => {
-            println!("\n{} MicroVMs Activas en el Sistema:", paint("antOS MicroVM ·", BOLD));
+            println!(
+                "\n{} MicroVMs Activas en el Sistema:",
+                paint("antOS MicroVM ·", BOLD)
+            );
             let vms = crate::vm::MicrovmManager::list_vms(&ctx.state)?;
             if vms.is_empty() {
                 println!("  (no hay microVMs activas en este momento)\n");
             } else {
                 for v in &vms {
-                    println!("  • [{}] {} (PID {}, {} vCPUs, {} MB RAM, vsock {})",
+                    println!(
+                        "  • [{}] {} (PID {}, {} vCPUs, {} MB RAM, vsock {})",
                         paint(&v.id, BOLD),
                         paint(&v.status, GREEN),
                         v.pid,
@@ -1118,25 +1146,55 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         "kill" | "stop" | "destroy" => {
-            let vm_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos vm kill <VM_ID>"))?;
+            let vm_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("Uso: antos vm kill <VM_ID>"))?;
             crate::vm::MicrovmManager::kill_vm(&ctx.state, vm_id)?;
-            println!("\n{} MicroVM «{}» detenida y eliminada.\n", paint("✓", GREEN), paint(vm_id, BOLD));
+            println!(
+                "\n{} MicroVM «{}» detenida y eliminada.\n",
+                paint("✓", GREEN),
+                paint(vm_id, BOLD)
+            );
         }
         "status" | _ => {
-            println!("\n{} Diagnóstico de Hipervisor y MicroVMs:", paint("antOS MicroVM ·", BOLD));
+            println!(
+                "\n{} Diagnóstico de Hipervisor y MicroVMs:",
+                paint("antOS MicroVM ·", BOLD)
+            );
             let st = crate::vm::MicrovmManager::get_status(&ctx.state)?;
-            let kvm_badge = if st.kvm_available { paint("Disponible (/dev/kvm)", GREEN) } else { paint("No detectado (Emulación)", YELLOW) };
+            let kvm_badge = if st.kvm_available {
+                paint("Disponible (/dev/kvm)", GREEN)
+            } else {
+                paint("No detectado (Emulación)", YELLOW)
+            };
             println!("  • Soporte KVM:             {}", kvm_badge);
-            println!("  • Motor de Hipervisor:     {}", paint(&st.hypervisor_engine, CYAN));
+            println!(
+                "  • Motor de Hipervisor:     {}",
+                paint(&st.hypervisor_engine, CYAN)
+            );
             println!("  • Kernel del Host:         {}", st.kernel_version);
             println!("  • MicroVMs activas:        {}", st.active_vms_count);
-            println!("  • Memoria asignada a VMs:  {} MB", st.total_memory_allocated_mb);
-            println!("  • Canales vsock:           {}", if st.vsock_supported { paint("Soportado", GREEN) } else { paint("No disponible", RED) });
+            println!(
+                "  • Memoria asignada a VMs:  {} MB",
+                st.total_memory_allocated_mb
+            );
+            println!(
+                "  • Canales vsock:           {}",
+                if st.vsock_supported {
+                    paint("Soportado", GREEN)
+                } else {
+                    paint("No disponible", RED)
+                }
+            );
             println!("\n  Uso:");
             println!("    antos vm spawn [--cpus N] [--memory MB]   Arranca una microVM efímera");
-            println!("    antos vm exec <VM_ID> <comando>          Ejecuta un comando en la microVM");
+            println!(
+                "    antos vm exec <VM_ID> <comando>          Ejecuta un comando en la microVM"
+            );
             println!("    antos vm list                             Lista microVMs en ejecución");
-            println!("    antos vm kill <VM_ID>                     Detiene y libera una microVM\n");
+            println!(
+                "    antos vm kill <VM_ID>                     Detiene y libera una microVM\n"
+            );
         }
     }
     Ok(())
@@ -1174,32 +1232,71 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
                 target_branch: "master".to_string(),
             };
 
-            println!("\n{} Iniciando centinela continuo en segundo plano...", paint("antOS Autopilot ·", BOLD));
+            println!(
+                "\n{} Iniciando centinela continuo en segundo plano...",
+                paint("antOS Autopilot ·", BOLD)
+            );
             let st = crate::autopilot::AutopilotEngine::start(&ctx.state, &ctx.workspace, config)?;
-            println!("  Estado:                {}", paint("ACTIVO (Vigilando)", GREEN));
+            println!(
+                "  Estado:                {}",
+                paint("ACTIVO (Vigilando)", GREEN)
+            );
             println!("  Intervalo de sondeo:   {}s", st.poll_interval_secs);
             println!("  Espacio de trabajo:    {}", st.workspace_path);
-            println!("  Incidentes detectados: {}\n", paint(&st.active_incidents_count.to_string(), if st.active_incidents_count > 0 { YELLOW } else { CYAN }));
+            println!(
+                "  Incidentes detectados: {}\n",
+                paint(
+                    &st.active_incidents_count.to_string(),
+                    if st.active_incidents_count > 0 {
+                        YELLOW
+                    } else {
+                        CYAN
+                    }
+                )
+            );
         }
 
         "stop" => {
-            println!("\n{} Deteniendo centinela...", paint("antOS Autopilot ·", BOLD));
+            println!(
+                "\n{} Deteniendo centinela...",
+                paint("antOS Autopilot ·", BOLD)
+            );
             let st = crate::autopilot::AutopilotEngine::stop(&ctx.state, &ctx.workspace)?;
             println!("  Estado:               {}", paint("DETENIDO", RED));
             println!("  Incidentes resueltos: {}\n", st.resolved_incidents_count);
         }
 
         "scan" => {
-            println!("\n{} Escaneando el workspace en busca de errores y fallos...", paint("antOS Autopilot ·", BOLD));
-            let incs = crate::autopilot::AutopilotEngine::scan_workspace(&ctx.state, &ctx.workspace)?;
+            println!(
+                "\n{} Escaneando el workspace en busca de errores y fallos...",
+                paint("antOS Autopilot ·", BOLD)
+            );
+            let incs =
+                crate::autopilot::AutopilotEngine::scan_workspace(&ctx.state, &ctx.workspace)?;
             if incs.is_empty() {
-                println!("  ✓ {} Repositorio limpio, cero incidencias.", paint("OK", GREEN));
+                println!(
+                    "  ✓ {} Repositorio limpio, cero incidencias.",
+                    paint("OK", GREEN)
+                );
             } else {
-                println!("  ⚠ Detectadas {} incidencias con propuestas generadas:", paint(&incs.len().to_string(), YELLOW));
+                println!(
+                    "  ⚠ Detectadas {} incidencias con propuestas generadas:",
+                    paint(&incs.len().to_string(), YELLOW)
+                );
                 for inc in incs {
-                    println!("    • [{}] {} en «{}» — {}", paint(&inc.id, BOLD), paint(&inc.incident_type, CYAN), inc.file_path, inc.error_message);
+                    println!(
+                        "    • [{}] {} en «{}» — {}",
+                        paint(&inc.id, BOLD),
+                        paint(&inc.incident_type, CYAN),
+                        inc.file_path,
+                        inc.error_message
+                    );
                     if let Some(ref prop) = inc.fix_proposal {
-                        println!("      Rama: {} | QA: {}", prop.branch, prop.test_output.lines().next().unwrap_or(""));
+                        println!(
+                            "      Rama: {} | QA: {}",
+                            prop.branch,
+                            prop.test_output.lines().next().unwrap_or("")
+                        );
                     }
                 }
             }
@@ -1209,9 +1306,16 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
         "list" | "log" | "incidents" => {
             let incs = crate::autopilot::AutopilotEngine::list_incidents(&ctx.state)?;
             if incs.is_empty() {
-                println!("\n{} No hay incidencias registradas.", paint("antOS Autopilot ·", BOLD));
+                println!(
+                    "\n{} No hay incidencias registradas.",
+                    paint("antOS Autopilot ·", BOLD)
+                );
             } else {
-                println!("\n{} Historial de Incidencias ({}):", paint("antOS Autopilot ·", BOLD), incs.len());
+                println!(
+                    "\n{} Historial de Incidencias ({}):",
+                    paint("antOS Autopilot ·", BOLD),
+                    incs.len()
+                );
                 for inc in incs {
                     let st_badge = match inc.status.as_str() {
                         "resolved" => paint("RESUELTO", GREEN),
@@ -1219,7 +1323,13 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
                         "dismissed" => paint("DESCARTADO", DIM),
                         other => paint(other, CYAN),
                     };
-                    println!("  • [{}] {} en «{}» [{}]", paint(&inc.id, BOLD), paint(&inc.incident_type, CYAN), inc.file_path, st_badge);
+                    println!(
+                        "  • [{}] {} en «{}» [{}]",
+                        paint(&inc.id, BOLD),
+                        paint(&inc.incident_type, CYAN),
+                        inc.file_path,
+                        st_badge
+                    );
                     println!("    Detalle: {}", inc.error_message);
                     if let Some(ref prop) = inc.fix_proposal {
                         println!("    Fix:     {}", prop.title);
@@ -1230,29 +1340,75 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
 
         "approve" | "merge" => {
-            let incident_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos autopilot approve <incident_id>"))?;
-            println!("\n{} Aprobando propuesta para incidente «{}»...", paint("antOS Autopilot ·", BOLD), incident_id);
-            let inc = crate::autopilot::AutopilotEngine::resolve_incident(&ctx.state, &ctx.workspace, incident_id, true)?;
-            println!("  ✓ {} Corrección aplicada en {}", paint("APROBADO", GREEN), inc.file_path);
+            let incident_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("Uso: antos autopilot approve <incident_id>"))?;
+            println!(
+                "\n{} Aprobando propuesta para incidente «{}»...",
+                paint("antOS Autopilot ·", BOLD),
+                incident_id
+            );
+            let inc = crate::autopilot::AutopilotEngine::resolve_incident(
+                &ctx.state,
+                &ctx.workspace,
+                incident_id,
+                true,
+            )?;
+            println!(
+                "  ✓ {} Corrección aplicada en {}",
+                paint("APROBADO", GREEN),
+                inc.file_path
+            );
             println!("  Estado: {}\n", paint(&inc.status, BOLD));
         }
 
         "reject" | "dismiss" => {
-            let incident_id = args.get(1).ok_or_else(|| anyhow::anyhow!("Uso: antos autopilot reject <incident_id>"))?;
-            println!("\n{} Descartando propuesta para incidente «{}»...", paint("antOS Autopilot ·", BOLD), incident_id);
-            let _inc = crate::autopilot::AutopilotEngine::resolve_incident(&ctx.state, &ctx.workspace, incident_id, false)?;
+            let incident_id = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("Uso: antos autopilot reject <incident_id>"))?;
+            println!(
+                "\n{} Descartando propuesta para incidente «{}»...",
+                paint("antOS Autopilot ·", BOLD),
+                incident_id
+            );
+            let _inc = crate::autopilot::AutopilotEngine::resolve_incident(
+                &ctx.state,
+                &ctx.workspace,
+                incident_id,
+                false,
+            )?;
             println!("  ✓ {} Incidente descartado.\n", paint("DESCARTADO", DIM));
         }
 
         "status" | _ => {
             let st = crate::autopilot::AutopilotEngine::status(&ctx.state, &ctx.workspace)?;
-            let status_badge = if st.active { paint("ACTIVO (Vigilando)", GREEN) } else { paint("DETENIDO", RED) };
-            println!("\n{} Estado del Centinela Autónomo:", paint("antOS Autopilot ·", BOLD));
+            let status_badge = if st.active {
+                paint("ACTIVO (Vigilando)", GREEN)
+            } else {
+                paint("DETENIDO", RED)
+            };
+            println!(
+                "\n{} Estado del Centinela Autónomo:",
+                paint("antOS Autopilot ·", BOLD)
+            );
             println!("  • Estado:                 {}", status_badge);
             println!("  • Espacio de Trabajo:     {}", st.workspace_path);
             println!("  • Intervalo de Sondeo:    {}s", st.poll_interval_secs);
-            println!("  • Incidencias Activas:    {}", paint(&st.active_incidents_count.to_string(), if st.active_incidents_count > 0 { YELLOW } else { GREEN }));
-            println!("  • Incidencias Resueltas:  {}", st.resolved_incidents_count);
+            println!(
+                "  • Incidencias Activas:    {}",
+                paint(
+                    &st.active_incidents_count.to_string(),
+                    if st.active_incidents_count > 0 {
+                        YELLOW
+                    } else {
+                        GREEN
+                    }
+                )
+            );
+            println!(
+                "  • Incidencias Resueltas:  {}",
+                st.resolved_incidents_count
+            );
             if let Some(ts) = st.last_scan_timestamp {
                 println!("  • Último Escaneo:         {}", ts);
             }
@@ -1300,12 +1456,25 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
                 ws_ping_interval_secs: 30,
             };
 
-            println!("\n{} Iniciando consola web remota y bridge WebSocket...", paint("antOS Web Console ·", BOLD));
-            let token_sess = crate::web::WebEngine::generate_token(&ctx.state, Some("admin".into()), Some(86400))?;
+            println!(
+                "\n{} Iniciando consola web remota y bridge WebSocket...",
+                paint("antOS Web Console ·", BOLD)
+            );
+            let token_sess = crate::web::WebEngine::generate_token(
+                &ctx.state,
+                Some("admin".into()),
+                Some(86400),
+            )?;
             let url = format!("http://{}:{}", bind, port);
-            println!("  Estado:               {}", paint("ACTIVO (En línea)", GREEN));
+            println!(
+                "  Estado:               {}",
+                paint("ACTIVO (En línea)", GREEN)
+            );
             println!("  URL de Acceso:        {}", paint(&url, CYAN));
-            println!("  URL con Token:        {}", paint(&format!("{}?token={}", url, token_sess.token), BOLD));
+            println!(
+                "  URL con Token:        {}",
+                paint(&format!("{}?token={}", url, token_sess.token), BOLD)
+            );
             println!("  WebSocket Bridge:     {}/ws/events", url);
             println!("  Presiona Ctrl+C para detener el servidor.\n");
 
@@ -1313,9 +1482,15 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
 
         "stop" => {
-            println!("\n{} Deteniendo servidor de consola web...", paint("antOS Web Console ·", BOLD));
+            println!(
+                "\n{} Deteniendo servidor de consola web...",
+                paint("antOS Web Console ·", BOLD)
+            );
             let st = crate::web::WebEngine::stop(&ctx.state)?;
-            println!("  Estado:               {}\n", paint(if st.running { "ACTIVO" } else { "DETENIDO" }, RED));
+            println!(
+                "  Estado:               {}\n",
+                paint(if st.running { "ACTIVO" } else { "DETENIDO" }, RED)
+            );
         }
 
         "token" => {
@@ -1336,21 +1511,37 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
 
-            println!("\n{} Generando token de autenticación...", paint("antOS Web Console ·", BOLD));
+            println!(
+                "\n{} Generando token de autenticación...",
+                paint("antOS Web Console ·", BOLD)
+            );
             let session = crate::web::WebEngine::generate_token(&ctx.state, label, ttl)?;
             let st = crate::web::WebEngine::status(&ctx.state)?;
             println!("  Token:                {}", paint(&session.token, BOLD));
-            println!("  Expira en:            {}s", session.expires_at.saturating_sub(session.created_at));
+            println!(
+                "  Expira en:            {}s",
+                session.expires_at.saturating_sub(session.created_at)
+            );
             if let Some(ref l) = session.client_label {
                 println!("  Cliente / Dispositivo: {}", l);
             }
-            println!("  Enlace de Conexión:   {}\n", paint(&format!("{}?token={}", st.url, session.token), CYAN));
+            println!(
+                "  Enlace de Conexión:   {}\n",
+                paint(&format!("{}?token={}", st.url, session.token), CYAN)
+            );
         }
 
         "status" | _ => {
             let st = crate::web::WebEngine::status(&ctx.state)?;
-            let status_badge = if st.running { paint("ACTIVO (En línea)", GREEN) } else { paint("DETENIDO", RED) };
-            println!("\n{} Estado del Servidor Web y Bridge WebSocket:", paint("antOS Web Console ·", BOLD));
+            let status_badge = if st.running {
+                paint("ACTIVO (En línea)", GREEN)
+            } else {
+                paint("DETENIDO", RED)
+            };
+            println!(
+                "\n{} Estado del Servidor Web y Bridge WebSocket:",
+                paint("antOS Web Console ·", BOLD)
+            );
             println!("  • Estado:                 {}", status_badge);
             println!("  • Dirección y Puerto:     {}:{}", st.bind_addr, st.port);
             println!("  • URL de Acceso:          {}", paint(&st.url, CYAN));
@@ -1359,7 +1550,9 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("\n  Uso:");
             println!("    antos web start [--port <puerto>] [--bind <ip>]  Inicia el servidor web");
             println!("    antos web stop                                  Detiene el servidor");
-            println!("    antos web status                                Muestra estado y métricas");
+            println!(
+                "    antos web status                                Muestra estado y métricas"
+            );
             println!("    antos web token [--label <nombre>] [--ttl <s]>  Genera enlace seguro\n");
         }
     }
@@ -1529,4 +1722,3 @@ pub fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // -------------------------------------------------------------------- barra
-

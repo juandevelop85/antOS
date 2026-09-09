@@ -32,7 +32,7 @@ const ATA_CMD_IDENTIFY: u8 = 0xEC;
 const FIS_TYPE_REG_H2D: u8 = 0x27;
 
 // Port Command & Status Bits
-const PORT_CMD_ST: u32 = 1 << 0;  // Start
+const PORT_CMD_ST: u32 = 1 << 0; // Start
 #[allow(dead_code)]
 const PORT_CMD_SUD: u32 = 1 << 1; // Spin-up device
 #[allow(dead_code)]
@@ -48,9 +48,9 @@ const PORT_TFD_BSY: u32 = 1 << 7;
 
 // Global Host Control Bits
 #[allow(dead_code)]
-const GHC_HR: u32 = 1 << 0;  // HBA Reset
+const GHC_HR: u32 = 1 << 0; // HBA Reset
 #[allow(dead_code)]
-const GHC_IE: u32 = 1 << 1;  // Interrupt Enable
+const GHC_IE: u32 = 1 << 1; // Interrupt Enable
 const GHC_AE: u32 = 1 << 31; // AHCI Enable
 
 #[repr(C)]
@@ -189,7 +189,11 @@ impl AhciDisk {
             // Copy chunk from DMA buffer to user buffer
             unsafe {
                 let bounce_buf = self.dma_virt.add(2048);
-                core::ptr::copy_nonoverlapping(bounce_buf, buf.as_mut_ptr().add(offset), chunk_bytes);
+                core::ptr::copy_nonoverlapping(
+                    bounce_buf,
+                    buf.as_mut_ptr().add(offset),
+                    chunk_bytes,
+                );
             }
 
             sectors_left -= chunk_sectors;
@@ -239,7 +243,13 @@ impl AhciDisk {
     /// - 1024..1280: Received FIS
     /// - 1280..1536: Command Table (Header + PRDT)
     /// - 2048..4096: Bounce Buffer (up to 2048 bytes)
-    fn execute_command(&self, lba: u64, count: u16, command: u8, is_write: bool) -> Result<(), AhciError> {
+    fn execute_command(
+        &self,
+        lba: u64,
+        count: u16,
+        command: u8,
+        is_write: bool,
+    ) -> Result<(), AhciError> {
         unsafe {
             let port = &mut *self.port_mmio;
 
@@ -406,12 +416,17 @@ impl AhciController {
     }
 
     /// Probes implemented ports and discovers connected SATA drives.
-    fn probe_ports(&mut self, allocator: &mut FrameAllocator, phys_offset: u64) -> Result<(), AhciError> {
+    fn probe_ports(
+        &mut self,
+        allocator: &mut FrameAllocator,
+        phys_offset: u64,
+    ) -> Result<(), AhciError> {
         let pi = unsafe { core::ptr::read_volatile(&(*self.hba_base_virt).pi) };
 
         for port_idx in 0..32 {
             if (pi & (1 << port_idx)) != 0 {
-                let port_ptr = unsafe { &mut (*self.hba_base_virt).ports[port_idx] as *mut HbaPortRegisters };
+                let port_ptr =
+                    unsafe { &mut (*self.hba_base_virt).ports[port_idx] as *mut HbaPortRegisters };
                 if let Some(disk) = self.init_port(port_idx, port_ptr, allocator, phys_offset) {
                     println!(
                         "  ahci-sata    Puerto {} · {} · {} sectores ({} MiB)",

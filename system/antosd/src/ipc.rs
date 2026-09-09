@@ -43,7 +43,7 @@
 
 use crate::capability::Catalog;
 use crate::ctx::Ctx;
-use crate::protocol::{SessionHandler, Proposal, ExecutionResult};
+use crate::protocol::{ExecutionResult, Proposal, SessionHandler};
 use crate::{session, terminal};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -81,9 +81,9 @@ pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
 // ------------------------------------------------------------- el protocolo
 
 #[allow(unused_imports, deprecated)]
-pub use antos_protocol::{Event, Evento, PackageAppType, Request};
-#[allow(unused_imports, deprecated)]
 pub use antos_protocol::Peticion;
+#[allow(unused_imports, deprecated)]
+pub use antos_protocol::{Event, Evento, PackageAppType, Request};
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los
@@ -112,7 +112,10 @@ fn receive<T: for<'a> Deserialize<'a>>(source: &mut impl BufRead) -> Result<Rece
     // exactly at the boundary" apart from "the line is longer than the
     // boundary and got truncated here" (T31.8).
     let mut line = String::new();
-    let n = source.by_ref().take(MAX_MESSAGE_BYTES + 1).read_line(&mut line)?;
+    let n = source
+        .by_ref()
+        .take(MAX_MESSAGE_BYTES + 1)
+        .read_line(&mut line)?;
     if n == 0 {
         return Ok(Received::Eof);
     }
@@ -147,10 +150,7 @@ impl SessionHandler for SocketHandler<'_> {
     }
 
     fn on_proposal(&mut self, proposal: &Proposal) -> Result<bool> {
-        send(
-            self.writer,
-            &Event::Proposal(Box::new(proposal.clone())),
-        )?;
+        send(self.writer, &Event::Proposal(Box::new(proposal.clone())))?;
 
         match receive::<Request>(self.reader)? {
             Received::Message(Request::Approval(decision)) => Ok(decision),
@@ -207,7 +207,12 @@ fn bind_socket(path: &Path) -> Result<UnixListener> {
 /// generic "session ended with error".
 fn is_idle_timeout(err: &anyhow::Error) -> bool {
     err.downcast_ref::<std::io::Error>()
-        .map(|e| matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut))
+        .map(|e| {
+            matches!(
+                e.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            )
+        })
         .unwrap_or(false)
 }
 
@@ -264,7 +269,9 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         Received::TooLarge => {
             send(
                 &mut writer,
-                &Event::Error(format!("mensaje IPC excede el límite de {MAX_MESSAGE_BYTES} bytes")),
+                &Event::Error(format!(
+                    "mensaje IPC excede el límite de {MAX_MESSAGE_BYTES} bytes"
+                )),
             )?;
             return Ok(());
         }
@@ -278,13 +285,24 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
     let _ = writer.set_read_timeout(None);
 
     match request {
-        Request::Intent { text, planner, dry_run } => {
+        Request::Intent {
+            text,
+            planner,
+            dry_run,
+        } => {
             let planner_instance = crate::pick_planner(Some(ctx), planner.as_deref())?;
             let mut handler = SocketHandler {
                 writer: &mut writer,
                 reader: &mut reader,
             };
-            if let Err(e) = session::intent_session(ctx, catalog, &text, &*planner_instance, dry_run, &mut handler) {
+            if let Err(e) = session::intent_session(
+                ctx,
+                catalog,
+                &text,
+                &*planner_instance,
+                dry_run,
+                &mut handler,
+            ) {
                 send(&mut writer, &Event::Error(format!("{e:#}")))?;
             }
         }
@@ -317,8 +335,13 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::GetTicket { workspace_path, ticket_id } => {
-            match crate::spec::SpecEngine::global().get_ticket(Path::new(&workspace_path), &ticket_id) {
+        Request::GetTicket {
+            workspace_path,
+            ticket_id,
+        } => {
+            match crate::spec::SpecEngine::global()
+                .get_ticket(Path::new(&workspace_path), &ticket_id)
+            {
                 Ok(detalle) => {
                     send(&mut writer, &Event::TicketDetail(detalle))?;
                 }
@@ -327,17 +350,18 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::DiagnosePorts { port } => {
-            match crate::net::diagnose_ports(port) {
-                Ok(puertos) => {
-                    send(&mut writer, &Event::PortsStatus(puertos))?;
-                }
-                Err(e) => {
-                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
-                }
+        Request::DiagnosePorts { port } => match crate::net::diagnose_ports(port) {
+            Ok(puertos) => {
+                send(&mut writer, &Event::PortsStatus(puertos))?;
             }
-        }
-        Request::StartFlow { workspace_path, ticket_id } => {
+            Err(e) => {
+                send(&mut writer, &Event::Error(format!("{e:#}")))?;
+            }
+        },
+        Request::StartFlow {
+            workspace_path,
+            ticket_id,
+        } => {
             match crate::flow::FlowEngine::global().start_task(
                 Path::new(&workspace_path),
                 &ctx.state,
@@ -359,17 +383,22 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let tasks = crate::flow::FlowEngine::global().list_tasks();
             send(&mut writer, &Event::FlowList(tasks))?;
         }
-        Request::ApproveFlow { ticket_id, decision } => {
-            match crate::flow::FlowEngine::global().approve_task(&ticket_id, decision) {
-                Ok(task) => {
-                    send(&mut writer, &Event::FlowStatus(Some(task)))?;
-                }
-                Err(e) => {
-                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
-                }
+        Request::ApproveFlow {
+            ticket_id,
+            decision,
+        } => match crate::flow::FlowEngine::global().approve_task(&ticket_id, decision) {
+            Ok(task) => {
+                send(&mut writer, &Event::FlowStatus(Some(task)))?;
             }
-        }
-        Request::QueryDiff { workspace_path, target, project_path } => {
+            Err(e) => {
+                send(&mut writer, &Event::Error(format!("{e:#}")))?;
+            }
+        },
+        Request::QueryDiff {
+            workspace_path,
+            target,
+            project_path,
+        } => {
             let workspace = Path::new(&workspace_path);
             let antos_root = crate::git::detect_antos_root();
 
@@ -389,10 +418,8 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             };
 
             // Verify the diff_dir has a .git that is NOT the antOS OS repo (T17.1 ceiling).
-            let has_git = crate::git::find_git_root_with_ceiling(
-                diff_dir,
-                antos_root.as_deref(),
-            ).is_some();
+            let has_git =
+                crate::git::find_git_root_with_ceiling(diff_dir, antos_root.as_deref()).is_some();
 
             if !has_git {
                 // No git repo in the project: return empty diff and an informational event.
@@ -426,25 +453,41 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::ListNotifications { workspace_path } => {
             let ws = Path::new(&workspace_path);
-            let notifs = crate::notification::NotificationEngine::global().list(ws).unwrap_or_default();
+            let notifs = crate::notification::NotificationEngine::global()
+                .list(ws)
+                .unwrap_or_default();
             send(&mut writer, &Event::NotificationList(notifs))?;
         }
-        Request::HandleNotificationAction { workspace_path, notification_id, action } => {
+        Request::HandleNotificationAction {
+            workspace_path,
+            notification_id,
+            action,
+        } => {
             let ws = Path::new(&workspace_path);
-            match crate::notification::NotificationEngine::global().handle_action(ws, &notification_id, action) {
+            match crate::notification::NotificationEngine::global().handle_action(
+                ws,
+                &notification_id,
+                action,
+            ) {
                 Ok((success, message)) => {
-                    send(&mut writer, &Event::NotificationResult {
-                        id: notification_id,
-                        success,
-                        message,
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::NotificationResult {
+                            id: notification_id,
+                            success,
+                            message,
+                        },
+                    )?;
                 }
                 Err(e) => {
-                    send(&mut writer, &Event::NotificationResult {
-                        id: notification_id,
-                        success: false,
-                        message: format!("{e:#}"),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::NotificationResult {
+                            id: notification_id,
+                            success: false,
+                            message: format!("{e:#}"),
+                        },
+                    )?;
                 }
             }
         }
@@ -459,22 +502,34 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::ConnectPeer { workspace_path, address } => {
+        Request::ConnectPeer {
+            workspace_path,
+            address,
+        } => {
             let ws = Path::new(&workspace_path);
             match crate::mesh::MeshEngine::global().connect_peer(ws, &address) {
                 Ok(peer) => {
-                    send(&mut writer, &Event::PeerConnectionResult {
-                        address: peer.address,
-                        success: true,
-                        message: format!("conectado con éxito al peer {} ({}ms)", peer.id, peer.latency_ms),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::PeerConnectionResult {
+                            address: peer.address,
+                            success: true,
+                            message: format!(
+                                "conectado con éxito al peer {} ({}ms)",
+                                peer.id, peer.latency_ms
+                            ),
+                        },
+                    )?;
                 }
                 Err(e) => {
-                    send(&mut writer, &Event::PeerConnectionResult {
-                        address,
-                        success: false,
-                        message: format!("{e:#}"),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::PeerConnectionResult {
+                            address,
+                            success: false,
+                            message: format!("{e:#}"),
+                        },
+                    )?;
                 }
             }
         }
@@ -500,36 +555,69 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::DispatchRemoteRole { workspace_path, ticket_id, role, node_id } => {
+        Request::DispatchRemoteRole {
+            workspace_path,
+            ticket_id,
+            role,
+            node_id,
+        } => {
             let ws = Path::new(&workspace_path);
-            match crate::distributed::SwarmEngine::global().dispatch_remote_role(ws, &ticket_id, role, node_id.as_deref()) {
+            match crate::distributed::SwarmEngine::global().dispatch_remote_role(
+                ws,
+                &ticket_id,
+                role,
+                node_id.as_deref(),
+            ) {
                 Ok(task) => {
-                    send(&mut writer, &Event::SwarmDispatchResult {
-                        ticket_id,
-                        role,
-                        assigned_node_id: task.assigned_node_id,
-                        success: true,
-                        message: format!("tarea {} despachada con éxito en nodo {}", task.task_id, task.status),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::SwarmDispatchResult {
+                            ticket_id,
+                            role,
+                            assigned_node_id: task.assigned_node_id,
+                            success: true,
+                            message: format!(
+                                "tarea {} despachada con éxito en nodo {}",
+                                task.task_id, task.status
+                            ),
+                        },
+                    )?;
                 }
                 Err(e) => {
-                    send(&mut writer, &Event::SwarmDispatchResult {
-                        ticket_id,
-                        role,
-                        assigned_node_id: node_id.unwrap_or_else(|| "unknown".into()),
-                        success: false,
-                        message: format!("{e:#}"),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::SwarmDispatchResult {
+                            ticket_id,
+                            role,
+                            assigned_node_id: node_id.unwrap_or_else(|| "unknown".into()),
+                            success: false,
+                            message: format!("{e:#}"),
+                        },
+                    )?;
                 }
             }
         }
-        Request::QueryVfs { workspace_path, virtual_path } => {
+        Request::QueryVfs {
+            workspace_path,
+            virtual_path,
+        } => {
             let ws = Path::new(&workspace_path);
             let engine = crate::vfs::VfsEngine::global();
-            if virtual_path.ends_with('/') || virtual_path == "/antfs" || virtual_path == "/antfs/symbols" || virtual_path.starts_with("/antfs/symbols/") && !virtual_path.split('/').skip(3).any(|p| !p.is_empty()) {
+            if virtual_path.ends_with('/')
+                || virtual_path == "/antfs"
+                || virtual_path == "/antfs/symbols"
+                || virtual_path.starts_with("/antfs/symbols/")
+                    && !virtual_path.split('/').skip(3).any(|p| !p.is_empty())
+            {
                 match engine.list_dir(ws, &virtual_path) {
                     Ok(entries) => {
-                        send(&mut writer, &Event::VfsList { virtual_path, entries })?;
+                        send(
+                            &mut writer,
+                            &Event::VfsList {
+                                virtual_path,
+                                entries,
+                            },
+                        )?;
                     }
                     Err(e) => {
                         send(&mut writer, &Event::Error(format!("{e:#}")))?;
@@ -538,7 +626,13 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             } else {
                 match engine.read_path(ws, &virtual_path) {
                     Ok(content) => {
-                        send(&mut writer, &Event::VfsContent { virtual_path, content })?;
+                        send(
+                            &mut writer,
+                            &Event::VfsContent {
+                                virtual_path,
+                                content,
+                            },
+                        )?;
                     }
                     Err(e) => {
                         send(&mut writer, &Event::Error(format!("{e:#}")))?;
@@ -546,46 +640,65 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::MountVfs { workspace_path, mount_point } => {
+        Request::MountVfs {
+            workspace_path,
+            mount_point,
+        } => {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().mount(ws, mount_point.as_deref()) {
                 Ok(path) => {
-                    send(&mut writer, &Event::VfsResult {
-                        action: "mount".into(),
-                        success: true,
-                        message: format!("montado en {}", path.display()),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::VfsResult {
+                            action: "mount".into(),
+                            success: true,
+                            message: format!("montado en {}", path.display()),
+                        },
+                    )?;
                 }
                 Err(e) => {
-                    send(&mut writer, &Event::VfsResult {
-                        action: "mount".into(),
-                        success: false,
-                        message: format!("{e:#}"),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::VfsResult {
+                            action: "mount".into(),
+                            success: false,
+                            message: format!("{e:#}"),
+                        },
+                    )?;
                 }
             }
         }
-        Request::UnmountVfs { workspace_path, mount_point } => {
+        Request::UnmountVfs {
+            workspace_path,
+            mount_point,
+        } => {
             let ws = Path::new(&workspace_path);
             match crate::vfs::VfsEngine::global().unmount(ws, mount_point.as_deref()) {
                 Ok(_) => {
-                    send(&mut writer, &Event::VfsResult {
-                        action: "unmount".into(),
-                        success: true,
-                        message: "desmontado correctamente".into(),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::VfsResult {
+                            action: "unmount".into(),
+                            success: true,
+                            message: "desmontado correctamente".into(),
+                        },
+                    )?;
                 }
                 Err(e) => {
-                    send(&mut writer, &Event::VfsResult {
-                        action: "unmount".into(),
-                        success: false,
-                        message: format!("{e:#}"),
-                    })?;
+                    send(
+                        &mut writer,
+                        &Event::VfsResult {
+                            action: "unmount".into(),
+                            success: false,
+                            message: format!("{e:#}"),
+                        },
+                    )?;
                 }
             }
         }
         Request::ValidateVfsWrite { file_path, content } => {
-            let res = crate::vfs_guard::VfsGuardEngine::global().intercept_write(&file_path, &content)?;
+            let res =
+                crate::vfs_guard::VfsGuardEngine::global().intercept_write(&file_path, &content)?;
             send(&mut writer, &Event::VfsValidationResult(res))?;
         }
         Request::QueryVfsGuard { .. } => {
@@ -600,20 +713,38 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let events = crate::ebpf::EbpfSentinelEngine::global().get_audit_log(limit);
             send(&mut writer, &Event::EbpfAuditLog(events))?;
         }
-        Request::SimulateEbpfViolation { hook, target_resource, .. } => {
-            let event = crate::ebpf::EbpfSentinelEngine::global().simulate_violation(hook, &target_resource);
-            send(&mut writer, &Event::EbpfResult {
-                action: format!("{:?}", hook),
-                success: true,
-                message: format!("evento {} generado con éxito (acción: {:?})", event.id, event.action_taken),
-            })?;
+        Request::SimulateEbpfViolation {
+            hook,
+            target_resource,
+            ..
+        } => {
+            let event = crate::ebpf::EbpfSentinelEngine::global()
+                .simulate_violation(hook, &target_resource);
+            send(
+                &mut writer,
+                &Event::EbpfResult {
+                    action: format!("{:?}", hook),
+                    success: true,
+                    message: format!(
+                        "evento {} generado con éxito (acción: {:?})",
+                        event.id, event.action_taken
+                    ),
+                },
+            )?;
         }
-        Request::RunProfiler { workspace_path, command } => {
+        Request::RunProfiler {
+            workspace_path,
+            command,
+        } => {
             let ws = std::path::PathBuf::from(workspace_path);
-            let report = crate::profiler::ProfilerEngine::global().run_and_profile(&ws, &command)?;
+            let report =
+                crate::profiler::ProfilerEngine::global().run_and_profile(&ws, &command)?;
             send(&mut writer, &Event::ProfilerReport(report))?;
         }
-        Request::QueryProfilerReports { workspace_path, limit } => {
+        Request::QueryProfilerReports {
+            workspace_path,
+            limit,
+        } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let mut reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
             reports.truncate(limit);
@@ -621,33 +752,55 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::AnalyzeProfilerHotspots { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
-            let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
-            send(&mut writer, &Event::ProfilerAnalysis { hotspots, suggestions })?;
+            let (hotspots, suggestions) =
+                crate::profiler::ProfilerEngine::global().analyze_aggregate(&ws);
+            send(
+                &mut writer,
+                &Event::ProfilerAnalysis {
+                    hotspots,
+                    suggestions,
+                },
+            )?;
         }
         Request::QueryLspStatus { workspace_path } => {
             let ws = std::path::PathBuf::from(workspace_path);
             let status = crate::lsp::LspServer::global().get_status(&ws);
             send(&mut writer, &Event::LspStatus(status))?;
         }
-        Request::GetLspConfig { editor, workspace_path } => {
+        Request::GetLspConfig {
+            editor,
+            workspace_path,
+        } => {
             let ws = std::path::PathBuf::from(workspace_path);
-            let (config_content, target_file) = crate::lsp::LspServer::global().generate_config(editor, &ws);
-            send(&mut writer, &Event::LspConfiguration {
-                editor,
-                config_content,
-                target_file,
-            })?;
+            let (config_content, target_file) =
+                crate::lsp::LspServer::global().generate_config(editor, &ws);
+            send(
+                &mut writer,
+                &Event::LspConfiguration {
+                    editor,
+                    config_content,
+                    target_file,
+                },
+            )?;
         }
-        Request::StartCollabSession { file_path, ticket_id, workspace_path } => {
+        Request::StartCollabSession {
+            file_path,
+            ticket_id,
+            workspace_path,
+        } => {
             let ws = std::path::PathBuf::from(workspace_path);
-            let status = crate::collab::CollabEngine::global().start_session(&ws, &file_path, ticket_id)?;
+            let status =
+                crate::collab::CollabEngine::global().start_session(&ws, &file_path, ticket_id)?;
             send(&mut writer, &Event::CollabSessionStatus(status))?;
         }
         Request::QueryCollabStatus { session_id, .. } => {
             if let Some(status) = crate::collab::CollabEngine::global().get_session(&session_id) {
                 send(&mut writer, &Event::CollabSessionStatus(status))?;
             } else {
-                send(&mut writer, &Event::Error(format!("sesión «{session_id}» no encontrada")))?;
+                send(
+                    &mut writer,
+                    &Event::Error(format!("sesión «{session_id}» no encontrada")),
+                )?;
             }
         }
         Request::StartDapSession { command, .. } => {
@@ -682,7 +835,10 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             if res.is_ok() {
                 send(&mut writer, &Event::BarraAlert(alert))?;
             } else {
-                send(&mut writer, &Event::Error("Error al registrar alerta en la barra".into()))?;
+                send(
+                    &mut writer,
+                    &Event::Error("Error al registrar alerta en la barra".into()),
+                )?;
             }
         }
         Request::QueryBootStatus => {
@@ -695,12 +851,40 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let engine = crate::boot::BootEngine::global();
             match action.as_str() {
                 "test" => match engine.test_boot(&cwd) {
-                    Ok(out) => send(&mut writer, &Event::BootResult { action, output: out, success: true })?,
-                    Err(e) => send(&mut writer, &Event::BootResult { action, output: e.to_string(), success: false })?,
+                    Ok(out) => send(
+                        &mut writer,
+                        &Event::BootResult {
+                            action,
+                            output: out,
+                            success: true,
+                        },
+                    )?,
+                    Err(e) => send(
+                        &mut writer,
+                        &Event::BootResult {
+                            action,
+                            output: e.to_string(),
+                            success: false,
+                        },
+                    )?,
                 },
                 "build" => match engine.build(&cwd) {
-                    Ok(p) => send(&mut writer, &Event::BootResult { action, output: format!("Imagen de disco generada: {}", p.display()), success: true })?,
-                    Err(e) => send(&mut writer, &Event::BootResult { action, output: e.to_string(), success: false })?,
+                    Ok(p) => send(
+                        &mut writer,
+                        &Event::BootResult {
+                            action,
+                            output: format!("Imagen de disco generada: {}", p.display()),
+                            success: true,
+                        },
+                    )?,
+                    Err(e) => send(
+                        &mut writer,
+                        &Event::BootResult {
+                            action,
+                            output: e.to_string(),
+                            success: false,
+                        },
+                    )?,
                 },
                 _ => {
                     let st = engine.status(&cwd);
@@ -714,10 +898,19 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let summaries = crate::wasm::PluginManager::list_plugins(&plugins_dir);
             send(&mut writer, &Event::PluginList(summaries))?;
         }
-        Request::RunPlugin { plugin_name, action, params } => {
+        Request::RunPlugin {
+            plugin_name,
+            action,
+            params,
+        } => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let plugins_dir = crate::wasm::PluginManager::get_plugins_dir(&cwd);
-            let res = crate::wasm::PluginManager::run_plugin(&plugins_dir, &plugin_name, &action, &params);
+            let res = crate::wasm::PluginManager::run_plugin(
+                &plugins_dir,
+                &plugin_name,
+                &action,
+                &params,
+            );
             send(&mut writer, &Event::PluginResult(res))?;
         }
         Request::InstallPlugin { source_path } => {
@@ -731,7 +924,9 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::CaptureScreen { target, save_path } => {
             let p_opt = save_path.map(std::path::PathBuf::from);
-            match crate::vision::VisionEngine::global().capture_screen(target.as_deref(), p_opt.as_deref()) {
+            match crate::vision::VisionEngine::global()
+                .capture_screen(target.as_deref(), p_opt.as_deref())
+            {
                 Ok(res) => send(&mut writer, &Event::ScreenshotResult(res))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -742,29 +937,30 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::ListDisks => {
-            match crate::installer::DiskManager::list_disks() {
-                Ok(disks) => send(&mut writer, &Event::DiskList(disks))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::ListDisks => match crate::installer::DiskManager::list_disks() {
+            Ok(disks) => send(&mut writer, &Event::DiskList(disks))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::InspectDisk { device } => {
             match crate::installer::DiskManager::inspect_disk(&device) {
                 Ok(opt) => send(&mut writer, &Event::DiskDetail(opt))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::PartitionDisk { device, clean_install, dry_run } => {
-            match crate::installer::DiskManager::plan_partitioning(&device, clean_install) {
-                Ok(plan) => {
-                    if !dry_run {
-                        let _ = crate::installer::DiskManager::apply_partitioning(&device, &plan, false);
-                    }
-                    send(&mut writer, &Event::PartitionPlan(plan))?;
+        Request::PartitionDisk {
+            device,
+            clean_install,
+            dry_run,
+        } => match crate::installer::DiskManager::plan_partitioning(&device, clean_install) {
+            Ok(plan) => {
+                if !dry_run {
+                    let _ =
+                        crate::installer::DiskManager::apply_partitioning(&device, &plan, false);
                 }
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+                send(&mut writer, &Event::PartitionPlan(plan))?;
             }
-        }
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::InstallSystem(config) => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             match crate::installer::DeployEngine::deploy_system(&config, &cwd) {
@@ -773,7 +969,10 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             }
         }
         Request::ProbeOperatingSystems { esp_mount } => {
-            let esp = esp_mount.as_deref().map(std::path::Path::new).unwrap_or_else(|| std::path::Path::new("/boot/efi"));
+            let esp = esp_mount
+                .as_deref()
+                .map(std::path::Path::new)
+                .unwrap_or_else(|| std::path::Path::new("/boot/efi"));
             match crate::installer::BootloaderEngine::probe_operating_systems(esp) {
                 Ok(entries) => send(&mut writer, &Event::DetectedOperatingSystems(entries))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
@@ -799,60 +998,59 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::DestroyMicrovm { vm_id } => {
             match crate::vm::MicrovmManager::kill_vm(&ctx.state, &vm_id) {
-                Ok(_) => send(&mut writer, &Event::Note(format!("MicroVM «{vm_id}» destruida")) )?,
+                Ok(_) => send(
+                    &mut writer,
+                    &Event::Note(format!("MicroVM «{vm_id}» destruida")),
+                )?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::ListMicrovms => {
-            match crate::vm::MicrovmManager::list_vms(&ctx.state) {
-                Ok(list) => send(&mut writer, &Event::MicrovmList(list))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
-        Request::QueryMicrovmStatus => {
-            match crate::vm::MicrovmManager::get_status(&ctx.state) {
-                Ok(status) => send(&mut writer, &Event::MicrovmStatus(status))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
-        Request::InstallPackage { recipe_path_or_name, dry_run } => {
-            match crate::pkg::PackageEngine::install(&ctx.state, &recipe_path_or_name, dry_run) {
-                Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::ListMicrovms => match crate::vm::MicrovmManager::list_vms(&ctx.state) {
+            Ok(list) => send(&mut writer, &Event::MicrovmList(list))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
+        Request::QueryMicrovmStatus => match crate::vm::MicrovmManager::get_status(&ctx.state) {
+            Ok(status) => send(&mut writer, &Event::MicrovmStatus(status))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
+        Request::InstallPackage {
+            recipe_path_or_name,
+            dry_run,
+        } => match crate::pkg::PackageEngine::install(&ctx.state, &recipe_path_or_name, dry_run) {
+            Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::RemovePackage { package_name } => {
             match crate::pkg::PackageEngine::remove(&ctx.state, &package_name) {
                 Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::ListPackages => {
-            match crate::pkg::PackageEngine::list(&ctx.state) {
-                Ok(list) => send(&mut writer, &Event::PackageList(list))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::ListPackages => match crate::pkg::PackageEngine::list(&ctx.state) {
+            Ok(list) => send(&mut writer, &Event::PackageList(list))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::RollbackPackage { target_generation } => {
             match crate::pkg::PackageEngine::rollback(&ctx.state, target_generation) {
                 Ok(rep) => send(&mut writer, &Event::PackageInstallReport(rep))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::VerifyPackages => {
-            match crate::pkg::PackageEngine::verify(&ctx.state) {
-                Ok((all_valid, verified_packages, details)) => {
-                    send(&mut writer, &Event::PackageVerificationResult { all_valid, verified_packages, details })?
-                }
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
-        Request::QueryPackageStoreStatus => {
-            match crate::pkg::PackageEngine::status(&ctx.state) {
-                Ok(st) => send(&mut writer, &Event::PackageStoreStatus(st))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::VerifyPackages => match crate::pkg::PackageEngine::verify(&ctx.state) {
+            Ok((all_valid, verified_packages, details)) => send(
+                &mut writer,
+                &Event::PackageVerificationResult {
+                    all_valid,
+                    verified_packages,
+                    details,
+                },
+            )?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
+        Request::QueryPackageStoreStatus => match crate::pkg::PackageEngine::status(&ctx.state) {
+            Ok(st) => send(&mut writer, &Event::PackageStoreStatus(st))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::ListDesktopApps => {
             match crate::pkg::PackageEngine::list_desktop_apps(&ctx.state) {
                 Ok(apps) => send(&mut writer, &Event::DesktopAppList(apps))?,
@@ -899,8 +1097,15 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::LaunchApp { id, workspace, args } => {
-            let ws = workspace.as_deref().map(std::path::Path::new).unwrap_or(&ctx.workspace);
+        Request::LaunchApp {
+            id,
+            workspace,
+            args,
+        } => {
+            let ws = workspace
+                .as_deref()
+                .map(std::path::Path::new)
+                .unwrap_or(&ctx.workspace);
             match crate::apps::AppEngine::launch_app(&ctx.state, &id, Some(ws), &args) {
                 Ok(res) => send(&mut writer, &Event::AppLaunchResult(res))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
@@ -936,8 +1141,16 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::ResolveAutopilotIncident { incident_id, approve_and_merge } => {
-            match crate::autopilot::AutopilotEngine::resolve_incident(&ctx.state, &ctx.workspace, &incident_id, approve_and_merge) {
+        Request::ResolveAutopilotIncident {
+            incident_id,
+            approve_and_merge,
+        } => {
+            match crate::autopilot::AutopilotEngine::resolve_incident(
+                &ctx.state,
+                &ctx.workspace,
+                &incident_id,
+                approve_and_merge,
+            ) {
                 Ok(inc) => send(&mut writer, &Event::AutopilotAlert(inc))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -948,53 +1161,70 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::StopWebConsole => {
-            match crate::web::WebEngine::stop(&ctx.state) {
-                Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
-        Request::GetWebConsoleStatus => {
-            match crate::web::WebEngine::status(&ctx.state) {
-                Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
-        Request::GenerateWebToken { client_label, ttl_secs } => {
-            match crate::web::WebEngine::generate_token(&ctx.state, client_label, ttl_secs) {
-                Ok(session) => send(&mut writer, &Event::WebTokenGenerated(session))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::StopWebConsole => match crate::web::WebEngine::stop(&ctx.state) {
+            Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
+        Request::GetWebConsoleStatus => match crate::web::WebEngine::status(&ctx.state) {
+            Ok(st) => send(&mut writer, &Event::WebConsoleStatus(st))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
+        Request::GenerateWebToken {
+            client_label,
+            ttl_secs,
+        } => match crate::web::WebEngine::generate_token(&ctx.state, client_label, ttl_secs) {
+            Ok(session) => send(&mut writer, &Event::WebTokenGenerated(session))?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::GetDevWorkspaceStatus { project } => {
-            let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
+            let status =
+                crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
             send(&mut writer, &Event::DevWorkspaceStatus(status))?;
         }
-        Request::ReproduceBug { error_text, target_file } => {
-            match crate::reproduce::TddEngine::run_reproduce_pipeline(&error_text, target_file.as_deref(), &ctx.workspace, &ctx.state) {
+        Request::ReproduceBug {
+            error_text,
+            target_file,
+        } => {
+            match crate::reproduce::TddEngine::run_reproduce_pipeline(
+                &error_text,
+                target_file.as_deref(),
+                &ctx.workspace,
+                &ctx.state,
+            ) {
                 Ok(report) => send(&mut writer, &Event::TddReport(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::GenerateTest { target } => {
-            match crate::reproduce::TddEngine::generate_tests_for_target(&target, "unit", 3, &ctx.workspace) {
+            match crate::reproduce::TddEngine::generate_tests_for_target(
+                &target,
+                "unit",
+                3,
+                &ctx.workspace,
+            ) {
                 Ok(report) => send(&mut writer, &Event::TddReport(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::RunCi { stage, fast } => {
-            match crate::ci::CiEngine::run_pipeline(&ctx.workspace, &ctx.state, stage.as_deref(), fast) {
+            match crate::ci::CiEngine::run_pipeline(
+                &ctx.workspace,
+                &ctx.state,
+                stage.as_deref(),
+                fast,
+            ) {
                 Ok(report) => send(&mut writer, &Event::CiReport(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::GetCiStatus => {
-            match crate::ci::CiEngine::get_last_report(&ctx.state) {
-                Ok(Some(report)) => send(&mut writer, &Event::CiReport(report))?,
-                Ok(None) => send(&mut writer, &Event::Note("No hay reportes de CI previos registrados".into()))?,
-                Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
-            }
-        }
+        Request::GetCiStatus => match crate::ci::CiEngine::get_last_report(&ctx.state) {
+            Ok(Some(report)) => send(&mut writer, &Event::CiReport(report))?,
+            Ok(None) => send(
+                &mut writer,
+                &Event::Note("No hay reportes de CI previos registrados".into()),
+            )?,
+            Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
+        },
         Request::ManageGitHooks { action } => {
             let res = match action.as_str() {
                 "install" => crate::ci::CiEngine::install_git_hooks(&ctx.workspace),
@@ -1007,7 +1237,12 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             }
         }
         Request::CreateSnapshot { label, author } => {
-            match crate::time_machine::TimeMachineEngine::create_snapshot(&ctx.workspace, &ctx.state, label.as_deref(), author.as_deref()) {
+            match crate::time_machine::TimeMachineEngine::create_snapshot(
+                &ctx.workspace,
+                &ctx.state,
+                label.as_deref(),
+                author.as_deref(),
+            ) {
                 Ok(meta) => send(&mut writer, &Event::SnapshotCreated(meta))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -1018,8 +1253,16 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::RestoreSnapshot { id_or_label, create_rescue } => {
-            match crate::time_machine::TimeMachineEngine::restore_snapshot(&ctx.workspace, &ctx.state, &id_or_label, create_rescue) {
+        Request::RestoreSnapshot {
+            id_or_label,
+            create_rescue,
+        } => {
+            match crate::time_machine::TimeMachineEngine::restore_snapshot(
+                &ctx.workspace,
+                &ctx.state,
+                &id_or_label,
+                create_rescue,
+            ) {
                 Ok(res) => send(&mut writer, &Event::SnapshotRestored(res))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -1031,14 +1274,26 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             }
         }
         Request::RunBenchmark { target } => {
-            match crate::bench::BenchEngine::run_benchmark(&ctx.workspace, &ctx.state, target.as_deref()) {
+            match crate::bench::BenchEngine::run_benchmark(
+                &ctx.workspace,
+                &ctx.state,
+                target.as_deref(),
+            ) {
                 Ok(report) => send(&mut writer, &Event::BenchmarkReport(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::CompareBenchmark { against_branch, threshold_pct } => {
+        Request::CompareBenchmark {
+            against_branch,
+            threshold_pct,
+        } => {
             let threshold = threshold_pct.map(|t| t as f64);
-            match crate::bench::BenchEngine::compare_benchmark(&ctx.workspace, &ctx.state, against_branch.as_deref(), threshold) {
+            match crate::bench::BenchEngine::compare_benchmark(
+                &ctx.workspace,
+                &ctx.state,
+                against_branch.as_deref(),
+                threshold,
+            ) {
                 Ok(diff) => send(&mut writer, &Event::BenchmarkDiff(diff))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -1055,16 +1310,29 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::ImportRemoteIssue { id_or_url } => {
             match crate::forge::ForgeEngine::import_issue(&ctx.workspace, &ctx.state, &id_or_url) {
-                Ok((ticket_id, path, title)) => send(&mut writer, &Event::RemoteIssueImported {
-                    ticket_id,
-                    path: path.display().to_string(),
-                    title,
-                })?,
+                Ok((ticket_id, path, title)) => send(
+                    &mut writer,
+                    &Event::RemoteIssueImported {
+                        ticket_id,
+                        path: path.display().to_string(),
+                        title,
+                    },
+                )?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
-        Request::CreatePullRequest { title, base_branch, draft } => {
-            match crate::forge::ForgeEngine::create_pull_request(&ctx.workspace, &ctx.state, title.as_deref(), base_branch.as_deref(), draft) {
+        Request::CreatePullRequest {
+            title,
+            base_branch,
+            draft,
+        } => {
+            match crate::forge::ForgeEngine::create_pull_request(
+                &ctx.workspace,
+                &ctx.state,
+                title.as_deref(),
+                base_branch.as_deref(),
+                draft,
+            ) {
                 Ok(pr) => send(&mut writer, &Event::PullRequestCreated(pr))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -1077,7 +1345,9 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
         }
         Request::GenerateArchDiagram { kind } => {
             let k = match kind.as_deref() {
-                Some("components") | Some("c4") | Some("comp") => antos_protocol::ArchDiagramKind::Components,
+                Some("components") | Some("c4") | Some("comp") => {
+                    antos_protocol::ArchDiagramKind::Components
+                }
                 Some("flow") | Some("ipc") => antos_protocol::ArchDiagramKind::IpcFlow,
                 Some("antflow") | Some("state") => antos_protocol::ArchDiagramKind::AntFlow,
                 _ => antos_protocol::ArchDiagramKind::Full,
@@ -1086,13 +1356,15 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             send(&mut writer, &Event::ArchDiagram(report))?;
         }
         Request::SyncArchDocs { target_file } => {
-            match crate::doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file.as_deref()) {
+            match crate::doc_arch::DocArchEngine::sync_docs(&ctx.workspace, target_file.as_deref())
+            {
                 Ok(report) => send(&mut writer, &Event::DocSync(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
         }
         Request::CheckArchDocs { target_file } => {
-            match crate::doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file.as_deref()) {
+            match crate::doc_arch::DocArchEngine::check_docs(&ctx.workspace, target_file.as_deref())
+            {
                 Ok(report) => send(&mut writer, &Event::DocSync(report))?,
                 Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
             }
@@ -1140,9 +1412,7 @@ pub fn intencion_remota(
     // failing the whole session over it (T31.8).
     while let Received::Message(event) = receive::<Event>(&mut reader)? {
         match event {
-            Event::Start { intent, planner } => {
-                term.on_start(&intent, &planner)?
-            }
+            Event::Start { intent, planner } => term.on_start(&intent, &planner)?,
             Event::Note(t) => term.on_note(&t)?,
             Event::Proposal(p) => {
                 let decision = term.on_proposal(&p)?;
@@ -1175,8 +1445,16 @@ pub fn intencion_remota(
             Event::FlowList(tasks) => {
                 term.on_note(&format!("tareas antFlow activas: {}", tasks.len()))?;
             }
-            Event::FlowTransition { ticket_id, new_state, detail, .. } => {
-                term.on_note(&format!("[antFlow {ticket_id}] ➔ {}: {detail}", new_state.label()))?;
+            Event::FlowTransition {
+                ticket_id,
+                new_state,
+                detail,
+                ..
+            } => {
+                term.on_note(&format!(
+                    "[antFlow {ticket_id}] ➔ {}: {detail}",
+                    new_state.label()
+                ))?;
             }
             Event::StructuredDiff(files) => {
                 term.on_note(&format!("archivos con diff: {}", files.len()))?;
@@ -1184,7 +1462,9 @@ pub fn intencion_remota(
             Event::NotificationList(notifs) => {
                 term.on_note(&format!("notificaciones recibidas: {}", notifs.len()))?;
             }
-            Event::NotificationResult { message, success, .. } => {
+            Event::NotificationResult {
+                message, success, ..
+            } => {
                 if success {
                     term.on_note(&format!("✓ {message}"))?;
                 } else {
@@ -1192,12 +1472,20 @@ pub fn intencion_remota(
                 }
             }
             Event::MeshStatus(status) => {
-                term.on_note(&format!("antMesh local: {} (peers: {})", status.local_node.id, status.peers.len()))?;
+                term.on_note(&format!(
+                    "antMesh local: {} (peers: {})",
+                    status.local_node.id,
+                    status.peers.len()
+                ))?;
             }
             Event::PairingTokenGenerated(tok) => {
                 term.on_note(&format!("token de emparejamiento generado: {}", tok.token))?;
             }
-            Event::PeerConnectionResult { address, success, message } => {
+            Event::PeerConnectionResult {
+                address,
+                success,
+                message,
+            } => {
                 if success {
                     term.on_note(&format!("✓ peer {address}: {message}"))?;
                 } else {
@@ -1205,22 +1493,51 @@ pub fn intencion_remota(
                 }
             }
             Event::SwarmStatus(status) => {
-                term.on_note(&format!("antOS Swarm: {} nodos ({} tareas activas)", status.nodes.len(), status.total_tasks))?;
+                term.on_note(&format!(
+                    "antOS Swarm: {} nodos ({} tareas activas)",
+                    status.nodes.len(),
+                    status.total_tasks
+                ))?;
             }
-            Event::SwarmDispatchResult { ticket_id, role, assigned_node_id, success, message } => {
+            Event::SwarmDispatchResult {
+                ticket_id,
+                role,
+                assigned_node_id,
+                success,
+                message,
+            } => {
                 if success {
-                    term.on_note(&format!("✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                    term.on_note(&format!(
+                        "✓ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}",
+                        role
+                    ))?;
                 } else {
-                    term.on_note(&format!("✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}", role))?;
+                    term.on_note(&format!(
+                        "✗ Swarm [{ticket_id}] rol {:?} ➔ {assigned_node_id}: {message}",
+                        role
+                    ))?;
                 }
             }
-            Event::VfsList { virtual_path, entries } => {
-                term.on_note(&format!("VFS {virtual_path}: {} entradas encontradas", entries.len()))?;
+            Event::VfsList {
+                virtual_path,
+                entries,
+            } => {
+                term.on_note(&format!(
+                    "VFS {virtual_path}: {} entradas encontradas",
+                    entries.len()
+                ))?;
             }
-            Event::VfsContent { virtual_path, content } => {
+            Event::VfsContent {
+                virtual_path,
+                content,
+            } => {
                 term.on_output(&format!("{virtual_path}:\n{content}"))?;
             }
-            Event::VfsResult { action, success, message } => {
+            Event::VfsResult {
+                action,
+                success,
+                message,
+            } => {
                 if success {
                     term.on_note(&format!("✓ VFS {action}: {message}"))?;
                 } else {
@@ -1229,24 +1546,48 @@ pub fn intencion_remota(
             }
             Event::VfsValidationResult(res) => {
                 if res.is_valid {
-                    term.on_note(&format!("✓ VFS Guard: «{}» es sintácticamente válido ({} líneas)", res.file_path, res.line_count))?;
+                    term.on_note(&format!(
+                        "✓ VFS Guard: «{}» es sintácticamente válido ({} líneas)",
+                        res.file_path, res.line_count
+                    ))?;
                 } else {
-                    term.on_note(&format!("✗ VFS Guard: «{}» tiene {} errores sintácticos", res.file_path, res.errors.len()))?;
+                    term.on_note(&format!(
+                        "✗ VFS Guard: «{}» tiene {} errores sintácticos",
+                        res.file_path,
+                        res.errors.len()
+                    ))?;
                 }
             }
             Event::VfsGuardStatus(status) => {
-                term.on_note(&format!("VFS Guard: {} escrituras interceptadas ({} rechazadas)", status.total_intercepted, status.total_rejected))?;
+                term.on_note(&format!(
+                    "VFS Guard: {} escrituras interceptadas ({} rechazadas)",
+                    status.total_intercepted, status.total_rejected
+                ))?;
             }
             Event::EbpfStatus(status) => {
-                let lsm_badge = if status.lsm_enabled { "Kernel LSM Activo" } else { "Emulación Espacio Usuario" };
-                term.on_note(&format!("eBPF Sentinel [{lsm_badge}]: {} sondas, {} eventos, {} bloqueos",
-                    status.active_probes.len(), status.total_events_captured, status.total_violations_blocked
+                let lsm_badge = if status.lsm_enabled {
+                    "Kernel LSM Activo"
+                } else {
+                    "Emulación Espacio Usuario"
+                };
+                term.on_note(&format!(
+                    "eBPF Sentinel [{lsm_badge}]: {} sondas, {} eventos, {} bloqueos",
+                    status.active_probes.len(),
+                    status.total_events_captured,
+                    status.total_violations_blocked
                 ))?;
             }
             Event::EbpfAuditLog(events) => {
-                term.on_note(&format!("eBPF Audit: {} eventos capturados en el ring buffer", events.len()))?;
+                term.on_note(&format!(
+                    "eBPF Audit: {} eventos capturados en el ring buffer",
+                    events.len()
+                ))?;
             }
-            Event::EbpfResult { action, success, message } => {
+            Event::EbpfResult {
+                action,
+                success,
+                message,
+            } => {
                 if success {
                     term.on_note(&format!("✓ eBPF {action}: {message}"))?;
                 } else {
@@ -1255,35 +1596,78 @@ pub fn intencion_remota(
             }
             Event::ProfilerReport(report) => {
                 let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
-                term.on_note(&format!("✓ Profiler: «{}» en {} ms (Memoria pico: {:.2} MB RSS)", report.command, report.duration_ms, peak_mb))?;
+                term.on_note(&format!(
+                    "✓ Profiler: «{}» en {} ms (Memoria pico: {:.2} MB RSS)",
+                    report.command, report.duration_ms, peak_mb
+                ))?;
             }
             Event::ProfilerReportList(reports) => {
-                term.on_note(&format!("Profiler: {} reportes históricos disponibles", reports.len()))?;
+                term.on_note(&format!(
+                    "Profiler: {} reportes históricos disponibles",
+                    reports.len()
+                ))?;
             }
-            Event::ProfilerAnalysis { hotspots, suggestions } => {
-                term.on_note(&format!("Profiler: {} hotspots y {} recomendaciones formuladas", hotspots.len(), suggestions.len()))?;
+            Event::ProfilerAnalysis {
+                hotspots,
+                suggestions,
+            } => {
+                term.on_note(&format!(
+                    "Profiler: {} hotspots y {} recomendaciones formuladas",
+                    hotspots.len(),
+                    suggestions.len()
+                ))?;
             }
             Event::LspStatus(status) => {
-                let state_str = if status.running { "Activo" } else { "En espera" };
-                term.on_note(&format!("LSP: {state_str} ({}) con {} símbolos indexados", status.transport, status.indexed_symbols_count))?;
+                let state_str = if status.running {
+                    "Activo"
+                } else {
+                    "En espera"
+                };
+                term.on_note(&format!(
+                    "LSP: {state_str} ({}) con {} símbolos indexados",
+                    status.transport, status.indexed_symbols_count
+                ))?;
             }
-            Event::LspConfiguration { editor, target_file, .. } => {
-                term.on_note(&format!("LSP: configuración generada para {:?} ({target_file})", editor))?;
+            Event::LspConfiguration {
+                editor,
+                target_file,
+                ..
+            } => {
+                term.on_note(&format!(
+                    "LSP: configuración generada para {:?} ({target_file})",
+                    editor
+                ))?;
             }
             Event::CollabSessionStatus(status) => {
-                term.on_note(&format!("Pair: sesión {} en {} (colaboradores: {})", status.session_id, status.file_path, status.collaborators.len()))?;
+                term.on_note(&format!(
+                    "Pair: sesión {} en {} (colaboradores: {})",
+                    status.session_id,
+                    status.file_path,
+                    status.collaborators.len()
+                ))?;
             }
             Event::DapSessionStatus(status) => {
-                term.on_note(&format!("DAP: sesión {} en estado {} para «{}»", status.session_id, status.state, status.target_command))?;
+                term.on_note(&format!(
+                    "DAP: sesión {} en estado {} para «{}»",
+                    status.session_id, status.state, status.target_command
+                ))?;
             }
-            Event::CollabResult { action, success, message } => {
+            Event::CollabResult {
+                action,
+                success,
+                message,
+            } => {
                 if success {
                     term.on_note(&format!("✓ Pair {action}: {message}"))?;
                 } else {
                     term.on_note(&format!("✗ Pair {action}: {message}"))?;
                 }
             }
-            Event::DapResult { action, success, message } => {
+            Event::DapResult {
+                action,
+                success,
+                message,
+            } => {
                 if success {
                     term.on_note(&format!("✓ DAP {action}: {message}"))?;
                 } else {
@@ -1291,11 +1675,21 @@ pub fn intencion_remota(
                 }
             }
             Event::DesktopStatus(status) => {
-                let state_str = if status.running { "Activa" } else { "Detenida / Headless" };
-                term.on_note(&format!("Escritorio antOS [{state_str}]: Compositor {} (Display: {:?})", status.compositor_name, status.wayland_display))?;
+                let state_str = if status.running {
+                    "Activa"
+                } else {
+                    "Detenida / Headless"
+                };
+                term.on_note(&format!(
+                    "Escritorio antOS [{state_str}]: Compositor {} (Display: {:?})",
+                    status.compositor_name, status.wayland_display
+                ))?;
             }
             Event::DesktopHotkeysList(keys) => {
-                term.on_note(&format!("Escritorio antOS: {} atajos globales registrados", keys.len()))?;
+                term.on_note(&format!(
+                    "Escritorio antOS: {} atajos globales registrados",
+                    keys.len()
+                ))?;
             }
             Event::BarraTelemetryStatus(t) => {
                 let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
@@ -1306,16 +1700,30 @@ pub fn intencion_remota(
             }
             Event::BarraAlert(alert) => {
                 let urg = if alert.urgent { "URGENTE" } else { "INFO" };
-                term.on_note(&format!("Alerta en Barra [{urg} - {}]: {}", alert.category, alert.message))?;
+                term.on_note(&format!(
+                    "Alerta en Barra [{urg} - {}]: {}",
+                    alert.category, alert.message
+                ))?;
             }
             Event::BootStatus(st) => {
                 let kb = st.kernel_elf_size_bytes / 1024;
                 let mb = st.bios_image_size_bytes / (1024 * 1024);
-                term.on_note(&format!("antOS Boot: Kernel ELF: {} KiB, BIOS IMG: {} MB, QEMU: {}",
-                    kb, mb, if st.qemu_installed { "instalado" } else { "no disponible" }
+                term.on_note(&format!(
+                    "antOS Boot: Kernel ELF: {} KiB, BIOS IMG: {} MB, QEMU: {}",
+                    kb,
+                    mb,
+                    if st.qemu_installed {
+                        "instalado"
+                    } else {
+                        "no disponible"
+                    }
                 ))?;
             }
-            Event::BootResult { action, output, success } => {
+            Event::BootResult {
+                action,
+                output,
+                success,
+            } => {
                 let status = if success { "OK" } else { "ERROR" };
                 term.on_note(&format!("antOS Boot [{action} - {status}]: {output}"))?;
             }
@@ -1325,16 +1733,25 @@ pub fn intencion_remota(
                 } else {
                     term.on_note(&format!("antOS Plugins ({} activos):", list.len()))?;
                     for p in list {
-                        term.on_note(&format!("  • {} v{} - {} (acciones: {})",
-                            p.name, p.version, p.description, p.capabilities.join(", ")
+                        term.on_note(&format!(
+                            "  • {} v{} - {} (acciones: {})",
+                            p.name,
+                            p.version,
+                            p.description,
+                            p.capabilities.join(", ")
                         ))?;
                     }
                 }
             }
             Event::PluginResult(res) => {
                 if res.success {
-                    term.on_note(&format!("✓ Plugin [{}:{}] ejecutado con éxito ({} ciclos, {} KiB memoria):\n{}",
-                        res.plugin, res.action, res.fuel_consumed, res.memory_allocated_bytes / 1024, res.output
+                    term.on_note(&format!(
+                        "✓ Plugin [{}:{}] ejecutado con éxito ({} ciclos, {} KiB memoria):\n{}",
+                        res.plugin,
+                        res.action,
+                        res.fuel_consumed,
+                        res.memory_allocated_bytes / 1024,
+                        res.output
                     ))?;
                 } else {
                     let err = res.error.unwrap_or_else(|| "Error desconocido".into());
@@ -1343,8 +1760,13 @@ pub fn intencion_remota(
             }
             Event::ScreenshotResult(cap) => {
                 let path = cap.saved_path.unwrap_or_else(|| "en memoria".into());
-                term.on_note(&format!("✓ Captura de pantalla «{}» ({}) [{}x{}, {} KiB]",
-                    cap.target, path, cap.width, cap.height, cap.size_bytes / 1024
+                term.on_note(&format!(
+                    "✓ Captura de pantalla «{}» ({}) [{}x{}, {} KiB]",
+                    cap.target,
+                    path,
+                    cap.width,
+                    cap.height,
+                    cap.size_bytes / 1024
                 ))?;
             }
             Event::VisualQAReport(rep) => {
@@ -1365,22 +1787,35 @@ pub fn intencion_remota(
                 }
             }
             Event::DiskList(disks) => {
-                term.on_note(&format!("Dispositivos de almacenamiento detectados ({}):", disks.len()))?;
+                term.on_note(&format!(
+                    "Dispositivos de almacenamiento detectados ({}):",
+                    disks.len()
+                ))?;
                 for d in disks {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                    term.on_note(&format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()))?;
+                    term.on_note(&format!(
+                        "  • {} ({:.1} GB, Bus: {}, Particiones: {})",
+                        d.path,
+                        gb,
+                        d.bus_type,
+                        d.partitions.len()
+                    ))?;
                 }
             }
             Event::DiskDetail(opt) => {
                 if let Some(d) = opt {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                    term.on_note(&format!("Dispositivo {}: {:.1} GB, Bus: {}, Tabla: {}", d.path, gb, d.bus_type, d.partition_table))?;
+                    term.on_note(&format!(
+                        "Dispositivo {}: {:.1} GB, Bus: {}, Tabla: {}",
+                        d.path, gb, d.bus_type, d.partition_table
+                    ))?;
                 } else {
                     term.on_note("Dispositivo no encontrado")?;
                 }
             }
             Event::PartitionPlan(plan) => {
-                term.on_note(&format!("Plan de particionado GPT para {}: ESP: {} MB, Raíz: {} MB",
+                term.on_note(&format!(
+                    "Plan de particionado GPT para {}: ESP: {} MB, Raíz: {} MB",
                     plan.target_device,
                     plan.efi_partition_bytes / (1024 * 1024),
                     plan.root_partition_bytes / (1024 * 1024)
@@ -1396,9 +1831,18 @@ pub fn intencion_remota(
                 }
             }
             Event::DetectedOperatingSystems(entries) => {
-                term.on_note(&format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()))?;
+                term.on_note(&format!(
+                    "antOS Bootloader · Sistemas Operativos Detectados ({}):",
+                    entries.len()
+                ))?;
                 for (i, os) in entries.iter().enumerate() {
-                    term.on_note(&format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path))?;
+                    term.on_note(&format!(
+                        "  [{}] {} (Tipo: {}, EFI: {})",
+                        i + 1,
+                        os.name,
+                        os.os_type,
+                        os.efi_path
+                    ))?;
                 }
             }
             Event::BootloaderReport(rep) => {
@@ -1410,19 +1854,35 @@ pub fn intencion_remota(
                 }
             }
             Event::MicrovmStatus(st) => {
-                term.on_note(&format!("antOS MicroVM · Hipervisor: {} [KVM: {}]", st.hypervisor_engine, if st.kvm_available { "Sí" } else { "No" }))?;
+                term.on_note(&format!(
+                    "antOS MicroVM · Hipervisor: {} [KVM: {}]",
+                    st.hypervisor_engine,
+                    if st.kvm_available { "Sí" } else { "No" }
+                ))?;
                 term.on_note(&format!("  • VMs activas:       {}", st.active_vms_count))?;
-                term.on_note(&format!("  • Memoria asignada:  {} MB", st.total_memory_allocated_mb))?;
+                term.on_note(&format!(
+                    "  • Memoria asignada:  {} MB",
+                    st.total_memory_allocated_mb
+                ))?;
                 term.on_note(&format!("  • Kernel:            {}", st.kernel_version))?;
             }
             Event::MicrovmList(vms) => {
-                term.on_note(&format!("antOS MicroVM · Instancias activas ({}):", vms.len()))?;
+                term.on_note(&format!(
+                    "antOS MicroVM · Instancias activas ({}):",
+                    vms.len()
+                ))?;
                 for v in vms {
-                    term.on_note(&format!("  • [{}] PID {}, {} vCPUs, {} MB, vsock {}", v.id, v.pid, v.vcpus, v.memory_mb, v.vsock_port))?;
+                    term.on_note(&format!(
+                        "  • [{}] PID {}, {} vCPUs, {} MB, vsock {}",
+                        v.id, v.pid, v.vcpus, v.memory_mb, v.vsock_port
+                    ))?;
                 }
             }
             Event::MicrovmResult(res) => {
-                term.on_note(&format!("antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:", res.vm_id, res.exit_code))?;
+                term.on_note(&format!(
+                    "antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:",
+                    res.vm_id, res.exit_code
+                ))?;
                 if !res.stdout.is_empty() {
                     term.on_note(&format!("  {}", res.stdout.trim()))?;
                 }
@@ -1431,7 +1891,10 @@ pub fn intencion_remota(
                 let status_label = if rep.success { "OK" } else { "ERROR" };
                 term.on_note(&format!("antpkg [{status_label}]: {}", rep.message))?;
                 if !rep.binaries_linked.is_empty() {
-                    term.on_note(&format!("  • Binarios enlazados: {}", rep.binaries_linked.join(", ")))?;
+                    term.on_note(&format!(
+                        "  • Binarios enlazados: {}",
+                        rep.binaries_linked.join(", ")
+                    ))?;
                 }
                 if !rep.store_path.is_empty() {
                     term.on_note(&format!("  • Prefijo en almacén: {}", rep.store_path))?;
@@ -1441,11 +1904,19 @@ pub fn intencion_remota(
                 if pkgs.is_empty() {
                     term.on_note("antpkg: No hay paquetes instalados en el perfil activo.")?;
                 } else {
-                    term.on_note(&format!("antpkg · Paquetes en perfil activo ({}):", pkgs.len()))?;
+                    term.on_note(&format!(
+                        "antpkg · Paquetes en perfil activo ({}):",
+                        pkgs.len()
+                    ))?;
                     for p in pkgs {
                         let kb = p.installed_size_bytes / 1024;
-                        term.on_note(&format!("  • {} v{} ({} KiB, gen {}) [bin: {}]",
-                            p.name, p.version, kb, p.generation, p.binaries.join(", ")
+                        term.on_note(&format!(
+                            "  • {} v{} ({} KiB, gen {}) [bin: {}]",
+                            p.name,
+                            p.version,
+                            kb,
+                            p.generation,
+                            p.binaries.join(", ")
                         ))?;
                     }
                 }
@@ -1459,17 +1930,35 @@ pub fn intencion_remota(
                 term.on_note(&format!("  • Perfil actual:   {}", st.current_profile_path))?;
             }
             Event::PackageGenerationsList(gens) => {
-                term.on_note(&format!("antpkg · Generaciones de perfil ({}):", gens.len()))?;
+                term.on_note(&format!(
+                    "antpkg · Generaciones de perfil ({}):",
+                    gens.len()
+                ))?;
                 for g in gens {
                     let active_mark = if g.active { " (activa)" } else { "" };
-                    term.on_note(&format!("  • Gen {}{}: {} paquetes [{}]",
-                        g.generation, active_mark, g.packages.len(), g.packages.join(", ")
+                    term.on_note(&format!(
+                        "  • Gen {}{}: {} paquetes [{}]",
+                        g.generation,
+                        active_mark,
+                        g.packages.len(),
+                        g.packages.join(", ")
                     ))?;
                 }
             }
-            Event::PackageVerificationResult { all_valid, verified_packages, details } => {
-                let status_lbl = if all_valid { "INTEGRIDAD VERIFICADA" } else { "ADVERTENCIAS DE INTEGRIDAD" };
-                term.on_note(&format!("antpkg Verificación · {} ({} paquetes comprobados):", status_lbl, verified_packages))?;
+            Event::PackageVerificationResult {
+                all_valid,
+                verified_packages,
+                details,
+            } => {
+                let status_lbl = if all_valid {
+                    "INTEGRIDAD VERIFICADA"
+                } else {
+                    "ADVERTENCIAS DE INTEGRIDAD"
+                };
+                term.on_note(&format!(
+                    "antpkg Verificación · {} ({} paquetes comprobados):",
+                    status_lbl, verified_packages
+                ))?;
                 for d in details {
                     term.on_note(&format!("  {d}"))?;
                 }
@@ -1478,15 +1967,23 @@ pub fn intencion_remota(
                 if apps.is_empty() {
                     term.on_note("antpkg: No hay aplicaciones de escritorio registradas.")?;
                 } else {
-                    term.on_note(&format!("antpkg · Aplicaciones de escritorio ({}):", apps.len()))?;
+                    term.on_note(&format!(
+                        "antpkg · Aplicaciones de escritorio ({}):",
+                        apps.len()
+                    ))?;
                     for a in apps {
-                        term.on_note(&format!("  • {} ({}) [exec: {}]", a.name, a.package_name, a.exec))?;
+                        term.on_note(&format!(
+                            "  • {} ({}) [exec: {}]",
+                            a.name, a.package_name, a.exec
+                        ))?;
                     }
                 }
             }
             Event::DesktopValidationReport(rep) => {
                 if rep.valid {
-                    term.on_note("antpkg: El archivo .desktop es VÁLIDO según especificación Freedesktop.")?;
+                    term.on_note(
+                        "antpkg: El archivo .desktop es VÁLIDO según especificación Freedesktop.",
+                    )?;
                 } else {
                     term.on_note("antpkg: El archivo .desktop contiene ERRORES:")?;
                     for err in &rep.errors {
@@ -1501,7 +1998,10 @@ pub fn intencion_remota(
                 if results.is_empty() {
                     term.on_note("antpkg Catálogo: No se encontraron paquetes coincidentes.")?;
                 } else {
-                    term.on_note(&format!("📦 antpkg Catálogo · Paquetes encontrados ({}):", results.len()))?;
+                    term.on_note(&format!(
+                        "📦 antpkg Catálogo · Paquetes encontrados ({}):",
+                        results.len()
+                    ))?;
                     for p in results {
                         let app_type_str = match p.app_type {
                             PackageAppType::Gui => "GUI",
@@ -1512,14 +2012,18 @@ pub fn intencion_remota(
                         } else {
                             String::new()
                         };
-                        term.on_note(&format!("  • {} v{} ({}){} - {}",
+                        term.on_note(&format!(
+                            "  • {} v{} ({}){} - {}",
                             p.name, p.version, app_type_str, cat_str, p.description
                         ))?;
                     }
                 }
             }
             Event::PackageInfo(info) => {
-                term.on_note(&format!("📦 antpkg Receta: {} v{}", info.name, info.version))?;
+                term.on_note(&format!(
+                    "📦 antpkg Receta: {} v{}",
+                    info.name, info.version
+                ))?;
                 term.on_note(&format!("  • Descripción: {}", info.description))?;
                 if let Some(ref home) = info.homepage {
                     term.on_note(&format!("  • Homepage:    {}", home))?;
@@ -1542,7 +2046,10 @@ pub fn intencion_remota(
                     term.on_note(&format!("  • SHA-256:     {}", sha))?;
                 }
                 if !info.dependencies.is_empty() {
-                    term.on_note(&format!("  • Deps:        {}", info.dependencies.join(", ")))?;
+                    term.on_note(&format!(
+                        "  • Deps:        {}",
+                        info.dependencies.join(", ")
+                    ))?;
                 }
                 if let Some(ref d) = info.desktop_entry {
                     term.on_note("  • Entrada de escritorio:")?;
@@ -1566,9 +2073,18 @@ pub fn intencion_remota(
                 if apps.is_empty() {
                     term.on_note("antOS Apps: No hay aplicaciones instaladas.")?;
                 } else {
-                    term.on_note(&format!("📦 antOS Apps · Aplicaciones Registradas ({}):", apps.len()))?;
+                    term.on_note(&format!(
+                        "📦 antOS Apps · Aplicaciones Registradas ({}):",
+                        apps.len()
+                    ))?;
                     for a in apps {
-                        term.on_note(&format!("  • {:<32} [{}] v{} {}", a.id, a.source.as_str(), a.version, a.name))?;
+                        term.on_note(&format!(
+                            "  • {:<32} [{}] v{} {}",
+                            a.id,
+                            a.source.as_str(),
+                            a.version,
+                            a.name
+                        ))?;
                     }
                 }
             }
@@ -1576,10 +2092,24 @@ pub fn intencion_remota(
                 if results.is_empty() {
                     term.on_note("antOS Apps: No se encontraron aplicaciones.")?;
                 } else {
-                    term.on_note(&format!("🔍 antOS Apps · Catálogo ({}) resultados:", results.len()))?;
+                    term.on_note(&format!(
+                        "🔍 antOS Apps · Catálogo ({}) resultados:",
+                        results.len()
+                    ))?;
                     for r in results {
-                        let status = if r.installed { "[Instalada]" } else { "[Disponible]" };
-                        term.on_note(&format!("  • {:<32} [{}] {} v{} - {}", r.id, r.source.as_str(), status, r.version, r.name))?;
+                        let status = if r.installed {
+                            "[Instalada]"
+                        } else {
+                            "[Disponible]"
+                        };
+                        term.on_note(&format!(
+                            "  • {:<32} [{}] {} v{} - {}",
+                            r.id,
+                            r.source.as_str(),
+                            status,
+                            r.version,
+                            r.name
+                        ))?;
                     }
                 }
             }
@@ -1588,19 +2118,35 @@ pub fn intencion_remota(
             }
             Event::AppActionResult(res) => {
                 let badge = if res.success { "✅" } else { "❌" };
-                term.on_note(&format!("{badge} antOS Apps · [{}] {}", res.action, res.message))?;
+                term.on_note(&format!(
+                    "{badge} antOS Apps · [{}] {}",
+                    res.action, res.message
+                ))?;
             }
             Event::AppLaunchResult(res) => {
                 let badge = if res.success { "🚀" } else { "❌" };
                 term.on_note(&format!("{badge} antOS Apps · {}", res.message))?;
             }
             Event::AutopilotStatus(st) => {
-                let active_badge = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };
+                let active_badge = if st.active {
+                    "ACTIVO (Vigilando)"
+                } else {
+                    "DETENIDO"
+                };
                 term.on_note(&format!("antOS Autopilot · Estado: {active_badge}"))?;
                 term.on_note(&format!("  • Espacio de trabajo: {}", st.workspace_path))?;
-                term.on_note(&format!("  • Intervalo sondeo:   {}s", st.poll_interval_secs))?;
-                term.on_note(&format!("  • Incidentes activos: {}", st.active_incidents_count))?;
-                term.on_note(&format!("  • Total resueltos:    {}", st.resolved_incidents_count))?;
+                term.on_note(&format!(
+                    "  • Intervalo sondeo:   {}s",
+                    st.poll_interval_secs
+                ))?;
+                term.on_note(&format!(
+                    "  • Incidentes activos: {}",
+                    st.active_incidents_count
+                ))?;
+                term.on_note(&format!(
+                    "  • Total resueltos:    {}",
+                    st.resolved_incidents_count
+                ))?;
                 if let Some(ts) = st.last_scan_timestamp {
                     term.on_note(&format!("  • Último escaneo:     {ts}"))?;
                 }
@@ -1609,54 +2155,99 @@ pub fn intencion_remota(
                 if list.is_empty() {
                     term.on_note("antOS Autopilot: No hay incidencias activas en el repositorio.")?;
                 } else {
-                    term.on_note(&format!("antOS Autopilot · Incidencias Registradas ({}):", list.len()))?;
+                    term.on_note(&format!(
+                        "antOS Autopilot · Incidencias Registradas ({}):",
+                        list.len()
+                    ))?;
                     for inc in list {
-                        term.on_note(&format!("  • [{}] {} en «{}» [{}] — {}",
+                        term.on_note(&format!(
+                            "  • [{}] {} en «{}» [{}] — {}",
                             inc.id, inc.incident_type, inc.file_path, inc.status, inc.error_message
                         ))?;
                     }
                 }
             }
             Event::AutopilotAlert(inc) => {
-                term.on_note(&format!("antOS Autopilot · Alerta de Incidencia [{}] en «{}»:", inc.id, inc.file_path))?;
+                term.on_note(&format!(
+                    "antOS Autopilot · Alerta de Incidencia [{}] en «{}»:",
+                    inc.id, inc.file_path
+                ))?;
                 term.on_note(&format!("  • Error:  {}", inc.error_message))?;
                 term.on_note(&format!("  • Estado: {}", inc.status))?;
                 if let Some(ref prop) = inc.fix_proposal {
-                    term.on_note(&format!("  • Solución: {} (Rama: {})", prop.title, prop.branch))?;
+                    term.on_note(&format!(
+                        "  • Solución: {} (Rama: {})",
+                        prop.title, prop.branch
+                    ))?;
                     if !prop.diff.is_empty() {
                         term.on_note(&format!("  • Diff:\n{}", prop.diff))?;
                     }
                 }
             }
             Event::WebConsoleStatus(st) => {
-                let status_badge = if st.running { "ACTIVO (En línea)" } else { "DETENIDO" };
+                let status_badge = if st.running {
+                    "ACTIVO (En línea)"
+                } else {
+                    "DETENIDO"
+                };
                 term.on_note(&format!("antOS Web Console · Estado: {status_badge}"))?;
                 term.on_note(&format!("  • URL de Acceso:         {}", st.url))?;
-                term.on_note(&format!("  • Clientes Conectados:   {}", st.connected_clients))?;
-                term.on_note(&format!("  • Sesiones Activas:      {}", st.active_sessions_count))?;
+                term.on_note(&format!(
+                    "  • Clientes Conectados:   {}",
+                    st.connected_clients
+                ))?;
+                term.on_note(&format!(
+                    "  • Sesiones Activas:      {}",
+                    st.active_sessions_count
+                ))?;
             }
             Event::WebTokenGenerated(session) => {
                 term.on_note("antOS Web Console · Token de Autenticación Criptográfico:")?;
                 term.on_note(&format!("  • Token:     {}", session.token))?;
-                term.on_note(&format!("  • Expira en: {}s", session.expires_at.saturating_sub(session.created_at)))?;
+                term.on_note(&format!(
+                    "  • Expira en: {}s",
+                    session.expires_at.saturating_sub(session.created_at)
+                ))?;
                 if let Some(lbl) = session.client_label {
                     term.on_note(&format!("  • Cliente:   {lbl}"))?;
                 }
             }
             Event::DevWorkspaceStatus(status) => {
                 term.on_note("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1):")?;
-                term.on_note(&format!("  • Proyecto Activo:   {}", status.active_project.as_deref().unwrap_or("ninguno")))?;
+                term.on_note(&format!(
+                    "  • Proyecto Activo:   {}",
+                    status.active_project.as_deref().unwrap_or("ninguno")
+                ))?;
                 term.on_note(&format!("  • Editor:            {}", status.editor_command))?;
-                term.on_note(&format!("  • Dimensiones:       {}x{}", status.term_columns, status.term_rows))?;
+                term.on_note(&format!(
+                    "  • Dimensiones:       {}x{}",
+                    status.term_columns, status.term_rows
+                ))?;
             }
             Event::TddReport(report) => {
-                term.on_note(&format!("🧪 antOS TDD Engine · Reporte de Reproducción [{}]", report.id))?;
+                term.on_note(&format!(
+                    "🧪 antOS TDD Engine · Reporte de Reproducción [{}]",
+                    report.id
+                ))?;
                 term.on_note(&format!("  • Estado:            {}", report.phase.label()))?;
-                term.on_note(&format!("  • Lenguaje:          {:?}", report.diagnostic.language))?;
-                term.on_note(&format!("  • Tipo de Error:     {}", report.diagnostic.error_type))?;
-                term.on_note(&format!("  • Mensaje:           {}", report.diagnostic.message))?;
+                term.on_note(&format!(
+                    "  • Lenguaje:          {:?}",
+                    report.diagnostic.language
+                ))?;
+                term.on_note(&format!(
+                    "  • Tipo de Error:     {}",
+                    report.diagnostic.error_type
+                ))?;
+                term.on_note(&format!(
+                    "  • Mensaje:           {}",
+                    report.diagnostic.message
+                ))?;
                 if let Some(ref f) = report.diagnostic.target_file {
-                    term.on_note(&format!("  • Archivo Objetivo:  {}:{}", f, report.diagnostic.target_line.unwrap_or(0)))?;
+                    term.on_note(&format!(
+                        "  • Archivo Objetivo:  {}:{}",
+                        f,
+                        report.diagnostic.target_line.unwrap_or(0)
+                    ))?;
                 }
                 if let Some(ref fn_name) = report.diagnostic.target_function {
                     term.on_note(&format!("  • Función:           {}", fn_name))?;
@@ -1665,74 +2256,180 @@ pub fn intencion_remota(
                 if let Some(ref fix) = report.fix_summary {
                     term.on_note(&format!("  • Corrección:        {}", fix))?;
                 }
-                term.on_note(&format!("  • Auditado:          {}", if report.audited { "Sí (Protegido contra regresiones)" } else { "No" }))?;
+                term.on_note(&format!(
+                    "  • Auditado:          {}",
+                    if report.audited {
+                        "Sí (Protegido contra regresiones)"
+                    } else {
+                        "No"
+                    }
+                ))?;
             }
             Event::CiReport(report) => {
-                term.on_note(&format!("⚙️ antOS CI · Reporte de Ejecución [{}]", report.id))?;
-                term.on_note(&format!("  • Estado General:    {}", if report.success { "PASÓ" } else { "FALLÓ" }))?;
-                term.on_note(&format!("  • Duración Total:    {} ms", report.total_duration_ms))?;
-                term.on_note(&format!("  • Seguridad:         {}", if report.security_clean { "Limpio (sin secretos)" } else { "Secretos detectados" }))?;
+                term.on_note(&format!(
+                    "⚙️ antOS CI · Reporte de Ejecución [{}]",
+                    report.id
+                ))?;
+                term.on_note(&format!(
+                    "  • Estado General:    {}",
+                    if report.success { "PASÓ" } else { "FALLÓ" }
+                ))?;
+                term.on_note(&format!(
+                    "  • Duración Total:    {} ms",
+                    report.total_duration_ms
+                ))?;
+                term.on_note(&format!(
+                    "  • Seguridad:         {}",
+                    if report.security_clean {
+                        "Limpio (sin secretos)"
+                    } else {
+                        "Secretos detectados"
+                    }
+                ))?;
                 for s in &report.stages {
-                    term.on_note(&format!("    - {:<12} {:<15} ({} ms) {}", s.name, s.status.label(), s.duration_ms, s.command))?;
+                    term.on_note(&format!(
+                        "    - {:<12} {:<15} ({} ms) {}",
+                        s.name,
+                        s.status.label(),
+                        s.duration_ms,
+                        s.command
+                    ))?;
                 }
             }
             Event::GitHooksStatus(status) => {
                 term.on_note("🪝 antOS Git Hooks · Estado de Protección:")?;
-                term.on_note(&format!("  • Pre-commit: {}", if status.pre_commit_installed { "Instalado" } else { "No instalado" }))?;
-                term.on_note(&format!("  • Pre-push:   {}", if status.pre_push_installed { "Instalado" } else { "No instalado" }))?;
+                term.on_note(&format!(
+                    "  • Pre-commit: {}",
+                    if status.pre_commit_installed {
+                        "Instalado"
+                    } else {
+                        "No instalado"
+                    }
+                ))?;
+                term.on_note(&format!(
+                    "  • Pre-push:   {}",
+                    if status.pre_push_installed {
+                        "Instalado"
+                    } else {
+                        "No instalado"
+                    }
+                ))?;
                 term.on_note(&format!("  • Directorio: {}", status.hook_dir))?;
             }
             Event::SnapshotCreated(meta) => {
-                term.on_note(&format!("📸 antOS Time Machine · Instantánea [{}] creada ({} archivos, {} KiB)", meta.id, meta.files_count, meta.total_bytes / 1024))?;
+                term.on_note(&format!(
+                    "📸 antOS Time Machine · Instantánea [{}] creada ({} archivos, {} KiB)",
+                    meta.id,
+                    meta.files_count,
+                    meta.total_bytes / 1024
+                ))?;
             }
             Event::SnapshotsList(list) => {
-                term.on_note(&format!("⏱️ antOS Time Machine · {} instantánea(s) registradas:", list.len()))?;
+                term.on_note(&format!(
+                    "⏱️ antOS Time Machine · {} instantánea(s) registradas:",
+                    list.len()
+                ))?;
                 for s in list {
-                    term.on_note(&format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024))?;
+                    term.on_note(&format!(
+                        "  • [{}] {} ({} archivos, {} KiB)",
+                        s.id,
+                        s.label.as_deref().unwrap_or("—"),
+                        s.files_count,
+                        s.total_bytes / 1024
+                    ))?;
                 }
             }
             Event::SnapshotRestored(res) => {
                 term.on_note(&format!("⏪ antOS Time Machine · Instantánea [{}] restaurada en {} ms ({} archivos actualizados)", res.snapshot_id, res.duration_ms, res.files_restored))?;
             }
             Event::SnapshotDeleted { id } => {
-                term.on_note(&format!("🗑️ antOS Time Machine · Instantánea [{id}] eliminada."))?;
+                term.on_note(&format!(
+                    "🗑️ antOS Time Machine · Instantánea [{id}] eliminada."
+                ))?;
             }
             Event::BenchmarkReport(report) => {
-                term.on_note(&format!("⚡ antOS Bench · Suite [{}] ejecutada en {} ms ({} métricas)", report.id, report.total_duration_ms, report.metrics.len()))?;
+                term.on_note(&format!(
+                    "⚡ antOS Bench · Suite [{}] ejecutada en {} ms ({} métricas)",
+                    report.id,
+                    report.total_duration_ms,
+                    report.metrics.len()
+                ))?;
                 for m in &report.metrics {
-                    term.on_note(&format!("  • {:<24} media: {} ns, p95: {} ns, {:.0} ops/s", m.name, m.mean_ns, m.p95_ns, m.ops_per_sec))?;
+                    term.on_note(&format!(
+                        "  • {:<24} media: {} ns, p95: {} ns, {:.0} ops/s",
+                        m.name, m.mean_ns, m.p95_ns, m.ops_per_sec
+                    ))?;
                 }
             }
             Event::BenchmarkDiff(diff) => {
-                term.on_note(&format!("⚡ antOS Bench Diff · Base: {} vs Objetivo: {}", diff.base_branch, diff.target_branch))?;
+                term.on_note(&format!(
+                    "⚡ antOS Bench Diff · Base: {} vs Objetivo: {}",
+                    diff.base_branch, diff.target_branch
+                ))?;
                 for c in &diff.comparisons {
-                    term.on_note(&format!("  • {:<24} delta: {:+.2}% [{}]", c.name, c.delta_pct, if c.is_regression { "REGRESIÓN" } else { "ÓPTIMO" }))?;
+                    term.on_note(&format!(
+                        "  • {:<24} delta: {:+.2}% [{}]",
+                        c.name,
+                        c.delta_pct,
+                        if c.is_regression {
+                            "REGRESIÓN"
+                        } else {
+                            "ÓPTIMO"
+                        }
+                    ))?;
                 }
                 term.on_note(&format!("  Veredicto Auditor: {}", diff.auditor_verdict))?;
             }
             Event::BenchmarkHistory(list) => {
-                term.on_note(&format!("📈 antOS Bench · {} corrida(s) en historial:", list.len()))?;
+                term.on_note(&format!(
+                    "📈 antOS Bench · {} corrida(s) en historial:",
+                    list.len()
+                ))?;
                 for h in list {
-                    term.on_note(&format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms))?;
+                    term.on_note(&format!(
+                        "  • [{}] {} - {} ({} ms)",
+                        h.id, h.branch, h.suite_name, h.total_duration_ms
+                    ))?;
                 }
             }
             Event::RemoteIssuesList(issues) => {
-                term.on_note(&format!("🐙 antOS Forge · {} issues abiertos en origen:", issues.len()))?;
+                term.on_note(&format!(
+                    "🐙 antOS Forge · {} issues abiertos en origen:",
+                    issues.len()
+                ))?;
                 for i in issues {
                     term.on_note(&format!("  • #{:<4} {} (@{})", i.number, i.title, i.author))?;
                 }
             }
-            Event::RemoteIssueImported { ticket_id, path, title } => {
-                term.on_note(&format!("📥 antOS Forge · Issue importado como [{ticket_id}]: {title} ({path})"))?;
+            Event::RemoteIssueImported {
+                ticket_id,
+                path,
+                title,
+            } => {
+                term.on_note(&format!(
+                    "📥 antOS Forge · Issue importado como [{ticket_id}]: {title} ({path})"
+                ))?;
             }
             Event::PullRequestCreated(pr) => {
-                term.on_note(&format!("🚀 antOS Forge · Pull Request #{}: {} ({})", pr.number, pr.title, pr.url))?;
+                term.on_note(&format!(
+                    "🚀 antOS Forge · Pull Request #{}: {} ({})",
+                    pr.number, pr.title, pr.url
+                ))?;
             }
             Event::PullRequestStatus(status) => {
-                term.on_note(&format!("🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]", status.number, status.title, status.state))?;
+                term.on_note(&format!(
+                    "🔍 antOS Forge · Pull Request #{}: {} [Estado: {}]",
+                    status.number, status.title, status.state
+                ))?;
             }
             Event::ArchDiagram(report) => {
-                term.on_note(&format!("📐 antOS Doc Arch · {} ({} crates, {} módulos, {} caps)", report.kind.name(), report.crates_count, report.modules_count, report.caps_count))?;
+                term.on_note(&format!(
+                    "📐 antOS Doc Arch · {} ({} crates, {} módulos, {} caps)",
+                    report.kind.name(),
+                    report.crates_count,
+                    report.modules_count,
+                    report.caps_count
+                ))?;
                 term.on_note(&format!("```mermaid\n{}\n```", report.mermaid_content))?;
             }
             Event::DocSync(report) => {
@@ -1784,7 +2481,9 @@ mod tests {
         let catalog = test_catalog(&ctx);
 
         let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
-        client_stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        client_stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
 
         let handle = std::thread::spawn(move || handle_connection(&ctx, &catalog, server_stream));
 
@@ -1798,9 +2497,14 @@ mod tests {
 
         let mut reader = BufReader::new(client_stream);
         let mut line = String::new();
-        reader.read_line(&mut line).expect("must receive a response instead of hanging or being disconnected without one");
+        reader
+            .read_line(&mut line)
+            .expect("must receive a response instead of hanging or being disconnected without one");
         let event: Event = serde_json::from_str(line.trim()).expect("response must be valid JSON");
-        assert!(matches!(event, Event::Error(_)), "expected a protocol error, got: {event:?}");
+        assert!(
+            matches!(event, Event::Error(_)),
+            "expected a protocol error, got: {event:?}"
+        );
 
         handle.join().unwrap().ok();
         let _ = std::fs::remove_dir_all(&temp);
@@ -1817,20 +2521,30 @@ mod tests {
         // the mechanism under test is the same `set_read_timeout` call
         // `servir` makes in production.
         let (server_a, client_a) = UnixStream::pair().unwrap();
-        server_a.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        server_a
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
 
         let start = Instant::now();
         let result_a = handle_connection(&ctx, &catalog, server_a);
         let elapsed = start.elapsed();
-        assert!(result_a.is_err(), "an idle connection past its read timeout must surface as an error");
-        assert!(elapsed < Duration::from_secs(2), "must give up within its configured timeout, took {elapsed:?}");
+        assert!(
+            result_a.is_err(),
+            "an idle connection past its read timeout must surface as an error"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "must give up within its configured timeout, took {elapsed:?}"
+        );
         drop(client_a); // kept alive until here on purpose, so the read above genuinely times out rather than seeing an immediate EOF.
 
         // Connection B: served right after, exactly as `servir`'s serial
         // accept loop would do once connection A releases control — must
         // not have been starved by A's idleness.
         let (server_b, mut client_b) = UnixStream::pair().unwrap();
-        server_b.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+        server_b
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
         send(&mut client_b, &Request::Approval(false)).unwrap();
 
         handle_connection(&ctx, &catalog, server_b).expect("connection B must be served normally");
@@ -1839,7 +2553,10 @@ mod tests {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let event: Event = serde_json::from_str(line.trim()).unwrap();
-        assert!(matches!(event, Event::Error(_)), "expected the usual 'approval without prior proposal' error, got: {event:?}");
+        assert!(
+            matches!(event, Event::Error(_)),
+            "expected the usual 'approval without prior proposal' error, got: {event:?}"
+        );
 
         let _ = std::fs::remove_dir_all(&temp);
     }
@@ -1884,7 +2601,8 @@ mod tests {
     fn test_bind_socket_final_permissions_are_0600() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("antos_test_ipc_bind_final_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("antos_test_ipc_bind_final_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let sock_path = dir.join("test.sock");

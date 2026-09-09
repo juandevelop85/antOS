@@ -6,7 +6,9 @@
 
 use antos_protocol::{CapabilityFidelity, RuntimeCapabilitiesMatrix};
 
-use super::{PlatformRuntime, ProcessWatchdogMonitor, QuotaMonitor, SimulatedTelemetry, TelemetryProvider};
+use super::{
+    PlatformRuntime, ProcessWatchdogMonitor, QuotaMonitor, SimulatedTelemetry, TelemetryProvider,
+};
 use crate::sandbox::{self, Sandbox};
 
 /// Linux runtime: Landlock sandbox, cgroups v2 quotas, eBPF telemetry, KVM.

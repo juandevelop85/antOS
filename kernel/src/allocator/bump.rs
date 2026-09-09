@@ -31,7 +31,12 @@ pub struct BumpAllocator {
 #[cfg_attr(not(feature = "bump"), allow(dead_code))]
 impl BumpAllocator {
     pub const fn new() -> Self {
-        BumpAllocator { heap_start: 0, heap_end: 0, next: 0, allocations: 0 }
+        BumpAllocator {
+            heap_start: 0,
+            heap_end: 0,
+            next: 0,
+            allocations: 0,
+        }
     }
 
     /// # Safety

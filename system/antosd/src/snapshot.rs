@@ -57,7 +57,10 @@ pub fn take(id: &str, paths: &[PathBuf], snapshots_dir: &Path) -> Result<Snapsho
         }
     }
 
-    let snap = Snapshot { id: id.to_string(), entries };
+    let snap = Snapshot {
+        id: id.to_string(),
+        entries,
+    };
     std::fs::write(dir.join("manifest.json"), serde_json::to_vec_pretty(&snap)?)?;
     Ok(snap)
 }

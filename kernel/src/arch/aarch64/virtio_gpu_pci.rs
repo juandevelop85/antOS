@@ -13,7 +13,8 @@ use crate::sync::SpinLock;
 use super::virtio_gpu::{
     VirtioGpuCtrlHdr, VirtioGpuRect, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
     VIRTIO_GPU_CMD_RESOURCE_CREATE_2D, VIRTIO_GPU_CMD_RESOURCE_FLUSH, VIRTIO_GPU_CMD_SET_SCANOUT,
-    VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D, VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM, VIRTIO_GPU_RESP_OK_NODATA,
+    VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D, VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM,
+    VIRTIO_GPU_RESP_OK_NODATA,
 };
 use super::virtio_pci::{self, VirtioPciRegions};
 
@@ -230,7 +231,10 @@ impl VirtioGpuPci {
         // Reset, then ACKNOWLEDGE | DRIVER.
         w8(common + CFG_DEVICE_STATUS, 0);
         w8(common + CFG_DEVICE_STATUS, STATUS_ACKNOWLEDGE);
-        w8(common + CFG_DEVICE_STATUS, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        w8(
+            common + CFG_DEVICE_STATUS,
+            STATUS_ACKNOWLEDGE | STATUS_DRIVER,
+        );
 
         // Accept exactly VIRTIO_F_VERSION_1 (feature bit 32).
         w32(common + CFG_DEVICE_FEATURE_SELECT, 1);
@@ -263,7 +267,11 @@ impl VirtioGpuPci {
         }
         w16(common + CFG_QUEUE_SIZE, QUEUE_SIZE as u16);
 
-        core::ptr::write_bytes(addr_of_mut!(PCI_VRING) as *mut u8, 0, core::mem::size_of::<VirtQueue>());
+        core::ptr::write_bytes(
+            addr_of_mut!(PCI_VRING) as *mut u8,
+            0,
+            core::mem::size_of::<VirtQueue>(),
+        );
         let ring = addr_of!(PCI_VRING) as u64;
         let desc_pa = ring;
         let avail_pa = ring + core::mem::size_of::<[VirtqDesc; QUEUE_SIZE]>() as u64;
@@ -367,7 +375,8 @@ impl VirtioGpuPci {
     }
 
     unsafe fn exec_or<T: Copy>(&mut self, cmd: &T) -> Result<(), &'static str> {
-        self.exec(cmd).map_err(|_| "virtio-gpu-pci command rejected")
+        self.exec(cmd)
+            .map_err(|_| "virtio-gpu-pci command rejected")
     }
 
     unsafe fn exec<T: Copy>(&mut self, cmd: &T) -> Result<(), ()> {

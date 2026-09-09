@@ -5,7 +5,6 @@
 //! with double buffering to eliminate screen tearing.
 //! Routes user input events and manages focus between HUD and Terminal.
 
-use core::sync::atomic::{AtomicBool, Ordering};
 use super::color::palette;
 use super::cursor::MouseCursor;
 use super::hud::IntentHud;
@@ -16,6 +15,7 @@ use super::terminal_window::TerminalWindow;
 use crate::console::Framebuffer;
 use crate::input::{pop_event, InputEvent, KeyCode, KeyboardState, MouseButton};
 use crate::sync::SpinLock;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Tracks whether the graphical Desktop Compositor session is currently active.
 static DESKTOP_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -151,7 +151,8 @@ impl DesktopCompositor {
 
         match event {
             InputEvent::MouseMove { dx, dy } => {
-                self.cursor.move_rel(dx, dy, screen_w as i32, screen_h as i32);
+                self.cursor
+                    .move_rel(dx, dy, screen_w as i32, screen_h as i32);
                 true
             }
             InputEvent::MouseAbsolute { x, y } => {
@@ -252,7 +253,6 @@ impl DesktopCompositor {
             _ => false,
         }
     }
-
 
     /// Renders the complete desktop environment into `surface`.
     pub fn render(
@@ -421,7 +421,9 @@ impl DesktopCompositor {
 fn raw_framebuffer_has_gpu_transport() -> bool {
     #[cfg(target_arch = "aarch64")]
     {
-        crate::arch::aarch64::virtio_gpu::VIRTIO_GPU.lock().is_some()
+        crate::arch::aarch64::virtio_gpu::VIRTIO_GPU
+            .lock()
+            .is_some()
             || crate::arch::aarch64::virtio_gpu_pci::VIRTIO_GPU_PCI
                 .lock()
                 .is_some()

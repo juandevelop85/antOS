@@ -94,10 +94,22 @@ mod tests {
         };
         let profile = sbpl(&policy);
 
-        assert!(profile.contains("(deny file-write*)"), "debe denegar escrituras por defecto");
-        assert!(profile.contains("(subpath \"/ws/demo\")"), "debe reabrir la ruta declarada");
-        assert!(profile.contains("(deny network*)"), "sin red declarada, se deniega la red");
-        assert!(profile.contains("Shield sensitive credentials"), "debe blindar secretos");
+        assert!(
+            profile.contains("(deny file-write*)"),
+            "debe denegar escrituras por defecto"
+        );
+        assert!(
+            profile.contains("(subpath \"/ws/demo\")"),
+            "debe reabrir la ruta declarada"
+        );
+        assert!(
+            profile.contains("(deny network*)"),
+            "sin red declarada, se deniega la red"
+        );
+        assert!(
+            profile.contains("Shield sensitive credentials"),
+            "debe blindar secretos"
+        );
     }
 
     #[test]
@@ -117,7 +129,14 @@ mod tests {
 
     #[test]
     fn test_network_allowed_only_if_declared() {
-        let policy = Policy { writes: vec![], reads: vec![], dirs: vec![], network: true, allowed_secrets: vec![], quota: None };
+        let policy = Policy {
+            writes: vec![],
+            reads: vec![],
+            dirs: vec![],
+            network: true,
+            allowed_secrets: vec![],
+            quota: None,
+        };
         assert!(!sbpl(&policy).contains("(deny network*)"));
     }
 

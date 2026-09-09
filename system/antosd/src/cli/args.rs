@@ -71,4 +71,3 @@ mod tests {
         assert!(opts2.help);
     }
 }
-

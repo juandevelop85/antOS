@@ -10,11 +10,11 @@
 //! - `darwin`     — Seatbelt, process watchdog, Hypervisor.framework.
 //! - `bare_metal` — Stub for future antOS kernel syscalls.
 
-#[cfg(target_os = "linux")]
-pub mod linux;
+pub mod bare_metal;
 #[cfg(target_os = "macos")]
 pub mod darwin;
-pub mod bare_metal;
+#[cfg(target_os = "linux")]
+pub mod linux;
 
 use antos_protocol::{CapabilityFidelity, RuntimeCapabilitiesMatrix, RuntimeInfo};
 

@@ -72,13 +72,20 @@ mod tests {
             let _guard = m2.lock().unwrap();
             panic!("intentional panic to poison the lock for this test");
         });
-        assert!(handle.join().is_err(), "the spawned thread must actually have panicked");
+        assert!(
+            handle.join().is_err(),
+            "the spawned thread must actually have panicked"
+        );
 
         // A plain `.lock().unwrap()` would panic again here. This must not.
         let mut guard = lock_or_recover(&m);
         *guard = 7;
         drop(guard);
-        assert_eq!(*lock_or_recover(&m), 7, "the lock must remain usable after recovering from poison");
+        assert_eq!(
+            *lock_or_recover(&m),
+            7,
+            "the lock must remain usable after recovering from poison"
+        );
     }
 
     #[test]

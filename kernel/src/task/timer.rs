@@ -39,7 +39,9 @@ pub fn ticks() -> u64 {
 /// deja así porque con una sola tarea durmiendo el mecanismo se ve entero, y
 /// una cola de temporizadores es un capítulo aparte.
 pub fn sleep(ticks_to_wait: u64) -> Sleep {
-    Sleep { deadline: TICKS.load(Ordering::Relaxed) + ticks_to_wait }
+    Sleep {
+        deadline: TICKS.load(Ordering::Relaxed) + ticks_to_wait,
+    }
 }
 
 pub struct Sleep {

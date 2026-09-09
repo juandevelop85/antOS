@@ -3,10 +3,10 @@
 //! Exposes unified POSIX-like file and directory operations backed by
 //! the mounted root filesystem (`TarFs`).
 
+use super::tarfs::TarFs;
+use crate::sync::SpinLock;
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::sync::SpinLock;
-use super::tarfs::TarFs;
 
 /// Filesystem errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

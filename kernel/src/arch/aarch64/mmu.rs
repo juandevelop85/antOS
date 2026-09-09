@@ -99,10 +99,14 @@ const UXN_FLAG: u64 = 1 << 54;
 pub const USER_SPACE_VIRT: u64 = 0x0040_0000;
 pub const USER_SPACE_PHYS: u64 = 0x4100_0000;
 
-const NORMAL_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_EL1 | SH_INNER | ACCESS_FLAG | UXN_FLAG;
-const USER_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NORMAL | AP_RW_USER | SH_INNER | ACCESS_FLAG | PXN_FLAG;
-const DEVICE_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_DEVICE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
-const FRAMEBUFFER_BLOCK_FLAGS: u64 = DESC_BLOCK | ATTR_NON_CACHEABLE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
+const NORMAL_BLOCK_FLAGS: u64 =
+    DESC_BLOCK | ATTR_NORMAL | AP_RW_EL1 | SH_INNER | ACCESS_FLAG | UXN_FLAG;
+const USER_BLOCK_FLAGS: u64 =
+    DESC_BLOCK | ATTR_NORMAL | AP_RW_USER | SH_INNER | ACCESS_FLAG | PXN_FLAG;
+const DEVICE_BLOCK_FLAGS: u64 =
+    DESC_BLOCK | ATTR_DEVICE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
+const FRAMEBUFFER_BLOCK_FLAGS: u64 =
+    DESC_BLOCK | ATTR_NON_CACHEABLE | AP_RW_EL1 | SH_OUTER | ACCESS_FLAG | PXN_FLAG | UXN_FLAG;
 
 pub struct ArmMmu;
 
@@ -202,12 +206,7 @@ pub fn init() {
         core::arch::asm!("isb", options(nomem, nostack));
 
         // Invalidate all TLB entries
-        core::arch::asm!(
-            "tlbi vmalle1is",
-            "dsb ish",
-            "isb",
-            options(nomem, nostack)
-        );
+        core::arch::asm!("tlbi vmalle1is", "dsb ish", "isb", options(nomem, nostack));
 
         // 5. Enable MMU (M bit = 1), Data Cache (C bit = 1), Instruction Cache (I bit = 1) in SCTLR_EL1
         let mut sctlr: u64;
@@ -262,7 +261,9 @@ pub fn kernel_virt_to_phys(vaddr: u64) -> u64 {
         let response_ptr = crate::limine::EXECUTABLE_ADDRESS_REQUEST.response;
         if !response_ptr.is_null() {
             let resp = unsafe { &*response_ptr };
-            return vaddr.wrapping_sub(resp.virtual_base).wrapping_add(resp.physical_base);
+            return vaddr
+                .wrapping_sub(resp.virtual_base)
+                .wrapping_add(resp.physical_base);
         }
     }
     vaddr
@@ -285,8 +286,11 @@ pub fn init_ttbr0_under_limine() {
         panic!("limine: no executable-address response (unsupported base revision?)");
     }
     let response = unsafe { &*response_ptr };
-    let slide_virtual_to_physical =
-        |vaddr: u64| vaddr.wrapping_sub(response.virtual_base).wrapping_add(response.physical_base);
+    let slide_virtual_to_physical = |vaddr: u64| {
+        vaddr
+            .wrapping_sub(response.virtual_base)
+            .wrapping_add(response.physical_base)
+    };
 
     unsafe {
         let l1_addr = slide_virtual_to_physical(core::ptr::addr_of!(L1_TABLE) as u64);
@@ -306,7 +310,9 @@ pub fn init_ttbr0_under_limine() {
 
         // PCIe MMIO32 + ECAM window for QEMU/UTM `virt` (T28.2).
         map_pcie_window();
-        map_high_pcie_mmio(slide_virtual_to_physical(core::ptr::addr_of!(L1_TABLE_HIGH) as u64));
+        map_high_pcie_mmio(slide_virtual_to_physical(
+            core::ptr::addr_of!(L1_TABLE_HIGH) as u64,
+        ));
 
         let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
@@ -372,4 +378,3 @@ pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> Result<u64, ()> {
     }
     Ok(phys_addr)
 }
-

@@ -4,7 +4,7 @@
 //! maintaining subpixel/integer coordinates, button states, and
 //! rendering directly onto a `Surface` with boundary clipping.
 
-use super::color::{Color, palette};
+use super::color::{palette, Color};
 use super::rect::{Point, Rect};
 use super::surface::Surface;
 

@@ -289,7 +289,11 @@ fn calcular_delante_detras(repo_root: &Path) -> (usize, usize) {
 /// All Git subprocesses carry `GIT_CEILING_DIRECTORIES` to enforce workspace isolation.
 fn get_files_and_diffs(
     repo_root: &Path,
-) -> Result<(Vec<GitFileDiffSummary>, Vec<GitFileDiffSummary>, Vec<String>)> {
+) -> Result<(
+    Vec<GitFileDiffSummary>,
+    Vec<GitFileDiffSummary>,
+    Vec<String>,
+)> {
     let mut modificados = Vec::new();
     let mut staged = Vec::new();
     let mut sin_seguimiento = Vec::new();
@@ -343,7 +347,11 @@ fn get_files_and_diffs(
         let index_stat = linea.as_bytes()[0] as char;
         let work_stat = linea.as_bytes()[1] as char;
         let ruta_raw = linea[3..].trim();
-        let ruta = ruta_raw.split(" -> ").last().unwrap_or(ruta_raw).to_string();
+        let ruta = ruta_raw
+            .split(" -> ")
+            .last()
+            .unwrap_or(ruta_raw)
+            .to_string();
 
         if index_stat == '?' && work_stat == '?' {
             sin_seguimiento.push(ruta);
@@ -410,7 +418,12 @@ fn parsear_numstat(salida: &str, destino: &mut HashMap<String, (usize, usize)>) 
 
 /// Creates an ephemeral Git worktree sharing objects from the base repository.
 /// Carries `GIT_CEILING_DIRECTORIES` to enforce workspace boundary isolation.
-pub fn create_worktree(repo_root: &Path, destination: &Path, branch: &str, base: &str) -> Result<()> {
+pub fn create_worktree(
+    repo_root: &Path,
+    destination: &Path,
+    branch: &str,
+    base: &str,
+) -> Result<()> {
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("creating parent dir {}", parent.display()))?;
@@ -487,7 +500,10 @@ pub fn merge_worktree(
         .context("checkout target branch")?;
 
     if !checkout.status.success() {
-        bail!("git checkout {target} failed: {}", String::from_utf8_lossy(&checkout.stderr));
+        bail!(
+            "git checkout {target} failed: {}",
+            String::from_utf8_lossy(&checkout.stderr)
+        );
     }
 
     let default_msg = format!("merge: integrate changes from {branch}");
@@ -501,10 +517,15 @@ pub fn merge_worktree(
         .context("merge worktree branch")?;
 
     if !merge_out.status.success() {
-        bail!("git merge failed: {}", String::from_utf8_lossy(&merge_out.stderr));
+        bail!(
+            "git merge failed: {}",
+            String::from_utf8_lossy(&merge_out.stderr)
+        );
     }
 
-    Ok(String::from_utf8_lossy(&merge_out.stdout).trim().to_string())
+    Ok(String::from_utf8_lossy(&merge_out.stdout)
+        .trim()
+        .to_string())
 }
 
 // ------------------------------------------------------------------- tests
@@ -529,7 +550,9 @@ mod tests {
     fn test_git_analyzer_on_current_repo() {
         let cwd = std::env::current_dir().expect("cwd");
         let analyzer = GitAnalyzer::global();
-        let result = analyzer.consultar_estado(&cwd).expect("analysis should succeed");
+        let result = analyzer
+            .consultar_estado(&cwd)
+            .expect("analysis should succeed");
         assert!(result.is_some(), "antOS should be recognized as a Git repo");
         let status = result.unwrap();
         assert!(status.branch.is_some() || status.head_commit.is_some());
@@ -587,20 +610,46 @@ mod tests {
     fn test_directorio_sin_git() {
         let dir_temp = tempfile_simple("sin_git_test");
         let analyzer = GitAnalyzer::global();
-        let resultado = analyzer.consultar_estado(&dir_temp).expect("analisis sin error");
-        assert!(resultado.is_none(), "directorio temporal no debe ser repo Git");
+        let resultado = analyzer
+            .consultar_estado(&dir_temp)
+            .expect("analisis sin error");
+        assert!(
+            resultado.is_none(),
+            "directorio temporal no debe ser repo Git"
+        );
         let _ = fs::remove_dir_all(&dir_temp);
     }
 
     #[test]
     fn test_cache_performance_under_30ms() {
         let dir_repo = tempfile_simple("cache_bench_repo");
-        let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.name", "Test"]).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.email", "test@example.com"]).output();
+        let _ = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .arg(&dir_repo)
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["config", "user.name", "Test"])
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["config", "user.email", "test@example.com"])
+            .output();
         let _ = fs::write(dir_repo.join("README.md"), "# Bench\n");
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["add", "README.md"]).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["commit", "-m", "init"]).output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["add", "README.md"])
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["commit", "-m", "init"])
+            .output();
 
         let analyzer = GitAnalyzer::global();
         // Primer acceso para calentar caché
@@ -608,7 +657,9 @@ mod tests {
 
         // Segundo acceso desde caché
         let t0 = std::time::Instant::now();
-        let resultado = analyzer.consultar_estado(&dir_repo).expect("consulta en cache");
+        let resultado = analyzer
+            .consultar_estado(&dir_repo)
+            .expect("consulta en cache");
         let duracion = t0.elapsed();
 
         let _ = fs::remove_dir_all(&dir_repo);
@@ -624,14 +675,16 @@ mod tests {
     #[test]
     fn test_repositorio_vacio_o_nuevo() {
         let dir_temp = tempfile_simple("repo_vacio");
-        let _ = Command::new("git")
-            .arg("init")
-            .arg(&dir_temp)
-            .output();
+        let _ = Command::new("git").arg("init").arg(&dir_temp).output();
 
         let analyzer = GitAnalyzer::global();
-        let resultado = analyzer.consultar_estado(&dir_temp).expect("analisis repo vacio");
-        assert!(resultado.is_some(), "debe detectar repo recién inicializado");
+        let resultado = analyzer
+            .consultar_estado(&dir_temp)
+            .expect("analisis repo vacio");
+        assert!(
+            resultado.is_some(),
+            "debe detectar repo recién inicializado"
+        );
         let status = resultado.unwrap();
         assert!(status.clean);
 
@@ -644,12 +697,33 @@ mod tests {
         let dir_wt = tempfile_simple("worktree_target");
 
         // Inicializar repo con commit inicial
-        let _ = Command::new("git").arg("init").arg("-b").arg("main").arg(&dir_repo).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.name", "Test"]).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["config", "user.email", "test@example.com"]).output();
+        let _ = Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .arg(&dir_repo)
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["config", "user.name", "Test"])
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["config", "user.email", "test@example.com"])
+            .output();
         let _ = fs::write(dir_repo.join("README.md"), "# Test Repo\n");
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["add", "README.md"]).output();
-        let _ = Command::new("git").arg("-C").arg(&dir_repo).args(["commit", "-m", "init"]).output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["add", "README.md"])
+            .output();
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&dir_repo)
+            .args(["commit", "-m", "init"])
+            .output();
 
         // 1. Medir tiempo de creación de worktree (< 500ms según criterio de aceptación T2.2)
         let t0 = std::time::Instant::now();
@@ -665,22 +739,32 @@ mod tests {
         // 2. Verificar existencia y enlace compartido
         assert!(dir_wt.join("README.md").exists());
         let wt_git = dir_wt.join(".git");
-        assert!(wt_git.is_file(), ".git en worktree debe ser un puntero gitdir:");
+        assert!(
+            wt_git.is_file(),
+            ".git en worktree debe ser un puntero gitdir:"
+        );
 
         // 3. Verificar aislamiento: modificar archivo en worktree no toca el repo base
         fs::write(dir_wt.join("README.md"), "# Modificado en worktree\n").expect("write wt");
         let contenido_base = fs::read_to_string(dir_repo.join("README.md")).expect("read base");
-        assert_eq!(contenido_base, "# Test Repo\n", "el repo base debe permanecer inalterado");
+        assert_eq!(
+            contenido_base, "# Test Repo\n",
+            "el repo base debe permanecer inalterado"
+        );
 
         // 4. Eliminar worktree
         remove_worktree(&dir_repo, &dir_wt, true).expect("eliminar worktree");
-        assert!(!dir_wt.exists(), "directorio de worktree debe haber sido eliminado");
+        assert!(
+            !dir_wt.exists(),
+            "directorio de worktree debe haber sido eliminado"
+        );
 
         let _ = fs::remove_dir_all(&dir_repo);
     }
 
     fn tempfile_simple(nombre: &str) -> PathBuf {
-        let ruta = std::env::temp_dir().join(format!("antos_test_{}_{}", nombre, std::process::id()));
+        let ruta =
+            std::env::temp_dir().join(format!("antos_test_{}_{}", nombre, std::process::id()));
         let _ = fs::create_dir_all(&ruta);
         ruta
     }

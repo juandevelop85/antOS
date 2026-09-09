@@ -69,7 +69,10 @@ impl<T> SpinLock<T> {
                 core::hint::spin_loop();
             }
         }
-        SpinGuard { lock: self, restore_interrupts }
+        SpinGuard {
+            lock: self,
+            restore_interrupts,
+        }
     }
 
     /// Attempts to acquire the lock without spinning.
@@ -170,7 +173,9 @@ unsafe impl<T: Send> Sync for InitOnly<T> {}
 
 impl<T> InitOnly<T> {
     pub const fn new(value: T) -> Self {
-        InitOnly { value: UnsafeCell::new(value) }
+        InitOnly {
+            value: UnsafeCell::new(value),
+        }
     }
 
     /// # Safety

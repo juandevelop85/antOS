@@ -1,10 +1,10 @@
 //! CLI commands for Flatpak and desktop application management (T25.2).
 
-use std::path::Path;
-use anyhow::Result;
-use antos_protocol::AppSource;
 use crate::apps::AppEngine;
 use crate::ctx::Ctx;
+use antos_protocol::AppSource;
+use anyhow::Result;
+use std::path::Path;
 
 pub fn cmd_app(ctx: &Ctx, args: &[String]) -> Result<()> {
     if args.is_empty() {
@@ -35,7 +35,11 @@ pub fn cmd_app(ctx: &Ctx, args: &[String]) -> Result<()> {
                     Some(AppSource::NativePkg) => " (Solo antpkg)",
                     _ => "",
                 };
-                println!("📦 antOS Apps · Aplicaciones Instaladas{} ({}):", filter_desc, apps.len());
+                println!(
+                    "📦 antOS Apps · Aplicaciones Instaladas{} ({}):",
+                    filter_desc,
+                    apps.len()
+                );
                 for a in apps {
                     let src_badge = match a.source {
                         AppSource::Flatpak => "[\x1b[34mFlatpak\x1b[0m]",
@@ -62,9 +66,16 @@ pub fn cmd_app(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             let results = AppEngine::search_apps(state_dir, &query)?;
             if results.is_empty() {
-                println!("No se encontraron aplicaciones coincidentes con '{}'.", query);
+                println!(
+                    "No se encontraron aplicaciones coincidentes con '{}'.",
+                    query
+                );
             } else {
-                println!("🔍 antOS Apps · Resultados de Búsqueda ({}) para '{}':", results.len(), query);
+                println!(
+                    "🔍 antOS Apps · Resultados de Búsqueda ({}) para '{}':",
+                    results.len(),
+                    query
+                );
                 for r in results {
                     let status_badge = if r.installed {
                         "[\x1b[32mInstalada\x1b[0m]"
@@ -76,7 +87,10 @@ pub fn cmd_app(ctx: &Ctx, args: &[String]) -> Result<()> {
                         AppSource::NativePkg => "[\x1b[32mantpkg\x1b[0m]",
                         AppSource::Nix => "[\x1b[36mNix\x1b[0m]",
                     };
-                    println!("  • {:<32} {} {} v{}", r.id, src_badge, status_badge, r.version);
+                    println!(
+                        "  • {:<32} {} {} v{}",
+                        r.id, src_badge, status_badge, r.version
+                    );
                     println!("    {} - {}", r.name, r.description);
                 }
             }
@@ -163,7 +177,10 @@ pub fn cmd_app(ctx: &Ctx, args: &[String]) -> Result<()> {
             print_app_help();
         }
         other => {
-            eprintln!("Subcomando desconocido: 'antos app {}'. Usa 'antos app help'.", other);
+            eprintln!(
+                "Subcomando desconocido: 'antos app {}'. Usa 'antos app help'.",
+                other
+            );
         }
     }
 

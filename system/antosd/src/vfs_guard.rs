@@ -4,8 +4,8 @@
 //! to disk, preventing truncated or syntactically broken code from entering the repository.
 
 use crate::util::lock_or_recover;
-use anyhow::Result;
 use antos_protocol::{SyntaxValidationError, ValidationResult, VfsGuardStatus};
+use anyhow::Result;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -67,7 +67,11 @@ impl VfsGuardEngine {
                     let (line, col) = if let Some(span) = e.span() {
                         let prefix = &content[..span.start.min(content.len())];
                         let l = prefix.lines().count().max(1);
-                        let c = prefix.lines().last().map(|line| line.len() + 1).unwrap_or(1);
+                        let c = prefix
+                            .lines()
+                            .last()
+                            .map(|line| line.len() + 1)
+                            .unwrap_or(1);
                         (l, c)
                     } else {
                         (1, 1)
@@ -206,7 +210,8 @@ impl VfsGuardEngine {
             // Quotes handling
             if c == '\'' && !in_double_quote && !in_backtick {
                 // In Rust, ignore character lifetimes like 'a, 'static
-                let is_rust_lifetime = lang == "rust" && (i + 1 < len && (chars[i + 1].is_alphabetic() || chars[i + 1] == '_'))
+                let is_rust_lifetime = lang == "rust"
+                    && (i + 1 < len && (chars[i + 1].is_alphabetic() || chars[i + 1] == '_'))
                     && (i + 2 >= len || chars[i + 2] != '\'');
                 if !is_rust_lifetime {
                     in_single_quote = !in_single_quote;
@@ -221,7 +226,11 @@ impl VfsGuardEngine {
                 continue;
             }
 
-            if c == '`' && (lang == "typescript" || lang == "javascript") && !in_single_quote && !in_double_quote {
+            if c == '`'
+                && (lang == "typescript" || lang == "javascript")
+                && !in_single_quote
+                && !in_double_quote
+            {
                 in_backtick = !in_backtick;
                 i += 1;
                 continue;
@@ -252,7 +261,8 @@ impl VfsGuardEngine {
                         errors.push(SyntaxValidationError {
                             line: line_num,
                             column: col_num,
-                            message: "Unexpected closing delimiter ')' without matching opening".into(),
+                            message: "Unexpected closing delimiter ')' without matching opening"
+                                .into(),
                             severity: "error".into(),
                         });
                     }
@@ -271,7 +281,8 @@ impl VfsGuardEngine {
                         errors.push(SyntaxValidationError {
                             line: line_num,
                             column: col_num,
-                            message: "Unexpected closing delimiter ']' without matching opening".into(),
+                            message: "Unexpected closing delimiter ']' without matching opening"
+                                .into(),
                             severity: "error".into(),
                         });
                     }
@@ -290,7 +301,8 @@ impl VfsGuardEngine {
                         errors.push(SyntaxValidationError {
                             line: line_num,
                             column: col_num,
-                            message: "Unexpected closing delimiter '}' without matching opening".into(),
+                            message: "Unexpected closing delimiter '}' without matching opening"
+                                .into(),
                             severity: "error".into(),
                         });
                     }
@@ -345,7 +357,9 @@ impl VfsGuardEngine {
             errors.push(SyntaxValidationError {
                 line: l,
                 column: col,
-                message: format!("Unclosed delimiter '{c}', expected matching '{partner}' before EOF"),
+                message: format!(
+                    "Unclosed delimiter '{c}', expected matching '{partner}' before EOF"
+                ),
                 severity: "error".into(),
             });
         }
@@ -434,7 +448,11 @@ mod tests {
             }
         "#;
         let res = engine.validate_content("src/calc.rs", code);
-        assert!(res.is_valid, "expected code to be valid, got: {:?}", res.errors);
+        assert!(
+            res.is_valid,
+            "expected code to be valid, got: {:?}",
+            res.errors
+        );
         assert_eq!(res.language, "rust");
     }
 
@@ -458,7 +476,10 @@ mod tests {
         let broken = "const arr = [1, 2, 3);";
         let res = engine.validate_content("app.ts", broken);
         assert!(!res.is_valid);
-        assert!(res.errors.iter().any(|e| e.message.contains("Mismatched delimiter")));
+        assert!(res
+            .errors
+            .iter()
+            .any(|e| e.message.contains("Mismatched delimiter")));
     }
 
     #[test]
@@ -479,7 +500,9 @@ mod tests {
         let engine = VfsGuardEngine::global();
         engine.reset_stats();
 
-        let ok_res = engine.intercept_write("src/valid.rs", "fn test() {}").unwrap();
+        let ok_res = engine
+            .intercept_write("src/valid.rs", "fn test() {}")
+            .unwrap();
         assert!(ok_res.is_valid);
 
         let err_res = engine.intercept_write("src/bad.rs", "fn bad() {").unwrap();

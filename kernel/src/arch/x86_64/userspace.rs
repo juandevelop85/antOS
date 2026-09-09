@@ -274,7 +274,6 @@ fn sys_write(pointer: u64, length: u64) -> u64 {
     }
 }
 
-
 fn sys_read(pointer: u64, max_length: u64) -> u64 {
     if let Err(e) = syscall::validate_user_ptr(pointer, max_length) {
         return e;
@@ -335,7 +334,8 @@ fn sys_spawn(path_ptr: u64, path_len: u64, mode: u64) -> u64 {
         return syscall::EINVAL;
     }
 
-    let path_bytes = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, path_len as usize) };
+    let path_bytes =
+        unsafe { core::slice::from_raw_parts(path_ptr as *const u8, path_len as usize) };
     let Ok(path_str) = core::str::from_utf8(path_bytes) else {
         return syscall::EINVAL;
     };
@@ -358,15 +358,8 @@ fn sys_spawn(path_ptr: u64, path_len: u64, mode: u64) -> u64 {
     }
     let stack_top = stack_base + 16 * PAGE_SIZE;
 
-    let (pid, _tid) = crate::task::scheduler::spawn_process(
-        path_str,
-        cr3_root,
-        entry,
-        stack_top,
-        0,
-        true,
-        mode,
-    );
+    let (pid, _tid) =
+        crate::task::scheduler::spawn_process(path_str, cr3_root, entry, stack_top, 0, true, mode);
     pid
 }
 

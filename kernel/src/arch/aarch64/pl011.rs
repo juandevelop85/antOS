@@ -3,8 +3,8 @@
 //! Maps UART registers via Memory-Mapped I/O (MMIO) at the standard
 //! base address `0x0900_0000`.
 
-use core::fmt;
 use crate::arch::traits::ArchConsole;
+use core::fmt;
 
 /// Default PL011 base address on QEMU `virt` board.
 pub const DEFAULT_PL011_BASE: usize = 0x0900_0000;
@@ -32,12 +32,12 @@ pub fn probe_pl011_base() -> usize {
 }
 
 // Register offsets from PL011 Technical Reference Manual:
-const UARTDR: usize = 0x000;  // Data Register
-const UARTFR: usize = 0x018;  // Flag Register
+const UARTDR: usize = 0x000; // Data Register
+const UARTFR: usize = 0x018; // Flag Register
 const UARTIBRD: usize = 0x024; // Integer Baud Rate Divisor
 const UARTFBRD: usize = 0x028; // Fractional Baud Rate Divisor
-const UARTLCR_H: usize = 0x02C;// Line Control Register
-const UARTCR: usize = 0x030;  // Control Register
+const UARTLCR_H: usize = 0x02C; // Line Control Register
+const UARTCR: usize = 0x030; // Control Register
 
 // Flag register bits:
 const FR_RXFE: u32 = 1 << 4; // Receive FIFO empty

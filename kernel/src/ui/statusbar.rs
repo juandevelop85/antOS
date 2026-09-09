@@ -43,7 +43,12 @@ impl StatusBar {
         surface.fill_rect(bar_rect, palette::STATUSBAR_BG);
 
         // Bottom border line: (#30363d)
-        surface.draw_line_h(0, (self.height - 1) as i32, width, palette::STATUSBAR_BORDER);
+        surface.draw_line_h(
+            0,
+            (self.height - 1) as i32,
+            width,
+            palette::STATUSBAR_BORDER,
+        );
 
         let text_y = 6;
 
@@ -81,12 +86,7 @@ impl StatusBar {
         let heap_kb = (heap_used_bytes + 1023) / 1024;
         let total_kb = heap_total_bytes / 1024;
 
-        let right_str = format_stat_str(
-            &mut right_buf,
-            heap_kb,
-            total_kb,
-            ticks,
-        );
+        let right_str = format_stat_str(&mut right_buf, heap_kb, total_kb, ticks);
 
         let right_x = (width as i32) - (right_str.len() * FONT_WIDTH) as i32 - 14;
         if right_x > center_x + center_text_len as i32 + 10 {
@@ -120,7 +120,11 @@ fn format_stat_str<'a>(
     }
 
     let mut writer = SliceWriter { slice: buf, pos: 0 };
-    let _ = write!(writer, "RAM: {}K/{}K · ticks: {} · 12:00", heap_kb, total_kb, ticks);
+    let _ = write!(
+        writer,
+        "RAM: {}K/{}K · ticks: {} · 12:00",
+        heap_kb, total_kb, ticks
+    );
     let len = writer.pos;
 
     core::str::from_utf8(&buf[..len]).unwrap_or("")

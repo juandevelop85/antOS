@@ -47,8 +47,8 @@ impl<'a> SlotContext<'a> {
     /// Sets Root Hub Port Number (23:16) and Number of Ports (31:24).
     pub fn set_port_info(&mut self, root_hub_port: u8, num_ports: u8) {
         if self.data.len() > 1 {
-            self.data[1] = (((root_hub_port as u32) & 0xFF) << 16)
-                | (((num_ports as u32) & 0xFF) << 24);
+            self.data[1] =
+                (((root_hub_port as u32) & 0xFF) << 16) | (((num_ports as u32) & 0xFF) << 24);
         }
     }
 

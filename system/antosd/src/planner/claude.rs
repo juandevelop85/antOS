@@ -142,7 +142,9 @@ impl Planner for ClaudePlanner {
         let v: Value = resp.body_mut().read_json().context("respuesta ilegible")?;
 
         if status >= 400 {
-            let msg = v["error"]["message"].as_str().unwrap_or("error desconocido");
+            let msg = v["error"]["message"]
+                .as_str()
+                .unwrap_or("error desconocido");
             bail!("la API respondió {status}: {msg}");
         }
 
@@ -273,7 +275,11 @@ fn catalogo_como_texto(catalog: &Catalog) -> String {
     for cap in catalog.caps.values() {
         texto.push_str(&format!("- {}: {}\n", cap.name, cap.summary));
         for (nombre, spec) in &cap.params {
-            let opcional = if spec.optional || spec.default.is_some() { " (opcional)" } else { "" };
+            let opcional = if spec.optional || spec.default.is_some() {
+                " (opcional)"
+            } else {
+                ""
+            };
             let tipo = if spec.of.is_empty() {
                 spec.kind.clone()
             } else {

@@ -13,11 +13,17 @@ impl DeployEngine {
     pub fn prepare_target(config: &InstallConfig) -> Result<PathBuf> {
         let dev = match DiskManager::inspect_disk(&config.target_device)? {
             Some(d) => d,
-            None => bail!("Dispositivo destino «{}» no encontrado", config.target_device),
+            None => bail!(
+                "Dispositivo destino «{}» no encontrado",
+                config.target_device
+            ),
         };
 
         if dev.is_read_only {
-            bail!("El dispositivo «{}» es de solo lectura y no puede recibir una instalación", config.target_device);
+            bail!(
+                "El dispositivo «{}» es de solo lectura y no puede recibir una instalación",
+                config.target_device
+            );
         }
 
         if dev.size_bytes < 8 * 1024 * 1024 * 1024 {
@@ -36,10 +42,19 @@ impl DeployEngine {
         let mut lines = Vec::new();
         lines.push("# /etc/fstab: antOS base filesystem mount configuration".to_string());
         lines.push("# <file system>                           <mount point>   <type>  <options>                  <dump> <pass>".to_string());
-        lines.push(format!("UUID={:<36} /               ext4    defaults,noatime,discard   0      1", root_uuid));
-        lines.push(format!("UUID={:<36} /boot/efi       vfat    umask=0077,shortname=winnt 0      2", efi_uuid));
+        lines.push(format!(
+            "UUID={:<36} /               ext4    defaults,noatime,discard   0      1",
+            root_uuid
+        ));
+        lines.push(format!(
+            "UUID={:<36} /boot/efi       vfat    umask=0077,shortname=winnt 0      2",
+            efi_uuid
+        ));
         if let Some(sw) = swap_uuid {
-            lines.push(format!("UUID={:<36} none            swap    sw                         0      0", sw));
+            lines.push(format!(
+                "UUID={:<36} none            swap    sw                         0      0",
+                sw
+            ));
         }
         lines.push("".to_string());
         lines.join("\n")
@@ -68,8 +83,7 @@ ANSI_COLOR="0;36"
 HOME_URL="https://github.com/juandevelop85/antOS"
 BUG_REPORT_URL="https://github.com/juandevelop85/antOS/issues"
 "#;
-        fs::write(etc_dir.join("os-release"), os_release)
-            .context("Escribiendo /etc/os-release")?;
+        fs::write(etc_dir.join("os-release"), os_release).context("Escribiendo /etc/os-release")?;
 
         // 4. Servicio systemd para antosd
         let systemd_dir = etc_dir.join("systemd/system");
@@ -229,9 +243,15 @@ WantedBy=multi-user.target
         steps.push(InstallStep {
             name: "partitioning".into(),
             description: if config.clean_install {
-                format!("Creación de tabla GPT limpia en {} (512 MiB ESP + Raíz)", config.target_device)
+                format!(
+                    "Creación de tabla GPT limpia en {} (512 MiB ESP + Raíz)",
+                    config.target_device
+                )
             } else {
-                format!("Preservación de partición EFI existente y asignación de partición raíz en {}", config.target_device)
+                format!(
+                    "Preservación de partición EFI existente y asignación de partición raíz en {}",
+                    config.target_device
+                )
             },
             completed: true,
         });
@@ -261,7 +281,10 @@ WantedBy=multi-user.target
 
         steps.push(InstallStep {
             name: "mount_hierarchy".into(),
-            description: format!("Montaje jerárquico en {}: raíz en / y ESP en /boot/efi", config.target_mount),
+            description: format!(
+                "Montaje jerárquico en {}: raíz en / y ESP en /boot/efi",
+                config.target_mount
+            ),
             completed: true,
         });
 
@@ -274,7 +297,14 @@ WantedBy=multi-user.target
         fs::create_dir_all(&staging_dir)?;
 
         // Crear directorios clave
-        for d in &["bin", "etc", "usr/local/bin", "etc/antos/capabilities", "boot/efi", "var/log/antos"] {
+        for d in &[
+            "bin",
+            "etc",
+            "usr/local/bin",
+            "etc/antos/capabilities",
+            "boot/efi",
+            "var/log/antos",
+        ] {
             let _ = fs::create_dir_all(staging_dir.join(d));
         }
 
@@ -294,7 +324,9 @@ WantedBy=multi-user.target
 
         steps.push(InstallStep {
             name: "base_system_copy".into(),
-            description: "Copia de binarios (antos, antosd), capacidades declarativas y utilidades base".into(),
+            description:
+                "Copia de binarios (antos, antosd), capacidades declarativas y utilidades base"
+                    .into(),
             completed: true,
         });
 
@@ -305,7 +337,8 @@ WantedBy=multi-user.target
 
         steps.push(InstallStep {
             name: "system_configuration".into(),
-            description: format!("Configuración de fstab (UUIDs), hostname ({}), usuario ({}) y servicio antosd",
+            description: format!(
+                "Configuración de fstab (UUIDs), hostname ({}), usuario ({}) y servicio antosd",
                 config.hostname, config.username
             ),
             completed: true,
@@ -340,7 +373,11 @@ WantedBy=multi-user.target
             completed: true,
         });
 
-        let mode = if config.clean_install { "clean" } else { "dual-boot" };
+        let mode = if config.clean_install {
+            "clean"
+        } else {
+            "dual-boot"
+        };
         let summary = format!(
             "Instalación de antOS completada con éxito en «{}» (Modo: {}, Dry-Run: {})",
             config.target_device, mode, config.dry_run
@@ -369,7 +406,8 @@ mod tests {
 
     #[test]
     fn test_generate_fstab_with_and_without_swap() {
-        let fstab_swap = DeployEngine::generate_fstab("uuid-root-123", "uuid-efi-456", Some("uuid-swap-789"));
+        let fstab_swap =
+            DeployEngine::generate_fstab("uuid-root-123", "uuid-efi-456", Some("uuid-swap-789"));
         assert!(fstab_swap.contains("UUID=uuid-root-123"));
         assert!(fstab_swap.contains("UUID=uuid-efi-456"));
         assert!(fstab_swap.contains("UUID=uuid-swap-789"));
@@ -382,7 +420,10 @@ mod tests {
 
     fn make_temp_test_dir(tag: &str) -> PathBuf {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let path = std::env::temp_dir().join(format!("antos-deploy-{tag}-{now}"));
         let _ = fs::create_dir_all(&path);
         path
@@ -403,11 +444,29 @@ mod tests {
         };
 
         DeployEngine::generate_system_config(&cfg, &temp).expect("generate config");
-        assert_eq!(fs::read_to_string(temp.join("etc/hostname")).unwrap().trim(), "test-node");
-        assert_eq!(fs::read_to_string(temp.join("etc/timezone")).unwrap().trim(), "Europe/Madrid");
-        assert!(fs::read_to_string(temp.join("etc/os-release")).unwrap().contains("antOS"));
-        assert!(fs::read_to_string(temp.join("etc/systemd/system/antosd.service")).unwrap().contains("ExecStart=/usr/local/bin/antosd"));
-        assert!(fs::read_to_string(temp.join("etc/environment")).unwrap().contains("EDITOR=nvim"));
+        assert_eq!(
+            fs::read_to_string(temp.join("etc/hostname"))
+                .unwrap()
+                .trim(),
+            "test-node"
+        );
+        assert_eq!(
+            fs::read_to_string(temp.join("etc/timezone"))
+                .unwrap()
+                .trim(),
+            "Europe/Madrid"
+        );
+        assert!(fs::read_to_string(temp.join("etc/os-release"))
+            .unwrap()
+            .contains("antOS"));
+        assert!(
+            fs::read_to_string(temp.join("etc/systemd/system/antosd.service"))
+                .unwrap()
+                .contains("ExecStart=/usr/local/bin/antosd")
+        );
+        assert!(fs::read_to_string(temp.join("etc/environment"))
+            .unwrap()
+            .contains("EDITOR=nvim"));
         let _ = fs::remove_dir_all(&temp);
     }
 

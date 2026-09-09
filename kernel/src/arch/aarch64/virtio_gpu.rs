@@ -26,17 +26,17 @@ const MMIO_GUEST_PAGE_SIZE: usize = 0x028; // Version 1 only
 const MMIO_QUEUE_SEL: usize = 0x030;
 const MMIO_QUEUE_NUM_MAX: usize = 0x034;
 const MMIO_QUEUE_NUM: usize = 0x038;
-const MMIO_QUEUE_ALIGN: usize = 0x03c;    // Version 1 only
-const MMIO_QUEUE_PFN: usize = 0x040;      // Version 1 only
-const MMIO_QUEUE_READY: usize = 0x044;    // Version 2 only
+const MMIO_QUEUE_ALIGN: usize = 0x03c; // Version 1 only
+const MMIO_QUEUE_PFN: usize = 0x040; // Version 1 only
+const MMIO_QUEUE_READY: usize = 0x044; // Version 2 only
 const MMIO_QUEUE_NOTIFY: usize = 0x050;
 const MMIO_STATUS: usize = 0x070;
-const MMIO_QUEUE_DESC_LOW: usize = 0x080;  // Version 2 only
+const MMIO_QUEUE_DESC_LOW: usize = 0x080; // Version 2 only
 const MMIO_QUEUE_DESC_HIGH: usize = 0x084; // Version 2 only
-const MMIO_QUEUE_DRIVER_LOW: usize = 0x090;// Version 2 only
-const MMIO_QUEUE_DRIVER_HIGH: usize = 0x094;// Version 2 only
-const MMIO_QUEUE_DEVICE_LOW: usize = 0x0a0;// Version 2 only
-const MMIO_QUEUE_DEVICE_HIGH: usize = 0x0a4;// Version 2 only
+const MMIO_QUEUE_DRIVER_LOW: usize = 0x090; // Version 2 only
+const MMIO_QUEUE_DRIVER_HIGH: usize = 0x094; // Version 2 only
+const MMIO_QUEUE_DEVICE_LOW: usize = 0x0a0; // Version 2 only
+const MMIO_QUEUE_DEVICE_HIGH: usize = 0x0a4; // Version 2 only
 
 // Device status flags
 const STATUS_ACKNOWLEDGE: u32 = 1;
@@ -93,7 +93,12 @@ struct VirtQueueBuffer {
 }
 
 static mut GPU_VRING: VirtQueueBuffer = VirtQueueBuffer {
-    descriptors: [VirtqDesc { addr: 0, len: 0, flags: 0, next: 0 }; QUEUE_SIZE],
+    descriptors: [VirtqDesc {
+        addr: 0,
+        len: 0,
+        flags: 0,
+        next: 0,
+    }; QUEUE_SIZE],
     avail_flags: 0,
     avail_idx: 0,
     avail_ring: [0; QUEUE_SIZE],
@@ -226,22 +231,34 @@ impl VirtioGpu {
         core::ptr::write_volatile((mmio_base + MMIO_STATUS as u64) as *mut u32, 0);
 
         // Acknowledge and Driver
-        core::ptr::write_volatile((mmio_base + MMIO_STATUS as u64) as *mut u32, STATUS_ACKNOWLEDGE);
-        core::ptr::write_volatile((mmio_base + MMIO_STATUS as u64) as *mut u32, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
+        core::ptr::write_volatile(
+            (mmio_base + MMIO_STATUS as u64) as *mut u32,
+            STATUS_ACKNOWLEDGE,
+        );
+        core::ptr::write_volatile(
+            (mmio_base + MMIO_STATUS as u64) as *mut u32,
+            STATUS_ACKNOWLEDGE | STATUS_DRIVER,
+        );
 
         // Feature negotiation
         if version == 2 {
             core::ptr::write_volatile((mmio_base + MMIO_DEVICE_FEATURES_SEL as u64) as *mut u32, 1);
-            let dev_f1 = core::ptr::read_volatile((mmio_base + MMIO_DEVICE_FEATURES as u64) as *const u32);
+            let dev_f1 =
+                core::ptr::read_volatile((mmio_base + MMIO_DEVICE_FEATURES as u64) as *const u32);
             core::ptr::write_volatile((mmio_base + MMIO_DRIVER_FEATURES_SEL as u64) as *mut u32, 1);
-            core::ptr::write_volatile((mmio_base + MMIO_DRIVER_FEATURES as u64) as *mut u32, dev_f1 & 1); // VIRTIO_F_VERSION_1
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_DRIVER_FEATURES as u64) as *mut u32,
+                dev_f1 & 1,
+            ); // VIRTIO_F_VERSION_1
 
             core::ptr::write_volatile((mmio_base + MMIO_DEVICE_FEATURES_SEL as u64) as *mut u32, 0);
             core::ptr::write_volatile((mmio_base + MMIO_DRIVER_FEATURES_SEL as u64) as *mut u32, 0);
             core::ptr::write_volatile((mmio_base + MMIO_DRIVER_FEATURES as u64) as *mut u32, 0);
 
-            core::ptr::write_volatile((mmio_base + MMIO_STATUS as u64) as *mut u32,
-                STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK);
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_STATUS as u64) as *mut u32,
+                STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK,
+            );
         }
 
         // Setup Queue 0 (control queue)
@@ -251,10 +268,17 @@ impl VirtioGpu {
             return Err(());
         }
 
-        core::ptr::write_volatile((mmio_base + MMIO_QUEUE_NUM as u64) as *mut u32, QUEUE_SIZE as u32);
+        core::ptr::write_volatile(
+            (mmio_base + MMIO_QUEUE_NUM as u64) as *mut u32,
+            QUEUE_SIZE as u32,
+        );
 
         // Zero out the VRing memory
-        core::ptr::write_bytes(core::ptr::addr_of_mut!(GPU_VRING) as *mut u8, 0, core::mem::size_of::<VirtQueueBuffer>());
+        core::ptr::write_bytes(
+            core::ptr::addr_of_mut!(GPU_VRING) as *mut u8,
+            0,
+            core::mem::size_of::<VirtQueueBuffer>(),
+        );
 
         let ring_paddr = core::ptr::addr_of!(GPU_VRING) as u64;
 
@@ -270,12 +294,30 @@ impl VirtioGpu {
             let avail_paddr = ring_paddr + core::mem::size_of::<[VirtqDesc; QUEUE_SIZE]>() as u64;
             let used_paddr = ring_paddr + 4096;
 
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DESC_LOW as u64) as *mut u32, desc_paddr as u32);
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DESC_HIGH as u64) as *mut u32, (desc_paddr >> 32) as u32);
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DRIVER_LOW as u64) as *mut u32, avail_paddr as u32);
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DRIVER_HIGH as u64) as *mut u32, (avail_paddr >> 32) as u32);
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DEVICE_LOW as u64) as *mut u32, used_paddr as u32);
-            core::ptr::write_volatile((mmio_base + MMIO_QUEUE_DEVICE_HIGH as u64) as *mut u32, (used_paddr >> 32) as u32);
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DESC_LOW as u64) as *mut u32,
+                desc_paddr as u32,
+            );
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DESC_HIGH as u64) as *mut u32,
+                (desc_paddr >> 32) as u32,
+            );
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DRIVER_LOW as u64) as *mut u32,
+                avail_paddr as u32,
+            );
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DRIVER_HIGH as u64) as *mut u32,
+                (avail_paddr >> 32) as u32,
+            );
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DEVICE_LOW as u64) as *mut u32,
+                used_paddr as u32,
+            );
+            core::ptr::write_volatile(
+                (mmio_base + MMIO_QUEUE_DEVICE_HIGH as u64) as *mut u32,
+                (used_paddr >> 32) as u32,
+            );
             core::ptr::write_volatile((mmio_base + MMIO_QUEUE_READY as u64) as *mut u32, 1);
         }
 
@@ -385,7 +427,12 @@ impl VirtioGpu {
     }
 
     pub fn flush(&mut self, x: u32, y: u32, width: u32, height: u32) {
-        let rect = VirtioGpuRect { x, y, width, height };
+        let rect = VirtioGpuRect {
+            x,
+            y,
+            width,
+            height,
+        };
 
         // 1. Transfer to host 2D
         let transfer_cmd = CmdTransfer2d {

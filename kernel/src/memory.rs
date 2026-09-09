@@ -216,7 +216,11 @@ impl Mapper {
     }
 
     /// Actualiza los bits de protección (flags) de una página virtual previamente mapeada.
-    pub unsafe fn update_flags(&mut self, virtual_address: u64, flags: u64) -> Result<(), &'static str> {
+    pub unsafe fn update_flags(
+        &mut self,
+        virtual_address: u64,
+        flags: u64,
+    ) -> Result<(), &'static str> {
         let mut table = self.level4_table();
         for level in (2..=4u32).rev() {
             let index = table_index(virtual_address, level);
@@ -320,7 +324,10 @@ pub const HEAP_SIZE: usize = 4 * 1024 * 1024;
 ///
 /// # Safety
 /// Solo puede llamarse una vez, antes de que exista ninguna asignación.
-pub unsafe fn init_heap(mapper: &mut Mapper, allocator: &mut FrameAllocator) -> Result<(), &'static str> {
+pub unsafe fn init_heap(
+    mapper: &mut Mapper,
+    allocator: &mut FrameAllocator,
+) -> Result<(), &'static str> {
     let pages = HEAP_SIZE as u64 / PAGE_SIZE;
 
     for page in 0..pages {
@@ -375,9 +382,12 @@ pub fn mmap_user_pages(start_vaddr: u64, page_count: usize) -> Result<u64, u64> 
             core::ptr::write_bytes(virt, 0, PAGE_SIZE as usize);
         }
         if unsafe {
-            controller
-                .mapper
-                .map(vaddr, frame, PRESENT | WRITABLE | USER, &mut controller.allocator)
+            controller.mapper.map(
+                vaddr,
+                frame,
+                PRESENT | WRITABLE | USER,
+                &mut controller.allocator,
+            )
         }
         .is_err()
         {
@@ -403,7 +413,11 @@ pub fn munmap_user_pages(start_vaddr: u64, page_count: usize) -> Result<(), u64>
 
 /// Returns the physical memory mapping offset used by the kernel.
 pub fn physical_memory_offset() -> u64 {
-    MEMORY_CONTROLLER.lock().as_ref().map(|c| c.mapper.physical_offset).unwrap_or(0)
+    MEMORY_CONTROLLER
+        .lock()
+        .as_ref()
+        .map(|c| c.mapper.physical_offset)
+        .unwrap_or(0)
 }
 
 /// Translates a physical address to the higher-half virtual address.
@@ -465,10 +479,14 @@ pub fn ensure_mmio_mapped(phys_start: u64, size: usize) -> Result<u64, &'static 
         let v_addr = (virt_start & !0xFFF) + i * PAGE_SIZE;
         if controller.mapper.translate(v_addr).is_none() {
             unsafe {
-                controller.mapper.map(v_addr, p_addr, PRESENT | WRITABLE, &mut controller.allocator)?;
+                controller.mapper.map(
+                    v_addr,
+                    p_addr,
+                    PRESENT | WRITABLE,
+                    &mut controller.allocator,
+                )?;
             }
         }
     }
     Ok(virt_start)
 }
-

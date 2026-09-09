@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result<()> {
     let force_local = std::env::var_os("ANTOS_SIN_DEMONIO")
@@ -44,17 +44,17 @@ pub fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Re
 // --------------------------------------------------------------------- voice
 
 pub fn cmd_listen(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> Result<()> {
-    if args.iter().any(|a| a == "--dispositivos" || a == "--devices") {
+    if args
+        .iter()
+        .any(|a| a == "--dispositivos" || a == "--devices")
+    {
         println!();
         println!("{}", paint("audio devices", BOLD));
         for line in crate::voice::Voice::devices()?.lines() {
             println!("  {line}");
         }
         println!();
-        println!(
-            "{}",
-            paint("pick one with: antos listen --device N", DIM)
-        );
+        println!("{}", paint("pick one with: antos listen --device N", DIM));
         return Ok(());
     }
 
@@ -81,7 +81,10 @@ pub fn cmd_listen(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) ->
     println!("{}", paint("antOS · listen", BOLD));
     println!(
         "  {}",
-        paint(&format!("local model: {}", voice.model_path().display()), DIM)
+        paint(
+            &format!("local model: {}", voice.model_path().display()),
+            DIM
+        )
     );
 
     let capture = ctx.state.join("captura.wav");

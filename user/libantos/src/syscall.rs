@@ -165,7 +165,14 @@ pub fn channel_create() -> Result<u64, u64> {
 
 #[inline(always)]
 pub fn channel_send(channel_id: u64, data: &[u8]) -> Result<usize, u64> {
-    let res = unsafe { raw_syscall(SYS_CHANNEL_SEND, channel_id, data.as_ptr() as u64, data.len() as u64) };
+    let res = unsafe {
+        raw_syscall(
+            SYS_CHANNEL_SEND,
+            channel_id,
+            data.as_ptr() as u64,
+            data.len() as u64,
+        )
+    };
     if res == ENOENT || res == EINVAL || res == EAGAIN || res == EFAULT {
         Err(res)
     } else {
@@ -175,7 +182,14 @@ pub fn channel_send(channel_id: u64, data: &[u8]) -> Result<usize, u64> {
 
 #[inline(always)]
 pub fn channel_recv(channel_id: u64, buf: &mut [u8]) -> Result<usize, u64> {
-    let res = unsafe { raw_syscall(SYS_CHANNEL_RECV, channel_id, buf.as_mut_ptr() as u64, buf.len() as u64) };
+    let res = unsafe {
+        raw_syscall(
+            SYS_CHANNEL_RECV,
+            channel_id,
+            buf.as_mut_ptr() as u64,
+            buf.len() as u64,
+        )
+    };
     if res == ENOENT || res == EINVAL || res == EAGAIN || res == EFAULT {
         Err(res)
     } else {

@@ -481,9 +481,7 @@ pub fn poll_rx_report() {
         crate::println!("input-rx: primer evento recibido · total={}", total);
         return;
     }
-    if !crate::ui::compositor::is_desktop_active()
-        && total / 100 != prev / 100
-    {
+    if !crate::ui::compositor::is_desktop_active() && total / 100 != prev / 100 {
         crate::println!("input-rx: total={}", total);
     }
 }
@@ -681,8 +679,14 @@ pub fn decode_linux_ev(event_type: u16, code: u16, value: u32) -> Option<InputEv
             match code {
                 REL_X => Some(InputEvent::MouseMove { dx: val, dy: 0 }),
                 REL_Y => Some(InputEvent::MouseMove { dx: 0, dy: val }),
-                REL_WHEEL => Some(InputEvent::Scroll { delta_x: 0, delta_y: val }),
-                REL_HWHEEL => Some(InputEvent::Scroll { delta_x: val, delta_y: 0 }),
+                REL_WHEEL => Some(InputEvent::Scroll {
+                    delta_x: 0,
+                    delta_y: val,
+                }),
+                REL_HWHEEL => Some(InputEvent::Scroll {
+                    delta_x: val,
+                    delta_y: 0,
+                }),
                 _ => None,
             }
         }
@@ -1034,7 +1038,10 @@ mod evdev_tests {
 
     #[test]
     fn abs_axis_info_honours_nonzero_min() {
-        let info = AbsAxisInfo { min: 100, max: 1124 }; // span 1024
+        let info = AbsAxisInfo {
+            min: 100,
+            max: 1124,
+        }; // span 1024
         assert_eq!(info.to_screen(100, 1025), 0);
         assert_eq!(info.to_screen(1124, 1025), 1024);
         assert_eq!(info.to_screen(612, 1025), 512);
@@ -1076,11 +1083,15 @@ mod evdev_tests {
         assert!(acc.feed(EV_REL, REL_X, 5i32 as u32, SCREEN).is_none());
         assert!(acc.feed(EV_REL, REL_Y, (-3i32) as u32, SCREEN).is_none());
         assert!(acc.feed(EV_REL, REL_X, 2i32 as u32, SCREEN).is_none());
-        let out = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
+        let out = acc
+            .feed(EV_SYN, SYN_REPORT, 0, SCREEN)
+            .expect("syn flushes");
         assert_eq!(out, alloc::vec![InputEvent::MouseMove { dx: 7, dy: -3 }]);
 
         // Deltas reset after the flush.
-        let out2 = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
+        let out2 = acc
+            .feed(EV_SYN, SYN_REPORT, 0, SCREEN)
+            .expect("syn flushes");
         assert!(out2.is_empty());
     }
 
@@ -1092,8 +1103,13 @@ mod evdev_tests {
 
         assert!(acc.feed(EV_ABS, ABS_X, 32767, SCREEN).is_none());
         assert!(acc.feed(EV_ABS, ABS_Y, 0, SCREEN).is_none());
-        let out = acc.feed(EV_SYN, SYN_REPORT, 0, SCREEN).expect("syn flushes");
-        assert_eq!(out, alloc::vec![InputEvent::MouseAbsolute { x: 1279, y: 0 }]);
+        let out = acc
+            .feed(EV_SYN, SYN_REPORT, 0, SCREEN)
+            .expect("syn flushes");
+        assert_eq!(
+            out,
+            alloc::vec![InputEvent::MouseAbsolute { x: 1279, y: 0 }]
+        );
     }
 
     #[test]
@@ -1105,12 +1121,18 @@ mod evdev_tests {
         acc.feed(EV_ABS, ABS_X, 500, (1001, 1001));
         acc.feed(EV_ABS, ABS_Y, 200, (1001, 1001));
         let first = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
-        assert_eq!(first, alloc::vec![InputEvent::MouseAbsolute { x: 500, y: 200 }]);
+        assert_eq!(
+            first,
+            alloc::vec![InputEvent::MouseAbsolute { x: 500, y: 200 }]
+        );
 
         // Second packet only reports a new X; Y must carry over.
         acc.feed(EV_ABS, ABS_X, 750, (1001, 1001));
         let second = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
-        assert_eq!(second, alloc::vec![InputEvent::MouseAbsolute { x: 750, y: 200 }]);
+        assert_eq!(
+            second,
+            alloc::vec![InputEvent::MouseAbsolute { x: 750, y: 200 }]
+        );
     }
 
     #[test]
@@ -1126,7 +1148,10 @@ mod evdev_tests {
             alloc::vec![
                 InputEvent::MouseButtonPress(MouseButton::Left),
                 InputEvent::MouseMove { dx: 4, dy: 0 },
-                InputEvent::Scroll { delta_x: -1, delta_y: 1 },
+                InputEvent::Scroll {
+                    delta_x: -1,
+                    delta_y: 1
+                },
             ]
         );
     }
@@ -1147,7 +1172,7 @@ mod evdev_tests {
         assert_eq!(s.pointer.sensitivity_pct, 175);
         assert_eq!(s.repeat_delay_ticks, 30); // 300 ms / 10 ms per tick
         assert_eq!(s.repeat_interval_ticks, 4); // 100 Hz / 25 Hz
-        // Restore the default so other tests see a clean layout.
+                                                // Restore the default so other tests see a clean layout.
         apply_config("keyboard_layout=us\npointer_sensitivity=100\n");
     }
 

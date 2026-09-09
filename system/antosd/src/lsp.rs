@@ -5,8 +5,8 @@
 //! active Ticket Specs, and typed capabilities to external editors
 //! (VS Code, Neovim, Helix, Emacs).
 
-use anyhow::Result;
 use antos_protocol::{LspEditorKind, LspServerStatus, TicketStatus};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -259,7 +259,11 @@ language-servers = [ "antos-lsp" ]
         let tickets = spec_engine.list_tickets(workspace).unwrap_or_default();
 
         for ticket in tickets {
-            let status_mark = if ticket.status == TicketStatus::Completed { "✅" } else { "⏳" };
+            let status_mark = if ticket.status == TicketStatus::Completed {
+                "✅"
+            } else {
+                "⏳"
+            };
             items.push(json!({
                 "label": ticket.id.clone(),
                 "kind": 15, // Snippet / Reference
@@ -275,15 +279,47 @@ language-servers = [ "antos-lsp" ]
 
         // 3. antOS Capabilities
         let capabilities = [
-            ("fs.read", "Lectura controlada de archivos en workspace", "auto"),
-            ("fs.write", "Escritura de archivos con instantánea previa", "confirm"),
+            (
+                "fs.read",
+                "Lectura controlada de archivos en workspace",
+                "auto",
+            ),
+            (
+                "fs.write",
+                "Escritura de archivos con instantánea previa",
+                "confirm",
+            ),
             ("git.status", "Estado semántico del árbol Git", "auto"),
-            ("vfs.query", "Consulta del sistema de archivos semántico /antfs", "auto"),
-            ("ebpf.status", "Diagnóstico de sondas y supervisor eBPF LSM", "auto"),
-            ("ebpf.audit_log", "Trazas del ring buffer de llamadas al sistema", "auto"),
-            ("profile.run", "Ejecución y perfilado continuo de CPU y memoria", "auto"),
-            ("profile.analyze", "Análisis de cuellos de botella y sugerencias de optimización", "auto"),
-            ("lsp.status", "Estado del servidor Language Server Protocol unificado", "auto"),
+            (
+                "vfs.query",
+                "Consulta del sistema de archivos semántico /antfs",
+                "auto",
+            ),
+            (
+                "ebpf.status",
+                "Diagnóstico de sondas y supervisor eBPF LSM",
+                "auto",
+            ),
+            (
+                "ebpf.audit_log",
+                "Trazas del ring buffer de llamadas al sistema",
+                "auto",
+            ),
+            (
+                "profile.run",
+                "Ejecución y perfilado continuo de CPU y memoria",
+                "auto",
+            ),
+            (
+                "profile.analyze",
+                "Análisis de cuellos de botella y sugerencias de optimización",
+                "auto",
+            ),
+            (
+                "lsp.status",
+                "Estado del servidor Language Server Protocol unificado",
+                "auto",
+            ),
         ];
 
         for (cap, desc, tier) in capabilities {
@@ -307,7 +343,13 @@ language-servers = [ "antos-lsp" ]
         let word = Self::extract_word_from_params(params).unwrap_or_default();
 
         // Check if word refers to a ticket (e.g. T1.1, T11.2)
-        if word.starts_with('T') && word.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if word.starts_with('T')
+            && word
+                .chars()
+                .nth(1)
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        {
             let spec_dir = workspace.join("docs").join("tickets");
             if let Ok(entries) = std::fs::read_dir(&spec_dir) {
                 for e in entries.flatten() {
@@ -332,7 +374,11 @@ language-servers = [ "antos-lsp" ]
         for sym in symbols {
             if sym.name == word || sym.signature.contains(&word) {
                 let full_path = workspace.join(&sym.file_path);
-                let line = if sym.line_number > 0 { sym.line_number - 1 } else { 0 };
+                let line = if sym.line_number > 0 {
+                    sym.line_number - 1
+                } else {
+                    0
+                };
                 return json!({
                     "uri": format!("file://{}", full_path.display()),
                     "range": {
@@ -351,10 +397,20 @@ language-servers = [ "antos-lsp" ]
         let word = Self::extract_word_from_params(params).unwrap_or_default();
 
         // 1. Ticket Hover
-        if word.starts_with('T') && word.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if word.starts_with('T')
+            && word
+                .chars()
+                .nth(1)
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+        {
             let spec_engine = crate::spec::SpecEngine::global();
             if let Ok(Some(detail)) = spec_engine.get_ticket(workspace, &word) {
-                let status_icon = if detail.status == TicketStatus::Completed { "✅ Completado" } else { "⏳ Pendiente" };
+                let status_icon = if detail.status == TicketStatus::Completed {
+                    "✅ Completado"
+                } else {
+                    "⏳ Pendiente"
+                };
                 let markdown = format!(
                     "### antOS Ticket: {} · {}\n\n**Fase:** {}\n**Estado:** {}\n\n---\n{}",
                     detail.id, detail.title, detail.phase, status_icon, detail.description
@@ -418,7 +474,11 @@ language-servers = [ "antos-lsp" ]
         for sym in symbols {
             if sym.name == word {
                 let full_path = workspace.join(&sym.file_path);
-                let line = if sym.line_number > 0 { sym.line_number - 1 } else { 0 };
+                let line = if sym.line_number > 0 {
+                    sym.line_number - 1
+                } else {
+                    0
+                };
                 refs.push(json!({
                     "uri": format!("file://{}", full_path.display()),
                     "range": {
@@ -484,14 +544,16 @@ language-servers = [ "antos-lsp" ]
 
                 let json_text = String::from_utf8_lossy(&buffer);
                 if let Some(resp_json) = self.handle_request(workspace, &json_text) {
-                    let out_frame = format!("Content-Length: {}\r\n\r\n{}", resp_json.len(), resp_json);
+                    let out_frame =
+                        format!("Content-Length: {}\r\n\r\n{}", resp_json.len(), resp_json);
                     writer.write_all(out_frame.as_bytes())?;
                     writer.flush()?;
                 }
             } else if trimmed.starts_with('{') {
                 // Direct JSON (fallback for simple pipes)
                 if let Some(resp_json) = self.handle_request(workspace, trimmed) {
-                    let out_frame = format!("Content-Length: {}\r\n\r\n{}", resp_json.len(), resp_json);
+                    let out_frame =
+                        format!("Content-Length: {}\r\n\r\n{}", resp_json.len(), resp_json);
                     writer.write_all(out_frame.as_bytes())?;
                     writer.flush()?;
                 }
@@ -560,7 +622,10 @@ mod tests {
 
         assert!(!arr.is_empty());
         // Verify capabilities or tickets are included
-        assert!(arr.iter().any(|item| item["label"].as_str().unwrap_or_default().contains("fs.read")
+        assert!(arr.iter().any(|item| item["label"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("fs.read")
             || item["label"].as_str().unwrap_or_default().contains('T')));
     }
 
@@ -596,7 +661,8 @@ mod tests {
         let resp_cap = server
             .handle_request(&ws, &req_cap.to_string())
             .expect("cap hover");
-        let resp_cap_parsed: JsonRpcResponse = serde_json::from_str(&resp_cap).expect("parse cap hover");
+        let resp_cap_parsed: JsonRpcResponse =
+            serde_json::from_str(&resp_cap).expect("parse cap hover");
         assert!(!resp_cap_parsed.result.unwrap().is_null());
     }
 

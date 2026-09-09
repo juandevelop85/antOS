@@ -72,7 +72,11 @@ struct VaultData {
 impl From<&Vault> for VaultData {
     fn from(v: &Vault) -> Self {
         VaultData {
-            secrets: v.secrets.iter().map(|(k, val)| (k.clone(), val.expose().to_string())).collect(),
+            secrets: v
+                .secrets
+                .iter()
+                .map(|(k, val)| (k.clone(), val.expose().to_string()))
+                .collect(),
             updated_at: v.updated_at,
         }
     }
@@ -81,7 +85,11 @@ impl From<&Vault> for VaultData {
 impl From<VaultData> for Vault {
     fn from(d: VaultData) -> Self {
         Vault {
-            secrets: d.secrets.into_iter().map(|(k, v)| (k, SecretValue::new(v))).collect(),
+            secrets: d
+                .secrets
+                .into_iter()
+                .map(|(k, v)| (k, SecretValue::new(v)))
+                .collect(),
             updated_at: d.updated_at,
         }
     }
@@ -121,20 +129,27 @@ impl Vault {
 
         if let Ok(envelope) = serde_json::from_str::<EncryptedVaultFile>(&content) {
             if envelope.version != VAULT_FORMAT_VERSION {
-                bail!("vault.json has an unsupported format version ({})", envelope.version);
+                bail!(
+                    "vault.json has an unsupported format version ({})",
+                    envelope.version
+                );
             }
             let key = Self::load_or_create_key(state_dir)?;
-            let ciphertext = crypto::from_hex(&envelope.payload).context("vault.json payload is not valid hex")?;
-            let plaintext = crypto::aead_decrypt(&key, &ciphertext)
-                .context("failed to decrypt vault.json — wrong vault.key or corrupted/tampered vault")?;
-            let data: VaultData = serde_json::from_slice(&plaintext).context("decrypted vault payload is not valid JSON")?;
+            let ciphertext = crypto::from_hex(&envelope.payload)
+                .context("vault.json payload is not valid hex")?;
+            let plaintext = crypto::aead_decrypt(&key, &ciphertext).context(
+                "failed to decrypt vault.json — wrong vault.key or corrupted/tampered vault",
+            )?;
+            let data: VaultData = serde_json::from_slice(&plaintext)
+                .context("decrypted vault payload is not valid JSON")?;
             return Ok(data.into());
         }
 
         // Not the encrypted envelope shape — try the pre-T31.6 plaintext
         // shape and migrate on the spot if it matches.
-        let legacy: VaultData = serde_json::from_str(&content)
-            .context("vault.json is neither a recognized encrypted vault nor a legacy plaintext one")?;
+        let legacy: VaultData = serde_json::from_str(&content).context(
+            "vault.json is neither a recognized encrypted vault nor a legacy plaintext one",
+        )?;
         let vault: Vault = legacy.into();
         eprintln!(
             "antOS · aviso: se detectó una bóveda de secretos sin cifrar en {} y se migró automáticamente al formato cifrado (T31.6).",
@@ -176,10 +191,9 @@ impl Vault {
         }
 
         let key_bytes = crypto::secure_random_bytes(32)?;
-        let key: [u8; 32] = key_bytes
-            .clone()
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("secure_random_bytes(32) returned an unexpected length"))?;
+        let key: [u8; 32] = key_bytes.clone().try_into().map_err(|_| {
+            anyhow::anyhow!("secure_random_bytes(32) returned an unexpected length")
+        })?;
         crypto::write_secret_file(&key_file, crypto::to_hex(&key_bytes).as_bytes())?;
         Ok(key)
     }
@@ -188,7 +202,9 @@ impl Vault {
 /// Stores or updates a secret key in the vault.
 pub fn set_secret(state_dir: &Path, key: &str, value: &str) -> Result<()> {
     let mut vault = Vault::load(state_dir)?;
-    vault.secrets.insert(key.to_string(), SecretValue::new(value.to_string()));
+    vault
+        .secrets
+        .insert(key.to_string(), SecretValue::new(value.to_string()));
     vault.updated_at = chrono::Local::now().timestamp();
     vault.save(state_dir)?;
     Ok(())
@@ -266,7 +282,10 @@ pub fn check_secret_access(path: &Path, grants: &Grants) -> Result<()> {
             bail!("acceso bloqueado por Zero Environmental Authority: lectura de credenciales AWS requiere concesión activa («antos grant secret.aws»)");
         }
     } else if !grants.is_granted("secret.read") {
-        bail!("acceso bloqueado por Zero Environmental Authority a archivo sensible {}", path.display());
+        bail!(
+            "acceso bloqueado por Zero Environmental Authority a archivo sensible {}",
+            path.display()
+        );
     }
 
     Ok(())
@@ -351,7 +370,10 @@ mod tests {
         assert_eq!(val, Some("sk_test_12345".to_string()));
 
         let path_ok = check_secret_access(Path::new("/workspace/.env"), &grants);
-        assert!(path_ok.is_ok(), "must allow path when secret.env is granted");
+        assert!(
+            path_ok.is_ok(),
+            "must allow path when secret.env is granted"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -359,7 +381,8 @@ mod tests {
     // ---------------------------------------------------------------- T31.6
 
     fn t31_6_temp_dir(label: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("antos_vault_t31_6_{label}_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("antos_vault_t31_6_{label}_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -386,7 +409,10 @@ mod tests {
         // Sanity: the vault really does still round-trip the value.
         let mut grants = Grants::default();
         grants.grant_with_reason("secret.read", 10, None);
-        assert_eq!(get_secret(&temp, "STRIPE_KEY", &grants).unwrap(), Some(secret_value.to_string()));
+        assert_eq!(
+            get_secret(&temp, "STRIPE_KEY", &grants).unwrap(),
+            Some(secret_value.to_string())
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -425,11 +451,25 @@ mod tests {
             let result = std::panic::catch_unwind(|| {
                 set_secret(&temp, "API_KEY", "value").unwrap();
 
-                let vault_mode = fs::metadata(temp.join("vault.json")).unwrap().permissions().mode();
-                assert_eq!(vault_mode & 0o777, 0o600, "vault.json must be 0600 even with a permissive umask");
+                let vault_mode = fs::metadata(temp.join("vault.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(
+                    vault_mode & 0o777,
+                    0o600,
+                    "vault.json must be 0600 even with a permissive umask"
+                );
 
-                let key_mode = fs::metadata(temp.join("vault.key")).unwrap().permissions().mode();
-                assert_eq!(key_mode & 0o777, 0o600, "vault.key must be 0600 even with a permissive umask");
+                let key_mode = fs::metadata(temp.join("vault.key"))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(
+                    key_mode & 0o777,
+                    0o600,
+                    "vault.key must be 0600 even with a permissive umask"
+                );
             });
             libc::umask(previous);
             result.unwrap();
@@ -465,7 +505,10 @@ mod tests {
         perms.set_mode(0o700);
         fs::set_permissions(&temp, perms).unwrap();
 
-        assert!(attempt.is_err(), "a write that cannot create its temp file must fail loudly, not silently succeed");
+        assert!(
+            attempt.is_err(),
+            "a write that cannot create its temp file must fail loudly, not silently succeed"
+        );
         assert_eq!(
             fs::read(&vault_file).unwrap(),
             original_bytes,
@@ -473,7 +516,10 @@ mod tests {
         );
 
         let vault = Vault::load(&temp).expect("the previous vault must still load correctly");
-        assert_eq!(vault.secrets.get("API_KEY").unwrap().expose(), "original-value");
+        assert_eq!(
+            vault.secrets.get("API_KEY").unwrap().expose(),
+            "original-value"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -492,18 +538,31 @@ mod tests {
             },
             "updated_at": 1_700_000_000i64
         });
-        fs::write(&vault_file, serde_json::to_vec_pretty(&legacy_json).unwrap()).unwrap();
+        fs::write(
+            &vault_file,
+            serde_json::to_vec_pretty(&legacy_json).unwrap(),
+        )
+        .unwrap();
 
         let migrated = Vault::load(&temp).expect("a legacy plaintext vault must load and migrate");
-        assert_eq!(migrated.secrets.get("OLD_TOKEN").unwrap().expose(), "legacy-plaintext-value-12345");
-        assert_eq!(migrated.secrets.get("ANOTHER_ONE").unwrap().expose(), "second-legacy-value");
+        assert_eq!(
+            migrated.secrets.get("OLD_TOKEN").unwrap().expose(),
+            "legacy-plaintext-value-12345"
+        );
+        assert_eq!(
+            migrated.secrets.get("ANOTHER_ONE").unwrap().expose(),
+            "second-legacy-value"
+        );
         assert_eq!(migrated.updated_at, 1_700_000_000);
 
         // The file on disk must now be the encrypted envelope, not the
         // legacy plaintext shape — proving the migration actually wrote
         // back, not just parsed the old format in memory.
         let on_disk = fs::read_to_string(&vault_file).unwrap();
-        assert!(!on_disk.contains("legacy-plaintext-value-12345"), "the migrated file must not contain the plaintext");
+        assert!(
+            !on_disk.contains("legacy-plaintext-value-12345"),
+            "the migrated file must not contain the plaintext"
+        );
         let envelope: serde_json::Value = serde_json::from_str(&on_disk).unwrap();
         assert_eq!(envelope["version"], VAULT_FORMAT_VERSION);
         assert!(envelope["payload"].is_string());
@@ -511,7 +570,10 @@ mod tests {
         // Loading again must still see the same data, now via the normal
         // encrypted path.
         let reloaded = Vault::load(&temp).unwrap();
-        assert_eq!(reloaded.secrets.get("OLD_TOKEN").unwrap().expose(), "legacy-plaintext-value-12345");
+        assert_eq!(
+            reloaded.secrets.get("OLD_TOKEN").unwrap().expose(),
+            "legacy-plaintext-value-12345"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -548,7 +610,10 @@ mod tests {
 
         let vault = Vault::load(&temp).unwrap();
         assert_eq!(vault.secrets.get("FIRST").unwrap().expose(), "first-value");
-        assert_eq!(vault.secrets.get("SECOND").unwrap().expose(), "second-value");
+        assert_eq!(
+            vault.secrets.get("SECOND").unwrap().expose(),
+            "second-value"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }

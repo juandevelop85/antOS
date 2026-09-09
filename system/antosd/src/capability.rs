@@ -108,11 +108,7 @@ impl Catalog {
     ///
     /// Esta validación es la primera línea de defensa: lo que el modelo
     /// devuelve no se considera de fiar hasta pasar por aquí.
-    pub fn validate(
-        &self,
-        cap: &Capability,
-        args: &mut BTreeMap<String, String>,
-    ) -> Result<()> {
+    pub fn validate(&self, cap: &Capability, args: &mut BTreeMap<String, String>) -> Result<()> {
         for (name, spec) in &cap.params {
             if !args.contains_key(name) {
                 match (&spec.default, spec.optional) {
@@ -127,7 +123,10 @@ impl Catalog {
 
             if let Some(max) = spec.max {
                 if value.chars().count() > max {
-                    bail!("{}: «{name}» excede el máximo de {max} caracteres", cap.name);
+                    bail!(
+                        "{}: «{name}» excede el máximo de {max} caracteres",
+                        cap.name
+                    );
                 }
             }
 
@@ -147,13 +146,15 @@ impl Catalog {
                             .chars()
                             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
                     {
-                        bail!("{}: «{name}» no es un identificador válido: «{value}»", cap.name);
+                        bail!(
+                            "{}: «{name}» no es un identificador válido: «{value}»",
+                            cap.name
+                        );
                     }
                 }
                 "branch" | "git_ref" => {
-                    let valido = |c: char| {
-                        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/')
-                    };
+                    let valido =
+                        |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/');
                     if value.is_empty()
                         || !value.chars().all(valido)
                         || value.starts_with('/')
@@ -161,7 +162,10 @@ impl Catalog {
                         || value.contains("..")
                         || value.contains("//")
                     {
-                        bail!("{}: «{name}» no es un nombre de rama válido: «{value}»", cap.name);
+                        bail!(
+                            "{}: «{name}» no es un nombre de rama válido: «{value}»",
+                            cap.name
+                        );
                     }
                 }
                 // Un nombre de paquete de un ecosistema real: npm admite
@@ -170,14 +174,19 @@ impl Catalog {
                 // acaban dentro de una RUTA, y ahí una barra sería otra cosa.
                 "package" => {
                     let valido = |c: char| {
-                        c.is_ascii_alphanumeric()
-                            || matches!(c, '-' | '_' | '.' | '@' | '/' | '+')
+                        c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '/' | '+')
                     };
                     if value.is_empty() || !value.chars().all(valido) {
-                        bail!("{}: «{name}» no es un nombre de paquete válido: «{value}»", cap.name);
+                        bail!(
+                            "{}: «{name}» no es un nombre de paquete válido: «{value}»",
+                            cap.name
+                        );
                     }
                     if value.starts_with('/') || value.starts_with('-') || value.contains("..") {
-                        bail!("{}: «{name}» tiene una forma sospechosa: «{value}»", cap.name);
+                        bail!(
+                            "{}: «{name}» tiene una forma sospechosa: «{value}»",
+                            cap.name
+                        );
                     }
                 }
                 "path" => {
@@ -190,7 +199,10 @@ impl Catalog {
                     // no la garantía.
                     if spec.within.as_deref() == Some("$WORKSPACE") {
                         if value.starts_with('/') || value.starts_with('~') {
-                            bail!("{}: «{name}» debe ser relativa al espacio de trabajo: «{value}»", cap.name);
+                            bail!(
+                                "{}: «{name}» debe ser relativa al espacio de trabajo: «{value}»",
+                                cap.name
+                            );
                         }
                         if value.split('/').any(|c| c == "..") {
                             bail!("{}: «{name}» no puede subir por encima del espacio de trabajo: «{value}»", cap.name);

@@ -184,10 +184,7 @@ pub fn create_uefi_disk_image(
     // 3. Format ESP partition with FAT32 and populate Limine Bootloader files
     let partition_offset = start_lba * sector_size;
     {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(out_image)?;
+        let mut file = OpenOptions::new().read(true).write(true).open(out_image)?;
 
         let mut part = PartitionSlice::new(&mut file, partition_offset, partition_bytes);
         let format_opts = fatfs::FormatVolumeOptions::new()
@@ -242,10 +239,7 @@ pub fn create_uefi_disk_image(
 
     // 4. Install Limine BIOS boot code into MBR / LBA 0 (and Stage 2 at LBA 64)
     {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(out_image)?;
+        let mut file = OpenOptions::new().read(true).write(true).open(out_image)?;
         limine::install_limine_bios_mbr(&mut file)?;
     }
 
@@ -266,7 +260,10 @@ mod tests {
     #[test]
     fn test_architecture_from_str() {
         assert_eq!(Architecture::from_str("x86_64"), Some(Architecture::X86_64));
-        assert_eq!(Architecture::from_str("aarch64"), Some(Architecture::AArch64));
+        assert_eq!(
+            Architecture::from_str("aarch64"),
+            Some(Architecture::AArch64)
+        );
         assert_eq!(Architecture::from_str("arm64"), Some(Architecture::AArch64));
         assert_eq!(Architecture::from_str("unknown"), None);
     }
@@ -283,7 +280,8 @@ mod tests {
         let dummy_kernel = temp_dir.join("dummy_kernel.elf");
         let dummy_img = temp_dir.join("test_uefi_limine.img");
 
-        let kernel_content = b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3E\x00"; // x86_64 ELF
+        let kernel_content =
+            b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3E\x00"; // x86_64 ELF
         std::fs::write(&dummy_kernel, kernel_content).unwrap();
 
         let arch = detect_architecture(&dummy_kernel);
@@ -370,4 +368,3 @@ mod tests {
         let _ = std::fs::remove_file(dummy_img);
     }
 }
-

@@ -2,9 +2,8 @@
 
 extern crate antos_protocol as antos_protocolo;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,9 +12,14 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
-fn render_project_tickets(proj_path: &std::path::Path, proj_name: &str, engine: &crate::spec::SpecEngine) -> Result<()> {
+fn render_project_tickets(
+    proj_path: &std::path::Path,
+    proj_name: &str,
+    engine: &crate::spec::SpecEngine,
+) -> Result<()> {
     if !proj_path.exists() {
         println!(
             "\n{} El proyecto «{}» no existe en el workspace ({}).\n",
@@ -110,7 +114,9 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     // 2. Resolver directorio objetivo base
     let default_target_ws = if is_system {
-        ctx.antos_root.clone().unwrap_or_else(|| ctx.workspace.clone())
+        ctx.antos_root
+            .clone()
+            .unwrap_or_else(|| ctx.workspace.clone())
     } else if let Some(ref p) = project_flag {
         ctx.workspace.join(p)
     } else if let Some(ref cur) = ctx.current_project {
@@ -202,7 +208,11 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
         Some(arg) if arg != "list" => {
             let is_ticket_id = (arg.starts_with('T') || arg.starts_with('t'))
-                && arg.chars().nth(1).map(|c| c.is_ascii_digit()).unwrap_or(false);
+                && arg
+                    .chars()
+                    .nth(1)
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false);
 
             if is_ticket_id {
                 let detalle = engine.get_ticket(&default_target_ws, arg)?;
@@ -262,22 +272,34 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     if !is_system {
         if let Some(ref cur) = ctx.current_project {
-            let proj_name = cur.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
+            let proj_name = cur
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("proyecto");
             return render_project_tickets(cur, proj_name, engine);
         }
     }
 
     // Si el usuario está ejecutando dentro de `workspace/` (raíz del workspace)
-    let cwd_canon = std::env::current_dir().ok().and_then(|c| c.canonicalize().ok());
+    let cwd_canon = std::env::current_dir()
+        .ok()
+        .and_then(|c| c.canonicalize().ok());
     let ws_canon = ctx.workspace.canonicalize().ok();
     let in_workspace_root = cwd_canon == ws_canon
-        && ctx.workspace.file_name().map(|n| n == "workspace").unwrap_or(false);
+        && ctx
+            .workspace
+            .file_name()
+            .map(|n| n == "workspace")
+            .unwrap_or(false);
 
     if !is_system && in_workspace_root {
         let projects = crate::exec::scan_workspace_projects(&ctx.workspace);
         println!(
             "\n{}\n",
-            paint("antOS · Catálogo de Tickets por Proyecto en Workspace (T17.4)", BOLD)
+            paint(
+                "antOS · Catálogo de Tickets por Proyecto en Workspace (T17.4)",
+                BOLD
+            )
         );
         if projects.is_empty() {
             println!("  (no hay proyectos inicializados en el workspace)");
@@ -291,7 +313,10 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
             if p_tickets.is_empty() {
                 println!("  • {:<20} (sin catálogo de tickets)", paint(p_name, CYAN));
             } else {
-                let comp = p_tickets.iter().filter(|t| t.status == antos_protocolo::TicketStatus::Completado).count();
+                let comp = p_tickets
+                    .iter()
+                    .filter(|t| t.status == antos_protocolo::TicketStatus::Completado)
+                    .count();
                 let pend = p_tickets.len() - comp;
                 println!(
                     "  • {:<20} {} tickets ({} completados, {} pendientes)",
@@ -310,7 +335,9 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 
     let target = if is_system {
-        ctx.antos_root.clone().unwrap_or_else(|| ctx.workspace.clone())
+        ctx.antos_root
+            .clone()
+            .unwrap_or_else(|| ctx.workspace.clone())
     } else {
         ctx.workspace.clone()
     };
@@ -324,7 +351,10 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     println!(
         "\n{}",
-        paint("antOS · Catálogo y Hoja de Ruta de Tickets (Sistema Operativo)", BOLD)
+        paint(
+            "antOS · Catálogo y Hoja de Ruta de Tickets (Sistema Operativo)",
+            BOLD
+        )
     );
     println!();
     println!(
@@ -358,4 +388,3 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
     );
     Ok(())
 }
-

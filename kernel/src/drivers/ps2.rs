@@ -328,14 +328,26 @@ mod tests {
         d.feed(0);
         d.feed(0);
         let ev = d.feed(0x0F);
-        assert_eq!(ev, alloc::vec![InputEvent::Scroll { delta_x: 0, delta_y: 1 }]);
+        assert_eq!(
+            ev,
+            alloc::vec![InputEvent::Scroll {
+                delta_x: 0,
+                delta_y: 1
+            }]
+        );
 
         // wheel = +1 -> scroll -1.
         d.feed(0x08);
         d.feed(0);
         d.feed(0);
         let ev = d.feed(0x01);
-        assert_eq!(ev, alloc::vec![InputEvent::Scroll { delta_x: 0, delta_y: -1 }]);
+        assert_eq!(
+            ev,
+            alloc::vec![InputEvent::Scroll {
+                delta_x: 0,
+                delta_y: -1
+            }]
+        );
     }
 
     #[test]

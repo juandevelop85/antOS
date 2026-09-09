@@ -75,8 +75,7 @@ impl Ctx {
         let workspace = workspace.canonicalize()?;
 
         // ── Step 3: resolve state dir ────────────────────────────────────────
-        let state = match std::env::var_os("ANTOS_STATE")
-            .or_else(|| std::env::var_os("SYSO_STATE"))
+        let state = match std::env::var_os("ANTOS_STATE").or_else(|| std::env::var_os("SYSO_STATE"))
         {
             Some(v) => PathBuf::from(v),
             None => {
@@ -162,9 +161,15 @@ impl Ctx {
         probe_local_llm_endpoints()
     }
 
-    pub fn snapshots_dir(&self) -> PathBuf { self.state.join("snapshots") }
-    pub fn journal_path(&self) -> PathBuf { self.state.join("journal.jsonl") }
-    pub fn grants_path(&self) -> PathBuf { self.state.join("grants.json") }
+    pub fn snapshots_dir(&self) -> PathBuf {
+        self.state.join("snapshots")
+    }
+    pub fn journal_path(&self) -> PathBuf {
+        self.state.join("journal.jsonl")
+    }
+    pub fn grants_path(&self) -> PathBuf {
+        self.state.join("grants.json")
+    }
 
     /// Renders a path relative to the workspace for cleaner terminal output.
     pub fn display<'a>(&self, p: &'a Path) -> String {
@@ -314,7 +319,13 @@ mod tests {
 
     #[test]
     fn test_detect_current_project_with_persistent_state() {
-        let unique = format!("antos_test_proj_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let unique = format!(
+            "antos_test_proj_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let root = std::env::temp_dir().join(unique);
         let workspace = root.join("workspace");
         let state = root.join("state");
@@ -339,7 +350,13 @@ mod tests {
 
     #[test]
     fn test_detect_current_project_with_env_var() {
-        let unique = format!("antos_test_proj_env_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+        let unique = format!(
+            "antos_test_proj_env_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
         let root = std::env::temp_dir().join(unique);
         let workspace = root.join("workspace");
         let state = root.join("state");

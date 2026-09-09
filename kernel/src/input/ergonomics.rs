@@ -63,24 +63,61 @@ pub enum KeyResolve {
 pub fn combine_dead(dead: DeadKey, base: char) -> Option<char> {
     let table: &[(char, char)] = match dead {
         DeadKey::Acute => &[
-            ('a', 'á'), ('e', 'é'), ('i', 'í'), ('o', 'ó'), ('u', 'ú'), ('y', 'ý'),
-            ('A', 'Á'), ('E', 'É'), ('I', 'Í'), ('O', 'Ó'), ('U', 'Ú'),
+            ('a', 'á'),
+            ('e', 'é'),
+            ('i', 'í'),
+            ('o', 'ó'),
+            ('u', 'ú'),
+            ('y', 'ý'),
+            ('A', 'Á'),
+            ('E', 'É'),
+            ('I', 'Í'),
+            ('O', 'Ó'),
+            ('U', 'Ú'),
         ],
         DeadKey::Grave => &[
-            ('a', 'à'), ('e', 'è'), ('i', 'ì'), ('o', 'ò'), ('u', 'ù'),
-            ('A', 'À'), ('E', 'È'), ('I', 'Ì'), ('O', 'Ò'), ('U', 'Ù'),
+            ('a', 'à'),
+            ('e', 'è'),
+            ('i', 'ì'),
+            ('o', 'ò'),
+            ('u', 'ù'),
+            ('A', 'À'),
+            ('E', 'È'),
+            ('I', 'Ì'),
+            ('O', 'Ò'),
+            ('U', 'Ù'),
         ],
         DeadKey::Circumflex => &[
-            ('a', 'â'), ('e', 'ê'), ('i', 'î'), ('o', 'ô'), ('u', 'û'),
-            ('A', 'Â'), ('E', 'Ê'), ('I', 'Î'), ('O', 'Ô'), ('U', 'Û'),
+            ('a', 'â'),
+            ('e', 'ê'),
+            ('i', 'î'),
+            ('o', 'ô'),
+            ('u', 'û'),
+            ('A', 'Â'),
+            ('E', 'Ê'),
+            ('I', 'Î'),
+            ('O', 'Ô'),
+            ('U', 'Û'),
         ],
         DeadKey::Diaeresis => &[
-            ('a', 'ä'), ('e', 'ë'), ('i', 'ï'), ('o', 'ö'), ('u', 'ü'),
-            ('A', 'Ä'), ('E', 'Ë'), ('I', 'Ï'), ('O', 'Ö'), ('U', 'Ü'),
+            ('a', 'ä'),
+            ('e', 'ë'),
+            ('i', 'ï'),
+            ('o', 'ö'),
+            ('u', 'ü'),
+            ('A', 'Ä'),
+            ('E', 'Ë'),
+            ('I', 'Ï'),
+            ('O', 'Ö'),
+            ('U', 'Ü'),
         ],
         DeadKey::Tilde => &[
-            ('a', 'ã'), ('n', 'ñ'), ('o', 'õ'),
-            ('A', 'Ã'), ('N', 'Ñ'), ('O', 'Õ'),
+            ('a', 'ã'),
+            ('n', 'ñ'),
+            ('o', 'õ'),
+            ('A', 'Ã'),
+            ('N', 'Ñ'),
+            ('O', 'Õ'),
         ],
     };
     table.iter().find(|(b, _)| *b == base).map(|(_, c)| *c)
@@ -205,11 +242,11 @@ fn resolve_es(key: KeyCode, shift: bool, caps: bool, altgr: bool) -> KeyResolve 
             Num3 => c('#'),
             Num4 => c('~'),
             KeyE => c('€'),
-            Grave => c('\\'),        // key left of "1"
+            Grave => c('\\'), // key left of "1"
             LeftBracket => c('['),
             RightBracket => c(']'),
             Backslash => c('}'),
-            Semicolon => c('~'),     // AltGr on the "ñ" key
+            Semicolon => c('~'), // AltGr on the "ñ" key
             Apostrophe => c('{'),
             _ => KeyResolve::None,
         };
@@ -433,39 +470,99 @@ mod tests {
     #[test]
     fn us_layout_is_unchanged() {
         let l = KeyboardLayout::Us;
-        assert_eq!(ch(resolve_key(l, KeyCode::KeyA, false, false, false)), Some('a'));
-        assert_eq!(ch(resolve_key(l, KeyCode::KeyA, true, false, false)), Some('A'));
-        assert_eq!(ch(resolve_key(l, KeyCode::KeyA, false, true, false)), Some('A'));
-        assert_eq!(ch(resolve_key(l, KeyCode::KeyA, true, true, false)), Some('a'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Num2, true, false, false)), Some('@'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Semicolon, false, false, false)), Some(';'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Semicolon, true, false, false)), Some(':'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Slash, true, false, false)), Some('?'));
-        assert_eq!(resolve_key(l, KeyCode::F1, false, false, false), KeyResolve::None);
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::KeyA, false, false, false)),
+            Some('a')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::KeyA, true, false, false)),
+            Some('A')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::KeyA, false, true, false)),
+            Some('A')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::KeyA, true, true, false)),
+            Some('a')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Num2, true, false, false)),
+            Some('@')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Semicolon, false, false, false)),
+            Some(';')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Semicolon, true, false, false)),
+            Some(':')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Slash, true, false, false)),
+            Some('?')
+        );
+        assert_eq!(
+            resolve_key(l, KeyCode::F1, false, false, false),
+            KeyResolve::None
+        );
     }
 
     #[test]
     fn es_layout_special_glyphs() {
         let l = KeyboardLayout::Es;
         // ñ / Ñ on the US semicolon key
-        assert_eq!(ch(resolve_key(l, KeyCode::Semicolon, false, false, false)), Some('ñ'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Semicolon, true, false, false)), Some('Ñ'));
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Semicolon, false, false, false)),
+            Some('ñ')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Semicolon, true, false, false)),
+            Some('Ñ')
+        );
         // ç / Ç on the US backslash key
-        assert_eq!(ch(resolve_key(l, KeyCode::Backslash, false, false, false)), Some('ç'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Backslash, true, false, false)), Some('Ç'));
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Backslash, false, false, false)),
+            Some('ç')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Backslash, true, false, false)),
+            Some('Ç')
+        );
         // ; and : are Shift on the comma/period keys
-        assert_eq!(ch(resolve_key(l, KeyCode::Comma, true, false, false)), Some(';'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Dot, true, false, false)), Some(':'));
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Comma, true, false, false)),
+            Some(';')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Dot, true, false, false)),
+            Some(':')
+        );
     }
 
     #[test]
     fn es_layout_altgr_third_level() {
         let l = KeyboardLayout::Es;
-        assert_eq!(ch(resolve_key(l, KeyCode::Num2, false, false, true)), Some('@'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Num3, false, false, true)), Some('#'));
-        assert_eq!(ch(resolve_key(l, KeyCode::KeyE, false, false, true)), Some('€'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Num4, false, false, true)), Some('~'));
-        assert_eq!(ch(resolve_key(l, KeyCode::Grave, false, false, true)), Some('\\'));
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Num2, false, false, true)),
+            Some('@')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Num3, false, false, true)),
+            Some('#')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::KeyE, false, false, true)),
+            Some('€')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Num4, false, false, true)),
+            Some('~')
+        );
+        assert_eq!(
+            ch(resolve_key(l, KeyCode::Grave, false, false, true)),
+            Some('\\')
+        );
     }
 
     #[test]
@@ -542,7 +639,11 @@ mod tests {
 
     #[test]
     fn accel_identity_below_threshold_with_unit_gain() {
-        let p = PointerAccel { sensitivity_pct: 100, threshold: 6, accel_pct: 40 };
+        let p = PointerAccel {
+            sensitivity_pct: 100,
+            threshold: 6,
+            accel_pct: 40,
+        };
         assert_eq!(p.apply(0), 0);
         assert_eq!(p.apply(3), 3);
         assert_eq!(p.apply(-5), -5);
@@ -551,7 +652,11 @@ mod tests {
 
     #[test]
     fn accel_amplifies_large_deltas() {
-        let p = PointerAccel { sensitivity_pct: 100, threshold: 6, accel_pct: 50 };
+        let p = PointerAccel {
+            sensitivity_pct: 100,
+            threshold: 6,
+            accel_pct: 50,
+        };
         // mag 10: gain = 100 + (10-6)*50 = 300 -> 10*300/100 = 30
         assert_eq!(p.apply(10), 30);
         assert_eq!(p.apply(-10), -30);
@@ -559,13 +664,21 @@ mod tests {
 
     #[test]
     fn accel_sensitivity_scales_and_never_zeroes_motion() {
-        let slow = PointerAccel { sensitivity_pct: 50, threshold: 100, accel_pct: 0 };
+        let slow = PointerAccel {
+            sensitivity_pct: 50,
+            threshold: 100,
+            accel_pct: 0,
+        };
         assert_eq!(slow.apply(4), 2);
         // A 1px twitch at 50% would round to 0; clamped up to 1.
         assert_eq!(slow.apply(1), 1);
         assert_eq!(slow.apply(-1), -1);
 
-        let fast = PointerAccel { sensitivity_pct: 250, threshold: 100, accel_pct: 0 };
+        let fast = PointerAccel {
+            sensitivity_pct: 250,
+            threshold: 100,
+            accel_pct: 0,
+        };
         assert_eq!(fast.apply(4), 10);
     }
 }

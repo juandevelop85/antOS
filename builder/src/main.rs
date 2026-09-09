@@ -2,12 +2,14 @@
 //!
 //! Generates bootable disk images (.img) and hybrid ISOs (.iso) for x86_64 and AArch64.
 
+use builder::{create_iso_image, create_uefi_disk_image, detect_architecture, Architecture};
 use std::path::PathBuf;
-use builder::{detect_architecture, Architecture, create_uefi_disk_image, create_iso_image};
 
 fn print_usage() {
     eprintln!("antOS Boot Image Builder");
-    eprintln!("Uso: builder <ruta-al-kernel.elf> [--arch x86_64|aarch64] [--format all|uefi|bios|iso]");
+    eprintln!(
+        "Uso: builder <ruta-al-kernel.elf> [--arch x86_64|aarch64] [--format all|uefi|bios|iso]"
+    );
 }
 
 fn main() {
@@ -49,7 +51,11 @@ fn main() {
     }
 
     let kernel = kernel_path.expect("debe especificarse la ruta al kernel ELF");
-    assert!(kernel.exists(), "no existe el archivo del kernel: {}", kernel.display());
+    assert!(
+        kernel.exists(),
+        "no existe el archivo del kernel: {}",
+        kernel.display()
+    );
 
     let arch = explicit_arch.unwrap_or_else(|| detect_architecture(&kernel));
     let out_dir = kernel
@@ -64,7 +70,11 @@ fn main() {
     let initrd_path = out_dir.join("initrd.img");
     let initrd_data = builder::ramdisk::build_live_ramdisk(None);
     std::fs::write(&initrd_path, &initrd_data).expect("no se pudo escribir initrd.img");
-    println!("  live ramdisk {} ({} KiB)", initrd_path.display(), initrd_data.len() / 1024);
+    println!(
+        "  live ramdisk {} ({} KiB)",
+        initrd_path.display(),
+        initrd_data.len() / 1024
+    );
 
     match arch {
         Architecture::X86_64 => {

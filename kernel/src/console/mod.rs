@@ -70,7 +70,8 @@ impl Console {
         if self.header_rows > 0 {
             let top_y = self.header_rows * font::FONT_HEIGHT;
             let h = self.framebuffer.height().saturating_sub(top_y);
-            self.framebuffer.draw_rect(0, top_y, self.framebuffer.width(), h, self.bg_color);
+            self.framebuffer
+                .draw_rect(0, top_y, self.framebuffer.width(), h, self.bg_color);
             self.cursor_col = 0;
             self.cursor_row = self.header_rows;
         } else {
@@ -79,7 +80,12 @@ impl Console {
             self.cursor_row = 0;
         }
         #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, self.framebuffer.width(), self.framebuffer.height());
+        crate::arch::aarch64::virtio_gpu::flush_screen(
+            0,
+            0,
+            self.framebuffer.width(),
+            self.framebuffer.height(),
+        );
     }
 
     /// Draws a styled antOS graphical header banner pinned at the top of the display.
@@ -89,28 +95,33 @@ impl Console {
         let width = self.framebuffer.width();
 
         // Background bar: Deep navy / slate
-        self.framebuffer.draw_rect(0, 0, width, bar_height, Color::new(20, 30, 48));
+        self.framebuffer
+            .draw_rect(0, 0, width, bar_height, Color::new(20, 30, 48));
         // Accent bottom line: Cyan
-        self.framebuffer.draw_rect(0, bar_height - 2, width, 2, Color::CYAN);
+        self.framebuffer
+            .draw_rect(0, bar_height - 2, width, 2, Color::CYAN);
 
         // Render logo in bright cyan
         let mut x = 12;
         for c in logo.chars() {
-            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_CYAN, Color::new(20, 30, 48));
+            self.framebuffer
+                .draw_char(x, 6, c, Color::BRIGHT_CYAN, Color::new(20, 30, 48));
             x += font::FONT_WIDTH;
         }
 
         // Render CPU info in bright green
         x += font::FONT_WIDTH * 2;
         for c in cpu_info.chars() {
-            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_GREEN, Color::new(20, 30, 48));
+            self.framebuffer
+                .draw_char(x, 6, c, Color::BRIGHT_GREEN, Color::new(20, 30, 48));
             x += font::FONT_WIDTH;
         }
 
         // Render Mem info in bright yellow
         x += font::FONT_WIDTH * 2;
         for c in mem_info.chars() {
-            self.framebuffer.draw_char(x, 6, c, Color::BRIGHT_YELLOW, Color::new(20, 30, 48));
+            self.framebuffer
+                .draw_char(x, 6, c, Color::BRIGHT_YELLOW, Color::new(20, 30, 48));
             x += font::FONT_WIDTH;
         }
 
@@ -127,11 +138,17 @@ impl Console {
             self.cursor_row += 1;
         } else {
             let top_y = self.header_rows * font::FONT_HEIGHT;
-            self.framebuffer.scroll_up_region(top_y, font::FONT_HEIGHT, self.bg_color);
+            self.framebuffer
+                .scroll_up_region(top_y, font::FONT_HEIGHT, self.bg_color);
             self.cursor_row = self.max_rows.saturating_sub(1);
         }
         #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, self.framebuffer.width(), self.framebuffer.height());
+        crate::arch::aarch64::virtio_gpu::flush_screen(
+            0,
+            0,
+            self.framebuffer.width(),
+            self.framebuffer.height(),
+        );
     }
 
     /// Writes a single Unicode character, interpreting ANSI escape sequences.
@@ -162,7 +179,8 @@ impl Console {
                 let start_x = self.cursor_col * font::FONT_WIDTH;
                 let width = (self.max_cols.saturating_sub(self.cursor_col)) * font::FONT_WIDTH;
                 let y = self.cursor_row * font::FONT_HEIGHT;
-                self.framebuffer.draw_rect(start_x, y, width, font::FONT_HEIGHT, self.bg_color);
+                self.framebuffer
+                    .draw_rect(start_x, y, width, font::FONT_HEIGHT, self.bg_color);
             }
             AnsiAction::PrintChar(ch) => {
                 self.put_char(ch);
@@ -190,7 +208,8 @@ impl Console {
                     self.cursor_col -= 1;
                     let x = self.cursor_col * font::FONT_WIDTH;
                     let y = self.cursor_row * font::FONT_HEIGHT;
-                    self.framebuffer.draw_char(x, y, ' ', self.fg_color, self.bg_color);
+                    self.framebuffer
+                        .draw_char(x, y, ' ', self.fg_color, self.bg_color);
                 }
             }
             _ => {
@@ -273,7 +292,10 @@ pub unsafe fn init_raw(
 /// Returns active framebuffer resolution (width, height) or defaults to (1024, 768).
 pub fn resolution() -> (u32, u32) {
     if let Some(c) = CONSOLE.lock().as_ref() {
-        (c.framebuffer().width() as u32, c.framebuffer().height() as u32)
+        (
+            c.framebuffer().width() as u32,
+            c.framebuffer().height() as u32,
+        )
     } else {
         (1024, 768)
     }
@@ -288,4 +310,3 @@ pub fn _print(args: core::fmt::Arguments) {
         let _ = console.write_fmt(args);
     }
 }
-

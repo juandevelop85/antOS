@@ -6,7 +6,7 @@
 
 use crate::capability::Tier;
 use crate::preview::Line;
-use crate::protocol::{SessionHandler, Proposal, ExecutionResult};
+use crate::protocol::{ExecutionResult, Proposal, SessionHandler};
 use anyhow::Result;
 use std::io::Write;
 
@@ -119,7 +119,11 @@ impl SessionHandler for Terminal {
             paint(proposal.tier.label(), tier_color(proposal.tier)),
             paint(&format!("— {}", proposal.reasons.join("; ")), DIM)
         );
-        let enclosure_color = if proposal.enclosure.engine == "none" { RED } else { GREEN };
+        let enclosure_color = if proposal.enclosure.engine == "none" {
+            RED
+        } else {
+            GREEN
+        };
         println!(
             "  enclosure {} {}",
             paint(&proposal.enclosure.engine, enclosure_color),

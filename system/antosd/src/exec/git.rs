@@ -1,10 +1,10 @@
 //! Git and worktree execution capabilities and helpers.
 
+use super::Change;
+use crate::ctx::Ctx;
+use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
-use crate::ctx::Ctx;
-use super::Change;
 
 pub fn changes_for(
     cap: &str,
@@ -13,12 +13,18 @@ pub fn changes_for(
 ) -> Result<Option<Vec<Change>>> {
     match cap {
         "git.status" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             Ok(Some(vec![Change::GitStatus { repo_root: root }]))
         }
 
         "git.commit_semantic" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             let tipo = a.get("type").cloned().unwrap_or_else(|| "feat".into());
             let msg = a.get("message").cloned().unwrap_or_default();
             let commit_msg = if let Some(scope) = a.get("scope").filter(|s| !s.is_empty()) {
@@ -26,11 +32,17 @@ pub fn changes_for(
             } else {
                 format!("{tipo}: {msg}")
             };
-            Ok(Some(vec![Change::GitCommit { repo_root: root, commit_msg }]))
+            Ok(Some(vec![Change::GitCommit {
+                repo_root: root,
+                commit_msg,
+            }]))
         }
 
         "git.smart_branch" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             let name = a.get("name").cloned().unwrap_or_default();
             let base = a.get("base").cloned();
             let branch_name = if let Some(ticket) = a.get("ticket_id").filter(|t| !t.is_empty()) {
@@ -38,13 +50,23 @@ pub fn changes_for(
             } else {
                 name
             };
-            Ok(Some(vec![Change::GitBranch { repo_root: root, branch_name, base }]))
+            Ok(Some(vec![Change::GitBranch {
+                repo_root: root,
+                branch_name,
+                base,
+            }]))
         }
 
         "git.worktree_create" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
-            let branch = a.get("branch").cloned().unwrap_or_else(|| format!("agent/{ticket}"));
+            let branch = a
+                .get("branch")
+                .cloned()
+                .unwrap_or_else(|| format!("agent/{ticket}"));
             let base = a.get("base").cloned().unwrap_or_else(|| "HEAD".into());
             let target_path = ctx.state.join("worktrees").join(&ticket);
             Ok(Some(vec![Change::GitWorktreeCreate {
@@ -56,7 +78,10 @@ pub fn changes_for(
         }
 
         "git.worktree_cleanup" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
             let force = a.get("force").map(|f| f == "true").unwrap_or(false);
             let target_path = ctx.state.join("worktrees").join(&ticket);
@@ -68,7 +93,10 @@ pub fn changes_for(
         }
 
         "git.worktree_merge" => {
-            let root = a.get("path").map(|p| abs(ctx, p)).unwrap_or_else(|| ctx.workspace.clone());
+            let root = a
+                .get("path")
+                .map(|p| abs(ctx, p))
+                .unwrap_or_else(|| ctx.workspace.clone());
             let ticket = a.get("ticket_id").cloned().unwrap_or_else(|| "task".into());
             let branch = format!("agent/{ticket}");
             let target = a.get("target").cloned().unwrap_or_else(|| "main".into());
@@ -93,7 +121,11 @@ pub fn changes_for(
                     ctx.workspace.join(&project_name)
                 }
             };
-            Ok(Some(vec![Change::ProjectGitInit { project_dir, branch, language_hint }]))
+            Ok(Some(vec![Change::ProjectGitInit {
+                project_dir,
+                branch,
+                language_hint,
+            }]))
         }
 
         _ => Ok(None),
@@ -105,7 +137,10 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
         Change::GitStatus { repo_root } => {
             if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(repo_root)? {
                 let lineas = vec![
-                    format!("rama: {}", status.branch.unwrap_or_else(|| "HEAD desacoplado".into())),
+                    format!(
+                        "rama: {}",
+                        status.branch.unwrap_or_else(|| "HEAD desacoplado".into())
+                    ),
                     format!("commits: +{} / -{}", status.ahead, status.behind),
                     format!("modificados: {}", status.modified.len()),
                     format!("staged: {}", status.staged.len()),
@@ -116,7 +151,10 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                 Ok(Some("no es un repositorio Git".into()))
             }
         }
-        Change::GitCommit { repo_root, commit_msg } => {
+        Change::GitCommit {
+            repo_root,
+            commit_msg,
+        } => {
             let add_out = std::process::Command::new("git")
                 .arg("-C")
                 .arg(repo_root)
@@ -124,7 +162,10 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                 .output()
                 .context("ejecutando git add")?;
             if !add_out.status.success() {
-                bail!("git add falló: {}", String::from_utf8_lossy(&add_out.stderr));
+                bail!(
+                    "git add falló: {}",
+                    String::from_utf8_lossy(&add_out.stderr)
+                );
             }
 
             let commit_out = std::process::Command::new("git")
@@ -142,11 +183,17 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                     bail!("git commit falló: {err}\n{out_str}");
                 }
             } else {
-                let resultado = String::from_utf8_lossy(&commit_out.stdout).trim().to_string();
+                let resultado = String::from_utf8_lossy(&commit_out.stdout)
+                    .trim()
+                    .to_string();
                 Ok(Some(format!("commit creado: {resultado}")))
             }
         }
-        Change::GitBranch { repo_root, branch_name, base } => {
+        Change::GitBranch {
+            repo_root,
+            branch_name,
+            base,
+        } => {
             let mut cmd = std::process::Command::new("git");
             cmd.arg("-C").arg(repo_root);
             if let Some(b) = base {
@@ -156,11 +203,19 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             }
             let out = cmd.output().context("ejecutando git checkout")?;
             if !out.status.success() {
-                bail!("git checkout falló: {}", String::from_utf8_lossy(&out.stderr));
+                bail!(
+                    "git checkout falló: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
             }
             Ok(Some(format!("rama activa: {branch_name}")))
         }
-        Change::GitWorktreeCreate { repo_root, target_path, branch_name, base } => {
+        Change::GitWorktreeCreate {
+            repo_root,
+            target_path,
+            branch_name,
+            base,
+        } => {
             crate::git::create_worktree(repo_root, target_path, branch_name, base)?;
             Ok(Some(format!(
                 "worktree creado en: {} (rama: {})",
@@ -168,11 +223,23 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                 branch_name
             )))
         }
-        Change::GitWorktreeCleanup { repo_root, target_path, force } => {
+        Change::GitWorktreeCleanup {
+            repo_root,
+            target_path,
+            force,
+        } => {
             crate::git::remove_worktree(repo_root, target_path, *force)?;
-            Ok(Some(format!("worktree eliminado: {}", target_path.display())))
+            Ok(Some(format!(
+                "worktree eliminado: {}",
+                target_path.display()
+            )))
         }
-        Change::GitWorktreeMerge { repo_root, branch_name, target_branch, message } => {
+        Change::GitWorktreeMerge {
+            repo_root,
+            branch_name,
+            target_branch,
+            message,
+        } => {
             let res = crate::git::merge_worktree(
                 repo_root,
                 branch_name,
@@ -181,7 +248,11 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             )?;
             Ok(Some(format!("merge completado: {res}")))
         }
-        Change::ProjectGitInit { project_dir, branch, language_hint } => {
+        Change::ProjectGitInit {
+            project_dir,
+            branch,
+            language_hint,
+        } => {
             let msg = init_project_git_repo(project_dir, branch, language_hint.as_deref())?;
             Ok(Some(msg))
         }
@@ -192,20 +263,27 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
 fn abs(ctx: &Ctx, raw: &str) -> PathBuf {
     let expanded = crate::blast::expand(raw, &BTreeMap::new(), &ctx.workspace);
     let p = PathBuf::from(expanded);
-    if p.is_absolute() { p } else { ctx.workspace.join(p) }
+    if p.is_absolute() {
+        p
+    } else {
+        ctx.workspace.join(p)
+    }
 }
 
 /// Returns the language-specific .gitignore template for a project.
 pub fn gitignore_template(language: &str) -> &'static str {
     match language {
-        "rust" => "\
+        "rust" => {
+            "\
 # Generated by antOS (T17.3) for Rust
 /target/
 **/*.rs.bk
 Cargo.lock
 *.pdb
-",
-        "typescript" | "javascript" | "node" => "\
+"
+        }
+        "typescript" | "javascript" | "node" => {
+            "\
 # Generated by antOS (T17.3) for Node / TypeScript
 node_modules/
 dist/
@@ -213,8 +291,10 @@ build/
 .env
 *.log
 .npm
-",
-        "python" => "\
+"
+        }
+        "python" => {
+            "\
 # Generated by antOS (T17.3) for Python
 __pycache__/
 *.py[cod]
@@ -227,22 +307,27 @@ dist/
 build/
 *.egg-info/
 .pytest_cache/
-",
-        "go" => "\
+"
+        }
+        "go" => {
+            "\
 # Generated by antOS (T17.3) for Go
 /bin/
 /dist/
 *.exe
 *.test
 vendor/
-",
-        _ => "\
+"
+        }
+        _ => {
+            "\
 # Generated by antOS (T17.3)
 .DS_Store
 Thumbs.db
 *.log
 .env
-",
+"
+        }
     }
 }
 
@@ -279,7 +364,9 @@ pub fn init_project_git_repo(
     if !already_git {
         // Run git init -b <branch>
         let mut init_cmd = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-        init_cmd.current_dir(project_dir).args(["init", "-b", branch]);
+        init_cmd
+            .current_dir(project_dir)
+            .args(["init", "-b", branch]);
         let mut init_res = init_cmd.output();
 
         // Fallback for older git versions where -b might not be supported
@@ -291,8 +378,11 @@ pub fn init_project_git_repo(
 
                 if let Ok(ref out2) = init_res {
                     if out2.status.success() {
-                        let mut checkout_cmd = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-                        checkout_cmd.current_dir(project_dir).args(["checkout", "-b", branch]);
+                        let mut checkout_cmd =
+                            crate::git::git_cmd_with_ceiling(antos_root.as_deref());
+                        checkout_cmd
+                            .current_dir(project_dir)
+                            .args(["checkout", "-b", branch]);
                         let _ = checkout_cmd.output();
                     }
                 }
@@ -306,20 +396,34 @@ pub fn init_project_git_repo(
 
         // Configure default user.name and user.email if not set locally
         let mut cfg_name = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-        cfg_name.current_dir(project_dir).args(["config", "--local", "user.name"]);
+        cfg_name
+            .current_dir(project_dir)
+            .args(["config", "--local", "user.name"]);
         if let Ok(out) = cfg_name.output() {
             if out.stdout.is_empty() {
                 let mut set_name = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-                set_name.current_dir(project_dir).args(["config", "--local", "user.name", "antOS Developer"]);
+                set_name.current_dir(project_dir).args([
+                    "config",
+                    "--local",
+                    "user.name",
+                    "antOS Developer",
+                ]);
                 let _ = set_name.output();
             }
         }
         let mut cfg_email = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-        cfg_email.current_dir(project_dir).args(["config", "--local", "user.email"]);
+        cfg_email
+            .current_dir(project_dir)
+            .args(["config", "--local", "user.email"]);
         if let Ok(out) = cfg_email.output() {
             if out.stdout.is_empty() {
                 let mut set_email = crate::git::git_cmd_with_ceiling(antos_root.as_deref());
-                set_email.current_dir(project_dir).args(["config", "--local", "user.email", "developer@antos.local"]);
+                set_email.current_dir(project_dir).args([
+                    "config",
+                    "--local",
+                    "user.email",
+                    "developer@antos.local",
+                ]);
                 let _ = set_email.output();
             }
         }
@@ -331,9 +435,15 @@ pub fn init_project_git_repo(
         .unwrap_or_else(|| project_dir.display().to_string());
 
     let status_str = if already_git {
-        format!("proyecto «{proj_name}»: repositorio Git ya existía en {}", project_dir.display())
+        format!(
+            "proyecto «{proj_name}»: repositorio Git ya existía en {}",
+            project_dir.display()
+        )
     } else {
-        format!("proyecto «{proj_name}»: repositorio Git inicializado en {} (rama: {branch})", project_dir.display())
+        format!(
+            "proyecto «{proj_name}»: repositorio Git inicializado en {} (rama: {branch})",
+            project_dir.display()
+        )
     };
 
     let gi_str = if gitignore_created {
@@ -374,10 +484,16 @@ mod tests {
         let msg = init_project_git_repo(&tmp, "main", None).expect("init_project_git_repo");
         assert!(msg.contains("inicializado"));
         assert!(tmp.join(".git").exists(), ".git directory must exist");
-        assert!(tmp.join(".gitignore").exists(), ".gitignore file must exist");
+        assert!(
+            tmp.join(".gitignore").exists(),
+            ".gitignore file must exist"
+        );
 
         let gi_content = std::fs::read_to_string(tmp.join(".gitignore")).unwrap();
-        assert!(gi_content.contains("/target/"), ".gitignore must contain rust patterns");
+        assert!(
+            gi_content.contains("/target/"),
+            ".gitignore must contain rust patterns"
+        );
 
         let out = std::process::Command::new("git")
             .current_dir(&tmp)

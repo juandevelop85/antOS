@@ -48,7 +48,8 @@ pub fn diagnose_ports(port_filter: Option<u16>) -> Result<Vec<PortDiagnosticInfo
                     }
 
                     if seen.insert((port, pid)) {
-                        let command = get_process_command(pid).unwrap_or_else(|| process_name.clone());
+                        let command =
+                            get_process_command(pid).unwrap_or_else(|| process_name.clone());
                         let working_dir = get_process_cwd(pid);
 
                         results.push(PortDiagnosticInfo {

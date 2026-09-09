@@ -351,11 +351,7 @@ mod tests {
         assert!(v2.find_compatible("arm,gic-v3").is_empty());
 
         let v3 = Fdt::from_slice(VIRT_GICV3).unwrap();
-        let g3 = v3
-            .find_compatible("arm,gic-v3")
-            .into_iter()
-            .next()
-            .unwrap();
+        let g3 = v3.find_compatible("arm,gic-v3").into_iter().next().unwrap();
         // reg: GICD @ 0x8000000, GICR @ 0x80a0000 (0xf60000).
         assert_eq!(g3.reg_at(0), Some((0x0800_0000, 0x1_0000)));
         assert_eq!(g3.reg_at(1), Some((0x080a_0000, 0x00f6_0000)));
@@ -368,8 +364,16 @@ mod tests {
         // interrupts = <1 0x0d ..> <1 0x0e ..> <1 0x0b ..> <1 0x0a ..>
         //   -> PPI 13 (secure), 14 (phys=INTID 30), 11 (virt=INTID 27), 10 (hyp).
         let intids = timer.interrupt_intids();
-        assert!(intids.contains(&30), "physical timer INTID present: {:?}", intids);
-        assert!(intids.contains(&27), "virtual timer INTID present: {:?}", intids);
+        assert!(
+            intids.contains(&30),
+            "physical timer INTID present: {:?}",
+            intids
+        );
+        assert!(
+            intids.contains(&27),
+            "virtual timer INTID present: {:?}",
+            intids
+        );
     }
 
     #[test]

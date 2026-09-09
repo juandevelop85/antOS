@@ -172,7 +172,10 @@ pub fn restrict(policy: &Policy) -> Result<()> {
 
     // Debe ir ANTES de encerrarse: sin esto, restrict_self exige CAP_SYS_ADMIN.
     if unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) } != 0 {
-        bail!("no pude fijar no_new_privs: {}", std::io::Error::last_os_error());
+        bail!(
+            "no pude fijar no_new_privs: {}",
+            std::io::Error::last_os_error()
+        );
     }
 
     let attr = RulesetAttr {
@@ -188,7 +191,10 @@ pub fn restrict(policy: &Policy) -> Result<()> {
         )
     };
     if ruleset < 0 {
-        bail!("no pude crear el conjunto de reglas: {}", std::io::Error::last_os_error());
+        bail!(
+            "no pude crear el conjunto de reglas: {}",
+            std::io::Error::last_os_error()
+        );
     }
     let ruleset = ruleset as libc::c_int;
 
@@ -298,12 +304,24 @@ mod tests {
         let todo = handled_fs(3);
         let para_fichero = allowed_for(false, todo);
 
-        assert_eq!(para_fichero & FS_READ_DIR, 0, "un fichero no se puede listar");
-        assert_eq!(para_fichero & FS_MAKE_DIR, 0, "no se crean directorios dentro de un fichero");
+        assert_eq!(
+            para_fichero & FS_READ_DIR,
+            0,
+            "un fichero no se puede listar"
+        );
+        assert_eq!(
+            para_fichero & FS_MAKE_DIR,
+            0,
+            "no se crean directorios dentro de un fichero"
+        );
         assert_ne!(para_fichero & FS_READ_FILE, 0, "pero sí se puede leer");
         assert_ne!(para_fichero & FS_WRITE_FILE, 0, "y escribir");
 
-        assert_eq!(allowed_for(true, todo), todo, "un directorio los conserva todos");
+        assert_eq!(
+            allowed_for(true, todo),
+            todo,
+            "un directorio los conserva todos"
+        );
     }
 
     #[test]

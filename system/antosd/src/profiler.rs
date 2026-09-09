@@ -5,8 +5,8 @@
 //! suggestions for Coder and QA agents.
 
 use crate::util::lock_or_recover;
-use anyhow::{Context, Result};
 use antos_protocol::{ProfileHotspot, ProfileReport, ProfileSuggestion, ProfileSuggestionKind};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -103,40 +103,65 @@ impl ProfilerEngine {
         // Sample resource usage after execution
         let rusage_after = Self::get_children_rusage();
 
-        let (cpu_user_ms, cpu_sys_ms, peak_memory_bytes, page_faults) = match (rusage_before, rusage_after) {
-            (Some(before), Some(after)) => {
-                let user_sec = after.ru_utime.tv_sec.saturating_sub(before.ru_utime.tv_sec) as u64;
-                let user_usec = after.ru_utime.tv_usec.saturating_sub(before.ru_utime.tv_usec) as u64;
-                let sys_sec = after.ru_stime.tv_sec.saturating_sub(before.ru_stime.tv_sec) as u64;
-                let sys_usec = after.ru_stime.tv_usec.saturating_sub(before.ru_stime.tv_usec) as u64;
+        let (cpu_user_ms, cpu_sys_ms, peak_memory_bytes, page_faults) =
+            match (rusage_before, rusage_after) {
+                (Some(before), Some(after)) => {
+                    let user_sec =
+                        after.ru_utime.tv_sec.saturating_sub(before.ru_utime.tv_sec) as u64;
+                    let user_usec = after
+                        .ru_utime
+                        .tv_usec
+                        .saturating_sub(before.ru_utime.tv_usec)
+                        as u64;
+                    let sys_sec =
+                        after.ru_stime.tv_sec.saturating_sub(before.ru_stime.tv_sec) as u64;
+                    let sys_usec = after
+                        .ru_stime
+                        .tv_usec
+                        .saturating_sub(before.ru_stime.tv_usec)
+                        as u64;
 
-                let u_ms = user_sec * 1000 + user_usec / 1000;
-                let s_ms = sys_sec * 1000 + sys_usec / 1000;
-                // ru_maxrss is in KB on Linux, in bytes on macOS
-                #[cfg(target_os = "macos")]
-                let mem_bytes = after.ru_maxrss as u64;
-                #[cfg(not(target_os = "macos"))]
-                let mem_bytes = (after.ru_maxrss as u64) * 1024;
+                    let u_ms = user_sec * 1000 + user_usec / 1000;
+                    let s_ms = sys_sec * 1000 + sys_usec / 1000;
+                    // ru_maxrss is in KB on Linux, in bytes on macOS
+                    #[cfg(target_os = "macos")]
+                    let mem_bytes = after.ru_maxrss as u64;
+                    #[cfg(not(target_os = "macos"))]
+                    let mem_bytes = (after.ru_maxrss as u64) * 1024;
 
-                let faults = after.ru_majflt.saturating_sub(before.ru_majflt) as u64
-                    + after.ru_minflt.saturating_sub(before.ru_minflt) as u64;
+                    let faults = after.ru_majflt.saturating_sub(before.ru_majflt) as u64
+                        + after.ru_minflt.saturating_sub(before.ru_minflt) as u64;
 
-                (u_ms, s_ms, mem_bytes, faults)
-            }
-            _ => {
-                let fallback_user = (duration_ms as f64 * 0.75) as u64;
-                let fallback_sys = (duration_ms as f64 * 0.15) as u64;
-                let fallback_mem = 32 * 1024 * 1024; // 32 MB default
-                (fallback_user, fallback_sys, fallback_mem, 120)
-            }
-        };
+                    (u_ms, s_ms, mem_bytes, faults)
+                }
+                _ => {
+                    let fallback_user = (duration_ms as f64 * 0.75) as u64;
+                    let fallback_sys = (duration_ms as f64 * 0.15) as u64;
+                    let fallback_mem = 32 * 1024 * 1024; // 32 MB default
+                    (fallback_user, fallback_sys, fallback_mem, 120)
+                }
+            };
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
         let stderr_str = String::from_utf8_lossy(&output.stderr);
         let combined_output = format!("{stdout_str}\n{stderr_str}");
 
-        let hotspots = Self::synthesize_hotspots(raw_command, duration_ms, cpu_user_ms, peak_memory_bytes, &combined_output);
-        let suggestions = Self::generate_suggestions(raw_command, duration_ms, cpu_user_ms, cpu_sys_ms, peak_memory_bytes, &hotspots, workspace);
+        let hotspots = Self::synthesize_hotspots(
+            raw_command,
+            duration_ms,
+            cpu_user_ms,
+            peak_memory_bytes,
+            &combined_output,
+        );
+        let suggestions = Self::generate_suggestions(
+            raw_command,
+            duration_ms,
+            cpu_user_ms,
+            cpu_sys_ms,
+            peak_memory_bytes,
+            &hotspots,
+            workspace,
+        );
 
         let report = ProfileReport {
             id: format!("prof-{}", now),
@@ -273,7 +298,10 @@ impl ProfilerEngine {
         }
 
         // Heuristic 2: Excessive system call overhead
-        if cpu_sys_ms > 0 && cpu_user_ms > 0 && (cpu_sys_ms as f64 / (cpu_user_ms + cpu_sys_ms) as f64) > 0.30 {
+        if cpu_sys_ms > 0
+            && cpu_user_ms > 0
+            && (cpu_sys_ms as f64 / (cpu_user_ms + cpu_sys_ms) as f64) > 0.30
+        {
             suggestions.push(ProfileSuggestion {
                 kind: ProfileSuggestionKind::IoOptimization,
                 title: "Excesiva sobrecarga de llamadas al sistema (Kernel Syscalls > 30%)".into(),
@@ -307,7 +335,10 @@ impl ProfilerEngine {
         // legitimately produce `0.0 / 0.0` for a zero-duration sample)
         // replaces the simulated data here. `total_cmp` orders every
         // `f64`, `NaN` included, so that day never arrives.
-        if let Some(top) = hotspots.iter().max_by(|a, b| a.percentage_cpu.total_cmp(&b.percentage_cpu)) {
+        if let Some(top) = hotspots
+            .iter()
+            .max_by(|a, b| a.percentage_cpu.total_cmp(&b.percentage_cpu))
+        {
             if top.percentage_cpu >= 40.0 {
                 suggestions.push(ProfileSuggestion {
                     kind: ProfileSuggestionKind::CpuOptimization,
@@ -334,7 +365,10 @@ impl ProfilerEngine {
     }
 
     /// Analyzes aggregated hotspots and recommendations across all recorded reports.
-    pub fn analyze_aggregate(&self, workspace: &Path) -> (Vec<ProfileHotspot>, Vec<ProfileSuggestion>) {
+    pub fn analyze_aggregate(
+        &self,
+        workspace: &Path,
+    ) -> (Vec<ProfileHotspot>, Vec<ProfileSuggestion>) {
         let reports = self.load_reports(workspace);
         if reports.is_empty() {
             return (Vec::new(), Vec::new());
@@ -345,12 +379,18 @@ impl ProfilerEngine {
 
         for r in &reports {
             for h in &r.hotspots {
-                if !hotspots.iter().any(|existing: &ProfileHotspot| existing.name == h.name) {
+                if !hotspots
+                    .iter()
+                    .any(|existing: &ProfileHotspot| existing.name == h.name)
+                {
                     hotspots.push(h.clone());
                 }
             }
             for s in &r.suggestions {
-                if !suggestions.iter().any(|existing: &ProfileSuggestion| existing.title == s.title) {
+                if !suggestions
+                    .iter()
+                    .any(|existing: &ProfileSuggestion| existing.title == s.title)
+                {
                     suggestions.push(s.clone());
                 }
             }
@@ -414,9 +454,15 @@ mod tests {
         );
 
         assert!(!suggestions.is_empty());
-        assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::MemoryOptimization));
-        assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::ConcurrencyOptimization));
-        assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::CpuOptimization));
+        assert!(suggestions
+            .iter()
+            .any(|s| s.kind == ProfileSuggestionKind::MemoryOptimization));
+        assert!(suggestions
+            .iter()
+            .any(|s| s.kind == ProfileSuggestionKind::ConcurrencyOptimization));
+        assert!(suggestions
+            .iter()
+            .any(|s| s.kind == ProfileSuggestionKind::CpuOptimization));
     }
 
     /// T31.7 acceptance criterion: a sample whose `percentage_cpu` is `NaN`

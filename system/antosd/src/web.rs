@@ -4,10 +4,8 @@
 //! and orchestrate antOS remotely through modern web browsers, with real-time streaming
 //! of telemetry, Kanban tickets, autopilot incidents, and cryptographic token auth.
 
+use antos_protocol::{WebAuthSession, WebConsoleConfig, WebConsoleStatus, WebSocketMessage};
 use anyhow::{bail, Context, Result};
-use antos_protocol::{
-    WebAuthSession, WebConsoleConfig, WebConsoleStatus, WebSocketMessage,
-};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -55,7 +53,12 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
     for chunk in msg.chunks_exact(64) {
         let mut w = [0u32; 80];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[i * 4], chunk[i * 4 + 1], chunk[i * 4 + 2], chunk[i * 4 + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
         }
         for i in 16..80 {
             w[i] = (w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16]).rotate_left(1);
@@ -74,7 +77,12 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
                 40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
                 _ => (b ^ c ^ d, 0xCA62C1D6),
             };
-            let temp = a.rotate_left(5).wrapping_add(f).wrapping_add(e).wrapping_add(k).wrapping_add(w[i]);
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(w[i]);
             e = d;
             d = c;
             c = b.rotate_left(30);
@@ -180,7 +188,12 @@ pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
         if data.len() < offset + 4 {
             return None;
         }
-        let m = [data[offset], data[offset + 1], data[offset + 2], data[offset + 3]];
+        let m = [
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ];
         offset += 4;
         Some(m)
     } else {
@@ -194,7 +207,11 @@ pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
 
     let raw_payload = &data[offset..end];
     let unmasked: Vec<u8> = if let Some(m) = mask {
-        raw_payload.iter().enumerate().map(|(i, &b)| b ^ m[i % 4]).collect()
+        raw_payload
+            .iter()
+            .enumerate()
+            .map(|(i, &b)| b ^ m[i % 4])
+            .collect()
     } else {
         raw_payload.to_vec()
     };
@@ -238,7 +255,9 @@ fn running_flags_registry() -> &'static Mutex<HashMap<PathBuf, Arc<AtomicBool>>>
 }
 
 fn registry_lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, Arc<AtomicBool>>> {
-    running_flags_registry().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    running_flags_registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Decrements the shared connection counter when a connection's handler
@@ -261,7 +280,12 @@ fn try_reserve_connection_slot(counter: &Arc<AtomicUsize>) -> Option<ConnectionC
         if current >= MAX_CONCURRENT_CONNECTIONS {
             return None;
         }
-        match counter.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::SeqCst) {
+        match counter.compare_exchange_weak(
+            current,
+            current + 1,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        ) {
             Ok(_) => return Some(ConnectionCountGuard(counter.clone())),
             Err(observed) => current = observed,
         }
@@ -341,7 +365,8 @@ impl WebEngine {
             if s.expires_at <= now {
                 return false;
             }
-            let candidate_hash = crate::pkg::crypto::sha256(format!("{}:{}", s.salt, token).as_bytes());
+            let candidate_hash =
+                crate::pkg::crypto::sha256(format!("{}:{}", s.salt, token).as_bytes());
             constant_time_eq(&candidate_hash, &s.token_hash)
         })
     }
@@ -370,14 +395,20 @@ impl WebEngine {
     pub fn status(state_dir: &Path) -> Result<WebConsoleStatus> {
         let path = Self::status_path(state_dir);
         let stored_status: Option<WebConsoleStatus> = if path.exists() {
-            fs::read_to_string(&path).ok().and_then(|c| serde_json::from_str(&c).ok())
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
         } else {
             None
         };
 
         let sessions = Self::load_sessions(state_dir);
         let now = unix_now()?;
-        let active_sessions = sessions.sessions.iter().filter(|s| s.expires_at > now).count();
+        let active_sessions = sessions
+            .sessions
+            .iter()
+            .filter(|s| s.expires_at > now)
+            .count();
 
         if let Some(mut st) = stored_status {
             // Verify if listener is still alive
@@ -403,7 +434,10 @@ impl WebEngine {
     /// the network (T31.1).
     fn ensure_safe_bind_addr(bind_addr: &str) -> Result<()> {
         let is_loopback = matches!(bind_addr, "127.0.0.1" | "localhost" | "::1")
-            || bind_addr.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false);
+            || bind_addr
+                .parse::<std::net::IpAddr>()
+                .map(|ip| ip.is_loopback())
+                .unwrap_or(false);
 
         if is_loopback || std::env::var_os("ANTOS_WEB_ALLOW_REMOTE_BIND").is_some() {
             return Ok(());
@@ -444,13 +478,22 @@ impl WebEngine {
 
         let dir = Self::web_dir(state_dir);
         fs::create_dir_all(&dir)?;
-        fs::write(Self::status_path(state_dir), serde_json::to_string_pretty(&status)?)?;
+        fs::write(
+            Self::status_path(state_dir),
+            serde_json::to_string_pretty(&status)?,
+        )?;
 
         // Spawn the background accept loop; `stop()` flips `running_flag`
         // via the registry above, which this loop notices within one poll
         // tick and then frees the port (T31.2).
         thread::spawn(move || {
-            Self::run_accept_loop(listener, running_flag, state_dir_buf, ws_dir_buf, auth_required);
+            Self::run_accept_loop(
+                listener,
+                running_flag,
+                state_dir_buf,
+                ws_dir_buf,
+                auth_required,
+            );
         });
 
         Ok(status)
@@ -481,14 +524,23 @@ impl WebEngine {
 
         let dir = Self::web_dir(state_dir);
         fs::create_dir_all(&dir)?;
-        fs::write(Self::status_path(state_dir), serde_json::to_string_pretty(&status)?)?;
+        fs::write(
+            Self::status_path(state_dir),
+            serde_json::to_string_pretty(&status)?,
+        )?;
 
         let state_dir_buf = state_dir.to_path_buf();
         let ws_dir_buf = workspace_dir.to_path_buf();
         let running_flag = Arc::new(AtomicBool::new(true));
         registry_lock().insert(state_dir_buf.clone(), running_flag.clone());
 
-        Self::run_accept_loop(listener, running_flag, state_dir_buf, ws_dir_buf, auth_required);
+        Self::run_accept_loop(
+            listener,
+            running_flag,
+            state_dir_buf,
+            ws_dir_buf,
+            auth_required,
+        );
         Ok(())
     }
 
@@ -611,7 +663,12 @@ impl WebEngine {
     /// handshake and there is no other way for this page's own event stream
     /// to authenticate itself. Every other route ignores it, so a token
     /// never has to appear in a URL, browser history, or access log.
-    fn handle_client(stream: &mut TcpStream, state_dir: &Path, workspace_dir: &Path, auth_required: bool) -> Result<()> {
+    fn handle_client(
+        stream: &mut TcpStream,
+        state_dir: &Path,
+        workspace_dir: &Path,
+        auth_required: bool,
+    ) -> Result<()> {
         // Read until the blank line that ends the headers, since TCP is free
         // to deliver a single request across several `read` calls — a single
         // 4 KiB read used to silently drop a header that landed in a later
@@ -679,14 +736,20 @@ impl WebEngine {
             }
         }
 
-        let header_authed = header_token.as_deref().map(|t| Self::validate_token(state_dir, t)).unwrap_or(false);
+        let header_authed = header_token
+            .as_deref()
+            .map(|t| Self::validate_token(state_dir, t))
+            .unwrap_or(false);
 
         // Check if WebSocket upgrade requested
         if is_ws_upgrade {
             if let Some(key) = ws_key.as_deref() {
                 if auth_required {
                     let ws_authed = header_authed
-                        || query_token.as_deref().map(|t| Self::validate_token(state_dir, t)).unwrap_or(false);
+                        || query_token
+                            .as_deref()
+                            .map(|t| Self::validate_token(state_dir, t))
+                            .unwrap_or(false);
                     if !ws_authed {
                         return Self::respond_unauthorized(stream);
                     }
@@ -712,7 +775,10 @@ impl WebEngine {
                 // Send initial connected event
                 let initial = WebSocketMessage {
                     topic: "telemetry".into(),
-                    payload: format!("{{\"status\": \"connected\", \"workspace\": \"{}\"}}", workspace_dir.display()),
+                    payload: format!(
+                        "{{\"status\": \"connected\", \"workspace\": \"{}\"}}",
+                        workspace_dir.display()
+                    ),
                     timestamp: unix_now()?,
                 };
                 let frame = encode_ws_text_frame(&serde_json::to_string(&initial)?);
@@ -783,7 +849,8 @@ impl WebEngine {
             if auth_required && !header_authed {
                 return Self::respond_unauthorized(stream);
             }
-            let incs = crate::autopilot::AutopilotEngine::list_incidents(state_dir).unwrap_or_default();
+            let incs =
+                crate::autopilot::AutopilotEngine::list_incidents(state_dir).unwrap_or_default();
             let json = serde_json::to_string_pretty(&incs)?;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -962,7 +1029,8 @@ mod tests {
         let state_dir = temp_dir.join(".antos");
         fs::create_dir_all(&state_dir).unwrap();
 
-        let session = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
+        let session =
+            WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
         assert!(session.token.starts_with("ant_"));
         assert!(WebEngine::validate_token(&state_dir, &session.token));
         assert!(!WebEngine::validate_token(&state_dir, "invalid_token"));
@@ -980,7 +1048,10 @@ mod tests {
     // ---------------------------------------------------------------- T31.1
 
     fn t31_1_temp_state_dir(label: &str) -> PathBuf {
-        let temp_dir = std::env::temp_dir().join(format!("antos_test_web_t31_1_{label}_{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "antos_test_web_t31_1_{label}_{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         let state_dir = temp_dir.join(".antos");
         fs::create_dir_all(&state_dir).unwrap();
@@ -994,7 +1065,10 @@ mod tests {
         let a = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
         let b = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
 
-        assert_ne!(a.token, b.token, "tokens must carry real entropy, not a clock-derived value");
+        assert_ne!(
+            a.token, b.token,
+            "tokens must carry real entropy, not a clock-derived value"
+        );
         assert!(WebEngine::validate_token(&state_dir, &a.token));
         assert!(WebEngine::validate_token(&state_dir, &b.token));
 
@@ -1005,11 +1079,18 @@ mod tests {
     fn test_sessions_file_never_contains_the_plaintext_token() {
         let state_dir = t31_1_temp_state_dir("no_cleartext");
 
-        let session = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
+        let session =
+            WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
         let raw = fs::read_to_string(WebEngine::sessions_path(&state_dir)).unwrap();
 
-        assert!(!raw.contains(&session.token), "sessions.json must never store the plaintext token");
-        assert!(raw.contains("token_hash"), "sessions.json should store a salted digest instead");
+        assert!(
+            !raw.contains(&session.token),
+            "sessions.json must never store the plaintext token"
+        );
+        assert!(
+            raw.contains("token_hash"),
+            "sessions.json should store a salted digest instead"
+        );
 
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
     }
@@ -1022,8 +1103,15 @@ mod tests {
         let state_dir = t31_1_temp_state_dir("perms");
         let _ = WebEngine::generate_token(&state_dir, None, Some(3600)).unwrap();
 
-        let mode = fs::metadata(WebEngine::sessions_path(&state_dir)).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "sessions.json must be readable only by its owner");
+        let mode = fs::metadata(WebEngine::sessions_path(&state_dir))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "sessions.json must be readable only by its owner"
+        );
 
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
     }
@@ -1042,7 +1130,10 @@ mod tests {
         let legacy_hash = sha1(seed.as_bytes());
         let legacy_token = format!("ant_{}", to_hex(&legacy_hash));
 
-        assert_ne!(legacy_token, session.token, "sanity: the new scheme must not coincide with the old one");
+        assert_ne!(
+            legacy_token, session.token,
+            "sanity: the new scheme must not coincide with the old one"
+        );
         assert!(!WebEngine::validate_token(&state_dir, &legacy_token));
 
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
@@ -1054,7 +1145,8 @@ mod tests {
         assert!(WebEngine::ensure_safe_bind_addr("127.0.0.1").is_ok());
         assert!(WebEngine::ensure_safe_bind_addr("localhost").is_ok());
 
-        let err = WebEngine::ensure_safe_bind_addr("0.0.0.0").expect_err("must refuse a non-loopback bind");
+        let err = WebEngine::ensure_safe_bind_addr("0.0.0.0")
+            .expect_err("must refuse a non-loopback bind");
         assert!(err.to_string().contains("ANTOS_WEB_ALLOW_REMOTE_BIND"));
 
         std::env::set_var("ANTOS_WEB_ALLOW_REMOTE_BIND", "1");
@@ -1091,16 +1183,34 @@ mod tests {
              Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
 
         let no_token_requests = [
-            ("/api/status", "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
-            ("/api/tickets", "GET /api/tickets HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
-            ("/api/autopilot", "GET /api/autopilot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
+            (
+                "/api/status",
+                "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                    .to_string(),
+            ),
+            (
+                "/api/tickets",
+                "GET /api/tickets HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                    .to_string(),
+            ),
+            (
+                "/api/autopilot",
+                "GET /api/autopilot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                    .to_string(),
+            ),
             ("/ws/events upgrade", format!("{ws_upgrade_line}\r\n")),
         ];
 
         for (label, raw_request) in &no_token_requests {
             let response = t31_1_send_request(&state_dir, &workspace_dir, raw_request);
-            assert!(response.starts_with("HTTP/1.1 401"), "route «{label}» must reject a request with no token, got: {response}");
-            assert!(!response.contains("Content-Type: application/json"), "route «{label}» must not leak JSON data on 401");
+            assert!(
+                response.starts_with("HTTP/1.1 401"),
+                "route «{label}» must reject a request with no token, got: {response}"
+            );
+            assert!(
+                !response.contains("Content-Type: application/json"),
+                "route «{label}» must not leak JSON data on 401"
+            );
         }
 
         // An unknown-but-well-formed token must be rejected on every route too.
@@ -1122,18 +1232,28 @@ mod tests {
 
         for (label, raw_request) in &invalid_token_requests {
             let response = t31_1_send_request(&state_dir, &workspace_dir, raw_request);
-            assert!(response.starts_with("HTTP/1.1 401"), "route «{label}» must reject an invalid token, got: {response}");
-            assert!(!response.contains("Content-Type: application/json"), "route «{label}» must not leak JSON data on 401");
+            assert!(
+                response.starts_with("HTTP/1.1 401"),
+                "route «{label}» must reject an invalid token, got: {response}"
+            );
+            assert!(
+                !response.contains("Content-Type: application/json"),
+                "route «{label}» must not leak JSON data on 401"
+            );
         }
 
         // A freshly generated, genuine token must be accepted.
-        let session = WebEngine::generate_token(&state_dir, Some("test-client".into()), Some(3600)).unwrap();
+        let session =
+            WebEngine::generate_token(&state_dir, Some("test-client".into()), Some(3600)).unwrap();
         let good_req = format!(
             "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
             session.token
         );
         let response = t31_1_send_request(&state_dir, &workspace_dir, &good_req);
-        assert!(response.starts_with("HTTP/1.1 200"), "a valid token must be accepted, got: {response}");
+        assert!(
+            response.starts_with("HTTP/1.1 200"),
+            "a valid token must be accepted, got: {response}"
+        );
         assert!(response.contains("Content-Type: application/json"));
 
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
@@ -1153,7 +1273,11 @@ mod tests {
         // represent — and no payload bytes actually following it.
         let mut frame = vec![0x81u8, 0x7Fu8];
         frame.extend_from_slice(&(u64::MAX - 1).to_be_bytes());
-        assert_eq!(decode_ws_frame(&frame), None, "an implausible declared length must be rejected, not overflow");
+        assert_eq!(
+            decode_ws_frame(&frame),
+            None,
+            "an implausible declared length must be rejected, not overflow"
+        );
 
         // Same, but with the mask bit set (real client frames are masked).
         frame[1] |= 0x80;
@@ -1176,7 +1300,10 @@ mod tests {
         };
 
         WebEngine::start(&state_dir, &workspace_dir, config).unwrap();
-        assert!(TcpStream::connect(("127.0.0.1", port)).is_ok(), "server should be reachable right after start()");
+        assert!(
+            TcpStream::connect(("127.0.0.1", port)).is_ok(),
+            "server should be reachable right after start()"
+        );
 
         WebEngine::stop(&state_dir).unwrap();
 
@@ -1187,7 +1314,10 @@ mod tests {
             if TcpStream::connect(("127.0.0.1", port)).is_err() {
                 break;
             }
-            assert!(std::time::Instant::now() < deadline, "stop() did not free the port within 2s");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "stop() did not free the port within 2s"
+            );
             thread::sleep(Duration::from_millis(20));
         }
 
@@ -1200,7 +1330,8 @@ mod tests {
         let workspace_dir = state_dir.parent().unwrap().join("workspace");
         fs::create_dir_all(&workspace_dir).unwrap();
 
-        let session = WebEngine::generate_token(&state_dir, Some("fragmented".into()), Some(3600)).unwrap();
+        let session =
+            WebEngine::generate_token(&state_dir, Some("fragmented".into()), Some(3600)).unwrap();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -1208,7 +1339,9 @@ mod tests {
         let client_handle = thread::spawn(move || {
             let mut client = TcpStream::connect(addr).unwrap();
             // First fragment: request line + Host, no blank line yet.
-            client.write_all(b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n").unwrap();
+            client
+                .write_all(b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n")
+                .unwrap();
             client.flush().ok();
             thread::sleep(Duration::from_millis(150));
             // Second fragment, arriving later: the Authorization header and
@@ -1246,7 +1379,10 @@ mod tests {
         // Deliberately never terminated with a blank line.
 
         let response = t31_1_send_request(&state_dir, &workspace_dir, &oversized);
-        assert!(response.starts_with("HTTP/1.1 431"), "oversized headers must be rejected, got: {response}");
+        assert!(
+            response.starts_with("HTTP/1.1 431"),
+            "oversized headers must be rejected, got: {response}"
+        );
 
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
     }
@@ -1281,13 +1417,18 @@ mod tests {
         // the TCP handshake, but the server closes it immediately, with no
         // reply and no worker thread spawned for it.
         let mut extra = TcpStream::connect(("127.0.0.1", port)).unwrap();
-        extra.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        extra
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
         let mut buf = [0u8; 16];
         match extra.read(&mut buf) {
             Ok(0) => {} // closed immediately: expected
             Ok(_) => panic!("an over-budget connection must not receive any response bytes"),
             Err(e) => assert!(
-                matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+                matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ),
                 "unexpected error waiting on the over-budget connection: {e}"
             ),
         }

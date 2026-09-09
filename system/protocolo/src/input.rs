@@ -320,14 +320,8 @@ pub fn decode_linux_ev(event_type: u16, code: u16, value: u32) -> Option<InputEv
             }
         }
         EV_ABS => match code {
-            ABS_X => Some(InputEvent::MouseAbsolute {
-                x: value,
-                y: 0,
-            }),
-            ABS_Y => Some(InputEvent::MouseAbsolute {
-                x: 0,
-                y: value,
-            }),
+            ABS_X => Some(InputEvent::MouseAbsolute { x: value, y: 0 }),
+            ABS_Y => Some(InputEvent::MouseAbsolute { x: 0, y: value }),
             _ => None,
         },
         _ => None,
@@ -679,7 +673,10 @@ pub fn decode_usb_hid_mouse(report: &[u8], prev_buttons: u8) -> (Vec<InputEvent>
         if report.len() >= 4 {
             let wheel = report[3] as i8 as i32;
             if wheel != 0 {
-                events.push(InputEvent::Scroll { delta_x: 0, delta_y: wheel });
+                events.push(InputEvent::Scroll {
+                    delta_x: 0,
+                    delta_y: wheel,
+                });
             }
         }
     }
@@ -693,15 +690,39 @@ mod tests {
 
     #[test]
     fn test_ps2_set1_decoder_alpha_and_symbols() {
-        assert_eq!(decode_ps2_set1(0x1E), Some(InputEvent::KeyPress(KeyCode::KeyA)));
-        assert_eq!(decode_ps2_set1(0x9E), Some(InputEvent::KeyRelease(KeyCode::KeyA)));
+        assert_eq!(
+            decode_ps2_set1(0x1E),
+            Some(InputEvent::KeyPress(KeyCode::KeyA))
+        );
+        assert_eq!(
+            decode_ps2_set1(0x9E),
+            Some(InputEvent::KeyRelease(KeyCode::KeyA))
+        );
 
-        assert_eq!(decode_ps2_set1(0x01), Some(InputEvent::KeyPress(KeyCode::Escape)));
-        assert_eq!(decode_ps2_set1(0x1C), Some(InputEvent::KeyPress(KeyCode::Enter)));
-        assert_eq!(decode_ps2_set1(0x0E), Some(InputEvent::KeyPress(KeyCode::Backspace)));
-        assert_eq!(decode_ps2_set1(0x39), Some(InputEvent::KeyPress(KeyCode::Space)));
-        assert_eq!(decode_ps2_set1(0x2A), Some(InputEvent::KeyPress(KeyCode::LeftShift)));
-        assert_eq!(decode_ps2_set1(0xAA), Some(InputEvent::KeyRelease(KeyCode::LeftShift)));
+        assert_eq!(
+            decode_ps2_set1(0x01),
+            Some(InputEvent::KeyPress(KeyCode::Escape))
+        );
+        assert_eq!(
+            decode_ps2_set1(0x1C),
+            Some(InputEvent::KeyPress(KeyCode::Enter))
+        );
+        assert_eq!(
+            decode_ps2_set1(0x0E),
+            Some(InputEvent::KeyPress(KeyCode::Backspace))
+        );
+        assert_eq!(
+            decode_ps2_set1(0x39),
+            Some(InputEvent::KeyPress(KeyCode::Space))
+        );
+        assert_eq!(
+            decode_ps2_set1(0x2A),
+            Some(InputEvent::KeyPress(KeyCode::LeftShift))
+        );
+        assert_eq!(
+            decode_ps2_set1(0xAA),
+            Some(InputEvent::KeyRelease(KeyCode::LeftShift))
+        );
     }
 
     #[test]
@@ -749,7 +770,10 @@ mod tests {
         );
         assert_eq!(
             decode_linux_ev(EV_REL, REL_WHEEL, 1),
-            Some(InputEvent::Scroll { delta_x: 0, delta_y: 1 })
+            Some(InputEvent::Scroll {
+                delta_x: 0,
+                delta_y: 1
+            })
         );
     }
 
@@ -856,7 +880,10 @@ mod tests {
         let report_rel_rel = [0x00, 0, 0, 0];
         let (events_rel, buttons2) = decode_usb_hid_mouse(&report_rel_rel, buttons);
         assert_eq!(buttons2, 0x00);
-        assert_eq!(events_rel, vec![InputEvent::MouseButtonRelease(MouseButton::Left)]);
+        assert_eq!(
+            events_rel,
+            vec![InputEvent::MouseButtonRelease(MouseButton::Left)]
+        );
 
         // Absolute tablet report: x = 16384, y = 8192
         let report_tab = [0x02, 0x00, 0x40, 0x00, 0x20];

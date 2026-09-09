@@ -5,11 +5,11 @@
 
 extern crate alloc;
 
+use crate::sync::SpinLock;
+use crate::syscall::{EAGAIN, EINVAL, ENOENT, ENOMEM};
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
-use crate::sync::SpinLock;
-use crate::syscall::{EAGAIN, EINVAL, ENOENT, ENOMEM};
 
 pub const MAX_MESSAGE_SIZE: usize = 1024;
 pub const MAX_CHANNEL_MESSAGES: usize = 32;

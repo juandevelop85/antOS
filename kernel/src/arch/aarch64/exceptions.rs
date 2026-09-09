@@ -316,7 +316,8 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
                 SAME_IRQ_STREAK.store(0, Ordering::Relaxed);
                 crate::println!(
                     "  irq-storm    INTID {} sin manejador · enmascarada tras {} repeticiones",
-                    irq_id, streak
+                    irq_id,
+                    streak
                 );
             }
         }
@@ -350,7 +351,10 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
     // Handle software breakpoint (BRK #0, EC == 0x3c)
     if ec == 0x3c {
         let mut serial = crate::arch::aarch64::pl011::emergency();
-        let _ = writeln!(serial, "  breakpoint   manejado (brk #0) en AArch64 · reanudando...");
+        let _ = writeln!(
+            serial,
+            "  breakpoint   manejado (brk #0) en AArch64 · reanudando..."
+        );
         // Skip over the 4-byte brk instruction
         ctx.elr_el1 += 4;
         return;
@@ -393,25 +397,47 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         _ => "Unhandled Exception Class",
     };
 
-    let _ = writeln!(serial, "\n╔════════════════════════════════════════════════════════");
+    let _ = writeln!(
+        serial,
+        "\n╔════════════════════════════════════════════════════════"
+    );
     let _ = writeln!(serial, "║ antOS AArch64 EXCEPTION / PANIC");
-    let _ = writeln!(serial, "╠════════════════════════════════════════════════════════");
+    let _ = writeln!(
+        serial,
+        "╠════════════════════════════════════════════════════════"
+    );
     let _ = writeln!(serial, "║ Vector:      [{vector_id}] {vector_name}");
-    let _ = writeln!(serial, "║ ESR_EL1:     {esr:#018x} (EC: {ec:#04x} [{ec_name}], ISS: {iss:#08x})");
+    let _ = writeln!(
+        serial,
+        "║ ESR_EL1:     {esr:#018x} (EC: {ec:#04x} [{ec_name}], ISS: {iss:#08x})"
+    );
     let _ = writeln!(serial, "║ FAR_EL1:     {far:#018x} (Fault Address)");
-    let _ = writeln!(serial, "║ ELR_EL1:     {:#018x} (Return Address / PC)", ctx.elr_el1);
+    let _ = writeln!(
+        serial,
+        "║ ELR_EL1:     {:#018x} (Return Address / PC)",
+        ctx.elr_el1
+    );
     let _ = writeln!(serial, "║ SPSR_EL1:    {:#018x}", ctx.spsr_el1);
-    let _ = writeln!(serial, "╟────────────────────────────────────────────────────────");
+    let _ = writeln!(
+        serial,
+        "╟────────────────────────────────────────────────────────"
+    );
     let _ = writeln!(serial, "║ Volcado de Registros:");
     for i in (0..30).step_by(2) {
         let _ = writeln!(
             serial,
             "║   x{:02}: {:016x}   x{:02}: {:016x}",
-            i, ctx.x[i], i + 1, ctx.x[i + 1]
+            i,
+            ctx.x[i],
+            i + 1,
+            ctx.x[i + 1]
         );
     }
     let _ = writeln!(serial, "║   x30 (LR): {:016x}", ctx.x30);
-    let _ = writeln!(serial, "╚════════════════════════════════════════════════════════");
+    let _ = writeln!(
+        serial,
+        "╚════════════════════════════════════════════════════════"
+    );
     let _ = writeln!(serial, "CPU detenida por pánico en AArch64.");
 
     crate::console::_print(format_args!(

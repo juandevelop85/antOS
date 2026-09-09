@@ -11,7 +11,8 @@ pub const DEFAULT_SURFACE_HEIGHT: u32 = 1080;
 
 #[repr(align(4096))]
 struct SurfaceMemory([u32; (DEFAULT_SURFACE_WIDTH * DEFAULT_SURFACE_HEIGHT) as usize]);
-static mut DESKTOP_BACKBUFFER: SurfaceMemory = SurfaceMemory([0; (DEFAULT_SURFACE_WIDTH * DEFAULT_SURFACE_HEIGHT) as usize]);
+static mut DESKTOP_BACKBUFFER: SurfaceMemory =
+    SurfaceMemory([0; (DEFAULT_SURFACE_WIDTH * DEFAULT_SURFACE_HEIGHT) as usize]);
 
 /// An off-screen pixel buffer for flicker-free double buffering.
 pub struct Surface {
@@ -140,11 +141,30 @@ impl Surface {
         // Top edge
         self.fill_rect(Rect::new(rect.x, rect.y, rect.width, thickness), color);
         // Bottom edge
-        self.fill_rect(Rect::new(rect.x, rect.bottom() - t, rect.width, thickness), color);
+        self.fill_rect(
+            Rect::new(rect.x, rect.bottom() - t, rect.width, thickness),
+            color,
+        );
         // Left edge
-        self.fill_rect(Rect::new(rect.x, rect.y + t, thickness, rect.height.saturating_sub(thickness * 2)), color);
+        self.fill_rect(
+            Rect::new(
+                rect.x,
+                rect.y + t,
+                thickness,
+                rect.height.saturating_sub(thickness * 2),
+            ),
+            color,
+        );
         // Right edge
-        self.fill_rect(Rect::new(rect.right() - t, rect.y + t, thickness, rect.height.saturating_sub(thickness * 2)), color);
+        self.fill_rect(
+            Rect::new(
+                rect.right() - t,
+                rect.y + t,
+                thickness,
+                rect.height.saturating_sub(thickness * 2),
+            ),
+            color,
+        );
     }
 
     /// Draws a horizontal line segment.
@@ -160,7 +180,12 @@ impl Surface {
     /// Draws a subtle drop shadow under a window or modal panel.
     pub fn draw_shadow(&mut self, rect: Rect, radius: u32) {
         let r = radius as i32;
-        let shadow_rect = Rect::new(rect.x + 4, rect.y + 4, rect.width + (radius * 2), rect.height + (radius * 2));
+        let shadow_rect = Rect::new(
+            rect.x + 4,
+            rect.y + 4,
+            rect.width + (radius * 2),
+            rect.height + (radius * 2),
+        );
         let Some(clipped) = self.clip_rect.intersection(&shadow_rect) else {
             return;
         };
@@ -168,8 +193,20 @@ impl Surface {
         for y in clipped.y..clipped.bottom() {
             for x in clipped.x..clipped.right() {
                 if !rect.contains_point(super::rect::Point::new(x, y)) {
-                    let dist_x = if x < rect.x { rect.x - x } else if x >= rect.right() { x - rect.right() + 1 } else { 0 };
-                    let dist_y = if y < rect.y { rect.y - y } else if y >= rect.bottom() { y - rect.bottom() + 1 } else { 0 };
+                    let dist_x = if x < rect.x {
+                        rect.x - x
+                    } else if x >= rect.right() {
+                        x - rect.right() + 1
+                    } else {
+                        0
+                    };
+                    let dist_y = if y < rect.y {
+                        rect.y - y
+                    } else if y >= rect.bottom() {
+                        y - rect.bottom() + 1
+                    } else {
+                        0
+                    };
                     let dist = dist_x.max(dist_y);
                     if dist <= r {
                         let alpha = (140 * (r - dist + 1)) / (r + 1);

@@ -3,8 +3,8 @@
 
 pub mod fs;
 pub mod git;
-pub mod service;
 pub mod sandbox;
+pub mod service;
 
 pub use fs::{collect_project_files, detect_project_language, scan_workspace_projects};
 pub use git::{gitignore_template, init_project_git_repo};
@@ -20,13 +20,31 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "tipo", rename_all = "lowercase")]
 pub enum Change {
-    Write { path: PathBuf, content: String },
-    Mkdir { path: PathBuf },
-    Delete { path: PathBuf },
-    Read { path: PathBuf },
-    GitStatus { repo_root: PathBuf },
-    GitCommit { repo_root: PathBuf, commit_msg: String },
-    GitBranch { repo_root: PathBuf, branch_name: String, base: Option<String> },
+    Write {
+        path: PathBuf,
+        content: String,
+    },
+    Mkdir {
+        path: PathBuf,
+    },
+    Delete {
+        path: PathBuf,
+    },
+    Read {
+        path: PathBuf,
+    },
+    GitStatus {
+        repo_root: PathBuf,
+    },
+    GitCommit {
+        repo_root: PathBuf,
+        commit_msg: String,
+    },
+    GitBranch {
+        repo_root: PathBuf,
+        branch_name: String,
+        base: Option<String>,
+    },
     GitWorktreeCreate {
         repo_root: PathBuf,
         target_path: PathBuf,
@@ -325,7 +343,9 @@ pub enum Change {
     /// a broker process. `crate::vm::MicrovmManager::exec_vm` is the sole
     /// intended caller — see that module's doc comment for why a "MicroVM"
     /// exec ends up here instead of inside a hypervisor-isolated guest.
-    HostShellExec { command: String },
+    HostShellExec {
+        command: String,
+    },
     PackageInstall {
         state_dir: PathBuf,
         package: String,
@@ -672,13 +692,15 @@ pub fn changes_for(
         return Ok(c);
     }
     match cap.name.as_str() {
-
         "secret.grant" => {
             let secret = a
                 .get("secret")
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("debes especificar el secreto a conceder"))?;
-            let minutes = a.get("minutes").and_then(|m| m.parse::<i64>().ok()).unwrap_or(10);
+            let minutes = a
+                .get("minutes")
+                .and_then(|m| m.parse::<i64>().ok())
+                .unwrap_or(10);
             let reason = a.get("reason").cloned();
             Ok(vec![Change::SecretGrant {
                 secret,
@@ -699,16 +721,20 @@ pub fn changes_for(
             }])
         }
 
-        "secret.list" => {
-            Ok(vec![Change::SecretList {
-                state_dir: ctx.state.clone(),
-                grants_path: ctx.grants_path(),
-            }])
-        }
+        "secret.list" => Ok(vec![Change::SecretList {
+            state_dir: ctx.state.clone(),
+            grants_path: ctx.grants_path(),
+        }]),
 
         "secret.set" => {
-            let key = a.get("key").cloned().ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
-            let value = a.get("value").cloned().ok_or_else(|| anyhow::anyhow!("valor requerido"))?;
+            let key = a
+                .get("key")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
+            let value = a
+                .get("value")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("valor requerido"))?;
             Ok(vec![Change::SecretSet {
                 key,
                 value,
@@ -717,7 +743,10 @@ pub fn changes_for(
         }
 
         "secret.read" => {
-            let key = a.get("key").cloned().ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
+            let key = a
+                .get("key")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("clave requerida"))?;
             Ok(vec![Change::SecretRead {
                 key,
                 state_dir: ctx.state.clone(),
@@ -726,13 +755,24 @@ pub fn changes_for(
         }
 
         "spec.create_ticket" => {
-            let ticket_id = a.get("ticket_id").cloned().ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
-            let title = a.get("title").cloned().ok_or_else(|| anyhow::anyhow!("title requerido"))?;
+            let ticket_id = a
+                .get("ticket_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
+            let title = a
+                .get("title")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("title requerido"))?;
             let description = a.get("description").cloned();
             let phase = a.get("phase").cloned();
-            let target_ws = a.get("project")
+            let target_ws = a
+                .get("project")
                 .map(|p| ctx.workspace.join(p))
-                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
+                .unwrap_or_else(|| {
+                    ctx.current_project
+                        .clone()
+                        .unwrap_or_else(|| ctx.workspace.clone())
+                });
             Ok(vec![Change::TicketCreate {
                 ticket_id,
                 title,
@@ -743,11 +783,22 @@ pub fn changes_for(
         }
 
         "spec.update_ticket" => {
-            let ticket_id = a.get("ticket_id").cloned().ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
-            let status = a.get("status").cloned().unwrap_or_else(|| "completado".into());
-            let target_ws = a.get("project")
+            let ticket_id = a
+                .get("ticket_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("ticket_id requerido"))?;
+            let status = a
+                .get("status")
+                .cloned()
+                .unwrap_or_else(|| "completado".into());
+            let target_ws = a
+                .get("project")
                 .map(|p| ctx.workspace.join(p))
-                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
+                .unwrap_or_else(|| {
+                    ctx.current_project
+                        .clone()
+                        .unwrap_or_else(|| ctx.workspace.clone())
+                });
             Ok(vec![Change::TicketUpdateStatus {
                 ticket_id,
                 status,
@@ -757,24 +808,33 @@ pub fn changes_for(
 
         "spec.list_tickets" => {
             let filter = a.get("filter").cloned();
-            let target_ws = a.get("project")
+            let target_ws = a
+                .get("project")
                 .map(|p| ctx.workspace.join(p))
-                .unwrap_or_else(|| ctx.current_project.clone().unwrap_or_else(|| ctx.workspace.clone()));
+                .unwrap_or_else(|| {
+                    ctx.current_project
+                        .clone()
+                        .unwrap_or_else(|| ctx.workspace.clone())
+                });
             Ok(vec![Change::TicketList {
                 workspace: target_ws,
                 filter,
             }])
         }
 
-        "memory.index" => {
-            Ok(vec![Change::MemoryIndex {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "memory.index" => Ok(vec![Change::MemoryIndex {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "memory.search" => {
-            let query = a.get("query").cloned().ok_or_else(|| anyhow::anyhow!("query requerido"))?;
-            let limit = a.get("limit").and_then(|l| l.parse::<usize>().ok()).unwrap_or(5);
+            let query = a
+                .get("query")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("query requerido"))?;
+            let limit = a
+                .get("limit")
+                .and_then(|l| l.parse::<usize>().ok())
+                .unwrap_or(5);
             Ok(vec![Change::MemorySearch {
                 workspace: ctx.workspace.clone(),
                 query,
@@ -802,23 +862,17 @@ pub fn changes_for(
             }])
         }
 
-        "env.sync" => {
-            Ok(vec![Change::EnvProfileSync {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "env.sync" => Ok(vec![Change::EnvProfileSync {
+            workspace: ctx.workspace.clone(),
+        }]),
 
-        "env.profile_status" => {
-            Ok(vec![Change::EnvProfileStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "env.profile_status" => Ok(vec![Change::EnvProfileStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
-        "quota.status" => {
-            Ok(vec![Change::QuotaStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "quota.status" => Ok(vec![Change::QuotaStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "quota.set" => {
             let mut current = crate::sandbox::quota::load_quota(&ctx.workspace).unwrap_or_default();
@@ -861,9 +915,7 @@ pub fn changes_for(
 
         "ui.terminal" => {
             let command = a.get("command").cloned();
-            Ok(vec![Change::UiTerminal {
-                command,
-            }])
+            Ok(vec![Change::UiTerminal { command }])
         }
 
         "dev.workspace" => {
@@ -876,11 +928,9 @@ pub fn changes_for(
             }])
         }
 
-        "notify.list" => {
-            Ok(vec![Change::NotifyList {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "notify.list" => Ok(vec![Change::NotifyList {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "notify.action" => {
             let id = a.get("id").cloned().unwrap_or_default();
@@ -898,31 +948,28 @@ pub fn changes_for(
             }])
         }
 
-        "mesh.status" => {
-            Ok(vec![Change::MeshStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "mesh.status" => Ok(vec![Change::MeshStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "mesh.connect" => {
-            let address = a.get("address").cloned().unwrap_or_else(|| "127.0.0.1:9042".into());
+            let address = a
+                .get("address")
+                .cloned()
+                .unwrap_or_else(|| "127.0.0.1:9042".into());
             Ok(vec![Change::MeshConnect {
                 workspace: ctx.workspace.clone(),
                 address,
             }])
         }
 
-        "mesh.pair" => {
-            Ok(vec![Change::MeshPair {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "mesh.pair" => Ok(vec![Change::MeshPair {
+            workspace: ctx.workspace.clone(),
+        }]),
 
-        "flow.swarm_status" => {
-            Ok(vec![Change::SwarmStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "flow.swarm_status" => Ok(vec![Change::SwarmStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "flow.dispatch_remote" => {
             let ticket_id = a.get("ticket_id").cloned().unwrap_or_else(|| "T1.1".into());
@@ -976,26 +1023,20 @@ pub fn changes_for(
             }])
         }
 
-        "vfs.guard_status" => {
-            Ok(vec![Change::VfsGuardStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "vfs.guard_status" => Ok(vec![Change::VfsGuardStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
-        "ebpf.status" => {
-            Ok(vec![Change::EbpfStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "ebpf.status" => Ok(vec![Change::EbpfStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "ebpf.audit_log" => {
             let limit = a
                 .get("limit")
                 .and_then(|l| l.parse::<usize>().ok())
                 .unwrap_or(20);
-            let pid = a
-                .get("pid")
-                .and_then(|p| p.parse::<u32>().ok());
+            let pid = a.get("pid").and_then(|p| p.parse::<u32>().ok());
             Ok(vec![Change::EbpfAuditLog {
                 workspace: ctx.workspace.clone(),
                 limit,
@@ -1014,11 +1055,9 @@ pub fn changes_for(
             }])
         }
 
-        "profile.analyze" => {
-            Ok(vec![Change::ProfileAnalyze {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "profile.analyze" => Ok(vec![Change::ProfileAnalyze {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "lsp.start" => {
             let mode = a.get("mode").cloned().unwrap_or_else(|| "stdio".into());
@@ -1028,14 +1067,15 @@ pub fn changes_for(
             }])
         }
 
-        "lsp.status" => {
-            Ok(vec![Change::LspStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "lsp.status" => Ok(vec![Change::LspStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "collab.session" => {
-            let file = a.get("file").cloned().unwrap_or_else(|| "src/main.rs".into());
+            let file = a
+                .get("file")
+                .cloned()
+                .unwrap_or_else(|| "src/main.rs".into());
             let ticket = a.get("ticket").cloned();
             Ok(vec![Change::CollabSession {
                 workspace: ctx.workspace.clone(),
@@ -1045,7 +1085,10 @@ pub fn changes_for(
         }
 
         "dap.attach" => {
-            let command = a.get("command").cloned().unwrap_or_else(|| "cargo test".into());
+            let command = a
+                .get("command")
+                .cloned()
+                .unwrap_or_else(|| "cargo test".into());
             Ok(vec![Change::DapAttach {
                 workspace: ctx.workspace.clone(),
                 command,
@@ -1060,21 +1103,23 @@ pub fn changes_for(
             }])
         }
 
-        "desktop.keys" => {
-            Ok(vec![Change::DesktopKeys {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "desktop.keys" => Ok(vec![Change::DesktopKeys {
+            workspace: ctx.workspace.clone(),
+        }]),
 
-        "barra.status" => {
-            Ok(vec![Change::BarraStatus {
-                workspace: ctx.workspace.clone(),
-            }])
-        }
+        "barra.status" => Ok(vec![Change::BarraStatus {
+            workspace: ctx.workspace.clone(),
+        }]),
 
         "barra.notify" => {
-            let category = a.get("category").cloned().unwrap_or_else(|| "general".into());
-            let message = a.get("message").cloned().unwrap_or_else(|| "Notificación de sistema".into());
+            let category = a
+                .get("category")
+                .cloned()
+                .unwrap_or_else(|| "general".into());
+            let message = a
+                .get("message")
+                .cloned()
+                .unwrap_or_else(|| "Notificación de sistema".into());
             let urgent = a.get("urgent").map(|v| v == "true").unwrap_or(false);
             Ok(vec![Change::BarraNotify {
                 workspace: ctx.workspace.clone(),
@@ -1135,7 +1180,8 @@ pub fn changes_for(
 
         "ui.inspect_visual" => {
             let target = a.get("target").cloned().unwrap_or_else(|| "desktop".into());
-            let criteria = a.get("criteria")
+            let criteria = a
+                .get("criteria")
                 .map(|c| c.split(';').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
             Ok(vec![Change::UiInspectVisual {
@@ -1150,7 +1196,10 @@ pub fn changes_for(
         }]),
 
         "disk.inspect" => {
-            let device = a.get("device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let device = a
+                .get("device")
+                .cloned()
+                .unwrap_or_else(|| "/dev/nvme0n1".into());
             Ok(vec![Change::DiskInspect {
                 workspace: ctx.workspace.clone(),
                 device,
@@ -1158,7 +1207,10 @@ pub fn changes_for(
         }
 
         "disk.partition" => {
-            let device = a.get("device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let device = a
+                .get("device")
+                .cloned()
+                .unwrap_or_else(|| "/dev/nvme0n1".into());
             let clean = a.get("clean").map(|v| v == "true").unwrap_or(false);
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
             Ok(vec![Change::DiskPartition {
@@ -1170,7 +1222,10 @@ pub fn changes_for(
         }
 
         "install.prepare" => {
-            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let target_device = a
+                .get("target_device")
+                .cloned()
+                .unwrap_or_else(|| "/dev/nvme0n1".into());
             let target_mount = a.get("target_mount").cloned();
             Ok(vec![Change::InstallPrepare {
                 workspace: ctx.workspace.clone(),
@@ -1180,11 +1235,17 @@ pub fn changes_for(
         }
 
         "install.deploy" => {
-            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
+            let target_device = a
+                .get("target_device")
+                .cloned()
+                .unwrap_or_else(|| "/dev/nvme0n1".into());
             let clean_install = a.get("clean").map(|v| v == "true").unwrap_or(false);
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
             let username = a.get("username").cloned().unwrap_or_else(|| "antos".into());
-            let hostname = a.get("hostname").cloned().unwrap_or_else(|| "antos-box".into());
+            let hostname = a
+                .get("hostname")
+                .cloned()
+                .unwrap_or_else(|| "antos-box".into());
             let keymap = a.get("keymap").cloned().unwrap_or_else(|| "us".into());
             let config = antos_protocol::InstallConfig {
                 target_device,
@@ -1211,10 +1272,22 @@ pub fn changes_for(
         }
 
         "bootloader.install" => {
-            let target_device = a.get("target_device").cloned().unwrap_or_else(|| "/dev/nvme0n1".into());
-            let esp_mount = a.get("esp_path").cloned().unwrap_or_else(|| "/boot/efi".into());
-            let efi_partition = a.get("efi_partition").and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
-            let timeout_seconds = a.get("timeout").and_then(|v| v.parse::<u32>().ok()).unwrap_or(5);
+            let target_device = a
+                .get("target_device")
+                .cloned()
+                .unwrap_or_else(|| "/dev/nvme0n1".into());
+            let esp_mount = a
+                .get("esp_path")
+                .cloned()
+                .unwrap_or_else(|| "/boot/efi".into());
+            let efi_partition = a
+                .get("efi_partition")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(1);
+            let timeout_seconds = a
+                .get("timeout")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(5);
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
             let config = antos_protocol::BootloaderConfig {
                 esp_mount,
@@ -1232,10 +1305,22 @@ pub fn changes_for(
         }
 
         "microvm.spawn" => {
-            let vm_id = a.get("vm_id").cloned().unwrap_or_else(|| format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
-            let vcpu_count = a.get("cpus").and_then(|v| v.parse::<u8>().ok()).unwrap_or(2);
-            let memory_mb = a.get("memory").and_then(|v| v.parse::<u32>().ok()).unwrap_or(512);
-            let kernel_image = a.get("kernel").cloned().unwrap_or_else(|| "/boot/antos-vmlinuz".into());
+            let vm_id = a
+                .get("vm_id")
+                .cloned()
+                .unwrap_or_else(|| format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
+            let vcpu_count = a
+                .get("cpus")
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(2);
+            let memory_mb = a
+                .get("memory")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(512);
+            let kernel_image = a
+                .get("kernel")
+                .cloned()
+                .unwrap_or_else(|| "/boot/antos-vmlinuz".into());
             let config = antos_protocol::MicrovmConfig {
                 vm_id,
                 vcpu_count,
@@ -1253,8 +1338,14 @@ pub fn changes_for(
         }
 
         "microvm.exec" => {
-            let vm_id = a.get("vm_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
-            let command = a.get("command").cloned().ok_or_else(|| anyhow::anyhow!("se requiere command"))?;
+            let vm_id = a
+                .get("vm_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
+            let command = a
+                .get("command")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere command"))?;
             Ok(vec![Change::MicrovmExec {
                 state_dir: ctx.state.clone(),
                 vm_id,
@@ -1263,7 +1354,10 @@ pub fn changes_for(
         }
 
         "microvm.destroy" => {
-            let vm_id = a.get("vm_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
+            let vm_id = a
+                .get("vm_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere vm_id"))?;
             Ok(vec![Change::MicrovmDestroy {
                 state_dir: ctx.state.clone(),
                 vm_id,
@@ -1271,8 +1365,14 @@ pub fn changes_for(
         }
 
         "pkg.install" => {
-            let package = a.get("package").cloned().ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
-            let dry_run = a.get("dry_run").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
+            let package = a
+                .get("package")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
+            let dry_run = a
+                .get("dry_run")
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(false);
             Ok(vec![Change::PackageInstall {
                 state_dir: ctx.state.clone(),
                 package,
@@ -1281,7 +1381,10 @@ pub fn changes_for(
         }
 
         "pkg.remove" => {
-            let package = a.get("package").cloned().ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
+            let package = a
+                .get("package")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere package"))?;
             Ok(vec![Change::PackageRemove {
                 state_dir: ctx.state.clone(),
                 package,
@@ -1296,21 +1399,23 @@ pub fn changes_for(
             }])
         }
 
-        "pkg.list" => {
-            Ok(vec![Change::PackageList {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "pkg.list" => Ok(vec![Change::PackageList {
+            state_dir: ctx.state.clone(),
+        }]),
 
-        "pkg.verify" => {
-            Ok(vec![Change::PackageVerify {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "pkg.verify" => Ok(vec![Change::PackageVerify {
+            state_dir: ctx.state.clone(),
+        }]),
 
         "autopilot.start" => {
-            let interval = a.get("interval").and_then(|v| v.parse::<u64>().ok()).unwrap_or(5);
-            let auto_merge = a.get("auto_merge").and_then(|v| v.parse::<bool>().ok()).unwrap_or(false);
+            let interval = a
+                .get("interval")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(5);
+            let auto_merge = a
+                .get("auto_merge")
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(false);
             let config = antos_protocol::AutopilotConfig {
                 enabled: true,
                 poll_interval_secs: interval,
@@ -1325,30 +1430,30 @@ pub fn changes_for(
             }])
         }
 
-        "autopilot.stop" => {
-            Ok(vec![Change::AutopilotStop {
-                state_dir: ctx.state.clone(),
-                workspace_dir: ctx.workspace.clone(),
-            }])
-        }
+        "autopilot.stop" => Ok(vec![Change::AutopilotStop {
+            state_dir: ctx.state.clone(),
+            workspace_dir: ctx.workspace.clone(),
+        }]),
 
-        "autopilot.status" => {
-            Ok(vec![Change::AutopilotStatus {
-                state_dir: ctx.state.clone(),
-                workspace_dir: ctx.workspace.clone(),
-            }])
-        }
+        "autopilot.status" => Ok(vec![Change::AutopilotStatus {
+            state_dir: ctx.state.clone(),
+            workspace_dir: ctx.workspace.clone(),
+        }]),
 
-        "autopilot.scan" => {
-            Ok(vec![Change::AutopilotScan {
-                state_dir: ctx.state.clone(),
-                workspace_dir: ctx.workspace.clone(),
-            }])
-        }
+        "autopilot.scan" => Ok(vec![Change::AutopilotScan {
+            state_dir: ctx.state.clone(),
+            workspace_dir: ctx.workspace.clone(),
+        }]),
 
         "autopilot.resolve" => {
-            let incident_id = a.get("incident_id").cloned().ok_or_else(|| anyhow::anyhow!("se requiere incident_id"))?;
-            let approve = a.get("approve").and_then(|v| v.parse::<bool>().ok()).unwrap_or(true);
+            let incident_id = a
+                .get("incident_id")
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("se requiere incident_id"))?;
+            let approve = a
+                .get("approve")
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(true);
             Ok(vec![Change::AutopilotResolve {
                 state_dir: ctx.state.clone(),
                 workspace_dir: ctx.workspace.clone(),
@@ -1359,7 +1464,10 @@ pub fn changes_for(
 
         "web.start" => {
             let bind = a.get("bind").cloned().unwrap_or_else(|| "127.0.0.1".into());
-            let port = a.get("port").and_then(|v| v.parse::<u16>().ok()).unwrap_or(8088);
+            let port = a
+                .get("port")
+                .and_then(|v| v.parse::<u16>().ok())
+                .unwrap_or(8088);
             let config = antos_protocol::WebConsoleConfig {
                 bind_addr: bind,
                 port,
@@ -1373,17 +1481,13 @@ pub fn changes_for(
             }])
         }
 
-        "web.stop" => {
-            Ok(vec![Change::WebStop {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "web.stop" => Ok(vec![Change::WebStop {
+            state_dir: ctx.state.clone(),
+        }]),
 
-        "web.status" => {
-            Ok(vec![Change::WebStatus {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "web.status" => Ok(vec![Change::WebStatus {
+            state_dir: ctx.state.clone(),
+        }]),
 
         "web.token" => {
             let label = a.get("label").cloned();
@@ -1396,7 +1500,11 @@ pub fn changes_for(
         }
 
         "test.reproduce" => {
-            let error_log = a.get("error").or_else(|| a.get("error_log")).cloned().unwrap_or_default();
+            let error_log = a
+                .get("error")
+                .or_else(|| a.get("error_log"))
+                .cloned()
+                .unwrap_or_default();
             let target_file = a.get("file").or_else(|| a.get("target_file")).cloned();
             Ok(vec![Change::TestReproduce {
                 workspace: ctx.workspace.clone(),
@@ -1408,8 +1516,14 @@ pub fn changes_for(
 
         "test.gen" => {
             let target = a.get("target").cloned().unwrap_or_default();
-            let suite_type = a.get("suite_type").cloned().unwrap_or_else(|| "unit".into());
-            let cases = a.get("cases").and_then(|v| v.parse::<usize>().ok()).unwrap_or(3);
+            let suite_type = a
+                .get("suite_type")
+                .cloned()
+                .unwrap_or_else(|| "unit".into());
+            let cases = a
+                .get("cases")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(3);
             Ok(vec![Change::TestGen {
                 workspace: ctx.workspace.clone(),
                 target,
@@ -1429,11 +1543,9 @@ pub fn changes_for(
             }])
         }
 
-        "ci.status" => {
-            Ok(vec![Change::CiStatus {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "ci.status" => Ok(vec![Change::CiStatus {
+            state_dir: ctx.state.clone(),
+        }]),
 
         "git.hook" => {
             let action = a.get("action").cloned().unwrap_or_else(|| "status".into());
@@ -1454,11 +1566,9 @@ pub fn changes_for(
             }])
         }
 
-        "snapshot.list" => {
-            Ok(vec![Change::SnapshotList {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "snapshot.list" => Ok(vec![Change::SnapshotList {
+            state_dir: ctx.state.clone(),
+        }]),
 
         "snapshot.restore" => {
             let id_or_label = a.get("id").cloned().unwrap_or_else(|| "latest".into());
@@ -1499,18 +1609,14 @@ pub fn changes_for(
             }])
         }
 
-        "bench.history" => {
-            Ok(vec![Change::BenchHistory {
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "bench.history" => Ok(vec![Change::BenchHistory {
+            state_dir: ctx.state.clone(),
+        }]),
 
-        "issue.list" => {
-            Ok(vec![Change::IssueList {
-                workspace: ctx.workspace.clone(),
-                state_dir: ctx.state.clone(),
-            }])
-        }
+        "issue.list" => Ok(vec![Change::IssueList {
+            workspace: ctx.workspace.clone(),
+            state_dir: ctx.state.clone(),
+        }]),
 
         "issue.import" => {
             let id = a.get("id").cloned().unwrap_or_else(|| "42".into());
@@ -1570,8 +1676,6 @@ pub fn changes_for(
     }
 }
 
-
-
 pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
     let mut output = Vec::new();
     for change in changes {
@@ -1603,32 +1707,61 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut grants = crate::grants::Grants::load(grants_path)?;
                 grants.grant_with_reason(secret, *minutes, reason.clone());
                 grants.save(grants_path)?;
-                let motivo = reason.as_deref().map(|r| format!(" para «{r}»")).unwrap_or_default();
-                output.push(format!("concesión temporal otorgada a «{secret}» por {minutes} minutos{motivo}"));
+                let motivo = reason
+                    .as_deref()
+                    .map(|r| format!(" para «{r}»"))
+                    .unwrap_or_default();
+                output.push(format!(
+                    "concesión temporal otorgada a «{secret}» por {minutes} minutos{motivo}"
+                ));
             }
-            Change::SecretRevoke { secret, grants_path } => {
+            Change::SecretRevoke {
+                secret,
+                grants_path,
+            } => {
                 let mut grants = crate::grants::Grants::load(grants_path)?;
                 grants.revoke(secret);
                 grants.save(grants_path)?;
                 output.push(format!("concesión revocada: «{secret}»"));
             }
-            Change::SecretList { state_dir, grants_path } => {
+            Change::SecretList {
+                state_dir,
+                grants_path,
+            } => {
                 let list = crate::vault::list_secrets(state_dir)?;
                 let grants = crate::grants::Grants::load(grants_path)?;
                 let active = grants.list_active();
                 let mut lines = Vec::new();
-                lines.push(format!("secretos en bóveda: {} | concesiones activas: {}", list.len(), active.len()));
+                lines.push(format!(
+                    "secretos en bóveda: {} | concesiones activas: {}",
+                    list.len(),
+                    active.len()
+                ));
                 for s in list {
-                    let granted = grants.is_granted("secret.read") || grants.is_granted(&format!("secret.{}", s.key));
-                    lines.push(format!("  - {} ({} bytes, concedido: {})", s.key, s.length, granted));
+                    let granted = grants.is_granted("secret.read")
+                        || grants.is_granted(&format!("secret.{}", s.key));
+                    lines.push(format!(
+                        "  - {} ({} bytes, concedido: {})",
+                        s.key, s.length, granted
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
-            Change::SecretSet { key, value, state_dir } => {
+            Change::SecretSet {
+                key,
+                value,
+                state_dir,
+            } => {
                 crate::vault::set_secret(state_dir, key, value)?;
-                output.push(format!("secreto «{key}» guardado de forma segura en la bóveda de antOS"));
+                output.push(format!(
+                    "secreto «{key}» guardado de forma segura en la bóveda de antOS"
+                ));
             }
-            Change::SecretRead { key, state_dir, grants_path } => {
+            Change::SecretRead {
+                key,
+                state_dir,
+                grants_path,
+            } => {
                 let grants = crate::grants::Grants::load(grants_path)?;
                 match crate::vault::get_secret(state_dir, key, &grants) {
                     Ok(Some(val)) => {
@@ -1657,7 +1790,11 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     description.as_deref(),
                     phase.as_deref(),
                 )?;
-                output.push(format!("ticket «{}» creado exitosamente en {}", ticket_id, path.display()));
+                output.push(format!(
+                    "ticket «{}» creado exitosamente en {}",
+                    ticket_id,
+                    path.display()
+                ));
             }
             Change::TicketUpdateStatus {
                 ticket_id,
@@ -1666,13 +1803,18 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             } => {
                 let st = match status.to_lowercase().as_str() {
                     "completado" | "done" | "hecho" => antos_protocol::TicketStatus::Completado,
-                    "progreso" | "en_progreso" | "in_progress" => antos_protocol::TicketStatus::EnProgreso,
+                    "progreso" | "en_progreso" | "in_progress" => {
+                        antos_protocol::TicketStatus::EnProgreso
+                    }
                     "revision" | "revisión" | "review" => antos_protocol::TicketStatus::EnRevision,
                     _ => antos_protocol::TicketStatus::Pendiente,
                 };
                 let engine = crate::spec::SpecEngine::global();
                 engine.update_ticket_status(workspace, ticket_id, st)?;
-                output.push(format!("estado del ticket «{}» actualizado a {:?}", ticket_id, st));
+                output.push(format!(
+                    "estado del ticket «{}» actualizado a {:?}",
+                    ticket_id, st
+                ));
             }
             Change::TicketList { workspace, filter } => {
                 let engine = crate::spec::SpecEngine::global();
@@ -1686,7 +1828,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                             continue;
                         }
                     }
-                    lines.push(format!("  - [{}] {} [{:?}] ({})", t.id, t.title, t.status, t.phase));
+                    lines.push(format!(
+                        "  - [{}] {} [{:?}] ({})",
+                        t.id, t.title, t.status, t.phase
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
@@ -1701,7 +1846,11 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     db_path.display()
                 ));
             }
-            Change::MemorySearch { workspace, query, limit } => {
+            Change::MemorySearch {
+                workspace,
+                query,
+                limit,
+            } => {
                 let db_path = crate::memory::MemoryEngine::default_db_path(workspace);
                 let store = crate::memory::MemoryEngine::load(&db_path)?;
                 let hits = crate::memory::MemoryEngine::search(&store, query, *limit);
@@ -1709,7 +1858,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     output.push(format!("no se encontraron coincidencias para «{query}»"));
                 } else {
                     let mut lines = Vec::new();
-                    lines.push(format!("coincidencias semánticas para «{query}» ({}):", hits.len()));
+                    lines.push(format!(
+                        "coincidencias semánticas para «{query}» ({}):",
+                        hits.len()
+                    ));
                     for h in hits {
                         lines.push(format!(
                             "  - [{:.2}] {}:{} ({:?}) - {}",
@@ -1726,7 +1878,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 match target {
                     Some(t) => {
                         let related = store.graph.related_to(t);
-                        lines.push(format!("relaciones en el grafo para «{t}» ({}):", related.len()));
+                        lines.push(format!(
+                            "relaciones en el grafo para «{t}» ({}):",
+                            related.len()
+                        ));
                         for (node, edge) in related {
                             lines.push(format!("  - {:?} -> {} ({})", edge, node.label, node.kind));
                         }
@@ -1748,10 +1903,17 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 create_flake,
             } => {
                 let prof = match profile {
-                    Some(ref p) => crate::env::EnvProfile::from_str_loose(p).unwrap_or(crate::env::EnvProfile::Base),
-                    None => crate::env::EnvEngine::detect_stack(workspace).unwrap_or(crate::env::EnvProfile::Base),
+                    Some(ref p) => crate::env::EnvProfile::from_str_loose(p)
+                        .unwrap_or(crate::env::EnvProfile::Base),
+                    None => crate::env::EnvEngine::detect_stack(workspace)
+                        .unwrap_or(crate::env::EnvProfile::Base),
                 };
-                let summary = crate::env::EnvEngine::init_profile(workspace, prof, *create_devbox, *create_flake)?;
+                let summary = crate::env::EnvEngine::init_profile(
+                    workspace,
+                    prof,
+                    *create_devbox,
+                    *create_flake,
+                )?;
                 let files_str = summary.created_files.join(", ");
                 output.push(format!(
                     "perfil de entorno «{}» inicializado. Archivos creados: [{files_str}]. Paquetes: [{}]",
@@ -1762,7 +1924,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::EnvProfileSync { workspace } => {
                 let statuses = crate::env::EnvEngine::check_toolchains(workspace)?;
                 let mut lines = Vec::new();
-                lines.push(format!("sincronización de entorno para {}", workspace.display()));
+                lines.push(format!(
+                    "sincronización de entorno para {}",
+                    workspace.display()
+                ));
                 for s in statuses {
                     let mark = if s.available { "✓" } else { "✗" };
                     let loc = s.path.unwrap_or_else(|| "no instalado".into());
@@ -1775,17 +1940,26 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = Vec::new();
                 match cfg {
                     Some(c) => {
-                        lines.push(format!("perfil activo: «{}» ({} paquetes)", c.profile, c.packages.len()));
+                        lines.push(format!(
+                            "perfil activo: «{}» ({} paquetes)",
+                            c.profile,
+                            c.packages.len()
+                        ));
                         let statuses = crate::env::EnvEngine::check_toolchains(workspace)?;
                         for s in statuses {
                             let mark = if s.available { "●" } else { "○" };
-                            lines.push(format!("  {mark} {:<16} disponible: {}", s.name, s.available));
+                            lines.push(format!(
+                                "  {mark} {:<16} disponible: {}",
+                                s.name, s.available
+                            ));
                         }
                     }
                     None => {
                         let detected = crate::env::EnvEngine::detect_stack(workspace);
                         let det_str = detected.map(|d| d.as_str()).unwrap_or("no detectado");
-                        lines.push(format!("sin perfil explícito configurado (stack detectado: {det_str})"));
+                        lines.push(format!(
+                            "sin perfil explícito configurado (stack detectado: {det_str})"
+                        ));
                     }
                 }
                 output.push(lines.join("\n"));
@@ -1793,7 +1967,11 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::QuotaStatus { workspace } => {
                 let q = crate::sandbox::quota::load_quota(workspace)?;
                 let cgroup_supported = crate::sandbox::quota::CgroupV2Manager::is_available();
-                let cgroup_str = if cgroup_supported { "activo (cgroups v2)" } else { "modo proceso/watchdog" };
+                let cgroup_str = if cgroup_supported {
+                    "activo (cgroups v2)"
+                } else {
+                    "modo proceso/watchdog"
+                };
                 let mut lines = Vec::new();
                 lines.push(format!("cuotas y límites de sandbox ({cgroup_str}):"));
                 lines.push(format!("  • Timeout máximo:   {}s", q.timeout_secs));
@@ -1809,16 +1987,19 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     quota.timeout_secs, quota.max_memory_mb, quota.cpu_quota_percent
                 ));
             }
-            Change::UiDiffViewer { workspace, target, project_path } => {
+            Change::UiDiffViewer {
+                workspace,
+                target,
+                project_path,
+            } => {
                 // T17.2: prefer project_path (explicit project); fall back to workspace root.
                 let diff_dir = project_path.as_deref().unwrap_or(workspace);
                 let antos_root = crate::git::detect_antos_root();
 
                 // Verify the diff_dir has a git repo that is NOT the antOS OS repo.
-                let has_git = crate::git::find_git_root_with_ceiling(
-                    diff_dir,
-                    antos_root.as_deref(),
-                ).is_some();
+                let has_git =
+                    crate::git::find_git_root_with_ceiling(diff_dir, antos_root.as_deref())
+                        .is_some();
 
                 if !has_git {
                     // Enumerate files in the project dir as an informational summary.
@@ -1850,11 +2031,16 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
 
                     let target_ref = target.as_deref().unwrap_or("HEAD");
                     let mut check_head = std::process::Command::new("git");
-                    check_head.current_dir(diff_dir).args(["rev-parse", "--verify", "HEAD"]);
+                    check_head
+                        .current_dir(diff_dir)
+                        .args(["rev-parse", "--verify", "HEAD"]);
                     if !ceiling_val.is_empty() {
                         check_head.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
                     }
-                    let has_commits = check_head.output().map(|o| o.status.success()).unwrap_or(false);
+                    let has_commits = check_head
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
 
                     if !has_commits && target_ref == "HEAD" {
                         output.push(format!(
@@ -1865,8 +2051,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     }
 
                     let mut cmd = std::process::Command::new("git");
-                    cmd.current_dir(diff_dir)
-                        .args(&["diff", target_ref]);
+                    cmd.current_dir(diff_dir).args(&["diff", target_ref]);
                     if !ceiling_val.is_empty() {
                         cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
                     }
@@ -1875,7 +2060,8 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     match git_out {
                         Ok(o) if o.status.success() => {
                             let diff_text = String::from_utf8_lossy(&o.stdout);
-                            let files = crate::diff_view::DiffEngine::parse_unified_diff(&diff_text);
+                            let files =
+                                crate::diff_view::DiffEngine::parse_unified_diff(&diff_text);
                             if files.is_empty() {
                                 output.push(format!(
                                     "no differences against '{}' in project '{}'",
@@ -1899,17 +2085,37 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut session = crate::vte::TerminalSession::new("interactive");
                 if let Some(ref cmd) = command {
                     let _ = session.execute_command(cmd);
-                    output.push(format!("terminal: ejecutado «{cmd}» con código {:?}", session.exit_code));
+                    output.push(format!(
+                        "terminal: ejecutado «{cmd}» con código {:?}",
+                        session.exit_code
+                    ));
                 } else {
-                    output.push(format!("terminal interactivo listo con shell {}", session.active_shell));
+                    output.push(format!(
+                        "terminal interactivo listo con shell {}",
+                        session.active_shell
+                    ));
                 }
             }
-            Change::DevWorkspace { workspace, project, action } => {
+            Change::DevWorkspace {
+                workspace,
+                project,
+                action,
+            } => {
                 if let Some("status") = action.as_deref() {
-                    let status = crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &workspace);
-                    output.push(format!("dev workspace: editor={} term={}x{}", status.editor_command, status.term_columns, status.term_rows));
+                    let status = crate::dev_tui::DevWorkspaceManager::get_status(
+                        project.as_deref(),
+                        &workspace,
+                    );
+                    output.push(format!(
+                        "dev workspace: editor={} term={}x{}",
+                        status.editor_command, status.term_columns, status.term_rows
+                    ));
                 } else {
-                    crate::dev_tui::DevWorkspaceManager::launch(project.as_deref(), &workspace, false)?;
+                    crate::dev_tui::DevWorkspaceManager::launch(
+                        project.as_deref(),
+                        &workspace,
+                        false,
+                    )?;
                     output.push("dev workspace: blueprint renderizado exitosamente".into());
                 }
             }
@@ -1922,14 +2128,24 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     lines.push(format!("notificaciones pendientes ({}):", notifs.len()));
                     for n in notifs {
                         let read_mark = if n.read { " " } else { "●" };
-                        lines.push(format!("  {} [{}] {} — {}", read_mark, n.id, n.title, n.body));
+                        lines.push(format!(
+                            "  {} [{}] {} — {}",
+                            read_mark, n.id, n.title, n.body
+                        ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::NotifyAction { workspace, notification_id, action } => {
-                let (ok, msg) = crate::notification::NotificationEngine::global()
-                    .handle_action(workspace, notification_id, *action)?;
+            Change::NotifyAction {
+                workspace,
+                notification_id,
+                action,
+            } => {
+                let (ok, msg) = crate::notification::NotificationEngine::global().handle_action(
+                    workspace,
+                    notification_id,
+                    *action,
+                )?;
                 if ok {
                     output.push(msg);
                 } else {
@@ -1939,8 +2155,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::MeshStatus { workspace } => {
                 let status = crate::mesh::MeshEngine::global().status(workspace)?;
                 let mut lines = Vec::new();
-                lines.push(format!("nodo local: {} ({}) en {}", status.local_node.id, status.local_node.hostname, status.local_node.address));
-                lines.push(format!("  recursos: {} cores, {} MB RAM, VRAM: {:?}, modelos: {}",
+                lines.push(format!(
+                    "nodo local: {} ({}) en {}",
+                    status.local_node.id, status.local_node.hostname, status.local_node.address
+                ));
+                lines.push(format!(
+                    "  recursos: {} cores, {} MB RAM, VRAM: {:?}, modelos: {}",
                     status.local_node.resources.cpu_cores,
                     status.local_node.resources.memory_mb,
                     status.local_node.resources.vram_mb,
@@ -1951,48 +2171,89 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 } else {
                     lines.push(format!("peers conocidos ({}):", status.peers.len()));
                     for p in status.peers {
-                        lines.push(format!("  • {} [{}] {}ms latencia (modelos: {})", p.hostname, p.address, p.latency_ms, p.resources.available_models.join(", ")));
+                        lines.push(format!(
+                            "  • {} [{}] {}ms latencia (modelos: {})",
+                            p.hostname,
+                            p.address,
+                            p.latency_ms,
+                            p.resources.available_models.join(", ")
+                        ));
                     }
                 }
                 output.push(lines.join("\n"));
             }
             Change::MeshConnect { workspace, address } => {
                 let peer = crate::mesh::MeshEngine::global().connect_peer(workspace, address)?;
-                output.push(format!("conectado al peer {} [{}] con {}ms de latencia", peer.id, peer.address, peer.latency_ms));
+                output.push(format!(
+                    "conectado al peer {} [{}] con {}ms de latencia",
+                    peer.id, peer.address, peer.latency_ms
+                ));
             }
             Change::MeshPair { workspace } => {
                 let token = crate::mesh::MeshEngine::global().generate_pairing_token(workspace)?;
-                output.push(format!("token de emparejamiento generado: {} (nodo {})", token.token, token.node_id));
+                output.push(format!(
+                    "token de emparejamiento generado: {} (nodo {})",
+                    token.token, token.node_id
+                ));
             }
             Change::SwarmStatus { workspace } => {
                 let status = crate::distributed::SwarmEngine::global().status(workspace)?;
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Swarm: {} nodos activos, {} tareas en curso", status.nodes.len(), status.total_tasks));
+                lines.push(format!(
+                    "antOS Swarm: {} nodos activos, {} tareas en curso",
+                    status.nodes.len(),
+                    status.total_tasks
+                ));
                 for n in status.nodes {
                     let loc_str = if n.is_local { "[Local]" } else { "[Remoto]" };
-                    lines.push(format!("  • {} {} ({}) - {} cores, VRAM: {:?}", n.hostname, loc_str, n.address, n.cpu_cores, n.vram_available_mb));
+                    lines.push(format!(
+                        "  • {} {} ({}) - {} cores, VRAM: {:?}",
+                        n.hostname, loc_str, n.address, n.cpu_cores, n.vram_available_mb
+                    ));
                     for t in n.running_tasks {
-                        lines.push(format!("      └─ Tarea {}: rol {:?}, rama {}", t.ticket_id, t.role, t.worktree_branch));
+                        lines.push(format!(
+                            "      └─ Tarea {}: rol {:?}, rama {}",
+                            t.ticket_id, t.role, t.worktree_branch
+                        ));
                     }
                 }
                 output.push(lines.join("\n"));
             }
-            Change::SwarmDispatch { workspace, ticket_id, role, node } => {
-                let task = crate::distributed::SwarmEngine::global()
-                    .dispatch_remote_role(workspace, ticket_id, *role, node.as_deref())?;
-                output.push(format!("rol {:?} del ticket {} despachado al nodo {} (rama {})",
+            Change::SwarmDispatch {
+                workspace,
+                ticket_id,
+                role,
+                node,
+            } => {
+                let task = crate::distributed::SwarmEngine::global().dispatch_remote_role(
+                    workspace,
+                    ticket_id,
+                    *role,
+                    node.as_deref(),
+                )?;
+                output.push(format!(
+                    "rol {:?} del ticket {} despachado al nodo {} (rama {})",
                     task.role, task.ticket_id, task.assigned_node_id, task.worktree_branch
                 ));
             }
             Change::VfsQuery { workspace, path } => {
                 let vpath = path.as_deref().unwrap_or("/antfs");
-                if vpath == "/antfs" || vpath.ends_with('/') || vpath == "/antfs/symbols" || vpath == "/antfs/git" || vpath == "/antfs/symbols/structs" || vpath == "/antfs/symbols/functions" {
+                if vpath == "/antfs"
+                    || vpath.ends_with('/')
+                    || vpath == "/antfs/symbols"
+                    || vpath == "/antfs/git"
+                    || vpath == "/antfs/symbols/structs"
+                    || vpath == "/antfs/symbols/functions"
+                {
                     let entries = crate::vfs::VfsEngine::global().list_dir(workspace, vpath)?;
                     let mut lines = Vec::new();
                     lines.push(format!("entradas en {vpath} ({}):", entries.len()));
                     for e in entries {
                         let mark = if e.is_dir { "📁" } else { "📄" };
-                        lines.push(format!("  {mark} {:<24} ({}, {} bytes)", e.name, e.node_type, e.size));
+                        lines.push(format!(
+                            "  {mark} {:<24} ({}, {} bytes)",
+                            e.name, e.node_type, e.size
+                        ));
                     }
                     output.push(lines.join("\n"));
                 } else {
@@ -2000,15 +2261,29 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     output.push(content);
                 }
             }
-            Change::VfsMount { workspace, mount_point } => {
-                let mnt = crate::vfs::VfsEngine::global().mount(workspace, mount_point.as_deref())?;
-                output.push(format!("sistema de ficheros virtual /antfs montado en {}", mnt.display()));
+            Change::VfsMount {
+                workspace,
+                mount_point,
+            } => {
+                let mnt =
+                    crate::vfs::VfsEngine::global().mount(workspace, mount_point.as_deref())?;
+                output.push(format!(
+                    "sistema de ficheros virtual /antfs montado en {}",
+                    mnt.display()
+                ));
             }
-            Change::VfsUnmount { workspace, mount_point } => {
+            Change::VfsUnmount {
+                workspace,
+                mount_point,
+            } => {
                 crate::vfs::VfsEngine::global().unmount(workspace, mount_point.as_deref())?;
                 output.push("sistema de ficheros virtual /antfs desmontado correctamente".into());
             }
-            Change::VfsValidateWrite { workspace, file_path, content } => {
+            Change::VfsValidateWrite {
+                workspace,
+                file_path,
+                content,
+            } => {
                 let target_path = workspace.join(file_path);
                 let text = match content {
                     Some(c) => c.clone(),
@@ -2016,18 +2291,33 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         if target_path.exists() {
                             std::fs::read_to_string(&target_path)?
                         } else {
-                            bail!("el archivo {} no existe en el workspace", target_path.display());
+                            bail!(
+                                "el archivo {} no existe en el workspace",
+                                target_path.display()
+                            );
                         }
                     }
                 };
-                let res = crate::vfs_guard::VfsGuardEngine::global().validate_content(file_path, &text);
+                let res =
+                    crate::vfs_guard::VfsGuardEngine::global().validate_content(file_path, &text);
                 let mut lines = Vec::new();
                 if res.is_valid {
-                    lines.push(format!("✓ archivo «{}» sintácticamente correcto (lenguaje: {}, {} líneas)", file_path, res.language, res.line_count));
+                    lines.push(format!(
+                        "✓ archivo «{}» sintácticamente correcto (lenguaje: {}, {} líneas)",
+                        file_path, res.language, res.line_count
+                    ));
                 } else {
-                    lines.push(format!("✗ archivo «{}» contiene {} error(es) sintáctico(s) (lenguaje: {}):", file_path, res.errors.len(), res.language));
+                    lines.push(format!(
+                        "✗ archivo «{}» contiene {} error(es) sintáctico(s) (lenguaje: {}):",
+                        file_path,
+                        res.errors.len(),
+                        res.language
+                    ));
                     for err in res.errors {
-                        lines.push(format!("    • L{}:{}: {}", err.line, err.column, err.message));
+                        lines.push(format!(
+                            "    • L{}:{}: {}",
+                            err.line, err.column, err.message
+                        ));
                     }
                 }
                 output.push(lines.join("\n"));
@@ -2037,21 +2327,44 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = Vec::new();
                 let state_str = if status.enabled { "ACTIVO" } else { "INACTIVO" };
                 lines.push(format!("antOS VFS Guard: [{state_str}]"));
-                lines.push(format!("  • Escrituras interceptadas: {}", status.total_intercepted));
-                lines.push(format!("  • Escrituras rechazadas:    {}", status.total_rejected));
+                lines.push(format!(
+                    "  • Escrituras interceptadas: {}",
+                    status.total_intercepted
+                ));
+                lines.push(format!(
+                    "  • Escrituras rechazadas:    {}",
+                    status.total_rejected
+                ));
                 if !status.rejected_paths.is_empty() {
-                    lines.push(format!("  • Ficheros protegidos contra corrupción: {}", status.rejected_paths.join(", ")));
+                    lines.push(format!(
+                        "  • Ficheros protegidos contra corrupción: {}",
+                        status.rejected_paths.join(", ")
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
             Change::EbpfStatus { .. } => {
                 let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
                 let mut lines = Vec::new();
-                let lsm_badge = if status.lsm_enabled { "Kernel LSM (Hardware/BPF Activo)" } else { "Emulación Espacio de Usuario (Ring Buffer Activo)" };
+                let lsm_badge = if status.lsm_enabled {
+                    "Kernel LSM (Hardware/BPF Activo)"
+                } else {
+                    "Emulación Espacio de Usuario (Ring Buffer Activo)"
+                };
                 lines.push(format!("antOS eBPF LSM Sentinel: {}", lsm_badge));
-                lines.push(format!("  • Sondas activas ({}): {}", status.active_probes.len(), status.active_probes.join(", ")));
-                lines.push(format!("  • Eventos capturados en ring buffer: {} / {}", status.total_events_captured, status.ring_buffer_capacity));
-                lines.push(format!("  • Intentos de evasión bloqueados:   {}", status.total_violations_blocked));
+                lines.push(format!(
+                    "  • Sondas activas ({}): {}",
+                    status.active_probes.len(),
+                    status.active_probes.join(", ")
+                ));
+                lines.push(format!(
+                    "  • Eventos capturados en ring buffer: {} / {}",
+                    status.total_events_captured, status.ring_buffer_capacity
+                ));
+                lines.push(format!(
+                    "  • Intentos de evasión bloqueados:   {}",
+                    status.total_violations_blocked
+                ));
                 output.push(lines.join("\n"));
             }
             Change::EbpfAuditLog { limit, pid, .. } => {
@@ -2061,7 +2374,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     None => engine.get_audit_log(*limit),
                 };
                 let mut lines = Vec::new();
-                lines.push(format!("registro de auditoría eBPF ({} eventos):", events.len()));
+                lines.push(format!(
+                    "registro de auditoría eBPF ({} eventos):",
+                    events.len()
+                ));
                 if events.is_empty() {
                     lines.push("  (sin eventos de seguridad registrados)".into());
                 } else {
@@ -2071,7 +2387,8 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                             antos_protocol::EbpfSecurityAction::Blocked => "⛔ BLOQUEADO",
                             antos_protocol::EbpfSecurityAction::Audited => "👁 AUDITADO",
                         };
-                        lines.push(format!("  {} [{}] PID {}:{} ➔ {} ({:?})",
+                        lines.push(format!(
+                            "  {} [{}] PID {}:{} ➔ {} ({:?})",
                             action_mark, ev.id, ev.pid, ev.comm, ev.target_resource, ev.hook
                         ));
                         if let Some(ref r) = ev.violation_reason {
@@ -2082,29 +2399,40 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(lines.join("\n"));
             }
             Change::ProfileRun { workspace, command } => {
-                let report = crate::profiler::ProfilerEngine::global().run_and_profile(workspace, command)?;
+                let report = crate::profiler::ProfilerEngine::global()
+                    .run_and_profile(workspace, command)?;
                 let mut lines = Vec::new();
                 let peak_mb = report.peak_memory_bytes as f64 / (1024.0 * 1024.0);
-                lines.push(format!("antOS Profiler: «{}» completado en {} ms (código {})", report.command, report.duration_ms, report.exit_code));
+                lines.push(format!(
+                    "antOS Profiler: «{}» completado en {} ms (código {})",
+                    report.command, report.duration_ms, report.exit_code
+                ));
                 lines.push(format!("  • CPU: {} ms usuario, {} ms sistema | Memoria pico: {:.2} MB RSS | Page faults: {}",
                     report.cpu_user_ms, report.cpu_sys_ms, peak_mb, report.page_faults
                 ));
                 if !report.hotspots.is_empty() {
                     lines.push("  • Puntos calientes identificados:".into());
                     for h in &report.hotspots {
-                        lines.push(format!("      - {:<32} {:.1}% CPU, {:.1}% Mem ({} llamadas)", h.name, h.percentage_cpu, h.percentage_memory, h.calls_or_samples));
+                        lines.push(format!(
+                            "      - {:<32} {:.1}% CPU, {:.1}% Mem ({} llamadas)",
+                            h.name, h.percentage_cpu, h.percentage_memory, h.calls_or_samples
+                        ));
                     }
                 }
                 if !report.suggestions.is_empty() {
                     lines.push("  • Recomendaciones de optimización para agentes:".into());
                     for s in &report.suggestions {
-                        lines.push(format!("      ★ [{}] {}: {}", s.potential_impact, s.title, s.description));
+                        lines.push(format!(
+                            "      ★ [{}] {}: {}",
+                            s.potential_impact, s.title, s.description
+                        ));
                     }
                 }
                 output.push(lines.join("\n"));
             }
             Change::ProfileAnalyze { workspace } => {
-                let (hotspots, suggestions) = crate::profiler::ProfilerEngine::global().analyze_aggregate(workspace);
+                let (hotspots, suggestions) =
+                    crate::profiler::ProfilerEngine::global().analyze_aggregate(workspace);
                 let mut lines = Vec::new();
                 lines.push("antOS Profiler: Análisis Agregado de Rendimiento".into());
                 if hotspots.is_empty() && suggestions.is_empty() {
@@ -2113,13 +2441,19 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     if !hotspots.is_empty() {
                         lines.push("  • Top cuellos de botella (Hotspots):".into());
                         for h in &hotspots {
-                            lines.push(format!("      - {:<32} {:.1}% CPU, {:.1}% Mem", h.name, h.percentage_cpu, h.percentage_memory));
+                            lines.push(format!(
+                                "      - {:<32} {:.1}% CPU, {:.1}% Mem",
+                                h.name, h.percentage_cpu, h.percentage_memory
+                            ));
                         }
                     }
                     if !suggestions.is_empty() {
                         lines.push("  • Sugerencias técnicas para Coder / QA:".into());
                         for s in &suggestions {
-                            lines.push(format!("      ★ [{}] {}: {}", s.potential_impact, s.title, s.description));
+                            lines.push(format!(
+                                "      ★ [{}] {}: {}",
+                                s.potential_impact, s.title, s.description
+                            ));
                         }
                     }
                 }
@@ -2137,34 +2471,81 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let status = crate::lsp::LspServer::global().get_status(workspace);
                 let mut lines = Vec::new();
                 lines.push("antOS Unified Language Server Protocol (LSP)".into());
-                lines.push(format!("  • Estado:                {}", if status.running { "Activo (En ejecución)" } else { "Listo (En espera de conexiones)" }));
+                lines.push(format!(
+                    "  • Estado:                {}",
+                    if status.running {
+                        "Activo (En ejecución)"
+                    } else {
+                        "Listo (En espera de conexiones)"
+                    }
+                ));
                 lines.push(format!("  • Transporte:            {}", status.transport));
-                lines.push(format!("  • Clientes conectados:   {}", status.connected_clients));
-                lines.push(format!("  • Espacio de trabajo:    {}", status.active_workspace));
-                lines.push(format!("  • Símbolos indexados:    {}", status.indexed_symbols_count));
-                lines.push(format!("  • Capacidades activas:   {}", status.capabilities.join(", ")));
+                lines.push(format!(
+                    "  • Clientes conectados:   {}",
+                    status.connected_clients
+                ));
+                lines.push(format!(
+                    "  • Espacio de trabajo:    {}",
+                    status.active_workspace
+                ));
+                lines.push(format!(
+                    "  • Símbolos indexados:    {}",
+                    status.indexed_symbols_count
+                ));
+                lines.push(format!(
+                    "  • Capacidades activas:   {}",
+                    status.capabilities.join(", ")
+                ));
                 output.push(lines.join("\n"));
             }
-            Change::CollabSession { workspace, file, ticket } => {
-                let status = crate::collab::CollabEngine::global().start_session(workspace, file, ticket.clone())?;
+            Change::CollabSession {
+                workspace,
+                file,
+                ticket,
+            } => {
+                let status = crate::collab::CollabEngine::global().start_session(
+                    workspace,
+                    file,
+                    ticket.clone(),
+                )?;
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Pair Programming · Sesión iniciada: {}", status.session_id));
+                lines.push(format!(
+                    "antOS Pair Programming · Sesión iniciada: {}",
+                    status.session_id
+                ));
                 lines.push(format!("  • Archivo compartido:   {}", status.file_path));
-                lines.push(format!("  • Colaboradores:        {}", status.collaborators.join(", ")));
-                lines.push(format!("  • Longitud del buffer:  {} caracteres", status.buffer_length));
+                lines.push(format!(
+                    "  • Colaboradores:        {}",
+                    status.collaborators.join(", ")
+                ));
+                lines.push(format!(
+                    "  • Longitud del buffer:  {} caracteres",
+                    status.buffer_length
+                ));
                 if let Some(t) = status.active_ticket_id {
                     lines.push(format!("  • Ticket vinculado:     {t}"));
                 }
                 output.push(lines.join("\n"));
             }
-            Change::DapAttach { workspace: _, command } => {
+            Change::DapAttach {
+                workspace: _,
+                command,
+            } => {
                 let mut dap = crate::collab::DapServer::new("dap-exec".into(), command.clone());
                 let bp = dap.add_breakpoint("src/main.rs", 1);
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Isolated DAP Debugger · Sesión adjunta a: «{command}»"));
+                lines.push(format!(
+                    "antOS Isolated DAP Debugger · Sesión adjunta a: «{command}»"
+                ));
                 lines.push(format!("  • Estado:                {}", dap.state));
-                lines.push(format!("  • Punto de interrupción: {}:{} (verificado: {})", bp.file_path, bp.line, bp.verified));
-                lines.push(format!("  • Pila de llamadas:      {}", dap.call_stack.join(" -> ")));
+                lines.push(format!(
+                    "  • Punto de interrupción: {}:{} (verificado: {})",
+                    bp.file_path, bp.line, bp.verified
+                ));
+                lines.push(format!(
+                    "  • Pila de llamadas:      {}",
+                    dap.call_stack.join(" -> ")
+                ));
                 output.push(lines.join("\n"));
             }
             Change::DesktopSession { workspace, action } => {
@@ -2175,12 +2556,28 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 } else {
                     let status = crate::desktop::DesktopManager::get_status();
                     let mut lines = Vec::new();
-                    let st = if status.running { "En ejecución" } else { "Inactivo / Headless" };
+                    let st = if status.running {
+                        "En ejecución"
+                    } else {
+                        "Inactivo / Headless"
+                    };
                     lines.push(format!("antOS Desktop · Sesión Wayland [{st}]"));
-                    lines.push(format!("  • Compositor:         {}", status.compositor_name));
-                    lines.push(format!("  • WAYLAND_DISPLAY:    {}", status.wayland_display.as_deref().unwrap_or("ninguno")));
-                    lines.push(format!("  • Clientes de capa:   {}", status.active_clients_count));
-                    lines.push(format!("  • Atajos globales:    {} registrados", status.registered_hotkeys.len()));
+                    lines.push(format!(
+                        "  • Compositor:         {}",
+                        status.compositor_name
+                    ));
+                    lines.push(format!(
+                        "  • WAYLAND_DISPLAY:    {}",
+                        status.wayland_display.as_deref().unwrap_or("ninguno")
+                    ));
+                    lines.push(format!(
+                        "  • Clientes de capa:   {}",
+                        status.active_clients_count
+                    ));
+                    lines.push(format!(
+                        "  • Atajos globales:    {} registrados",
+                        status.registered_hotkeys.len()
+                    ));
                     output.push(lines.join("\n"));
                 }
             }
@@ -2189,7 +2586,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = Vec::new();
                 lines.push("antOS Desktop · Atajos de Teclado Globales Registrados:".into());
                 for hk in hotkeys {
-                    lines.push(format!("  • {:<14} -> {:<22} ({})", hk.key, hk.action, hk.description));
+                    lines.push(format!(
+                        "  • {:<14} -> {:<22} ({})",
+                        hk.key, hk.action, hk.description
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
@@ -2198,15 +2598,39 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = Vec::new();
                 let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
                 lines.push("antOS Barra · Telemetría Consolidada de Escritorio:".into());
-                lines.push(format!("  • eBPF LSM:              {}", if t.ebpf_lsm_active { "Activo" } else { "Auditoría" }));
-                lines.push(format!("  • Bloqueos de seguridad:  {}", t.ebpf_violations_count));
-                lines.push(format!("  • Consumo RSS / CPU:      {:.2} MB / {:.1}%", mb, t.profiler_cpu_percent));
-                lines.push(format!("  • Sesión de Pair:        {}", t.active_pair_session.as_deref().unwrap_or("ninguna")));
+                lines.push(format!(
+                    "  • eBPF LSM:              {}",
+                    if t.ebpf_lsm_active {
+                        "Activo"
+                    } else {
+                        "Auditoría"
+                    }
+                ));
+                lines.push(format!(
+                    "  • Bloqueos de seguridad:  {}",
+                    t.ebpf_violations_count
+                ));
+                lines.push(format!(
+                    "  • Consumo RSS / CPU:      {:.2} MB / {:.1}%",
+                    mb, t.profiler_cpu_percent
+                ));
+                lines.push(format!(
+                    "  • Sesión de Pair:        {}",
+                    t.active_pair_session.as_deref().unwrap_or("ninguna")
+                ));
                 lines.push(format!("  • Nodos antMesh P2P:     {}", t.mesh_peers_count));
-                lines.push(format!("  • Notificaciones activas: {}", t.active_notifications_count));
+                lines.push(format!(
+                    "  • Notificaciones activas: {}",
+                    t.active_notifications_count
+                ));
                 output.push(lines.join("\n"));
             }
-            Change::BarraNotify { category, message, urgent, .. } => {
+            Change::BarraNotify {
+                category,
+                message,
+                urgent,
+                ..
+            } => {
                 let alert = antos_protocol::BarraAlert {
                     category: category.clone(),
                     message: message.clone(),
@@ -2221,7 +2645,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 match action.as_str() {
                     "build" => {
                         let img = engine.build(workspace)?;
-                        output.push(format!("✓ Kernel compilado e imagen de disco creada:\n  {}", img.display()));
+                        output.push(format!(
+                            "✓ Kernel compilado e imagen de disco creada:\n  {}",
+                            img.display()
+                        ));
                     }
                     "test" => {
                         let report = engine.test_boot(workspace)?;
@@ -2235,17 +2662,46 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     _ => {
                         let st = engine.status(workspace);
                         let mut lines = Vec::new();
-                        lines.push("antOS Boot Pipeline · Estado de Artefactos y Emulación:".into());
+                        lines
+                            .push("antOS Boot Pipeline · Estado de Artefactos y Emulación:".into());
                         lines.push(format!("  • Target:             {}", st.target_arch));
-                        lines.push(format!("  • Kernel ELF:         {} ({})",
-                            if st.kernel_elf_exists { "Presente" } else { "No encontrado" },
-                            if st.kernel_elf_exists { format!("{} KiB", st.kernel_elf_size_bytes / 1024) } else { "0 B".into() }
+                        lines.push(format!(
+                            "  • Kernel ELF:         {} ({})",
+                            if st.kernel_elf_exists {
+                                "Presente"
+                            } else {
+                                "No encontrado"
+                            },
+                            if st.kernel_elf_exists {
+                                format!("{} KiB", st.kernel_elf_size_bytes / 1024)
+                            } else {
+                                "0 B".into()
+                            }
                         ));
-                        lines.push(format!("  • Imagen BIOS:        {} ({})",
-                            if st.bios_image_exists { "Presente" } else { "No encontrada" },
-                            if st.bios_image_exists { format!("{:.1} MB", st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)) } else { "0 B".into() }
+                        lines.push(format!(
+                            "  • Imagen BIOS:        {} ({})",
+                            if st.bios_image_exists {
+                                "Presente"
+                            } else {
+                                "No encontrada"
+                            },
+                            if st.bios_image_exists {
+                                format!(
+                                    "{:.1} MB",
+                                    st.bios_image_size_bytes as f64 / (1024.0 * 1024.0)
+                                )
+                            } else {
+                                "0 B".into()
+                            }
                         ));
-                        lines.push(format!("  • Emulador QEMU:      {}", if st.qemu_installed { "Instalado (qemu-system-x86_64)" } else { "No encontrado" }));
+                        lines.push(format!(
+                            "  • Emulador QEMU:      {}",
+                            if st.qemu_installed {
+                                "Instalado (qemu-system-x86_64)"
+                            } else {
+                                "No encontrado"
+                            }
+                        ));
                         output.push(lines.join("\n"));
                     }
                 }
@@ -2260,14 +2716,24 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     lines.push(format!("antOS Plugins ({} instalados):", list.len()));
                     for p in list {
                         let kb = (p.wasm_size_bytes + 1023) / 1024;
-                        lines.push(format!("  • {} v{} ({} KiB) - {} [acciones: {}]",
-                            p.name, p.version, kb, p.description, p.capabilities.join(", ")
+                        lines.push(format!(
+                            "  • {} v{} ({} KiB) - {} [acciones: {}]",
+                            p.name,
+                            p.version,
+                            kb,
+                            p.description,
+                            p.capabilities.join(", ")
                         ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::PluginRun { workspace, plugin, action, params } => {
+            Change::PluginRun {
+                workspace,
+                plugin,
+                action,
+                params,
+            } => {
                 let p_dir = crate::wasm::PluginManager::get_plugins_dir(workspace);
                 let res = crate::wasm::PluginManager::run_plugin(&p_dir, plugin, action, params);
                 if res.success {
@@ -2279,11 +2745,17 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     bail!("Fallo en plugin [{}:{}]: {}", res.plugin, res.action, err);
                 }
             }
-            Change::PluginInstall { workspace, source_path } => {
+            Change::PluginInstall {
+                workspace,
+                source_path,
+            } => {
                 let p_dir = crate::wasm::PluginManager::get_plugins_dir(workspace);
                 let installed = crate::wasm::PluginManager::install_plugin(&p_dir, source_path)?;
-                output.push(format!("✓ Plugin «{}» v{} instalado con éxito en {}",
-                    installed.name, installed.version, p_dir.display()
+                output.push(format!(
+                    "✓ Plugin «{}» v{} instalado con éxito en {}",
+                    installed.name,
+                    installed.version,
+                    p_dir.display()
                 ));
             }
             Change::UiScreenshot { target, path, .. } => {
@@ -2294,15 +2766,24 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     res.target, saved, res.width, res.height, res.size_bytes / 1024
                 ));
             }
-            Change::UiInspectVisual { target, criteria, .. } => {
+            Change::UiInspectVisual {
+                target, criteria, ..
+            } => {
                 let engine = crate::vision::VisionEngine::global();
                 let report = engine.inspect_visual(target, criteria, None)?;
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Visual QA Report · Objetivo: «{}» [Resultado: {}]",
-                    report.target, if report.pass { "APROBADO" } else { "RECHAZADO" }
+                lines.push(format!(
+                    "antOS Visual QA Report · Objetivo: «{}» [Resultado: {}]",
+                    report.target,
+                    if report.pass { "APROBADO" } else { "RECHAZADO" }
                 ));
                 lines.push(format!("  • Resumen: {}", report.summary));
-                lines.push(format!("  • Resolución evaluada: {}x{} ({} KiB)", report.image_width, report.image_height, report.image_size_bytes / 1024));
+                lines.push(format!(
+                    "  • Resolución evaluada: {}x{} ({} KiB)",
+                    report.image_width,
+                    report.image_height,
+                    report.image_size_bytes / 1024
+                ));
                 for f in report.findings {
                     let sev = match f.severity.as_str() {
                         "critical" => "CRÍTICO",
@@ -2320,10 +2801,19 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::DiskList { .. } => {
                 let disks = crate::installer::DiskManager::list_disks()?;
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Almacenamiento · Unidades detectadas ({}):", disks.len()));
+                lines.push(format!(
+                    "antOS Almacenamiento · Unidades detectadas ({}):",
+                    disks.len()
+                ));
                 for d in disks {
                     let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-                    lines.push(format!("  • {} ({:.1} GB, Bus: {}, Particiones: {})", d.path, gb, d.bus_type, d.partitions.len()));
+                    lines.push(format!(
+                        "  • {} ({:.1} GB, Bus: {}, Particiones: {})",
+                        d.path,
+                        gb,
+                        d.bus_type,
+                        d.partitions.len()
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
@@ -2334,10 +2824,19 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                         let gb = d.size_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
                         let mut lines = Vec::new();
                         lines.push(format!("antOS Almacenamiento · Dispositivo {}:", d.path));
-                        lines.push(format!("  • Modelo: {:.1} GB | Bus: {} | Tabla: {}", gb, d.bus_type, d.partition_table));
+                        lines.push(format!(
+                            "  • Modelo: {:.1} GB | Bus: {} | Tabla: {}",
+                            gb, d.bus_type, d.partition_table
+                        ));
                         for p in d.partitions {
                             let efi = if p.is_efi { " [EFI]" } else { "" };
-                            lines.push(format!("    - {} ({} MB, {}){}", p.name, p.size_bytes / (1024 * 1024), p.fs_type.as_deref().unwrap_or("none"), efi));
+                            lines.push(format!(
+                                "    - {} ({} MB, {}){}",
+                                p.name,
+                                p.size_bytes / (1024 * 1024),
+                                p.fs_type.as_deref().unwrap_or("none"),
+                                efi
+                            ));
                         }
                         output.push(lines.join("\n"));
                     }
@@ -2346,19 +2845,33 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     }
                 }
             }
-            Change::DiskPartition { device, clean, dry_run, .. } => {
+            Change::DiskPartition {
+                device,
+                clean,
+                dry_run,
+                ..
+            } => {
                 let plan = crate::installer::DiskManager::plan_partitioning(device, *clean)?;
-                let report = crate::installer::DiskManager::apply_partitioning(device, &plan, *dry_run)?;
+                let report =
+                    crate::installer::DiskManager::apply_partitioning(device, &plan, *dry_run)?;
                 output.push(report);
             }
-            Change::InstallPrepare { target_device, target_mount, .. } => {
+            Change::InstallPrepare {
+                target_device,
+                target_mount,
+                ..
+            } => {
                 let mut cfg = antos_protocol::InstallConfig::default();
                 cfg.target_device = target_device.clone();
                 if let Some(ref m) = target_mount {
                     cfg.target_mount = m.clone();
                 }
                 let mount_dir = crate::installer::DeployEngine::prepare_target(&cfg)?;
-                output.push(format!("✓ Entorno de instalación validado para {}: punto de montaje listo en {}", target_device, mount_dir.display()));
+                output.push(format!(
+                    "✓ Entorno de instalación validado para {}: punto de montaje listo en {}",
+                    target_device,
+                    mount_dir.display()
+                ));
             }
             Change::InstallDeploy { workspace, config } => {
                 let report = crate::installer::DeployEngine::deploy_system(config, workspace)?;
@@ -2374,12 +2887,24 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 output.push(lines.join("\n"));
             }
             Change::BootloaderProbe { esp_path, .. } => {
-                let p = esp_path.as_deref().map(Path::new).unwrap_or_else(|| Path::new("/boot/efi"));
+                let p = esp_path
+                    .as_deref()
+                    .map(Path::new)
+                    .unwrap_or_else(|| Path::new("/boot/efi"));
                 let entries = crate::installer::BootloaderEngine::probe_operating_systems(p)?;
                 let mut lines = Vec::new();
-                lines.push(format!("antOS Bootloader · Sistemas Operativos Detectados ({}):", entries.len()));
+                lines.push(format!(
+                    "antOS Bootloader · Sistemas Operativos Detectados ({}):",
+                    entries.len()
+                ));
                 for (i, os) in entries.iter().enumerate() {
-                    lines.push(format!("  [{}] {} (Tipo: {}, EFI: {})", i + 1, os.name, os.os_type, os.efi_path));
+                    lines.push(format!(
+                        "  [{}] {} (Tipo: {}, EFI: {})",
+                        i + 1,
+                        os.name,
+                        os.os_type,
+                        os.efi_path
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
@@ -2388,7 +2913,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut lines = Vec::new();
                 lines.push(format!("antOS Bootloader · {}", report.summary));
                 lines.push(format!("  • Punto ESP:       {}", report.esp_path));
-                lines.push(format!("  • Comando NVRAM:   {}", report.efibootmgr_command));
+                lines.push(format!(
+                    "  • Comando NVRAM:   {}",
+                    report.efibootmgr_command
+                ));
                 lines.push("  • Entradas configuradas:".into());
                 for e in &report.entries_configured {
                     lines.push(format!("    ✓ {}", e));
@@ -2402,7 +2930,11 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     instance.id, instance.pid, instance.vcpus, instance.memory_mb, instance.vsock_port, instance.status
                 ));
             }
-            Change::MicrovmExec { state_dir, vm_id, command } => {
+            Change::MicrovmExec {
+                state_dir,
+                vm_id,
+                command,
+            } => {
                 let res = crate::vm::MicrovmManager::exec_vm(state_dir, vm_id, command)?;
                 output.push(format!(
                     "antOS MicroVM · Comando ejecutado en el anfitrión bajo el recinto local, asociado a la microVM registrada «{}» [Código: {}]:\n  • Salida:   {}\n  • Duración: {} ms",
@@ -2411,7 +2943,9 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             }
             Change::MicrovmDestroy { state_dir, vm_id } => {
                 crate::vm::MicrovmManager::kill_vm(state_dir, vm_id)?;
-                output.push(format!("antOS MicroVM · Instancia «{vm_id}» destruida y recursos liberados"));
+                output.push(format!(
+                    "antOS MicroVM · Instancia «{vm_id}» destruida y recursos liberados"
+                ));
             }
             Change::HostShellExec { command } => {
                 // Reached only inside the sandboxed executor process — see
@@ -2422,87 +2956,187 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let outcome = crate::vm::run_host_shell_command(command);
                 output.push(serde_json::to_string(&outcome)?);
             }
-            Change::PackageInstall { state_dir, package, dry_run } => {
+            Change::PackageInstall {
+                state_dir,
+                package,
+                dry_run,
+            } => {
                 let rep = crate::pkg::PackageEngine::install(state_dir, package, *dry_run)?;
                 let status_lbl = if rep.success { "OK" } else { "ERROR" };
-                output.push(format!("antpkg [{status_lbl}]: {}\n  • Generación: {}\n  • Prefijo en store: {}", rep.message, rep.generation, rep.store_path));
+                output.push(format!(
+                    "antpkg [{status_lbl}]: {}\n  • Generación: {}\n  • Prefijo en store: {}",
+                    rep.message, rep.generation, rep.store_path
+                ));
             }
             Change::PackageRemove { state_dir, package } => {
                 let rep = crate::pkg::PackageEngine::remove(state_dir, package)?;
-                output.push(format!("antpkg: {}\n  • Nueva generación activa: {}", rep.message, rep.generation));
+                output.push(format!(
+                    "antpkg: {}\n  • Nueva generación activa: {}",
+                    rep.message, rep.generation
+                ));
             }
-            Change::PackageRollback { state_dir, generation } => {
+            Change::PackageRollback {
+                state_dir,
+                generation,
+            } => {
                 let rep = crate::pkg::PackageEngine::rollback(state_dir, *generation)?;
-                output.push(format!("antpkg: {}\n  • Generación restaurada: {}", rep.message, rep.generation));
+                output.push(format!(
+                    "antpkg: {}\n  • Generación restaurada: {}",
+                    rep.message, rep.generation
+                ));
             }
             Change::PackageList { state_dir } => {
                 let pkgs = crate::pkg::PackageEngine::list(state_dir)?;
                 if pkgs.is_empty() {
-                    output.push("antpkg: No hay paquetes instalados en el perfil activo.".to_string());
+                    output.push(
+                        "antpkg: No hay paquetes instalados en el perfil activo.".to_string(),
+                    );
                 } else {
-                    let mut lines = vec![format!("antpkg · Paquetes instalados en perfil activo ({}):", pkgs.len())];
+                    let mut lines = vec![format!(
+                        "antpkg · Paquetes instalados en perfil activo ({}):",
+                        pkgs.len()
+                    )];
                     for p in pkgs {
-                        lines.push(format!("  • {} v{} (gen {}) [bin: {}]", p.name, p.version, p.generation, p.binaries.join(", ")));
+                        lines.push(format!(
+                            "  • {} v{} (gen {}) [bin: {}]",
+                            p.name,
+                            p.version,
+                            p.generation,
+                            p.binaries.join(", ")
+                        ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
             Change::PackageVerify { state_dir } => {
                 let (all_valid, count, details) = crate::pkg::PackageEngine::verify(state_dir)?;
-                let status_lbl = if all_valid { "INTEGRIDAD CORRECTA" } else { "ADVERTENCIAS DE INTEGRIDAD" };
-                let mut lines = vec![format!("antpkg · {status_lbl} ({} paquetes comprobados):", count)];
+                let status_lbl = if all_valid {
+                    "INTEGRIDAD CORRECTA"
+                } else {
+                    "ADVERTENCIAS DE INTEGRIDAD"
+                };
+                let mut lines = vec![format!(
+                    "antpkg · {status_lbl} ({} paquetes comprobados):",
+                    count
+                )];
                 lines.extend(details);
                 output.push(lines.join("\n"));
             }
-            Change::AutopilotStart { state_dir, workspace_dir, config } => {
-                let st = crate::autopilot::AutopilotEngine::start(state_dir, workspace_dir, config.clone())?;
+            Change::AutopilotStart {
+                state_dir,
+                workspace_dir,
+                config,
+            } => {
+                let st = crate::autopilot::AutopilotEngine::start(
+                    state_dir,
+                    workspace_dir,
+                    config.clone(),
+                )?;
                 output.push(format!("antOS Autopilot · Centinela iniciado (intervalo: {}s)\n  • Incidentes detectados: {}\n  • Espacio de trabajo: {}", st.poll_interval_secs, st.active_incidents_count, st.workspace_path));
             }
-            Change::AutopilotStop { state_dir, workspace_dir } => {
+            Change::AutopilotStop {
+                state_dir,
+                workspace_dir,
+            } => {
                 let st = crate::autopilot::AutopilotEngine::stop(state_dir, workspace_dir)?;
                 output.push(format!("antOS Autopilot · Centinela detenido (activo: {})\n  • Total incidentes resueltos: {}", st.active, st.resolved_incidents_count));
             }
-            Change::AutopilotStatus { state_dir, workspace_dir } => {
+            Change::AutopilotStatus {
+                state_dir,
+                workspace_dir,
+            } => {
                 let st = crate::autopilot::AutopilotEngine::status(state_dir, workspace_dir)?;
-                let status_lbl = if st.active { "ACTIVO (Vigilando)" } else { "DETENIDO" };
+                let status_lbl = if st.active {
+                    "ACTIVO (Vigilando)"
+                } else {
+                    "DETENIDO"
+                };
                 output.push(format!("antOS Autopilot · Estado: {status_lbl}\n  • Intervalo: {}s\n  • Incidentes activos: {}\n  • Incidentes resueltos: {}", st.poll_interval_secs, st.active_incidents_count, st.resolved_incidents_count));
             }
-            Change::AutopilotScan { state_dir, workspace_dir } => {
-                let new_incs = crate::autopilot::AutopilotEngine::scan_workspace(state_dir, workspace_dir)?;
+            Change::AutopilotScan {
+                state_dir,
+                workspace_dir,
+            } => {
+                let new_incs =
+                    crate::autopilot::AutopilotEngine::scan_workspace(state_dir, workspace_dir)?;
                 if new_incs.is_empty() {
-                    output.push("antOS Autopilot · Escaneo finalizado: repositorio limpio sin incidentes".to_string());
+                    output.push(
+                        "antOS Autopilot · Escaneo finalizado: repositorio limpio sin incidentes"
+                            .to_string(),
+                    );
                 } else {
                     let mut lines = vec![format!("antOS Autopilot · Escaneo finalizado: {} incidentes detectados con propuestas listas para aprobación:", new_incs.len())];
                     for inc in new_incs {
-                        lines.push(format!("  • [{}] {} en «{}»: {}", inc.id, inc.incident_type, inc.file_path, inc.error_message));
+                        lines.push(format!(
+                            "  • [{}] {} en «{}»: {}",
+                            inc.id, inc.incident_type, inc.file_path, inc.error_message
+                        ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::AutopilotResolve { state_dir, workspace_dir, incident_id, approve } => {
-                let inc = crate::autopilot::AutopilotEngine::resolve_incident(state_dir, workspace_dir, incident_id, *approve)?;
-                let action_lbl = if *approve { "Aprobado y aplicado" } else { "Descartado" };
-                output.push(format!("antOS Autopilot · Incidente «{}» {action_lbl} exitosamente (estado: {})", inc.id, inc.status));
+            Change::AutopilotResolve {
+                state_dir,
+                workspace_dir,
+                incident_id,
+                approve,
+            } => {
+                let inc = crate::autopilot::AutopilotEngine::resolve_incident(
+                    state_dir,
+                    workspace_dir,
+                    incident_id,
+                    *approve,
+                )?;
+                let action_lbl = if *approve {
+                    "Aprobado y aplicado"
+                } else {
+                    "Descartado"
+                };
+                output.push(format!(
+                    "antOS Autopilot · Incidente «{}» {action_lbl} exitosamente (estado: {})",
+                    inc.id, inc.status
+                ));
             }
-            Change::WebStart { state_dir, workspace_dir, config } => {
+            Change::WebStart {
+                state_dir,
+                workspace_dir,
+                config,
+            } => {
                 let st = crate::web::WebEngine::start(state_dir, workspace_dir, config.clone())?;
                 output.push(format!("antOS Web Console · Servidor iniciado en {}\n  • WebSocket Bridge: {}/ws/events\n  • Estado: {}", st.url, st.url, if st.running { "EN LÍNEA" } else { "DETENIDO" }));
             }
             Change::WebStop { state_dir } => {
                 let st = crate::web::WebEngine::stop(state_dir)?;
-                output.push(format!("antOS Web Console · Servidor detenido (activo: {})", st.running));
+                output.push(format!(
+                    "antOS Web Console · Servidor detenido (activo: {})",
+                    st.running
+                ));
             }
             Change::WebStatus { state_dir } => {
                 let st = crate::web::WebEngine::status(state_dir)?;
-                let badge = if st.running { "ACTIVO (En línea)" } else { "DETENIDO" };
+                let badge = if st.running {
+                    "ACTIVO (En línea)"
+                } else {
+                    "DETENIDO"
+                };
                 output.push(format!("antOS Web Console · Estado: {badge}\n  • URL de Acceso:         {}\n  • Clientes Conectados:   {}\n  • Sesiones Activas:      {}", st.url, st.connected_clients, st.active_sessions_count));
             }
-            Change::WebToken { state_dir, label, ttl } => {
-                let session = crate::web::WebEngine::generate_token(state_dir, label.clone(), *ttl)?;
+            Change::WebToken {
+                state_dir,
+                label,
+                ttl,
+            } => {
+                let session =
+                    crate::web::WebEngine::generate_token(state_dir, label.clone(), *ttl)?;
                 output.push(format!("antOS Web Console · Token generado exitosamente:\n  • Token:     {}\n  • Expira en: {}s{}", session.token, session.expires_at.saturating_sub(session.created_at), session.client_label.as_ref().map(|l| format!("\n  • Cliente:   {l}")).unwrap_or_default()));
             }
 
-            Change::TestReproduce { workspace, state_dir, error_log, target_file } => {
+            Change::TestReproduce {
+                workspace,
+                state_dir,
+                error_log,
+                target_file,
+            } => {
                 let report = crate::reproduce::TddEngine::run_reproduce_pipeline(
                     error_log,
                     target_file.as_deref(),
@@ -2522,12 +3156,14 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     if report.audited { "Sí (Protegido contra regresiones)" } else { "No" },
                 ));
             }
-            Change::TestGen { workspace, target, suite_type, cases } => {
+            Change::TestGen {
+                workspace,
+                target,
+                suite_type,
+                cases,
+            } => {
                 let report = crate::reproduce::TddEngine::generate_tests_for_target(
-                    target,
-                    suite_type,
-                    *cases,
-                    workspace,
+                    target, suite_type, *cases, workspace,
                 )?;
                 output.push(format!(
                     "⚡ Generador de Tests antOS · Suite [{}]\n  • Objetivo: {}\n  • Casos generados: {}\n  • Archivo de test: {}\n  • Lenguaje detectado: {:?}",
@@ -2538,7 +3174,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     report.diagnostic.language,
                 ));
             }
-            Change::CiRun { workspace, state_dir, stage, fast } => {
+            Change::CiRun {
+                workspace,
+                state_dir,
+                stage,
+                fast,
+            } => {
                 let report = crate::ci::CiEngine::run_pipeline(
                     workspace,
                     state_dir,
@@ -2572,7 +3213,9 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::GitHookManage { workspace, action } => {
                 let status = match action.as_str() {
                     "install" | "instalar" => crate::ci::CiEngine::install_git_hooks(workspace)?,
-                    "uninstall" | "desinstalar" => crate::ci::CiEngine::uninstall_git_hooks(workspace)?,
+                    "uninstall" | "desinstalar" => {
+                        crate::ci::CiEngine::uninstall_git_hooks(workspace)?
+                    }
                     _ => crate::ci::CiEngine::query_git_hooks_status(workspace)?,
                 };
                 output.push(format!(
@@ -2583,7 +3226,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     if status.active_guards.is_empty() { "ninguna".into() } else { status.active_guards.join(", ") },
                 ));
             }
-            Change::SnapshotCreate { workspace, state_dir, label, author } => {
+            Change::SnapshotCreate {
+                workspace,
+                state_dir,
+                label,
+                author,
+            } => {
                 let meta = crate::time_machine::TimeMachineEngine::create_snapshot(
                     workspace,
                     state_dir,
@@ -2605,14 +3253,28 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 if list.is_empty() {
                     output.push("antOS Time Machine · No hay instantáneas registradas.".into());
                 } else {
-                    let mut lines = vec![format!("⏱️ antOS Time Machine · Total: {} instantáneas registradas:", list.len())];
+                    let mut lines = vec![format!(
+                        "⏱️ antOS Time Machine · Total: {} instantáneas registradas:",
+                        list.len()
+                    )];
                     for s in &list {
-                        lines.push(format!("  • [{}] {} ({} archivos, {} KiB)", s.id, s.label.as_deref().unwrap_or("—"), s.files_count, s.total_bytes / 1024));
+                        lines.push(format!(
+                            "  • [{}] {} ({} archivos, {} KiB)",
+                            s.id,
+                            s.label.as_deref().unwrap_or("—"),
+                            s.files_count,
+                            s.total_bytes / 1024
+                        ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::SnapshotRestore { workspace, state_dir, id_or_label, create_rescue } => {
+            Change::SnapshotRestore {
+                workspace,
+                state_dir,
+                id_or_label,
+                create_rescue,
+            } => {
                 let res = crate::time_machine::TimeMachineEngine::restore_snapshot(
                     workspace,
                     state_dir,
@@ -2629,10 +3291,17 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 ));
             }
             Change::SnapshotDelete { state_dir, id } => {
-                let deleted = crate::time_machine::TimeMachineEngine::delete_snapshot(state_dir, id)?;
-                output.push(format!("🗑️ antOS Time Machine · Instantánea [{deleted}] eliminada con éxito."));
+                let deleted =
+                    crate::time_machine::TimeMachineEngine::delete_snapshot(state_dir, id)?;
+                output.push(format!(
+                    "🗑️ antOS Time Machine · Instantánea [{deleted}] eliminada con éxito."
+                ));
             }
-            Change::BenchRun { workspace, state_dir, target } => {
+            Change::BenchRun {
+                workspace,
+                state_dir,
+                target,
+            } => {
                 let report = crate::bench::BenchEngine::run_benchmark(
                     workspace,
                     state_dir,
@@ -2646,7 +3315,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     report.total_duration_ms,
                 ));
             }
-            Change::BenchDiff { workspace, state_dir, against_branch, threshold_pct } => {
+            Change::BenchDiff {
+                workspace,
+                state_dir,
+                against_branch,
+                threshold_pct,
+            } => {
                 let diff = crate::bench::BenchEngine::compare_benchmark(
                     workspace,
                     state_dir,
@@ -2667,27 +3341,46 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 if history.is_empty() {
                     output.push("antOS Bench · No hay historial previo registrado.".into());
                 } else {
-                    let mut lines = vec![format!("📈 antOS Bench · Total: {} corridas registradas:", history.len())];
+                    let mut lines = vec![format!(
+                        "📈 antOS Bench · Total: {} corridas registradas:",
+                        history.len()
+                    )];
                     for h in &history {
-                        lines.push(format!("  • [{}] {} - {} ({} ms)", h.id, h.branch, h.suite_name, h.total_duration_ms));
+                        lines.push(format!(
+                            "  • [{}] {} - {} ({} ms)",
+                            h.id, h.branch, h.suite_name, h.total_duration_ms
+                        ));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::IssueList { workspace, state_dir } => {
+            Change::IssueList {
+                workspace,
+                state_dir,
+            } => {
                 let issues = crate::forge::ForgeEngine::list_issues(workspace, state_dir)?;
                 if issues.is_empty() {
-                    output.push("antOS Forge · No hay issues abiertos en el repositorio remoto.".into());
+                    output.push(
+                        "antOS Forge · No hay issues abiertos en el repositorio remoto.".into(),
+                    );
                 } else {
-                    let mut lines = vec![format!("🐙 antOS Forge · Total: {} issues abiertos en origen:", issues.len())];
+                    let mut lines = vec![format!(
+                        "🐙 antOS Forge · Total: {} issues abiertos en origen:",
+                        issues.len()
+                    )];
                     for i in &issues {
                         lines.push(format!("  • #{:<4} {} (@{})", i.number, i.title, i.author));
                     }
                     output.push(lines.join("\n"));
                 }
             }
-            Change::IssueImport { workspace, state_dir, id } => {
-                let (ticket_id, path, title) = crate::forge::ForgeEngine::import_issue(workspace, state_dir, id)?;
+            Change::IssueImport {
+                workspace,
+                state_dir,
+                id,
+            } => {
+                let (ticket_id, path, title) =
+                    crate::forge::ForgeEngine::import_issue(workspace, state_dir, id)?;
                 output.push(format!(
                     "📥 antOS Forge · Issue Importado con Éxito\n  • Ticket ID: [{}]\n  • Título:    {}\n  • Fichero:   {}",
                     ticket_id,
@@ -2695,7 +3388,13 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     path.display(),
                 ));
             }
-            Change::PrCreate { workspace, state_dir, title, base_branch, draft } => {
+            Change::PrCreate {
+                workspace,
+                state_dir,
+                title,
+                base_branch,
+                draft,
+            } => {
                 let pr = crate::forge::ForgeEngine::create_pull_request(
                     workspace,
                     state_dir,
@@ -2714,7 +3413,8 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 ));
             }
             Change::PrStatus { state_dir, number } => {
-                let status = crate::forge::ForgeEngine::get_pull_request_status(state_dir, *number)?;
+                let status =
+                    crate::forge::ForgeEngine::get_pull_request_status(state_dir, *number)?;
                 output.push(format!(
                     "🔍 antOS Forge · Pull Request #{}: {}\n  • Estado:    {}\n  • Fusión:    {}\n  • CI Checks: {}\n  • URL:       {}",
                     status.number,
@@ -2727,7 +3427,9 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             }
             Change::DocArch { workspace, kind } => {
                 let k = match kind.as_deref() {
-                    Some("components") | Some("c4") | Some("comp") => antos_protocol::ArchDiagramKind::Components,
+                    Some("components") | Some("c4") | Some("comp") => {
+                        antos_protocol::ArchDiagramKind::Components
+                    }
                     Some("flow") | Some("ipc") => antos_protocol::ArchDiagramKind::IpcFlow,
                     Some("antflow") | Some("state") => antos_protocol::ArchDiagramKind::AntFlow,
                     _ => antos_protocol::ArchDiagramKind::Full,
@@ -2742,21 +3444,26 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     report.mermaid_content,
                 ));
             }
-            Change::DocSync { workspace, target_file } => {
-                let report = crate::doc_arch::DocArchEngine::sync_docs(workspace, target_file.as_deref())?;
+            Change::DocSync {
+                workspace,
+                target_file,
+            } => {
+                let report =
+                    crate::doc_arch::DocArchEngine::sync_docs(workspace, target_file.as_deref())?;
                 output.push(format!(
                     "🔄 antOS Doc Sync · {}\n  • Escaneados:   {}\n  • Actualizados: {}",
-                    report.message,
-                    report.files_scanned,
-                    report.files_updated,
+                    report.message, report.files_scanned, report.files_updated,
                 ));
             }
-            Change::DocCheck { workspace, target_file } => {
-                let report = crate::doc_arch::DocArchEngine::check_docs(workspace, target_file.as_deref())?;
+            Change::DocCheck {
+                workspace,
+                target_file,
+            } => {
+                let report =
+                    crate::doc_arch::DocArchEngine::check_docs(workspace, target_file.as_deref())?;
                 output.push(format!(
                     "🔍 antOS Doc Check · {}\n  • En sincronía: {}",
-                    report.message,
-                    report.in_sync,
+                    report.message, report.in_sync,
                 ));
             }
             _ => {}
@@ -2784,11 +3491,18 @@ mod tests {
             capability: "project.scaffold".into(),
             args,
         };
-        let cap = catalog.get("project.scaffold").expect("cap project.scaffold");
+        let cap = catalog
+            .get("project.scaffold")
+            .expect("cap project.scaffold");
         let changes = changes_for(&step, cap, &ctx, &pendiente).expect("changes");
 
-        let has_git_init = changes.iter().any(|c| matches!(c, Change::ProjectGitInit { .. }));
-        assert!(has_git_init, "project.scaffold must emit Change::ProjectGitInit");
+        let has_git_init = changes
+            .iter()
+            .any(|c| matches!(c, Change::ProjectGitInit { .. }));
+        assert!(
+            has_git_init,
+            "project.scaffold must emit Change::ProjectGitInit"
+        );
     }
 
     #[test]
@@ -2840,7 +3554,8 @@ mod tests {
             args: BTreeMap::new(),
         };
         let cap_status = catalog.get("git.status").expect("cap git.status");
-        let changes_status = changes_for(&step_status, cap_status, &ctx, &pendiente).expect("changes");
+        let changes_status =
+            changes_for(&step_status, cap_status, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_status.len(), 1);
         match &changes_status[0] {
             Change::GitStatus { repo_root } => assert_eq!(repo_root, &ctx.workspace),
@@ -2856,8 +3571,11 @@ mod tests {
             capability: "git.commit_semantic".into(),
             args: args_commit,
         };
-        let cap_commit = catalog.get("git.commit_semantic").expect("cap git.commit_semantic");
-        let changes_commit = changes_for(&step_commit, cap_commit, &ctx, &pendiente).expect("changes");
+        let cap_commit = catalog
+            .get("git.commit_semantic")
+            .expect("cap git.commit_semantic");
+        let changes_commit =
+            changes_for(&step_commit, cap_commit, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_commit.len(), 1);
         match &changes_commit[0] {
             Change::GitCommit { commit_msg, .. } => {
@@ -2874,8 +3592,11 @@ mod tests {
             capability: "git.smart_branch".into(),
             args: args_branch,
         };
-        let cap_branch = catalog.get("git.smart_branch").expect("cap git.smart_branch");
-        let changes_branch = changes_for(&step_branch, cap_branch, &ctx, &pendiente).expect("changes");
+        let cap_branch = catalog
+            .get("git.smart_branch")
+            .expect("cap git.smart_branch");
+        let changes_branch =
+            changes_for(&step_branch, cap_branch, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_branch.len(), 1);
         match &changes_branch[0] {
             Change::GitBranch { branch_name, .. } => {
@@ -2891,11 +3612,18 @@ mod tests {
             capability: "git.worktree_create".into(),
             args: args_wt_create,
         };
-        let cap_wt_create = catalog.get("git.worktree_create").expect("cap git.worktree_create");
-        let changes_wt_create = changes_for(&step_wt_create, cap_wt_create, &ctx, &pendiente).expect("changes");
+        let cap_wt_create = catalog
+            .get("git.worktree_create")
+            .expect("cap git.worktree_create");
+        let changes_wt_create =
+            changes_for(&step_wt_create, cap_wt_create, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_wt_create.len(), 1);
         match &changes_wt_create[0] {
-            Change::GitWorktreeCreate { branch_name, target_path, .. } => {
+            Change::GitWorktreeCreate {
+                branch_name,
+                target_path,
+                ..
+            } => {
                 assert_eq!(branch_name, "agent/T2.2");
                 assert_eq!(target_path, &ctx.state.join("worktrees/T2.2"));
             }
@@ -2909,8 +3637,11 @@ mod tests {
             capability: "git.worktree_cleanup".into(),
             args: args_wt_clean,
         };
-        let cap_wt_clean = catalog.get("git.worktree_cleanup").expect("cap git.worktree_cleanup");
-        let changes_wt_clean = changes_for(&step_wt_clean, cap_wt_clean, &ctx, &pendiente).expect("changes");
+        let cap_wt_clean = catalog
+            .get("git.worktree_cleanup")
+            .expect("cap git.worktree_cleanup");
+        let changes_wt_clean =
+            changes_for(&step_wt_clean, cap_wt_clean, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_wt_clean.len(), 1);
         match &changes_wt_clean[0] {
             Change::GitWorktreeCleanup { target_path, .. } => {
@@ -2926,8 +3657,11 @@ mod tests {
             capability: "diag.port_status".into(),
             args: args_port_st,
         };
-        let cap_port_st = catalog.get("diag.port_status").expect("cap diag.port_status");
-        let changes_port_st = changes_for(&step_port_st, cap_port_st, &ctx, &pendiente).expect("changes");
+        let cap_port_st = catalog
+            .get("diag.port_status")
+            .expect("cap diag.port_status");
+        let changes_port_st =
+            changes_for(&step_port_st, cap_port_st, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_port_st.len(), 1);
         match &changes_port_st[0] {
             Change::PortStatus { port } => assert_eq!(*port, Some(3000)),
@@ -2943,7 +3677,8 @@ mod tests {
             args: args_port_kill,
         };
         let cap_port_kill = catalog.get("diag.port_kill").expect("cap diag.port_kill");
-        let changes_port_kill = changes_for(&step_port_kill, cap_port_kill, &ctx, &pendiente).expect("changes");
+        let changes_port_kill =
+            changes_for(&step_port_kill, cap_port_kill, &ctx, &pendiente).expect("changes");
         assert_eq!(changes_port_kill.len(), 1);
         match &changes_port_kill[0] {
             Change::PortKill { port, force } => {

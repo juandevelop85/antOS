@@ -3,11 +3,11 @@
 //! Implements syscall dispatch for `svc #0` (EC 0x15), userspace transition
 //! via `eret` to EL0, and return to kernel on `SYS_EXIT`.
 
-use core::sync::atomic::{AtomicU64, Ordering};
 use crate::arch::aarch64::exceptions::ExceptionContext;
 use crate::arch::traits::ArchSyscall;
-use crate::syscall;
 use crate::println;
+use crate::syscall;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 static KERNEL_SP: AtomicU64 = AtomicU64::new(0);
 static KERNEL_LR: AtomicU64 = AtomicU64::new(0);
@@ -86,7 +86,8 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                 let kaddr = if uaddr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
                     && uaddr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
                 {
-                    (uaddr - crate::arch::aarch64::mmu::USER_SPACE_VIRT) + crate::arch::aarch64::mmu::USER_SPACE_PHYS
+                    (uaddr - crate::arch::aarch64::mmu::USER_SPACE_VIRT)
+                        + crate::arch::aarch64::mmu::USER_SPACE_PHYS
                 } else {
                     uaddr
                 };
@@ -165,7 +166,6 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             ctx.x[0] = 0;
         }
 
-
         syscall::SYS_GETPID => {
             ctx.x[0] = CURRENT_PID.load(Ordering::Relaxed);
         }
@@ -205,11 +205,13 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                 let kaddr = if path_ptr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
                     && path_ptr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
                 {
-                    (path_ptr - crate::arch::aarch64::mmu::USER_SPACE_VIRT) + crate::arch::aarch64::mmu::USER_SPACE_PHYS
+                    (path_ptr - crate::arch::aarch64::mmu::USER_SPACE_VIRT)
+                        + crate::arch::aarch64::mmu::USER_SPACE_PHYS
                 } else {
                     path_ptr
                 };
-                let path_bytes = unsafe { core::slice::from_raw_parts(kaddr as *const u8, path_len as usize) };
+                let path_bytes =
+                    unsafe { core::slice::from_raw_parts(kaddr as *const u8, path_len as usize) };
                 if let Ok(path_str) = core::str::from_utf8(path_bytes) {
                     if let Ok(binary) = crate::fs::vfs::read_all(path_str) {
                         match unsafe { crate::elf::load_aarch64(&binary) } {
@@ -234,12 +236,10 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             ctx.x[0] = 0;
         }
 
-        syscall::SYS_CHANNEL_CREATE => {
-            match crate::ipc::create_channel() {
-                Ok(id) => ctx.x[0] = id,
-                Err(e) => ctx.x[0] = e,
-            }
-        }
+        syscall::SYS_CHANNEL_CREATE => match crate::ipc::create_channel() {
+            Ok(id) => ctx.x[0] = id,
+            Err(e) => ctx.x[0] = e,
+        },
 
         syscall::SYS_CHANNEL_SEND => {
             let chan = ctx.x[0];
@@ -263,7 +263,8 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             if let Err(e) = syscall::validate_user_ptr(ptr, max_len) {
                 ctx.x[0] = e;
             } else {
-                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, max_len as usize) };
+                let slice =
+                    unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, max_len as usize) };
                 match crate::ipc::recv_message(chan, CURRENT_PID.load(Ordering::Relaxed), slice) {
                     Ok(n) => ctx.x[0] = n as u64,
                     Err(e) => ctx.x[0] = e,
@@ -335,7 +336,6 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
                 ctx.x[0] = syscall::ENOSYS;
             }
         }
-
 
         _ => {
             println!("  unknown syscall: {}", syscall_no);
@@ -486,8 +486,7 @@ pub unsafe extern "C" fn user_test_entry() {
     core::arch::asm!(
         "mov x8, #2", // SYS_WRITE: x0 = ptr, x1 = len
         "svc #0",
-
-        "mov x8, #1", // SYS_EXIT
+        "mov x8, #1",  // SYS_EXIT
         "mov x0, #42", // exit code
         "svc #0",
         options(noreturn)

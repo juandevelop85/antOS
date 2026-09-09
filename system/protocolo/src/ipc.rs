@@ -2,15 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::plan::*;
-use crate::git::*;
-use crate::flow::*;
-use crate::spec::*;
-use crate::mesh::*;
-use crate::wasm::*;
 use crate::dev::*;
-use crate::vm::*;
+use crate::flow::*;
+use crate::git::*;
+use crate::mesh::*;
+use crate::plan::*;
+use crate::spec::*;
 use crate::system::*;
+use crate::vm::*;
+use crate::wasm::*;
 
 // ============================================================================
 // IPC Messages, Requests, Events and Serialization Codecs
@@ -285,17 +285,13 @@ pub enum Request {
     },
     /// Remove package from current active profile (T16.2).
     #[serde(alias = "RemovePackage")]
-    RemovePackage {
-        package_name: String,
-    },
+    RemovePackage { package_name: String },
     /// List packages installed in current active profile (T16.2).
     #[serde(alias = "ListPackages")]
     ListPackages,
     /// Rollback package profile to a previous generation (T16.2).
     #[serde(alias = "RollbackPackage")]
-    RollbackPackage {
-        target_generation: Option<u64>,
-    },
+    RollbackPackage { target_generation: Option<u64> },
     /// Verify SHA-256 checksums and signatures of installed packages (T16.2).
     #[serde(alias = "VerifyPackages")]
     VerifyPackages,
@@ -307,19 +303,13 @@ pub enum Request {
     ListDesktopApps,
     /// Validate Freedesktop .desktop entry syntax (T25.1).
     #[serde(alias = "ValidateDesktopEntry", alias = "validate_desktop_entry")]
-    ValidateDesktopEntry {
-        content: String,
-    },
+    ValidateDesktopEntry { content: String },
     /// Search packages in official catalog and local recipes (T25.3).
     #[serde(alias = "SearchPackages", alias = "search_packages")]
-    SearchPackages {
-        query: String,
-    },
+    SearchPackages { query: String },
     /// Inspect package metadata, dependencies and cryptographic hashes (T25.3).
     #[serde(alias = "GetPackageInfo", alias = "get_package_info")]
-    GetPackageInfo {
-        recipe: String,
-    },
+    GetPackageInfo { recipe: String },
     /// Start continuous autonomous sentinel agent daemon (T16.3).
     #[serde(alias = "IniciarAutopilot")]
     StartAutopilot(AutopilotConfig),
@@ -358,9 +348,7 @@ pub enum Request {
     },
     /// Query status and layout configuration of the Dev TUI workspace (T20.1).
     #[serde(alias = "ConsultarDevWorkspace")]
-    GetDevWorkspaceStatus {
-        project: Option<String>,
-    },
+    GetDevWorkspaceStatus { project: Option<String> },
     /// Ingest stack trace and execute autonomous TDD bug reproduction (T20.2).
     #[serde(alias = "ReproducirBug")]
     ReproduceBug {
@@ -369,23 +357,16 @@ pub enum Request {
     },
     /// Generate unit/regression test cases for a target function or file (T20.2).
     #[serde(alias = "GenerarTest")]
-    GenerateTest {
-        target: String,
-    },
+    GenerateTest { target: String },
     /// Execute local parallel CI/CD pipeline (T20.3).
     #[serde(alias = "EjecutarCi")]
-    RunCi {
-        stage: Option<String>,
-        fast: bool,
-    },
+    RunCi { stage: Option<String>, fast: bool },
     /// Query status and metrics of the last local CI run (T20.3).
     #[serde(alias = "ConsultarEstadoCi")]
     GetCiStatus,
     /// Manage Git hooks (install, uninstall, check) (T20.3).
     #[serde(alias = "GestionarGitHooks")]
-    ManageGitHooks {
-        action: String,
-    },
+    ManageGitHooks { action: String },
     /// Create an atomic development environment snapshot (T20.4).
     #[serde(alias = "CrearSnapshot")]
     CreateSnapshot {
@@ -403,14 +384,10 @@ pub enum Request {
     },
     /// Delete an atomic development snapshot (T20.4).
     #[serde(alias = "EliminarSnapshot")]
-    DeleteSnapshot {
-        id: String,
-    },
+    DeleteSnapshot { id: String },
     /// Run continuous benchmarks on project (T21.1).
     #[serde(alias = "EjecutarBenchmark")]
-    RunBenchmark {
-        target: Option<String>,
-    },
+    RunBenchmark { target: Option<String> },
     /// Compare performance against a baseline branch or previous run (T21.1).
     #[serde(alias = "CompararBenchmark")]
     CompareBenchmark {
@@ -425,9 +402,7 @@ pub enum Request {
     ListRemoteIssues,
     /// Import a remote issue and generate technical ticket in docs/tickets/ (T21.2).
     #[serde(alias = "ImportarIssueRemoto")]
-    ImportRemoteIssue {
-        id_or_url: String,
-    },
+    ImportRemoteIssue { id_or_url: String },
     /// Create and publish a Pull Request / Merge Request to remote forge (T21.2).
     #[serde(alias = "CrearPullRequest")]
     CreatePullRequest {
@@ -437,34 +412,22 @@ pub enum Request {
     },
     /// Query status and CI checks of a Pull Request (T21.2).
     #[serde(alias = "ConsultarPullRequest")]
-    GetPullRequestStatus {
-        number: Option<u64>,
-    },
+    GetPullRequestStatus { number: Option<u64> },
     /// Generate live architecture diagrams in Mermaid format (T21.3).
     #[serde(alias = "GenerarDiagramaArquitectura")]
-    GenerateArchDiagram {
-        kind: Option<String>,
-    },
+    GenerateArchDiagram { kind: Option<String> },
     /// Synchronize architecture Mermaid diagrams in markdown documentation (T21.3).
     #[serde(alias = "SincronizarDocumentacionArquitectura")]
-    SyncArchDocs {
-        target_file: Option<String>,
-    },
+    SyncArchDocs { target_file: Option<String> },
     /// Check whether architecture documentation is in sync with workspace code (T21.3).
     #[serde(alias = "VerificarDocumentacionArquitectura")]
-    CheckArchDocs {
-        target_file: Option<String>,
-    },
+    CheckArchDocs { target_file: Option<String> },
     /// List desktop and developer applications (Flatpak, antpkg, Nix) (T25.2).
     #[serde(alias = "ListApps", alias = "list_apps")]
-    ListApps {
-        source: Option<AppSource>,
-    },
+    ListApps { source: Option<AppSource> },
     /// Search remote application registries (Flathub, recipes) (T25.2).
     #[serde(alias = "SearchApps", alias = "search_apps")]
-    SearchApps {
-        query: String,
-    },
+    SearchApps { query: String },
     /// Install application from Flathub or package store (T25.2).
     #[serde(alias = "InstallApp", alias = "install_app")]
     InstallApp {
@@ -473,9 +436,7 @@ pub enum Request {
     },
     /// Uninstall application and revoke permissions (T25.2).
     #[serde(alias = "UninstallApp", alias = "uninstall_app")]
-    UninstallApp {
-        id: String,
-    },
+    UninstallApp { id: String },
     /// Launch application with Wayland display and workspace context (T25.2).
     #[serde(alias = "LaunchApp", alias = "launch_app")]
     LaunchApp {
@@ -797,9 +758,7 @@ pub enum Event {
     SnapshotRestored(SnapshotRestoreResult),
     /// Notification when an atomic snapshot is deleted (T20.4).
     #[serde(alias = "SnapshotEliminado")]
-    SnapshotDeleted {
-        id: String,
-    },
+    SnapshotDeleted { id: String },
     /// Outcome of a benchmark suite run (T21.1).
     #[serde(alias = "ReporteBenchmark")]
     BenchmarkReport(BenchmarkRunReport),
@@ -860,4 +819,3 @@ pub type Mensaje = Request;
 pub type Respuesta = Event;
 pub type Message = Request;
 pub type Response = Event;
-

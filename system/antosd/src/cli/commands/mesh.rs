@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
     let engine = crate::mesh::MeshEngine::global();
@@ -74,7 +74,10 @@ pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
             let status = engine.status(&ctx.workspace)?;
             println!(
                 "\n{}",
-                paint("antOS · Registro de Nodos antMesh (T9.1 — sin transporte cifrado aún, T31.5)", BOLD)
+                paint(
+                    "antOS · Registro de Nodos antMesh (T9.1 — sin transporte cifrado aún, T31.5)",
+                    BOLD
+                )
             );
             println!(
                 "  Espacio de trabajo: {}\n",
@@ -141,4 +144,3 @@ pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // -------------------------------------------------------------------- swarm
-

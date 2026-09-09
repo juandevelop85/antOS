@@ -12,23 +12,23 @@
 // pero tampoco necesita sistema operativo: solo un #[global_allocator].
 extern crate alloc;
 
+pub mod acpi;
 #[allow(dead_code)]
 mod allocator;
-pub mod acpi;
 pub mod arch;
 pub mod console;
 pub mod drivers;
-pub mod fs;
-pub mod input;
 #[allow(dead_code)]
 mod elf;
+pub mod fs;
+pub mod input;
+pub mod ipc;
 #[cfg(feature = "limine")]
 pub mod limine;
 #[allow(dead_code)]
 mod memory;
 #[allow(dead_code)]
 mod sync;
-pub mod ipc;
 pub mod syscall;
 #[allow(dead_code)]
 mod task;
@@ -51,16 +51,16 @@ use alloc::string::String;
 use alloc::vec::Vec;
 #[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
 use bootloader_api::config::{BootloaderConfig, Mapping};
-#[cfg(target_arch = "x86_64")]
-use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
 #[cfg(all(target_arch = "x86_64", not(feature = "limine")))]
 use bootloader_api::entry_point;
 #[cfg(target_arch = "x86_64")]
-use bootloader_api::BootInfo;
+use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
 #[cfg(target_arch = "x86_64")]
-use task::Task;
+use bootloader_api::BootInfo;
 use core::fmt::Write;
 use core::panic::PanicInfo;
+#[cfg(target_arch = "x86_64")]
+use task::Task;
 
 // 512 KiB was enough before T26.5: nothing in the AArch64 boot path held more
 // than a few kilobytes of heap data at once. Loading a real userspace ELF
@@ -128,7 +128,11 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                 );
             }
             if let Some(c) = console::CONSOLE.lock().as_mut() {
-                c.draw_header_banner("antOS · Limine UEFI (AArch64)", "CPU: Cortex-A72 / VirtualBox", "RAM: 8 MiB Heap");
+                c.draw_header_banner(
+                    "antOS · Limine UEFI (AArch64)",
+                    "CPU: Cortex-A72 / VirtualBox",
+                    "RAM: 8 MiB Heap",
+                );
             }
             limine_fb_active = true;
         }
@@ -184,7 +188,10 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     // Inicializar asignador dinámico de memoria sobre RAM mapeada por la MMU
     unsafe {
-        allocator::init(core::ptr::addr_of_mut!(AARCH64_HEAP) as usize, AARCH64_HEAP_SIZE);
+        allocator::init(
+            core::ptr::addr_of_mut!(AARCH64_HEAP) as usize,
+            AARCH64_HEAP_SIZE,
+        );
     }
     let boxed = Box::new(42u64);
     let mut numbers = Vec::new();
@@ -192,8 +199,11 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         numbers.push(i);
     }
     let text = String::from("antOS heap dinámico en AArch64");
-    println!("  asignador    {} B usados · Box({boxed}), Vec({numbers:?}), String('{}')",
-        allocator::used(), text);
+    println!(
+        "  asignador    {} B usados · Box({boxed}), Vec({numbers:?}), String('{}')",
+        allocator::used(),
+        text
+    );
 
     println!();
     println!("controlador gráfico y framebuffer (T26.1)");
@@ -210,44 +220,74 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
         // (which re-locks CONSOLE — holding it across the print self-deadlocks).
         let geom = console::CONSOLE.lock().as_ref().map(|c| {
             let fb = c.framebuffer();
-            (fb.width(), fb.height(), fb.stride_pixels(), fb.bytes_per_pixel())
+            (
+                fb.width(),
+                fb.height(),
+                fb.stride_pixels(),
+                fb.bytes_per_pixel(),
+            )
         });
         if let Some((w, h, stride_px, bpp)) = geom {
-            println!("  fb-geom      {}x{} · stride {} px · {} B/px{}",
-                w, h, stride_px, bpp,
-                if stride_px != w { " (pitch con relleno)" } else { "" });
+            println!(
+                "  fb-geom      {}x{} · stride {} px · {} B/px{}",
+                w,
+                h,
+                stride_px,
+                bpp,
+                if stride_px != w {
+                    " (pitch con relleno)"
+                } else {
+                    ""
+                }
+            );
         }
     }
 
     // 1. Introspección del DTB para simple-framebuffer
     if !graphical_fb_active {
         if let Some(fb) = arch::aarch64::dtb::find_framebuffer(dtb_ptr) {
-        println!("  dtb          nodo simple-framebuffer descubierto");
-        println!("  resolución   {}x{} · formato {:?} ({} bytes/px)", fb.width, fb.height, fb.format, fb.bytes_per_pixel);
-        println!("  memoria      base física {:#x} ({} KiB)", fb.phys_addr, fb.size / 1024);
+            println!("  dtb          nodo simple-framebuffer descubierto");
+            println!(
+                "  resolución   {}x{} · formato {:?} ({} bytes/px)",
+                fb.width, fb.height, fb.format, fb.bytes_per_pixel
+            );
+            println!(
+                "  memoria      base física {:#x} ({} KiB)",
+                fb.phys_addr,
+                fb.size / 1024
+            );
 
-        if let Ok(mapped_addr) = arch::aarch64::mmu::map_framebuffer_range(fb.phys_addr, fb.size) {
-            println!("  mmu          mapeado en {:#x} (Normal Non-Cacheable)", mapped_addr);
-            unsafe {
-                console::init_raw(
-                    mapped_addr as *mut u8,
-                    fb.size,
-                    fb.width,
-                    fb.height,
-                    fb.stride,
-                    fb.bytes_per_pixel,
-                    fb.format,
+            if let Ok(mapped_addr) =
+                arch::aarch64::mmu::map_framebuffer_range(fb.phys_addr, fb.size)
+            {
+                println!(
+                    "  mmu          mapeado en {:#x} (Normal Non-Cacheable)",
+                    mapped_addr
                 );
+                unsafe {
+                    console::init_raw(
+                        mapped_addr as *mut u8,
+                        fb.size,
+                        fb.width,
+                        fb.height,
+                        fb.stride,
+                        fb.bytes_per_pixel,
+                        fb.format,
+                    );
+                }
+                if let Some(c) = console::CONSOLE.lock().as_mut() {
+                    c.draw_header_banner(
+                        "antOS · AArch64",
+                        "CPU: Cortex-A72 (EL1)",
+                        "RAM: 512 KiB Heap",
+                    );
+                }
+                println!("  consola      activa en pantalla gráfica y serie simultáneamente");
+                graphical_fb_active = true;
+            } else {
+                println!("  error        fallo al mapear el framebuffer en la MMU");
             }
-            if let Some(c) = console::CONSOLE.lock().as_mut() {
-                c.draw_header_banner("antOS · AArch64", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
-            }
-            println!("  consola      activa en pantalla gráfica y serie simultáneamente");
-            graphical_fb_active = true;
-        } else {
-            println!("  error        fallo al mapear el framebuffer en la MMU");
         }
-    }
     }
 
     // 2. Si no hay simple-framebuffer en DTB, buscar dispositivo VirtIO-GPU MMIO
@@ -256,7 +296,10 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             .or_else(arch::aarch64::virtio_gpu::probe_virtio_gpu);
 
         if let Some(gpu_base) = virtio_gpu_base {
-            println!("  virtio-gpu   dispositivo MMIO detectado en {:#x}", gpu_base);
+            println!(
+                "  virtio-gpu   dispositivo MMIO detectado en {:#x}",
+                gpu_base
+            );
             match unsafe { arch::aarch64::virtio_gpu::VirtioGpu::init(gpu_base, 1024, 768) } {
                 Ok(gpu) => {
                     let buf_ptr = gpu.buffer_ptr();
@@ -277,7 +320,11 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                         );
                     }
                     if let Some(c) = console::CONSOLE.lock().as_mut() {
-                        c.draw_header_banner("antOS · VirtIO-GPU", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                        c.draw_header_banner(
+                            "antOS · VirtIO-GPU",
+                            "CPU: Cortex-A72 (EL1)",
+                            "RAM: 512 KiB Heap",
+                        );
                     }
                     println!("  virtio-gpu   recurso 2D creado · escaneo 1024x768x32bpp enlazado");
                     println!("  consola      activa en monitor VirtIO-GPU y serie simultáneamente");
@@ -293,21 +340,42 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     // 3. VirtIO-GPU sobre PCIe (virtio-gpu-pci, requiere el bus PCIe de T28.2)
     if !graphical_fb_active {
         if let Some(dev) = arch::aarch64::virtio_gpu_pci::probe() {
-            println!("  virtio-gpu   virtio-gpu-pci {:04x}:{:04x} en bus {} dev {}",
-                dev.vendor_id, dev.device_id, dev.bus, dev.slot);
+            println!(
+                "  virtio-gpu   virtio-gpu-pci {:04x}:{:04x} en bus {} dev {}",
+                dev.vendor_id, dev.device_id, dev.bus, dev.slot
+            );
             match unsafe { arch::aarch64::virtio_gpu_pci::VirtioGpuPci::init(&dev, 1024, 768) } {
                 Ok(gpu) => {
-                    let (bp, bl, w, h, st) =
-                        (gpu.buffer_ptr(), gpu.buffer_len(), gpu.width(), gpu.height(), gpu.stride());
+                    let (bp, bl, w, h, st) = (
+                        gpu.buffer_ptr(),
+                        gpu.buffer_len(),
+                        gpu.width(),
+                        gpu.height(),
+                        gpu.stride(),
+                    );
                     *arch::aarch64::virtio_gpu_pci::VIRTIO_GPU_PCI.lock() = Some(gpu);
                     unsafe {
-                        console::init_raw(bp, bl, w, h, st, 4,
-                            bootloader_api::info::PixelFormat::Bgr);
+                        console::init_raw(
+                            bp,
+                            bl,
+                            w,
+                            h,
+                            st,
+                            4,
+                            bootloader_api::info::PixelFormat::Bgr,
+                        );
                     }
                     if let Some(c) = console::CONSOLE.lock().as_mut() {
-                        c.draw_header_banner("antOS · VirtIO-GPU PCIe", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                        c.draw_header_banner(
+                            "antOS · VirtIO-GPU PCIe",
+                            "CPU: Cortex-A72 (EL1)",
+                            "RAM: 512 KiB Heap",
+                        );
                     }
-                    println!("  consola      activa en virtio-gpu-pci ({}x{}) y serie", w, h);
+                    println!(
+                        "  consola      activa en virtio-gpu-pci ({}x{}) y serie",
+                        w, h
+                    );
                     graphical_fb_active = true;
                 }
                 Err(_) => println!("  error        fallo al inicializar virtio-gpu-pci"),
@@ -317,23 +385,39 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     // 4. ramfb vía fw_cfg (QEMU/UTM sin UEFI ni virtio-gpu)
     if !graphical_fb_active {
-        let fw_cfg_base = arch::aarch64::dtb::find_fw_cfg()
-            .unwrap_or(arch::aarch64::fw_cfg::FW_CFG_MMIO_DEFAULT);
+        let fw_cfg_base =
+            arch::aarch64::dtb::find_fw_cfg().unwrap_or(arch::aarch64::fw_cfg::FW_CFG_MMIO_DEFAULT);
         match unsafe { arch::aarch64::fw_cfg::init_ramfb(fw_cfg_base, 1024, 768) } {
             Some(fb) => {
                 unsafe {
-                    console::init_raw(fb.ptr, fb.len, fb.width, fb.height,
-                        fb.stride_bytes / 4, 4, bootloader_api::info::PixelFormat::Bgr);
+                    console::init_raw(
+                        fb.ptr,
+                        fb.len,
+                        fb.width,
+                        fb.height,
+                        fb.stride_bytes / 4,
+                        4,
+                        bootloader_api::info::PixelFormat::Bgr,
+                    );
                 }
                 if let Some(c) = console::CONSOLE.lock().as_mut() {
-                    c.draw_header_banner("antOS · ramfb", "CPU: Cortex-A72 (EL1)", "RAM: 512 KiB Heap");
+                    c.draw_header_banner(
+                        "antOS · ramfb",
+                        "CPU: Cortex-A72 (EL1)",
+                        "RAM: 512 KiB Heap",
+                    );
                 }
-                println!("  ramfb        fw_cfg en {:#x} · framebuffer {}x{} enlazado",
-                    fw_cfg_base, fb.width, fb.height);
+                println!(
+                    "  ramfb        fw_cfg en {:#x} · framebuffer {}x{} enlazado",
+                    fw_cfg_base, fb.width, fb.height
+                );
                 println!("  consola      activa en ramfb y serie simultáneamente");
                 graphical_fb_active = true;
             }
-            None => println!("  ramfb        no disponible (fw_cfg {:#x} sin etc/ramfb)", fw_cfg_base),
+            None => println!(
+                "  ramfb        no disponible (fw_cfg {:#x} sin etc/ramfb)",
+                fw_cfg_base
+            ),
         }
     }
 
@@ -348,7 +432,10 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!("controlador de entrada y periféricos (T26.3 / T27.2)");
     let input_devs = drivers::virtio_input::probe_and_init_virtio_inputs();
     if input_devs > 0 {
-        println!("  virtio-input {} dispositivo(s) de entrada activos (teclado/ratón/tablet)", input_devs);
+        println!(
+            "  virtio-input {} dispositivo(s) de entrada activos (teclado/ratón/tablet)",
+            input_devs
+        );
     } else {
         println!("  virtio-input no detectado (probando PCIe xHCI y consola serie)");
     }
@@ -356,22 +443,35 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     // Inicializar bus PCIe y controlador host USB 3.0 xHCI (T27.2 / T28.2)
     let ecam_base = drivers::pci::probe_ecam_base();
     let pci_scan = drivers::pci::scan_pci_bus();
-    println!("  pcie-ecam    ventana ECAM en {:#x} · {} función(es) PCI detectadas",
-        ecam_base, pci_scan.len());
+    println!(
+        "  pcie-ecam    ventana ECAM en {:#x} · {} función(es) PCI detectadas",
+        ecam_base,
+        pci_scan.len()
+    );
     for d in &pci_scan {
-        println!("    pci  {:02x}:{:02x}.{}  {:04x}:{:04x}  clase {:02x}:{:02x}:{:02x}",
-            d.bus, d.slot, d.func, d.vendor_id, d.device_id, d.class, d.subclass, d.prog_if);
+        println!(
+            "    pci  {:02x}:{:02x}.{}  {:04x}:{:04x}  clase {:02x}:{:02x}:{:02x}",
+            d.bus, d.slot, d.func, d.vendor_id, d.device_id, d.class, d.subclass, d.prog_if
+        );
     }
     drivers::usb::init();
     if let Some(xhci) = drivers::usb::XHCI.lock().as_ref() {
-        println!("  pcie-xhci    controlador USB 3.0 activo en bus {} dev {} fn {}",
-            xhci.pci_device.bus, xhci.pci_device.slot, xhci.pci_device.func);
+        println!(
+            "  pcie-xhci    controlador USB 3.0 activo en bus {} dev {} fn {}",
+            xhci.pci_device.bus, xhci.pci_device.slot, xhci.pci_device.func
+        );
         let ports = xhci.inspect_ports();
         let connected_ports: alloc::vec::Vec<_> = ports.iter().filter(|p| p.connected).collect();
-        println!("  roothub      {} puertos totales · {} dispositivos conectados",
-            ports.len(), connected_ports.len());
+        println!(
+            "  roothub      {} puertos totales · {} dispositivos conectados",
+            ports.len(),
+            connected_ports.len()
+        );
         for p in connected_ports {
-            println!("    puerto {}  conectado · velocidad: {}", p.port_number, p.speed_name);
+            println!(
+                "    puerto {}  conectado · velocidad: {}",
+                p.port_number, p.speed_name
+            );
         }
         for dev in &xhci.devices {
             let dev_type = if dev.is_hub {
@@ -390,8 +490,15 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             } else {
                 " [boot]"
             };
-            println!("    usb-hid    slot {} · puerto {} · ruta {:#x} · {}{} (EP {})",
-                dev.slot_id, dev.port, dev.route_string, dev_type, proto, dev.ep_int_dci / 2);
+            println!(
+                "    usb-hid    slot {} · puerto {} · ruta {:#x} · {}{} (EP {})",
+                dev.slot_id,
+                dev.port,
+                dev.route_string,
+                dev_type,
+                proto,
+                dev.ep_int_dci / 2
+            );
         }
     } else if let Some(x) = pci_scan.iter().find(|d| d.is_xhci_controller()) {
         // The controller is on the bus but did not come up. The usual cause on
@@ -420,14 +527,22 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     let mut gic_configured = false;
 
     if let Some(info) = arch::aarch64::dtb::find_gic() {
-        let v = if info.is_v3 { GicVersion::V3 } else { GicVersion::V2 };
+        let v = if info.is_v3 {
+            GicVersion::V3
+        } else {
+            GicVersion::V2
+        };
         arch::aarch64::gic::set_version(
             v,
             Some(info.gicd_base as usize),
             Some(info.second_base as usize),
         );
-        println!("  gic          DTB · {} d={:#x} 2={:#x}",
-            arch::aarch64::gic::version_name(), info.gicd_base, info.second_base);
+        println!(
+            "  gic          DTB · {} d={:#x} 2={:#x}",
+            arch::aarch64::gic::version_name(),
+            info.gicd_base,
+            info.second_base
+        );
         gic_configured = true;
     }
 
@@ -438,18 +553,29 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
             let rsdp_ptr = unsafe { (*rsdp_resp).address };
             if let Some(m) = unsafe { acpi::find_table(rsdp_ptr, b"MCFG") }.map(acpi::parse_mcfg) {
                 if let Some(a) = m.first() {
-                    println!("  acpi         MCFG: ECAM {:#x} buses {}..{}",
-                        a.base_address, a.start_bus, a.end_bus);
+                    println!(
+                        "  acpi         MCFG: ECAM {:#x} buses {}..{}",
+                        a.base_address, a.start_bus, a.end_bus
+                    );
                 }
             }
-            if let Some(g) = unsafe { acpi::find_table(rsdp_ptr, b"APIC") }.map(acpi::parse_madt_gic) {
-                println!("  acpi         MADT: GIC{} d={:#x} r={:#x}",
+            if let Some(g) =
+                unsafe { acpi::find_table(rsdp_ptr, b"APIC") }.map(acpi::parse_madt_gic)
+            {
+                println!(
+                    "  acpi         MADT: GIC{} d={:#x} r={:#x}",
                     if g.is_v3() { "v3" } else { "v2" },
-                    g.gicd_base.unwrap_or(0), g.gicr_base.unwrap_or(0));
+                    g.gicd_base.unwrap_or(0),
+                    g.gicr_base.unwrap_or(0)
+                );
                 // Sin DTB, la MADT es la única fuente fiable de la topología del
                 // GIC (VirtualBox ARM64: GICv3 en 0xfcd3_0000 / 0xfcd4_0000).
                 if !gic_configured && g.gicd_base.is_some() {
-                    let v = if g.is_v3() { GicVersion::V3 } else { GicVersion::V2 };
+                    let v = if g.is_v3() {
+                        GicVersion::V3
+                    } else {
+                        GicVersion::V2
+                    };
                     arch::aarch64::gic::set_version(
                         v,
                         g.gicd_base.map(|b| b as usize),
@@ -470,8 +596,12 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     arch::aarch64::gic::init();
     {
         let (_, d, s) = arch::aarch64::gic::bases();
-        println!("  {:<12} distribuidor y cpu interface activos · d={:#x} 2={:#x}",
-            arch::aarch64::gic::version_name(), d, s);
+        println!(
+            "  {:<12} distribuidor y cpu interface activos · d={:#x} 2={:#x}",
+            arch::aarch64::gic::version_name(),
+            d,
+            s
+        );
     }
 
     arch::aarch64::timer::init();
@@ -498,18 +628,18 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!();
     println!("cargador de ejecutables ELF64 e initramfs (T26.4)");
     let sample_elf = [
-        0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0xb7, 0, 1, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 0,
-        64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 64, 0, 56, 0, 1, 0, 0, 0, 0, 0, 0, 0,
-        1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0x40, 0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 0,
-        120, 0, 0, 0, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0,
-        0, 16, 0, 0, 0, 0, 0, 0,
+        0x7f, b'E', b'L', b'F', 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0xb7, 0, 1, 0, 0, 0, 0,
+        0, 0x40, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0,
+        56, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x40,
+        0, 0, 0, 0, 0, 0, 0, 0x40, 0, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 120, 0, 0, 0, 0, 0, 0,
+        0, 0, 16, 0, 0, 0, 0, 0, 0,
     ];
     match elf::parse_elf(&sample_elf) {
         Ok(info) => {
-            println!("  cargador     ELF64 verificado para AArch64 (entrada: {:#x}, segmentos: {})", info.entry, info.loadable_segments);
+            println!(
+                "  cargador     ELF64 verificado para AArch64 (entrada: {:#x}, segmentos: {})",
+                info.entry, info.loadable_segments
+            );
         }
         Err(e) => {
             println!("  error        fallo en cargador ELF64: {}", e);
@@ -518,14 +648,14 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 
     println!();
     println!("espacio de usuario (EL0) y llamadas al sistema (SVC)");
-    let (user_entry, user_sp, arg0, arg1) = unsafe {
-        arch::aarch64::syscall::setup_test_userspace()
-    };
+    let (user_entry, user_sp, arg0, arg1) =
+        unsafe { arch::aarch64::syscall::setup_test_userspace() };
     println!("  transición   saltando a EL0 en {user_entry:#x} con sp {user_sp:#x}");
-    let exit_code = unsafe {
-        arch::aarch64::syscall::enter_user_mode(user_entry, user_sp, arg0, arg1)
-    };
-    println!("  retorno      el programa EL0 finalizó limpiamente con código de salida {exit_code}");
+    let exit_code =
+        unsafe { arch::aarch64::syscall::enter_user_mode(user_entry, user_sp, arg0, arg1) };
+    println!(
+        "  retorno      el programa EL0 finalizó limpiamente con código de salida {exit_code}"
+    );
 
     // ── Sovereign interactive shell, libantos + antos-init (T26.5) ────────
     // The hand-crafted probe above only proves the EL0/SVC round trip works.
@@ -536,7 +666,10 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     println!();
     println!("initramfs y VFS (T26.5)");
     if let Ok(tfs) = fs::tarfs::TarFs::from_memory(EMBEDDED_INITRD) {
-        println!("  vfs          raíz montada · {} ficheros indexados", tfs.entry_count());
+        println!(
+            "  vfs          raíz montada · {} ficheros indexados",
+            tfs.entry_count()
+        );
         fs::vfs::mount_root(tfs);
     } else {
         println!("  vfs          no se pudo montar initramfs · shell no disponible");
@@ -567,7 +700,6 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                     let code = unsafe {
                         arch::aarch64::syscall::enter_user_mode(shell_entry, shell_stack, 4, 0)
                     };
-
 
                     if code == DESKTOP_HANDOFF_CODE {
                         println!("  shell        cedió el control al compositor gráfico");
@@ -710,7 +842,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                             dev.bus, dev.slot, dev.func, sectors, cap_mb
                         );
                         *drivers::virtio_blk::BLOCK_DEVICE.lock() = Some(blk);
-                        drivers::storage::register_virtio_device("/dev/vda", sectors, 512, "VirtIO Block Device");
+                        drivers::storage::register_virtio_device(
+                            "/dev/vda",
+                            sectors,
+                            512,
+                            "VirtIO Block Device",
+                        );
                         virtio_blk_found = true;
                     }
                     Err(e) => {
@@ -723,15 +860,24 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // Detect and initialize physical storage controllers (AHCI / NVMe) (T24.3)
-    drivers::storage::detect_and_init_storage(&pci_devices, &mut mapper, &mut frames, physical_offset);
+    drivers::storage::detect_and_init_storage(
+        &pci_devices,
+        &mut mapper,
+        &mut frames,
+        physical_offset,
+    );
 
     if !virtio_blk_found {
         println!("  virtio-blk   no detectado en bus PCI · usando ramdisk en memoria");
     }
 
     if let Ok(ramdisk) = fs::ramdisk::Ramdisk::new(EMBEDDED_INITRD) {
-        println!("  initramfs    Live Ramdisk detectado ({} KiB, {} entradas, init: {})",
-            ramdisk.size() / 1024, ramdisk.entry_count(), ramdisk.has_init());
+        println!(
+            "  initramfs    Live Ramdisk detectado ({} KiB, {} entradas, init: {})",
+            ramdisk.size() / 1024,
+            ramdisk.entry_count(),
+            ramdisk.has_init()
+        );
     }
 
     // Mount root filesystem: prefer block device if available, else embedded initrd
@@ -751,7 +897,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     if let Some(tfs) = root_fs {
-        println!("  vfs          raíz montada · {} ficheros indexados:", tfs.entry_count());
+        println!(
+            "  vfs          raíz montada · {} ficheros indexados:",
+            tfs.entry_count()
+        );
         for entry in tfs.all_entries() {
             let kind = if entry.is_dir { "DIR " } else { "FILE" };
             println!("    [{kind}] {:<18} ({:>6} B)", entry.path, entry.size);
@@ -763,8 +912,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     if let Ok(conf_str) = fs::vfs::read_to_string("/etc/antos.conf") {
         input::apply_config(&conf_str);
-        println!("  config       /etc/antos.conf cargado ({} B) · {}",
-            conf_str.len(), input::settings_report());
+        println!(
+            "  config       /etc/antos.conf cargado ({} B) · {}",
+            conf_str.len(),
+            input::settings_report()
+        );
     }
 
     println!();
@@ -774,14 +926,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("  syscall      habilitado · el anillo 3 ya tiene por dónde entrar");
 
     // Desacoplamiento de include_bytes!: cargar dinámicamente desde /bin/init en VFS
-    let init_bytes = fs::vfs::read_all("/bin/init")
-        .expect("no pude leer /bin/init desde el VFS");
-    println!("  cargador     ELF dinámico de {} KiB cargado desde VFS (/bin/init)", init_bytes.len() / 1024);
+    let init_bytes = fs::vfs::read_all("/bin/init").expect("no pude leer /bin/init desde el VFS");
+    println!(
+        "  cargador     ELF dinámico de {} KiB cargado desde VFS (/bin/init)",
+        init_bytes.len() / 1024
+    );
 
     // Verificar carga de segundo ejecutable ELF (/bin/worker) desde VFS
-    let worker_bytes = fs::vfs::read_all("/bin/worker")
-        .expect("no pude leer /bin/worker desde el VFS");
-    println!("  segundo ELF  {} KiB verificado desde VFS (/bin/worker)", worker_bytes.len() / 1024);
+    let worker_bytes =
+        fs::vfs::read_all("/bin/worker").expect("no pude leer /bin/worker desde el VFS");
+    println!(
+        "  segundo ELF  {} KiB verificado desde VFS (/bin/worker)",
+        worker_bytes.len() / 1024
+    );
 
     // SAFETY: el ELF lo hemos compilado nosotros y cargado desde el VFS
     let entry = unsafe { elf::load(&init_bytes, &mut mapper, &mut frames) }
@@ -792,14 +949,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     println!("  cargado      entrada {entry:#x} · pila {user_stack:#x}");
 
     // Separate user stack for process 2 (0x6000_0000)
-    let user_stack_2 = unsafe {
-        userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames)
-    }.expect("no pude mapear pila para proceso 2");
+    let user_stack_2 =
+        unsafe { userspace::map_user_stack_at(0x6000_0000, &mut mapper, &mut frames) }
+            .expect("no pude mapear pila para proceso 2");
 
     // Separate user stack for process 3: the interactive shell (T26.5)
-    let user_stack_shell = unsafe {
-        userspace::map_user_stack_at(0x5000_0000, &mut mapper, &mut frames)
-    }.expect("no pude mapear pila para el shell");
+    let user_stack_shell =
+        unsafe { userspace::map_user_stack_at(0x5000_0000, &mut mapper, &mut frames) }
+            .expect("no pude mapear pila para el shell");
 
     // Initialize global memory controller for dynamic syscalls (mmap, munmap, spawn)
     memory::init_memory_controller(mapper, frames);
@@ -812,8 +969,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     drivers::usb::init();
     match drivers::usb::XHCI.lock().as_ref() {
-        Some(x) => println!("  usb-xhci     controlador activo en PCI {}:{}.{} · {} interfaz(es) HID",
-            x.pci_device.bus, x.pci_device.slot, x.pci_device.func, x.devices.len()),
+        Some(x) => println!(
+            "  usb-xhci     controlador activo en PCI {}:{}.{} · {} interfaz(es) HID",
+            x.pci_device.bus,
+            x.pci_device.slot,
+            x.pci_device.func,
+            x.devices.len()
+        ),
         None => println!("  usb-xhci     sin controlador xHCI en el bus PCI (pila inactiva)"),
     }
 
@@ -1084,7 +1246,9 @@ fn halt_loop() -> ! {
             input::service_auto_repeat(arch::aarch64::timer::ticks());
             input::sync_keyboard_leds();
             let (screen_w, screen_h) = console::resolution();
-            if drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0 || input::has_events() {
+            if drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0
+                || input::has_events()
+            {
                 if ui::dispatch_pending_inputs(screen_w, screen_h) {
                     if let Some(c) = console::CONSOLE.lock().as_mut() {
                         ui::render_desktop(
@@ -1106,7 +1270,6 @@ fn halt_loop() -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-
     // Callar las interrupciones antes de nada.
     use crate::arch::traits::ArchInterrupts;
     crate::arch::current::Interrupts::disable();
@@ -1133,7 +1296,10 @@ fn panic(info: &PanicInfo) -> ! {
     #[cfg(target_arch = "x86_64")]
     if let Some(mut guard) = console::CONSOLE.try_lock() {
         if let Some(console) = guard.as_mut() {
-            let _ = writeln!(console, "\n\x1b[1;31m╔══════════════════════════════\x1b[0m");
+            let _ = writeln!(
+                console,
+                "\n\x1b[1;31m╔══════════════════════════════\x1b[0m"
+            );
             let _ = writeln!(console, "\x1b[1;31m║ PANIC DEL KERNEL\x1b[0m");
             if let Some(location) = info.location() {
                 let _ = writeln!(

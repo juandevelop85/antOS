@@ -130,13 +130,16 @@ impl BenchEngine {
         for target_m in &target_report.metrics {
             if let Some(base_m) = base_report.metrics.iter().find(|m| m.name == target_m.name) {
                 let delta_pct = if base_m.mean_ns > 0 {
-                    ((target_m.mean_ns as f64 - base_m.mean_ns as f64) / base_m.mean_ns as f64) * 100.0
+                    ((target_m.mean_ns as f64 - base_m.mean_ns as f64) / base_m.mean_ns as f64)
+                        * 100.0
                 } else {
                     0.0
                 };
 
                 let rss_delta_pct = if base_m.peak_rss_bytes > 0 {
-                    ((target_m.peak_rss_bytes as f64 - base_m.peak_rss_bytes as f64) / base_m.peak_rss_bytes as f64) * 100.0
+                    ((target_m.peak_rss_bytes as f64 - base_m.peak_rss_bytes as f64)
+                        / base_m.peak_rss_bytes as f64)
+                        * 100.0
                 } else {
                     0.0
                 };
@@ -189,7 +192,8 @@ impl BenchEngine {
                 max_regression_pct, threshold
             )
         } else {
-            "✅ Aprobado por Auditor de antFlow: Rendimiento dentro de márgenes óptimos y estables.".to_string()
+            "✅ Aprobado por Auditor de antFlow: Rendimiento dentro de márgenes óptimos y estables."
+                .to_string()
         };
 
         let diff_report = BenchmarkDiffReport {
@@ -221,17 +225,29 @@ impl BenchEngine {
 
         // If Git repo exists and base_branch exists, try running in an ephemeral worktree
         if workspace.join(".git").exists() {
-            let wt_path = state_dir.join("worktrees").join(format!("bench-baseline-{}", base_branch));
+            let wt_path = state_dir
+                .join("worktrees")
+                .join(format!("bench-baseline-{}", base_branch));
             let _ = fs::create_dir_all(&state_dir.join("worktrees"));
 
-            if crate::git::create_worktree(workspace, &wt_path, &format!("bench-ref-{}", base_branch), base_branch).is_ok() {
+            if crate::git::create_worktree(
+                workspace,
+                &wt_path,
+                &format!("bench-ref-{}", base_branch),
+                base_branch,
+            )
+            .is_ok()
+            {
                 let res = Self::execute_suite_metrics(&wt_path, None);
                 let _ = crate::git::remove_worktree(workspace, &wt_path, true);
 
                 if let Ok(metrics) = res {
                     return Ok(BenchmarkRunReport {
                         id: format!("bench-baseline-{}", base_branch),
-                        timestamp_secs: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        timestamp_secs: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
                         branch: base_branch.to_string(),
                         commit: None,
                         suite_name: "baseline-worktree".into(),
@@ -246,7 +262,10 @@ impl BenchEngine {
         let current_metrics = Self::execute_suite_metrics(workspace, None)?;
         Ok(BenchmarkRunReport {
             id: format!("bench-fallback-{}", base_branch),
-            timestamp_secs: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+            timestamp_secs: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
             branch: base_branch.to_string(),
             commit: None,
             suite_name: "baseline-fallback".into(),
@@ -256,7 +275,10 @@ impl BenchEngine {
     }
 
     /// Executes microbenchmarks and collects statistical metrics.
-    pub fn execute_suite_metrics(workspace: &Path, _target: Option<&str>) -> Result<Vec<BenchmarkMetric>> {
+    pub fn execute_suite_metrics(
+        workspace: &Path,
+        _target: Option<&str>,
+    ) -> Result<Vec<BenchmarkMetric>> {
         let mut metrics = Vec::new();
 
         // 1. Cargo bench if Rust project
@@ -270,7 +292,9 @@ impl BenchEngine {
         }
 
         // 2. Python pytest-benchmark
-        if metrics.is_empty() && (workspace.join("pytest.ini").exists() || workspace.join("tests").exists()) {
+        if metrics.is_empty()
+            && (workspace.join("pytest.ini").exists() || workspace.join("tests").exists())
+        {
             if let Ok(py_metrics) = Self::run_pytest_bench(workspace) {
                 metrics.extend(py_metrics);
             }
@@ -333,7 +357,11 @@ impl BenchEngine {
             let _ = Self::count_workspace_files(workspace, 0);
             vfs_samples.push(t0.elapsed().as_nanos() as u64);
         }
-        metrics.push(Self::calculate_metric("vfs_index_traversal", &vfs_samples, 2048 * 1024));
+        metrics.push(Self::calculate_metric(
+            "vfs_index_traversal",
+            &vfs_samples,
+            2048 * 1024,
+        ));
 
         // Metric 2: AST syntax checking latency
         let mut parse_samples = Vec::new();
@@ -342,7 +370,11 @@ impl BenchEngine {
             let _ = Self::sample_code_parse(workspace);
             parse_samples.push(t0.elapsed().as_nanos() as u64);
         }
-        metrics.push(Self::calculate_metric("syntax_ast_check", &parse_samples, 3500 * 1024));
+        metrics.push(Self::calculate_metric(
+            "syntax_ast_check",
+            &parse_samples,
+            3500 * 1024,
+        ));
 
         // Metric 3: IPC serializer throughput
         let mut ipc_samples = Vec::new();
@@ -352,7 +384,11 @@ impl BenchEngine {
             let _ = serde_json::to_string(&dummy_data);
             ipc_samples.push(t0.elapsed().as_nanos() as u64);
         }
-        metrics.push(Self::calculate_metric("ipc_serializer_roundtrip", &ipc_samples, 1024 * 1024));
+        metrics.push(Self::calculate_metric(
+            "ipc_serializer_roundtrip",
+            &ipc_samples,
+            1024 * 1024,
+        ));
 
         Ok(metrics)
     }
@@ -413,7 +449,10 @@ impl BenchEngine {
             if line.contains("bench:") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if let Some(pos) = parts.iter().position(|&p| p == "bench:") {
-                    let name = parts.first().unwrap_or(&"benchmark").trim_start_matches("test ");
+                    let name = parts
+                        .first()
+                        .unwrap_or(&"benchmark")
+                        .trim_start_matches("test ");
                     if let Some(ns_str) = parts.get(pos + 1) {
                         let clean_ns = ns_str.replace(',', "");
                         if let Ok(mean_ns) = clean_ns.parse::<u64>() {
@@ -426,7 +465,11 @@ impl BenchEngine {
         }
         if metrics.is_empty() {
             // Fallback metric if no bench lines parsed
-            metrics.push(Self::calculate_metric("cargo_test_bench", &[500_000], 4096 * 1024));
+            metrics.push(Self::calculate_metric(
+                "cargo_test_bench",
+                &[500_000],
+                4096 * 1024,
+            ));
         }
         metrics
     }
@@ -434,14 +477,20 @@ impl BenchEngine {
     fn parse_pytest_bench_output(output: &str) -> Vec<BenchmarkMetric> {
         let mut metrics = Vec::new();
         for line in output.lines() {
-            if line.contains("test_") && (line.contains("ms") || line.contains("us") || line.contains("ns")) {
+            if line.contains("test_")
+                && (line.contains("ms") || line.contains("us") || line.contains("ns"))
+            {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 let name = parts.first().unwrap_or(&"pytest_bench");
                 metrics.push(Self::calculate_metric(name, &[1_200_000], 8192 * 1024));
             }
         }
         if metrics.is_empty() {
-            metrics.push(Self::calculate_metric("pytest_benchmark_suite", &[1_500_000], 8192 * 1024));
+            metrics.push(Self::calculate_metric(
+                "pytest_benchmark_suite",
+                &[1_500_000],
+                8192 * 1024,
+            ));
         }
         metrics
     }
@@ -576,7 +625,8 @@ mod tests {
 
     #[test]
     fn test_builtin_microbenchmarks_execution() {
-        let temp_dir = std::env::temp_dir().join(format!("test_bench_builtin_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_bench_builtin_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let metrics = BenchEngine::run_builtin_microbenchmarks(&temp_dir).expect("builtin metrics");

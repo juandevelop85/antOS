@@ -3,8 +3,8 @@
 //! Supports 24/32-bit RGB/BGR and 8-bit grayscale pixel layouts with
 //! bounds-checked pixel manipulation, fast memory scrolling, and character rendering.
 
-use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use super::font::{self, FONT_WIDTH};
+use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 
 /// 24-bit RGB Color.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -16,22 +16,86 @@ pub struct Color {
 
 impl Color {
     pub const BLACK: Color = Color { r: 0, g: 0, b: 0 };
-    pub const WHITE: Color = Color { r: 255, g: 255, b: 255 };
-    pub const RED: Color = Color { r: 205, g: 49, b: 49 };
-    pub const GREEN: Color = Color { r: 13, g: 188, b: 121 };
-    pub const YELLOW: Color = Color { r: 229, g: 229, b: 16 };
-    pub const BLUE: Color = Color { r: 36, g: 114, b: 200 };
-    pub const MAGENTA: Color = Color { r: 188, g: 63, b: 188 };
-    pub const CYAN: Color = Color { r: 17, g: 168, b: 205 };
-    pub const LIGHT_GRAY: Color = Color { r: 204, g: 204, b: 204 };
-    pub const DARK_GRAY: Color = Color { r: 102, g: 102, b: 102 };
-    pub const BRIGHT_RED: Color = Color { r: 241, g: 76, b: 76 };
-    pub const BRIGHT_GREEN: Color = Color { r: 35, g: 209, b: 139 };
-    pub const BRIGHT_YELLOW: Color = Color { r: 245, g: 245, b: 67 };
-    pub const BRIGHT_BLUE: Color = Color { r: 59, g: 142, b: 234 };
-    pub const BRIGHT_MAGENTA: Color = Color { r: 214, g: 112, b: 214 };
-    pub const BRIGHT_CYAN: Color = Color { r: 41, g: 184, b: 219 };
-    pub const BRIGHT_WHITE: Color = Color { r: 255, g: 255, b: 255 };
+    pub const WHITE: Color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    pub const RED: Color = Color {
+        r: 205,
+        g: 49,
+        b: 49,
+    };
+    pub const GREEN: Color = Color {
+        r: 13,
+        g: 188,
+        b: 121,
+    };
+    pub const YELLOW: Color = Color {
+        r: 229,
+        g: 229,
+        b: 16,
+    };
+    pub const BLUE: Color = Color {
+        r: 36,
+        g: 114,
+        b: 200,
+    };
+    pub const MAGENTA: Color = Color {
+        r: 188,
+        g: 63,
+        b: 188,
+    };
+    pub const CYAN: Color = Color {
+        r: 17,
+        g: 168,
+        b: 205,
+    };
+    pub const LIGHT_GRAY: Color = Color {
+        r: 204,
+        g: 204,
+        b: 204,
+    };
+    pub const DARK_GRAY: Color = Color {
+        r: 102,
+        g: 102,
+        b: 102,
+    };
+    pub const BRIGHT_RED: Color = Color {
+        r: 241,
+        g: 76,
+        b: 76,
+    };
+    pub const BRIGHT_GREEN: Color = Color {
+        r: 35,
+        g: 209,
+        b: 139,
+    };
+    pub const BRIGHT_YELLOW: Color = Color {
+        r: 245,
+        g: 245,
+        b: 67,
+    };
+    pub const BRIGHT_BLUE: Color = Color {
+        r: 59,
+        g: 142,
+        b: 234,
+    };
+    pub const BRIGHT_MAGENTA: Color = Color {
+        r: 214,
+        g: 112,
+        b: 214,
+    };
+    pub const BRIGHT_CYAN: Color = Color {
+        r: 41,
+        g: 184,
+        b: 219,
+    };
+    pub const BRIGHT_WHITE: Color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
 
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Color { r, g, b }

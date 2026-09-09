@@ -70,7 +70,8 @@ pub fn read_line(buf: &mut [u8]) -> usize {
                         printable if len < buf.len() => {
                             buf[len] = printable;
                             len += 1;
-                            let _ = syscall::write(core::str::from_utf8(&[printable]).unwrap_or(""));
+                            let _ =
+                                syscall::write(core::str::from_utf8(&[printable]).unwrap_or(""));
                         }
                         _ => {} // Buffer full: drop extra input silently.
                     }

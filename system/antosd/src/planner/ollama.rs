@@ -72,8 +72,14 @@ impl OllamaPlanner {
             .build()
             .into();
 
-        let mut resp = agent.get(&url).call().context("failed to query Ollama tags")?;
-        let tags: OllamaTagsResponse = resp.body_mut().read_json().context("invalid Ollama tags response")?;
+        let mut resp = agent
+            .get(&url)
+            .call()
+            .context("failed to query Ollama tags")?;
+        let tags: OllamaTagsResponse = resp
+            .body_mut()
+            .read_json()
+            .context("invalid Ollama tags response")?;
         Ok(tags.models.into_iter().map(|m| m.name).collect())
     }
 }
@@ -119,10 +125,15 @@ impl Planner for OllamaPlanner {
             .context("no se pudo conectar con el motor local de Ollama")?;
 
         let status = resp.status().as_u16();
-        let value: Value = resp.body_mut().read_json().context("respuesta JSON inválida de Ollama")?;
+        let value: Value = resp
+            .body_mut()
+            .read_json()
+            .context("respuesta JSON inválida de Ollama")?;
 
         if status >= 400 {
-            let err_msg = value["error"].as_str().unwrap_or("error desconocido en Ollama");
+            let err_msg = value["error"]
+                .as_str()
+                .unwrap_or("error desconocido en Ollama");
             bail!("Ollama respondió {status}: {err_msg}");
         }
 
@@ -161,7 +172,10 @@ pub fn parse_ollama_chat_response(v: &Value) -> Result<Propuesta> {
                             }
                         }
                         if !capability.is_empty() {
-                            steps.push(Step { capability, args: args_map });
+                            steps.push(Step {
+                                capability,
+                                args: args_map,
+                            });
                         }
                     }
                 }
@@ -177,7 +191,10 @@ pub fn parse_ollama_chat_response(v: &Value) -> Result<Propuesta> {
                         args_map.insert(k.clone(), string_val);
                     }
                 }
-                steps.push(Step { capability: name.to_string(), args: args_map });
+                steps.push(Step {
+                    capability: name.to_string(),
+                    args: args_map,
+                });
             }
         }
     }
@@ -347,8 +364,14 @@ mod tests {
         let propuesta = parse_ollama_chat_response(&resp).expect("debe parsear tool call");
         assert_eq!(propuesta.steps.len(), 1);
         assert_eq!(propuesta.steps[0].capability, "project.scaffold");
-        assert_eq!(propuesta.steps[0].args.get("language").map(String::as_str), Some("rust"));
-        assert_eq!(propuesta.steps[0].args.get("name").map(String::as_str), Some("demo"));
+        assert_eq!(
+            propuesta.steps[0].args.get("language").map(String::as_str),
+            Some("rust")
+        );
+        assert_eq!(
+            propuesta.steps[0].args.get("name").map(String::as_str),
+            Some("demo")
+        );
         assert_eq!(propuesta.nota.as_deref(), Some("creando proyecto demo"));
     }
 
@@ -361,10 +384,14 @@ mod tests {
             }
         });
 
-        let propuesta = parse_ollama_chat_response(&resp).expect("debe parsear json en bloque markdown");
+        let propuesta =
+            parse_ollama_chat_response(&resp).expect("debe parsear json en bloque markdown");
         assert_eq!(propuesta.steps.len(), 1);
         assert_eq!(propuesta.steps[0].capability, "env.service_up");
-        assert_eq!(propuesta.steps[0].args.get("service").map(String::as_str), Some("postgres"));
+        assert_eq!(
+            propuesta.steps[0].args.get("service").map(String::as_str),
+            Some("postgres")
+        );
     }
 
     #[test]

@@ -126,14 +126,17 @@ impl PluginManager {
             bail!("No se encontró 'plugin.toml' en {}", source_dir.display());
         }
 
-        let content = fs::read_to_string(&manifest_path)
-            .context("Error leyendo 'plugin.toml'")?;
-        let manifest: PluginManifest = toml::from_str(&content)
-            .context("Error analizando sintaxis de 'plugin.toml'")?;
+        let content = fs::read_to_string(&manifest_path).context("Error leyendo 'plugin.toml'")?;
+        let manifest: PluginManifest =
+            toml::from_str(&content).context("Error analizando sintaxis de 'plugin.toml'")?;
 
         let wasm_path = source_dir.join(&manifest.plugin.entrypoint);
         if !wasm_path.exists() {
-            bail!("No se encontró el binario WASM '{}' en {}", manifest.plugin.entrypoint, source_dir.display());
+            bail!(
+                "No se encontró el binario WASM '{}' en {}",
+                manifest.plugin.entrypoint,
+                source_dir.display()
+            );
         }
 
         // Validar que el binario WASM tenga la estructura mágica correcta
@@ -182,7 +185,11 @@ impl PluginManager {
                 fuel_consumed: 0,
                 memory_allocated_bytes: 0,
                 success: false,
-                error: Some(format!("El plugin «{}» no está instalado en {}", name, plugins_dir.display())),
+                error: Some(format!(
+                    "El plugin «{}» no está instalado en {}",
+                    name,
+                    plugins_dir.display()
+                )),
             };
         }
 
@@ -216,7 +223,11 @@ impl PluginManager {
                     fuel_consumed: 0,
                     memory_allocated_bytes: 0,
                     success: false,
-                    error: Some(format!("No se pudo leer el binario {}: {}", wasm_file.display(), e)),
+                    error: Some(format!(
+                        "No se pudo leer el binario {}: {}",
+                        wasm_file.display(),
+                        e
+                    )),
                 };
             }
         };
@@ -269,7 +280,10 @@ impl PluginManager {
                 fuel_consumed: instance.fuel_consumed,
                 memory_allocated_bytes: mem_allocated,
                 success: false,
-                error: Some(format!("La acción «{}» no corresponde a ninguna función exportada por el plugin", action)),
+                error: Some(format!(
+                    "La acción «{}» no corresponde a ninguna función exportada por el plugin",
+                    action
+                )),
             };
         };
 

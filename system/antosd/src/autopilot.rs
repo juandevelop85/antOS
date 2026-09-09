@@ -6,11 +6,11 @@
 //! notification alerts ready for human approval.
 
 use crate::util::unix_now;
-use anyhow::{Context, Result};
 use antos_protocol::{
-    AutopilotConfig, AutopilotFixProposal, AutopilotIncident, AutopilotStatus,
-    NotificationAction, NotificationItem, NotificationKind,
+    AutopilotConfig, AutopilotFixProposal, AutopilotIncident, AutopilotStatus, NotificationAction,
+    NotificationItem, NotificationKind,
 };
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,7 +55,10 @@ impl AutopilotEngine {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create autopilot dir {}", dir.display()))?;
 
-        fs::write(Self::config_path(state_dir), serde_json::to_string_pretty(&config)?)?;
+        fs::write(
+            Self::config_path(state_dir),
+            serde_json::to_string_pretty(&config)?,
+        )?;
 
         let now = chrono::Local::now().to_rfc3339();
         let st = StoredAutopilotState {
@@ -63,7 +66,10 @@ impl AutopilotEngine {
             poll_interval_secs: config.poll_interval_secs,
             last_scan_timestamp: Some(now),
         };
-        fs::write(Self::state_path(state_dir), serde_json::to_string_pretty(&st)?)?;
+        fs::write(
+            Self::state_path(state_dir),
+            serde_json::to_string_pretty(&st)?,
+        )?;
 
         // Run initial scan
         let _ = Self::scan_workspace(state_dir, workspace_dir);
@@ -78,7 +84,10 @@ impl AutopilotEngine {
 
         let mut st = Self::load_stored_state(state_dir);
         st.active = false;
-        fs::write(Self::state_path(state_dir), serde_json::to_string_pretty(&st)?)?;
+        fs::write(
+            Self::state_path(state_dir),
+            serde_json::to_string_pretty(&st)?,
+        )?;
 
         Self::status(state_dir, workspace_dir)
     }
@@ -88,7 +97,10 @@ impl AutopilotEngine {
         let st = Self::load_stored_state(state_dir);
         let incidents = Self::list_incidents(state_dir)?;
 
-        let active_count = incidents.iter().filter(|i| i.status != "resolved" && i.status != "dismissed").count();
+        let active_count = incidents
+            .iter()
+            .filter(|i| i.status != "resolved" && i.status != "dismissed")
+            .count();
         let resolved_count = incidents.iter().filter(|i| i.status == "resolved").count();
 
         Ok(AutopilotStatus {
@@ -117,14 +129,21 @@ impl AutopilotEngine {
 
     /// Scans workspace files for errors, broken tests, or syntax flaws.
     /// When an issue is discovered, triggers the antFlow agent roles and creates a fix proposal.
-    pub fn scan_workspace(state_dir: &Path, workspace_dir: &Path) -> Result<Vec<AutopilotIncident>> {
+    pub fn scan_workspace(
+        state_dir: &Path,
+        workspace_dir: &Path,
+    ) -> Result<Vec<AutopilotIncident>> {
         let mut new_incidents = Vec::new();
         let guard = crate::vfs_guard::VfsGuardEngine::global();
         let mut existing = Self::list_incidents(state_dir)?;
 
         let files = Self::collect_source_files(workspace_dir)?;
         for file in files {
-            let rel_path = file.strip_prefix(workspace_dir).unwrap_or(&file).display().to_string();
+            let rel_path = file
+                .strip_prefix(workspace_dir)
+                .unwrap_or(&file)
+                .display()
+                .to_string();
 
             // Read file content and validate with VFS Guard
             if let Ok(content) = fs::read_to_string(&file) {
@@ -138,12 +157,18 @@ impl AutopilotEngine {
                         continue;
                     }
 
-                    let err_msg = validation.errors.first().map(|e| e.message.clone()).unwrap_or_else(|| "Syntax error".to_string());
-                    let incident_id = format!("inc-{}", chrono::Local::now().format("%Y%m%d%H%M%S%3f"));
+                    let err_msg = validation
+                        .errors
+                        .first()
+                        .map(|e| e.message.clone())
+                        .unwrap_or_else(|| "Syntax error".to_string());
+                    let incident_id =
+                        format!("inc-{}", chrono::Local::now().format("%Y%m%d%H%M%S%3f"));
                     let branch = format!("autopilot/{incident_id}");
 
                     // Role 1 · Architect: root-cause diagnosis
-                    let arch_diag = format!("Architect diagnosed root cause in {rel_path}: {err_msg}");
+                    let arch_diag =
+                        format!("Architect diagnosed root cause in {rel_path}: {err_msg}");
 
                     // Role 2 · Coder: generate corrected content & isolated diff
                     let (fixed_content, diff) = Self::generate_fix(&content, &validation.errors);
@@ -192,7 +217,8 @@ impl AutopilotEngine {
                             NotificationAction::ViewDiff,
                         ],
                     };
-                    let _ = crate::notification::NotificationEngine::global().notify(workspace_dir, notif_item);
+                    let _ = crate::notification::NotificationEngine::global()
+                        .notify(workspace_dir, notif_item);
 
                     existing.push(incident.clone());
                     new_incidents.push(incident);
@@ -203,7 +229,10 @@ impl AutopilotEngine {
         // Save updated incidents list
         let dir = Self::autopilot_dir(state_dir);
         fs::create_dir_all(&dir)?;
-        fs::write(Self::incidents_path(state_dir), serde_json::to_string_pretty(&existing)?)?;
+        fs::write(
+            Self::incidents_path(state_dir),
+            serde_json::to_string_pretty(&existing)?,
+        )?;
 
         // Update last scan timestamp
         let mut st = Self::load_stored_state(state_dir);
@@ -249,10 +278,14 @@ impl AutopilotEngine {
             }
         }
 
-        let incident = target.ok_or_else(|| anyhow::anyhow!("Incident «{incident_id}» not found"))?;
+        let incident =
+            target.ok_or_else(|| anyhow::anyhow!("Incident «{incident_id}» not found"))?;
 
         // Persist updated list
-        fs::write(Self::incidents_path(state_dir), serde_json::to_string_pretty(&incidents)?)?;
+        fs::write(
+            Self::incidents_path(state_dir),
+            serde_json::to_string_pretty(&incidents)?,
+        )?;
 
         Ok(incident)
     }
@@ -304,7 +337,10 @@ impl AutopilotEngine {
     }
 
     /// Generates a simple corrective fix for unbalanced delimiters or malformed syntax.
-    fn generate_fix(content: &str, _errors: &[antos_protocol::SyntaxValidationError]) -> (String, String) {
+    fn generate_fix(
+        content: &str,
+        _errors: &[antos_protocol::SyntaxValidationError],
+    ) -> (String, String) {
         let mut fixed = content.to_string();
         let mut open_braces = 0i32;
         let mut open_parens = 0i32;
@@ -405,7 +441,8 @@ mod tests {
         assert!(prop.reviewed_by_auditor);
 
         // 5. Approve and resolve incident
-        let resolved = AutopilotEngine::resolve_incident(&state_dir, &ws_dir, &inc.id, true).unwrap();
+        let resolved =
+            AutopilotEngine::resolve_incident(&state_dir, &ws_dir, &inc.id, true).unwrap();
         assert_eq!(resolved.status, "resolved");
 
         // Verify the file was fixed

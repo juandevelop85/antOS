@@ -29,7 +29,12 @@ struct ScancodeQueue {
 
 impl ScancodeQueue {
     const fn new() -> Self {
-        ScancodeQueue { buffer: [0; CAPACITY], head: 0, tail: 0, dropped: 0 }
+        ScancodeQueue {
+            buffer: [0; CAPACITY],
+            head: 0,
+            tail: 0,
+            dropped: 0,
+        }
     }
 
     /// Devuelve si el scancode entró. Con la cola llena se descarta: preferimos

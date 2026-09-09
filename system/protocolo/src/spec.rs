@@ -101,4 +101,3 @@ pub struct PortDiagnosticInfo {
     pub command: String,
     pub working_dir: Option<String>,
 }
-

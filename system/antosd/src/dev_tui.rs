@@ -33,7 +33,12 @@ impl DevWorkspaceManager {
         term_rows: u16,
         side_panel_visible: bool,
         terminal_drawer_open: bool,
-    ) -> (DevPanelRect, DevPanelRect, DevPanelRect, Option<DevPanelRect>) {
+    ) -> (
+        DevPanelRect,
+        DevPanelRect,
+        DevPanelRect,
+        Option<DevPanelRect>,
+    ) {
         let cols = term_columns.max(40);
         let rows = term_rows.max(12);
 
@@ -86,7 +91,12 @@ impl DevWorkspaceManager {
             None
         };
 
-        (editor_rect, agent_monitor_rect, diff_viewer_rect, terminal_rect)
+        (
+            editor_rect,
+            agent_monitor_rect,
+            diff_viewer_rect,
+            terminal_rect,
+        )
     }
 
     /// Queries current workspace status and geometry.
@@ -124,10 +134,7 @@ impl DevWorkspaceManager {
 
     /// Generates a visual ASCII blueprint of the Dev TUI layout.
     pub fn render_blueprint(status: &DevWorkspaceStatus) -> String {
-        let project_label = status
-            .active_project
-            .as_deref()
-            .unwrap_or("workspace");
+        let project_label = status.active_project.as_deref().unwrap_or("workspace");
 
         let mut out = String::new();
         out.push_str("┌────────────────────────────────────────────────────────┬────────────────────────────────────────┐\n");
@@ -159,20 +166,28 @@ impl DevWorkspaceManager {
     }
 
     /// Launches or renders the Dev TUI workspace session.
-    pub fn launch(
-        project: Option<&str>,
-        workspace: &Path,
-        is_interactive: bool,
-    ) -> Result<()> {
+    pub fn launch(project: Option<&str>, workspace: &Path, is_interactive: bool) -> Result<()> {
         let status = Self::get_status(project, workspace);
 
         // In non-interactive mode (pipes, CI, scripts) render blueprint and return
         if !is_interactive {
             println!("\n{}", Self::render_blueprint(&status));
-            println!("  Dimensiones del terminal: {}x{}", status.term_columns, status.term_rows);
-            println!("  Panel Editor:   {}x{}", status.editor_rect.width, status.editor_rect.height);
-            println!("  Panel Agentes:  {}x{}", status.agent_monitor_rect.width, status.agent_monitor_rect.height);
-            println!("  Panel Diffs:    {}x{}", status.diff_viewer_rect.width, status.diff_viewer_rect.height);
+            println!(
+                "  Dimensiones del terminal: {}x{}",
+                status.term_columns, status.term_rows
+            );
+            println!(
+                "  Panel Editor:   {}x{}",
+                status.editor_rect.width, status.editor_rect.height
+            );
+            println!(
+                "  Panel Agentes:  {}x{}",
+                status.agent_monitor_rect.width, status.agent_monitor_rect.height
+            );
+            println!(
+                "  Panel Diffs:    {}x{}",
+                status.diff_viewer_rect.width, status.diff_viewer_rect.height
+            );
             println!("\n  Atajos configurados:");
             for hk in &status.registered_hotkeys {
                 println!("    • {hk}");
@@ -257,7 +272,8 @@ mod tests {
 
     #[test]
     fn test_dev_layout_calculation_standard() {
-        let (editor, agents, diffs, term) = DevWorkspaceManager::compute_layout(120, 36, true, false);
+        let (editor, agents, diffs, term) =
+            DevWorkspaceManager::compute_layout(120, 36, true, false);
 
         assert_eq!(editor.x, 0);
         assert_eq!(editor.y, 0);
@@ -279,7 +295,8 @@ mod tests {
 
     #[test]
     fn test_dev_layout_collapsed_side_panel() {
-        let (editor, agents, diffs, term) = DevWorkspaceManager::compute_layout(100, 30, false, false);
+        let (editor, agents, diffs, term) =
+            DevWorkspaceManager::compute_layout(100, 30, false, false);
 
         assert_eq!(editor.width, 100);
         assert_eq!(editor.height, 30);
@@ -290,7 +307,8 @@ mod tests {
 
     #[test]
     fn test_dev_layout_terminal_drawer_open() {
-        let (editor, agents, diffs, term) = DevWorkspaceManager::compute_layout(100, 40, true, true);
+        let (editor, agents, diffs, term) =
+            DevWorkspaceManager::compute_layout(100, 40, true, true);
 
         assert_eq!(editor.height, 26);
         assert_eq!(agents.height, 13);

@@ -81,7 +81,8 @@ impl AnsiParser {
                 match c {
                     '0'..='9' => {
                         let digit = (c as u8 - b'0') as u16;
-                        self.current_num = self.current_num.saturating_mul(10).saturating_add(digit);
+                        self.current_num =
+                            self.current_num.saturating_mul(10).saturating_add(digit);
                         self.has_num = true;
                     }
                     ';' => {
@@ -107,7 +108,11 @@ impl AnsiParser {
                     // Erase in Display
                     'J' => {
                         self.push_current_num();
-                        let mode = if self.param_count > 0 { self.params[0] } else { 0 };
+                        let mode = if self.param_count > 0 {
+                            self.params[0]
+                        } else {
+                            0
+                        };
                         if mode == 2 || mode == 3 {
                             callback(AnsiAction::ClearScreen);
                         }

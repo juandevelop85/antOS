@@ -39,7 +39,13 @@ impl TimeMachineEngine {
         let snap_id = if let Some(l) = label {
             let clean_slug: String = l
                 .chars()
-                .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+                .map(|c| {
+                    if c.is_alphanumeric() || c == '-' || c == '_' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
                 .collect();
             format!("snap-{clean_slug}-{:x}", millis % 0xfffff)
         } else {
@@ -47,8 +53,12 @@ impl TimeMachineEngine {
         };
 
         let target_snap_dir = Self::dev_snapshots_dir(state_dir).join(&snap_id);
-        fs::create_dir_all(&target_snap_dir)
-            .with_context(|| format!("No se pudo crear directorio de snapshot {}", target_snap_dir.display()))?;
+        fs::create_dir_all(&target_snap_dir).with_context(|| {
+            format!(
+                "No se pudo crear directorio de snapshot {}",
+                target_snap_dir.display()
+            )
+        })?;
 
         // 1. Inspect Git context (branch and commit)
         let (git_branch, git_commit) = Self::detect_git_info(workspace);
@@ -58,7 +68,12 @@ impl TimeMachineEngine {
         fs::create_dir_all(&snap_ws_dir)?;
         let mut files_count = 0;
         let mut total_bytes = 0;
-        let method = Self::copy_or_clone_workspace(workspace, &snap_ws_dir, &mut files_count, &mut total_bytes)?;
+        let method = Self::copy_or_clone_workspace(
+            workspace,
+            &snap_ws_dir,
+            &mut files_count,
+            &mut total_bytes,
+        )?;
 
         // 3. Backup ephemeral local services if present ($STATE/services)
         let mut services_included = Vec::new();
@@ -159,14 +174,22 @@ impl TimeMachineEngine {
 
         let snap_dir = Self::dev_snapshots_dir(state_dir).join(&target_meta.id);
         if !snap_dir.is_dir() {
-            bail!("El directorio de la instantánea «{}» está corrupto o no existe", target_meta.id);
+            bail!(
+                "El directorio de la instantánea «{}» está corrupto o no existe",
+                target_meta.id
+            );
         }
 
         // 2. Safety Rescue Snapshot
         let mut rescue_snapshot_id = None;
         if create_rescue {
             let rescue_label = format!("rescue-before-restore-{}", target_meta.id);
-            if let Ok(rescue_meta) = Self::create_snapshot(workspace, state_dir, Some(&rescue_label), Some("time-machine-rescue")) {
+            if let Ok(rescue_meta) = Self::create_snapshot(
+                workspace,
+                state_dir,
+                Some(&rescue_label),
+                Some("time-machine-rescue"),
+            ) {
                 rescue_snapshot_id = Some(rescue_meta.id);
             }
         }
@@ -340,7 +363,15 @@ impl TimeMachineEngine {
 
             if path.is_dir() {
                 fs::create_dir_all(&target_dst)?;
-                Self::copy_workspace_recursive(base, &path, dst_base, files_count, total_bytes, method, depth + 1)?;
+                Self::copy_workspace_recursive(
+                    base,
+                    &path,
+                    dst_base,
+                    files_count,
+                    total_bytes,
+                    method,
+                    depth + 1,
+                )?;
             } else if path.is_file() {
                 if let Some(parent) = target_dst.parent() {
                     let _ = fs::create_dir_all(parent);
@@ -410,7 +441,12 @@ impl TimeMachineEngine {
         Ok(results)
     }
 
-    fn collect_files_rec(base: &Path, current: &Path, results: &mut Vec<PathBuf>, depth: usize) -> Result<()> {
+    fn collect_files_rec(
+        base: &Path,
+        current: &Path,
+        results: &mut Vec<PathBuf>,
+        depth: usize,
+    ) -> Result<()> {
         if depth > 10 {
             return Ok(());
         }
@@ -475,7 +511,11 @@ mod tests {
         let _ = fs::create_dir_all(&state_dir);
 
         // 1. Create files in workspace
-        fs::write(ws_dir.join("main.rs"), "fn main() { println!(\"original\"); }").unwrap();
+        fs::write(
+            ws_dir.join("main.rs"),
+            "fn main() { println!(\"original\"); }",
+        )
+        .unwrap();
         fs::create_dir_all(ws_dir.join("src")).unwrap();
         fs::write(ws_dir.join("src").join("lib.rs"), "pub fn original_fn() {}").unwrap();
 
@@ -485,7 +525,8 @@ mod tests {
             &state_dir,
             Some("v1.0-clean"),
             Some("test-runner"),
-        ).expect("create snapshot");
+        )
+        .expect("create snapshot");
 
         assert_eq!(snap_meta.label.as_deref(), Some("v1.0-clean"));
         assert_eq!(snap_meta.files_count, 2);
@@ -496,11 +537,18 @@ mod tests {
         assert_eq!(list[0].id, snap_meta.id);
 
         // 4. Modify workspace: modify a file, delete another, add an untracked file
-        fs::write(ws_dir.join("main.rs"), "fn main() { println!(\"modified!\"); }").unwrap();
+        fs::write(
+            ws_dir.join("main.rs"),
+            "fn main() { println!(\"modified!\"); }",
+        )
+        .unwrap();
         fs::remove_file(ws_dir.join("src").join("lib.rs")).unwrap();
         fs::write(ws_dir.join("untracked.tmp"), "trash").unwrap();
 
-        assert_eq!(fs::read_to_string(ws_dir.join("main.rs")).unwrap(), "fn main() { println!(\"modified!\"); }");
+        assert_eq!(
+            fs::read_to_string(ws_dir.join("main.rs")).unwrap(),
+            "fn main() { println!(\"modified!\"); }"
+        );
         assert!(!ws_dir.join("src").join("lib.rs").exists());
         assert!(ws_dir.join("untracked.tmp").exists());
 
@@ -510,19 +558,24 @@ mod tests {
             &state_dir,
             "v1.0-clean",
             true, // rescue enabled
-        ).expect("restore snapshot");
+        )
+        .expect("restore snapshot");
 
         assert_eq!(restore_res.snapshot_id, snap_meta.id);
         assert!(restore_res.rescue_snapshot_id.is_some());
         assert_eq!(restore_res.files_deleted, 1); // untracked.tmp deleted
 
         // 6. Verify restored contents
-        assert_eq!(fs::read_to_string(ws_dir.join("main.rs")).unwrap(), "fn main() { println!(\"original\"); }");
+        assert_eq!(
+            fs::read_to_string(ws_dir.join("main.rs")).unwrap(),
+            "fn main() { println!(\"original\"); }"
+        );
         assert!(ws_dir.join("src").join("lib.rs").exists());
         assert!(!ws_dir.join("untracked.tmp").exists());
 
         // 7. Delete snapshot
-        let deleted_id = TimeMachineEngine::delete_snapshot(&state_dir, &snap_meta.id).expect("delete snapshot");
+        let deleted_id =
+            TimeMachineEngine::delete_snapshot(&state_dir, &snap_meta.id).expect("delete snapshot");
         assert_eq!(deleted_id, snap_meta.id);
 
         let _ = fs::remove_dir_all(&temp_dir);

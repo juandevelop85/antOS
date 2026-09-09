@@ -94,7 +94,9 @@ impl CiEngine {
             Self::default_rust_pipeline()
         } else if workspace.join("package.json").exists() {
             Self::default_node_pipeline()
-        } else if workspace.join("pyproject.toml").exists() || workspace.join("requirements.txt").exists() {
+        } else if workspace.join("pyproject.toml").exists()
+            || workspace.join("requirements.txt").exists()
+        {
             Self::default_python_pipeline()
         } else {
             Self::default_generic_pipeline()
@@ -170,14 +172,12 @@ impl CiEngine {
     fn default_generic_pipeline() -> CiPipelineConfig {
         CiPipelineConfig {
             name: "generic-ci".into(),
-            stages: vec![
-                StageConfig {
-                    name: "security".into(),
-                    command: "internal:secret_scanner".into(),
-                    parallel: true,
-                    fast: true,
-                },
-            ],
+            stages: vec![StageConfig {
+                name: "security".into(),
+                command: "internal:secret_scanner".into(),
+                parallel: true,
+                fast: true,
+            }],
         }
     }
 
@@ -208,7 +208,11 @@ impl CiEngine {
             let file_name = entry.file_name().to_string_lossy().to_string();
 
             // Skip version control and heavy build directories
-            if file_name == ".git" || file_name == "target" || file_name == "node_modules" || file_name == ".antos" {
+            if file_name == ".git"
+                || file_name == "target"
+                || file_name == "node_modules"
+                || file_name == ".antos"
+            {
                 continue;
             }
 
@@ -223,7 +227,11 @@ impl CiEngine {
                 }
 
                 if let Ok(content) = fs::read_to_string(&path) {
-                    let rel_path = path.strip_prefix(base).unwrap_or(&path).display().to_string();
+                    let rel_path = path
+                        .strip_prefix(base)
+                        .unwrap_or(&path)
+                        .display()
+                        .to_string();
                     let file_secrets = Self::scan_content_for_secrets(&rel_path, &content);
                     detected.extend(file_secrets);
                 }
@@ -242,8 +250,11 @@ impl CiEngine {
             let l = line.trim();
 
             // 1. Private Key headers
-            if l.contains("-----BEGIN") && (l.contains("PRIVATE KEY") || l.contains("RSA PRIVATE")) {
-                findings.push(format!("{file_label}:{line_num}: Llave privada criptográfica expuesta"));
+            if l.contains("-----BEGIN") && (l.contains("PRIVATE KEY") || l.contains("RSA PRIVATE"))
+            {
+                findings.push(format!(
+                    "{file_label}:{line_num}: Llave privada criptográfica expuesta"
+                ));
                 continue;
             }
 
@@ -251,8 +262,12 @@ impl CiEngine {
             if l.contains("AKIA") {
                 if let Some(idx) = l.find("AKIA") {
                     let candidate = &l[idx..];
-                    if candidate.len() >= 20 && candidate[..20].chars().all(|c| c.is_ascii_alphanumeric()) {
-                        findings.push(format!("{file_label}:{line_num}: Posible credencial AWS Access Key ID"));
+                    if candidate.len() >= 20
+                        && candidate[..20].chars().all(|c| c.is_ascii_alphanumeric())
+                    {
+                        findings.push(format!(
+                            "{file_label}:{line_num}: Posible credencial AWS Access Key ID"
+                        ));
                         continue;
                     }
                 }
@@ -260,13 +275,18 @@ impl CiEngine {
 
             // 3. GitHub Personal Access Tokens
             if l.contains("ghp_") || l.contains("gho_") {
-                findings.push(format!("{file_label}:{line_num}: Token de acceso de GitHub detectado"));
+                findings.push(format!(
+                    "{file_label}:{line_num}: Token de acceso de GitHub detectado"
+                ));
                 continue;
             }
 
             // 4. Generic high-entropy secret assignment
             let lower = l.to_lowercase();
-            if (lower.contains("secret") || lower.contains("api_key") || lower.contains("password") || lower.contains("token"))
+            if (lower.contains("secret")
+                || lower.contains("api_key")
+                || lower.contains("password")
+                || lower.contains("token"))
                 && (l.contains('=') || l.contains(':'))
             {
                 // Verify it's not a placeholder
@@ -285,9 +305,13 @@ impl CiEngine {
                     };
 
                     if let Some(val_part) = val_opt {
-                        let token = val_part.trim().trim_matches(|c| c == '"' || c == '\'' || c == ';' || c == ',');
+                        let token = val_part
+                            .trim()
+                            .trim_matches(|c| c == '"' || c == '\'' || c == ';' || c == ',');
                         if token.len() >= 16 && !token.contains(' ') {
-                            findings.push(format!("{file_label}:{line_num}: Clave o secreto de alta entropía"));
+                            findings.push(format!(
+                                "{file_label}:{line_num}: Clave o secreto de alta entropía"
+                            ));
                         }
                     }
                 }
@@ -306,7 +330,13 @@ impl CiEngine {
     ) -> Result<CiReport> {
         let config = Self::load_or_detect_config(workspace);
         let start_time = Instant::now();
-        let run_id = format!("ci-{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
+        let run_id = format!(
+            "ci-{:x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        );
 
         let mut stages_results = Vec::new();
         let mut overall_success = true;
@@ -359,7 +389,11 @@ impl CiEngine {
                                 command: stage.command.clone(),
                                 status: CiStageStatus::Failed,
                                 duration_ms: duration,
-                                output_snippet: format!("Se detectaron {} secretos potenciales:\n{}", secrets.len(), secrets.join("\n")),
+                                output_snippet: format!(
+                                    "Se detectaron {} secretos potenciales:\n{}",
+                                    secrets.len(),
+                                    secrets.join("\n")
+                                ),
                                 exit_code: Some(1),
                             });
                         }
@@ -417,14 +451,27 @@ impl CiEngine {
                         let combined_out = String::from_utf8_lossy(&out.stdout).to_string()
                             + "\n"
                             + &String::from_utf8_lossy(&out.stderr);
-                        let snippet = combined_out.trim().lines().take(5).collect::<Vec<&str>>().join("\n");
+                        let snippet = combined_out
+                            .trim()
+                            .lines()
+                            .take(5)
+                            .collect::<Vec<&str>>()
+                            .join("\n");
 
                         stages_results.push(CiStageResult {
                             name: stage.name.clone(),
                             command: stage.command.clone(),
-                            status: if is_ok { CiStageStatus::Passed } else { CiStageStatus::Failed },
+                            status: if is_ok {
+                                CiStageStatus::Passed
+                            } else {
+                                CiStageStatus::Failed
+                            },
                             duration_ms: duration,
-                            output_snippet: if snippet.is_empty() { "OK".into() } else { snippet },
+                            output_snippet: if snippet.is_empty() {
+                                "OK".into()
+                            } else {
+                                snippet
+                            },
                             exit_code: Some(code),
                         });
                     }
@@ -462,7 +509,10 @@ impl CiEngine {
         // Persist last report in .antos/ci/last_report.json
         let ci_dir = state_dir.join("ci");
         let _ = fs::create_dir_all(&ci_dir);
-        let _ = fs::write(ci_dir.join("last_report.json"), serde_json::to_string_pretty(&report)?);
+        let _ = fs::write(
+            ci_dir.join("last_report.json"),
+            serde_json::to_string_pretty(&report)?,
+        );
 
         Ok(report)
     }
@@ -558,10 +608,14 @@ antos ci run --fast || exit 1
         let pre_push = hooks_dir.join("pre-push");
 
         let pre_commit_installed = pre_commit.exists()
-            && fs::read_to_string(&pre_commit).map(|c| c.contains("antOS-managed-hook")).unwrap_or(false);
+            && fs::read_to_string(&pre_commit)
+                .map(|c| c.contains("antOS-managed-hook"))
+                .unwrap_or(false);
 
         let pre_push_installed = pre_push.exists()
-            && fs::read_to_string(&pre_push).map(|c| c.contains("antOS-managed-hook")).unwrap_or(false);
+            && fs::read_to_string(&pre_push)
+                .map(|c| c.contains("antOS-managed-hook"))
+                .unwrap_or(false);
 
         let mut guards = Vec::new();
         if pre_commit_installed {
@@ -601,7 +655,10 @@ antos ci run --fast || exit 1
         // 1. Scan for secrets
         let secrets = Self::scan_secrets(workspace)?;
         if !secrets.is_empty() {
-            errors.push(format!("Se encontraron {} secretos o credenciales expuestas:", secrets.len()));
+            errors.push(format!(
+                "Se encontraron {} secretos o credenciales expuestas:",
+                secrets.len()
+            ));
             for s in secrets {
                 errors.push(format!("  • {s}"));
             }
@@ -648,7 +705,11 @@ mod tests {
         let _ = fs::create_dir_all(&temp_state);
 
         // Create clean code file
-        fs::write(temp_ws.join("main.rs"), "fn main() { println!(\"Hello\"); }\n").unwrap();
+        fs::write(
+            temp_ws.join("main.rs"),
+            "fn main() { println!(\"Hello\"); }\n",
+        )
+        .unwrap();
 
         let report = CiEngine::run_pipeline(&temp_ws, &temp_state, None, true).expect("run ci");
         assert!(report.security_clean);

@@ -116,8 +116,12 @@ impl MeshEngine {
     /// pinned its old public key.
     fn load_keypair(workspace: &Path) -> Result<Ed25519Keypair> {
         let path = Self::identity_key_path(workspace);
-        let hex = fs::read_to_string(&path)
-            .with_context(|| format!("reading node private key from {} — has get_or_create_identity run?", path.display()))?;
+        let hex = fs::read_to_string(&path).with_context(|| {
+            format!(
+                "reading node private key from {} — has get_or_create_identity run?",
+                path.display()
+            )
+        })?;
         Ed25519Keypair::from_secret_hex(hex.trim())
     }
 
@@ -190,10 +194,11 @@ impl MeshEngine {
         let memory_mb = 16384u64;
 
         // Collect locally downloaded models from Ollama if available
-        let available_models = match crate::planner::ollama::OllamaPlanner::from_env().and_then(|p| p.list_models()) {
-            Ok(models) if !models.is_empty() => models,
-            _ => vec!["qwen2.5-coder:7b".into(), "local-rules".into()],
-        };
+        let available_models =
+            match crate::planner::ollama::OllamaPlanner::from_env().and_then(|p| p.list_models()) {
+                Ok(models) if !models.is_empty() => models,
+                _ => vec!["qwen2.5-coder:7b".into(), "local-rules".into()],
+            };
 
         NodeResources {
             cpu_cores,
@@ -223,10 +228,7 @@ impl MeshEngine {
 
         let peers = self.list_peers(workspace)?;
 
-        Ok(MeshStatus {
-            local_node,
-            peers,
-        })
+        Ok(MeshStatus { local_node, peers })
     }
 
     /// Lists all known peers from `.antos/peers.json`.
@@ -257,11 +259,17 @@ impl MeshEngine {
     /// would use; wiring them in here needs an actual network round trip to
     /// the peer, which this function does not perform.
     pub fn connect_peer(&self, workspace: &Path, raw_addr: &str) -> Result<PeerNode> {
-        let clean_addr = raw_addr.trim().trim_start_matches("/ip4/").trim_end_matches("/quic");
+        let clean_addr = raw_addr
+            .trim()
+            .trim_start_matches("/ip4/")
+            .trim_end_matches("/quic");
         let parsed_addr: SocketAddr = if clean_addr.contains(':') {
-            clean_addr.parse().with_context(|| format!("invalid peer address: {raw_addr}"))?
+            clean_addr
+                .parse()
+                .with_context(|| format!("invalid peer address: {raw_addr}"))?
         } else {
-            format!("{clean_addr}:{DEFAULT_MESH_PORT}").parse()
+            format!("{clean_addr}:{DEFAULT_MESH_PORT}")
+                .parse()
                 .with_context(|| format!("invalid peer address: {raw_addr}"))?
         };
 
@@ -328,7 +336,10 @@ impl MeshEngine {
 
         let expires_at = now + 900; // 15 minutes
 
-        let token_str = format!("antmesh-pair-{}", crypto::to_hex(&crypto::secure_random_bytes(16)?));
+        let token_str = format!(
+            "antmesh-pair-{}",
+            crypto::to_hex(&crypto::secure_random_bytes(16)?)
+        );
         let salt = crypto::to_hex(&crypto::secure_random_bytes(16)?);
         let token_hash = crate::pkg::crypto::sha256(format!("{salt}:{token_str}").as_bytes());
 
@@ -378,7 +389,8 @@ impl MeshEngine {
             if t.expires_at <= now {
                 return false;
             }
-            let candidate_hash = crate::pkg::crypto::sha256(format!("{}:{}", t.salt, token).as_bytes());
+            let candidate_hash =
+                crate::pkg::crypto::sha256(format!("{}:{}", t.salt, token).as_bytes());
             crypto::constant_time_eq(&candidate_hash, &t.token_hash)
         });
 
@@ -420,7 +432,9 @@ impl MeshEngine {
 /// estimate, not a measurement.
 fn probe_latency(addr: SocketAddr) -> Option<u64> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.set_read_timeout(Some(Duration::from_millis(150))).ok()?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(150)))
+        .ok()?;
 
     let start = Instant::now();
     let ping_msg = b"ANTOS_PING";
@@ -492,13 +506,21 @@ mod tests {
 
         let engine = MeshEngine::global();
         let identity = engine.get_or_create_identity(&temp).unwrap();
-        assert!(identity.public_key.starts_with("ed25519:"), "got: {}", identity.public_key);
+        assert!(
+            identity.public_key.starts_with("ed25519:"),
+            "got: {}",
+            identity.public_key
+        );
 
         let public_key_hex = identity.public_key.trim_start_matches("ed25519:");
         let message = b"antOS mesh handshake probe";
         let signature = engine.sign(&temp, message).unwrap();
 
-        assert!(crypto::verify_signature(public_key_hex, message, &signature));
+        assert!(crypto::verify_signature(
+            public_key_hex,
+            message,
+            &signature
+        ));
         assert!(
             !crypto::verify_signature(public_key_hex, b"a different, unsigned message", &signature),
             "a signature must not verify against a different message"
@@ -519,8 +541,15 @@ mod tests {
         let engine = MeshEngine::global();
         let _ = engine.get_or_create_identity(&temp).unwrap();
 
-        let mode = fs::metadata(MeshEngine::identity_key_path(&temp)).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "the node's private key must be readable only by its owner");
+        let mode = fs::metadata(MeshEngine::identity_key_path(&temp))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "the node's private key must be readable only by its owner"
+        );
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -536,25 +565,41 @@ mod tests {
         let public_key_hex = identity.public_key.trim_start_matches("ed25519:");
 
         // Stands in for what a real presence announcement would carry.
-        let announcement = format!("{{\"node_id\":\"{}\",\"port\":{}}}", identity.node_id, identity.listen_port);
+        let announcement = format!(
+            "{{\"node_id\":\"{}\",\"port\":{}}}",
+            identity.node_id, identity.listen_port
+        );
         let signature = engine.sign(&temp, announcement.as_bytes()).unwrap();
-        assert!(crypto::verify_signature(public_key_hex, announcement.as_bytes(), &signature));
+        assert!(crypto::verify_signature(
+            public_key_hex,
+            announcement.as_bytes(),
+            &signature
+        ));
 
         // Flip one hex character of the signature — an announcement tampered
         // in transit must not verify.
         let mut tampered = signature.clone();
         let flip_at = tampered.len() / 2;
-        let flipped_char: char = if tampered.as_bytes()[flip_at] == b'0' { '1' } else { '0' };
+        let flipped_char: char = if tampered.as_bytes()[flip_at] == b'0' {
+            '1'
+        } else {
+            '0'
+        };
         tampered.replace_range(flip_at..flip_at + 1, &flipped_char.to_string());
 
-        assert!(!crypto::verify_signature(public_key_hex, announcement.as_bytes(), &tampered));
+        assert!(!crypto::verify_signature(
+            public_key_hex,
+            announcement.as_bytes(),
+            &tampered
+        ));
 
         let _ = fs::remove_dir_all(&temp);
     }
 
     #[test]
     fn test_two_pairing_tokens_in_the_same_second_are_distinct_and_each_redeemable_once() {
-        let temp = std::env::temp_dir().join(format!("test-mesh-token-distinct-{}", std::process::id()));
+        let temp =
+            std::env::temp_dir().join(format!("test-mesh-token-distinct-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp);
         fs::create_dir_all(&temp).unwrap();
 
@@ -562,10 +607,16 @@ mod tests {
         let a = engine.generate_pairing_token(&temp).unwrap();
         let b = engine.generate_pairing_token(&temp).unwrap();
 
-        assert_ne!(a.token, b.token, "pairing tokens must carry real entropy, not a clock-derived value");
+        assert_ne!(
+            a.token, b.token,
+            "pairing tokens must carry real entropy, not a clock-derived value"
+        );
 
         assert!(engine.redeem_pairing_token(&temp, &a.token).unwrap());
-        assert!(!engine.redeem_pairing_token(&temp, &a.token).unwrap(), "a token must not redeem twice");
+        assert!(
+            !engine.redeem_pairing_token(&temp, &a.token).unwrap(),
+            "a token must not redeem twice"
+        );
         assert!(engine.redeem_pairing_token(&temp, &b.token).unwrap());
 
         let _ = fs::remove_dir_all(&temp);
@@ -573,12 +624,15 @@ mod tests {
 
     #[test]
     fn test_unknown_pairing_token_does_not_redeem() {
-        let temp = std::env::temp_dir().join(format!("test-mesh-token-unknown-{}", std::process::id()));
+        let temp =
+            std::env::temp_dir().join(format!("test-mesh-token-unknown-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp);
         fs::create_dir_all(&temp).unwrap();
 
         let engine = MeshEngine::global();
-        assert!(!engine.redeem_pairing_token(&temp, "antmesh-pair-deadbeefdeadbeef").unwrap());
+        assert!(!engine
+            .redeem_pairing_token(&temp, "antmesh-pair-deadbeefdeadbeef")
+            .unwrap());
 
         let _ = fs::remove_dir_all(&temp);
     }
@@ -598,14 +652,18 @@ mod tests {
 
     #[test]
     fn test_legacy_derivation_scheme_no_longer_validates() {
-        let temp = std::env::temp_dir().join(format!("test-mesh-token-legacy-{}", std::process::id()));
+        let temp =
+            std::env::temp_dir().join(format!("test-mesh-token-legacy-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp);
         fs::create_dir_all(&temp).unwrap();
 
         let engine = MeshEngine::global();
         let identity = engine.get_or_create_identity(&temp).unwrap();
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let legacy_seed = format!("{}:{}:antmesh", identity.node_id, now);
         let legacy_hash_hex = format!("{:x}", reconstruct_pre_t31_5_hash(legacy_seed.as_bytes()));
         let legacy_token = format!("antmesh-pair-{}", &legacy_hash_hex[..16]);

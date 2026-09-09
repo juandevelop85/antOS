@@ -46,7 +46,10 @@ impl FlowEngine {
             anyhow::anyhow!("no se encontró la especificación del ticket «{ticket_upper}»")
         })?;
 
-        let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
+        let mut lock = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
 
         // 2. Prepare worktree paths and branch names
         let ticket_clean = ticket_upper.to_lowercase();
@@ -113,11 +116,14 @@ impl FlowEngine {
         model: Option<&str>,
     ) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
-        let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
+        let mut lock = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
 
-        let task = lock
-            .get_mut(&ticket_upper)
-            .ok_or_else(|| anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»"))?;
+        let task = lock.get_mut(&ticket_upper).ok_or_else(|| {
+            anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»")
+        })?;
 
         let timestamp = now_secs();
         let anterior = task.state;
@@ -212,14 +218,16 @@ impl FlowEngine {
                 // Auditor terminó -> listo para aprobación del desarrollador
                 task.state = FlowState::ReadyForApproval;
                 task.current_role = None;
-                task.audit_summary = Some("Diff verificado sin violaciones de radio de impacto.".into());
+                task.audit_summary =
+                    Some("Diff verificado sin violaciones de radio de impacto.".into());
                 task.history.push(FlowTransition {
                     timestamp_seconds: timestamp,
                     old_state: anterior,
                     new_state: task.state,
                     role: None,
                     detail: if detalle.is_empty() {
-                        "Auditoría completada. Esperando confirmación final del desarrollador.".into()
+                        "Auditoría completada. Esperando confirmación final del desarrollador."
+                            .into()
                     } else {
                         detalle.to_string()
                     },
@@ -278,11 +286,14 @@ impl FlowEngine {
     /// Aprueba o rechaza la tarea en su etapa final de revisión.
     pub fn approve_task(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
-        let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
+        let mut lock = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
 
-        let task = lock
-            .get_mut(&ticket_upper)
-            .ok_or_else(|| anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»"))?;
+        let task = lock.get_mut(&ticket_upper).ok_or_else(|| {
+            anyhow::anyhow!("no existe tarea activa para ticket «{ticket_upper}»")
+        })?;
 
         let timestamp = now_secs();
         let anterior = task.state;
@@ -294,7 +305,8 @@ impl FlowEngine {
                 old_state: anterior,
                 new_state: FlowState::Merged,
                 role: None,
-                detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal.".into(),
+                detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal."
+                    .into(),
                 model: None,
             });
         } else {
@@ -327,8 +339,12 @@ impl FlowEngine {
         }
         let ticket_clean = ticket_upper.to_lowercase();
         let candidates = [
-            std::path::PathBuf::from(".antos").join("flows").join(format!("{ticket_clean}.json")),
-            std::path::PathBuf::from("state").join("flows").join(format!("{ticket_clean}.json")),
+            std::path::PathBuf::from(".antos")
+                .join("flows")
+                .join(format!("{ticket_clean}.json")),
+            std::path::PathBuf::from("state")
+                .join("flows")
+                .join(format!("{ticket_clean}.json")),
         ];
         for p in &candidates {
             if let Ok(content) = std::fs::read_to_string(p) {
@@ -361,7 +377,10 @@ impl FlowEngine {
                     if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
                         if let Ok(content) = std::fs::read_to_string(entry.path()) {
                             if let Ok(t) = serde_json::from_str::<FlowTask>(&content) {
-                                if !tasks.iter().any(|existing| existing.ticket_id == t.ticket_id) {
+                                if !tasks
+                                    .iter()
+                                    .any(|existing| existing.ticket_id == t.ticket_id)
+                                {
                                     tasks.push(t);
                                 }
                             }
@@ -487,7 +506,10 @@ impl FlowEngine {
 
         // Adjuntar diff y resumen a la tarea
         {
-            let mut lock = self.state.lock().map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
+            let mut lock = self
+                .state
+                .lock()
+                .map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
             if let Some(t) = lock.get_mut(&ticket_upper) {
                 t.diff_preview = Some(diff);
                 t.audit_summary = Some(format!(
@@ -553,7 +575,10 @@ pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
             Err(e) => Ok((false, format!("error executing npm test: {e:#}"))),
         }
     } else {
-        Ok((true, "Suite de pruebas completada con éxito (0 fallos).".into()))
+        Ok((
+            true,
+            "Suite de pruebas completada con éxito (0 fallos).".into(),
+        ))
     }
 }
 
@@ -727,7 +752,8 @@ mod tests {
         std::fs::create_dir_all(&state_dir).expect("create state dir");
 
         // Crear ticket dummy T9.1
-        let ticket_md = "# T9.1 · Pipeline Test\n\n## Descripción\nTest\n\n## Criterios de Aceptación\n* OK\n";
+        let ticket_md =
+            "# T9.1 · Pipeline Test\n\n## Descripción\nTest\n\n## Criterios de Aceptación\n* OK\n";
         std::fs::write(tickets_dir.join("T9.1-pipeline-test.md"), ticket_md).expect("write ticket");
 
         // Ejecutar pipeline completo pasando cambios
@@ -772,13 +798,25 @@ mod tests {
         assert_eq!(task.state, FlowState::ReadyForApproval);
 
         // Verify that history contains models
-        let arch_trans = task.history.iter().find(|t| t.role == Some(AgentRole::Architect));
+        let arch_trans = task
+            .history
+            .iter()
+            .find(|t| t.role == Some(AgentRole::Architect));
         assert!(arch_trans.is_some());
-        assert_eq!(arch_trans.unwrap().model.as_deref(), Some("custom:deepseek-r1"));
+        assert_eq!(
+            arch_trans.unwrap().model.as_deref(),
+            Some("custom:deepseek-r1")
+        );
 
-        let coder_trans = task.history.iter().find(|t| t.role == Some(AgentRole::Coder));
+        let coder_trans = task
+            .history
+            .iter()
+            .find(|t| t.role == Some(AgentRole::Coder));
         assert!(coder_trans.is_some());
-        assert_eq!(coder_trans.unwrap().model.as_deref(), Some("custom:qwen2.5-coder"));
+        assert_eq!(
+            coder_trans.unwrap().model.as_deref(),
+            Some("custom:qwen2.5-coder")
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

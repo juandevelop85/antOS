@@ -51,20 +51,20 @@ impl Color {
 pub mod palette {
     use super::Color;
 
-    pub const ANTOS_BG: Color = Color::rgb(13, 17, 23);               // #0d1117 (Deep Slate Desktop)
-    pub const STATUSBAR_BG: Color = Color::rgb(22, 27, 34);           // #161b22 (Top Status Bar)
-    pub const STATUSBAR_BORDER: Color = Color::rgb(48, 54, 61);       // #30363d (Bar Divider)
-    pub const ACCENT_BLUE: Color = Color::rgb(88, 166, 255);          // #58a6ff (Highlighted Borders / HUD)
-    pub const ACCENT_CYAN: Color = Color::rgb(56, 189, 248);          // #38bdf8 (antOS Logo)
-    pub const ACCENT_GREEN: Color = Color::rgb(63, 185, 80);          // #3fb950 (HAL status)
-    pub const ACCENT_YELLOW: Color = Color::rgb(210, 153, 34);        // #d29922 (Heap / RAM)
-    pub const ACCENT_RED: Color = Color::rgb(248, 81, 73);            // #f85149 (Close / Alert)
-    pub const WINDOW_BG: Color = Color::rgb(15, 20, 27);              // #0f141b (Terminal canvas)
-    pub const WINDOW_TITLEBAR: Color = Color::rgb(33, 38, 45);        // #21262d (Window Title Bar)
-    pub const WINDOW_BORDER: Color = Color::rgb(48, 54, 61);          // #30363d (Inactive border)
+    pub const ANTOS_BG: Color = Color::rgb(13, 17, 23); // #0d1117 (Deep Slate Desktop)
+    pub const STATUSBAR_BG: Color = Color::rgb(22, 27, 34); // #161b22 (Top Status Bar)
+    pub const STATUSBAR_BORDER: Color = Color::rgb(48, 54, 61); // #30363d (Bar Divider)
+    pub const ACCENT_BLUE: Color = Color::rgb(88, 166, 255); // #58a6ff (Highlighted Borders / HUD)
+    pub const ACCENT_CYAN: Color = Color::rgb(56, 189, 248); // #38bdf8 (antOS Logo)
+    pub const ACCENT_GREEN: Color = Color::rgb(63, 185, 80); // #3fb950 (HAL status)
+    pub const ACCENT_YELLOW: Color = Color::rgb(210, 153, 34); // #d29922 (Heap / RAM)
+    pub const ACCENT_RED: Color = Color::rgb(248, 81, 73); // #f85149 (Close / Alert)
+    pub const WINDOW_BG: Color = Color::rgb(15, 20, 27); // #0f141b (Terminal canvas)
+    pub const WINDOW_TITLEBAR: Color = Color::rgb(33, 38, 45); // #21262d (Window Title Bar)
+    pub const WINDOW_BORDER: Color = Color::rgb(48, 54, 61); // #30363d (Inactive border)
     pub const WINDOW_BORDER_ACTIVE: Color = Color::rgb(88, 166, 255); // #58a6ff (Active window border)
-    pub const TEXT_MAIN: Color = Color::rgb(201, 209, 217);           // #c9d1d9 (Primary Text)
-    pub const TEXT_MUTED: Color = Color::rgb(139, 148, 158);          // #8b949e (Dimmed / Secondary)
-    pub const TEXT_BRIGHT: Color = Color::rgb(240, 246, 252);         // #f0f6fc (Header text)
-    pub const SHADOW_COLOR: Color = Color::rgba(0, 0, 0, 140);        // Drop shadow
+    pub const TEXT_MAIN: Color = Color::rgb(201, 209, 217); // #c9d1d9 (Primary Text)
+    pub const TEXT_MUTED: Color = Color::rgb(139, 148, 158); // #8b949e (Dimmed / Secondary)
+    pub const TEXT_BRIGHT: Color = Color::rgb(240, 246, 252); // #f0f6fc (Header text)
+    pub const SHADOW_COLOR: Color = Color::rgba(0, 0, 0, 140); // Drop shadow
 }

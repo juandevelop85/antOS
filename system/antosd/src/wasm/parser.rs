@@ -66,7 +66,10 @@ pub struct WasmModule {
 impl WasmModule {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 8 {
-            bail!("Binario WASM demasiado corto (longitud: {} bytes)", bytes.len());
+            bail!(
+                "Binario WASM demasiado corto (longitud: {} bytes)",
+                bytes.len()
+            );
         }
 
         if &bytes[0..4] != WASM_MAGIC {

@@ -45,11 +45,7 @@ impl DeviceDescriptor {
         }
         let mut desc = Self::default();
         unsafe {
-            core::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                &mut desc as *mut _ as *mut u8,
-                18,
-            );
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), &mut desc as *mut _ as *mut u8, 18);
         }
         Some(desc)
     }
@@ -198,12 +194,19 @@ pub fn parse_configuration_bundle(data: &[u8]) -> (Option<u8>, Vec<ParsedHidInte
 
                     if let Some(iface) = current_iface {
                         if iface.interface_class == CLASS_HID && ep.is_in() && ep.is_interrupt() {
-                            crate::println!("    usb-debug  hid iface {}: class={:#x} sub={:#x} proto={:#x}",
-                                iface.interface_number, iface.interface_class, iface.interface_subclass, iface.interface_protocol);
+                            crate::println!(
+                                "    usb-debug  hid iface {}: class={:#x} sub={:#x} proto={:#x}",
+                                iface.interface_number,
+                                iface.interface_class,
+                                iface.interface_subclass,
+                                iface.interface_protocol
+                            );
                             let is_keyboard = iface.interface_protocol == PROTOCOL_KEYBOARD
-                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE && iface.interface_protocol == 1);
+                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
+                                    && iface.interface_protocol == 1);
                             let is_mouse = iface.interface_protocol == PROTOCOL_MOUSE
-                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE && iface.interface_protocol == 2);
+                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
+                                    && iface.interface_protocol == 2);
 
                             interfaces.push(ParsedHidInterface {
                                 interface_number: iface.interface_number,

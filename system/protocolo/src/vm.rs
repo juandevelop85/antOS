@@ -71,4 +71,3 @@ pub struct MicrovmExecResult {
     pub duration_ms: u64,
     pub success: bool,
 }
-

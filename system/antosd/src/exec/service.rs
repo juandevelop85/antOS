@@ -1,9 +1,9 @@
 //! Ephemeral nix services and port diagnostics/management.
 
-use std::collections::BTreeMap;
-use anyhow::Result;
-use crate::ctx::Ctx;
 use super::Change;
+use crate::ctx::Ctx;
+use anyhow::Result;
+use std::collections::BTreeMap;
 
 pub fn changes_for(
     cap: &str,
@@ -26,10 +26,9 @@ pub fn changes_for(
         }
 
         "env.service_up" => {
-            let service = a
-                .get("service")
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio (ej. postgres, redis)"))?;
+            let service = a.get("service").cloned().ok_or_else(|| {
+                anyhow::anyhow!("debes especificar el nombre del servicio (ej. postgres, redis)")
+            })?;
             let port = a.get("port").and_then(|p| p.parse::<u16>().ok());
             let db_name = a.get("db_name").cloned();
             Ok(Some(vec![Change::ServiceUp {
@@ -42,10 +41,9 @@ pub fn changes_for(
         }
 
         "env.service_down" => {
-            let service = a
-                .get("service")
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("debes especificar el nombre del servicio a detener"))?;
+            let service = a.get("service").cloned().ok_or_else(|| {
+                anyhow::anyhow!("debes especificar el nombre del servicio a detener")
+            })?;
             Ok(Some(vec![Change::ServiceDown {
                 service,
                 state_dir: ctx.state.clone(),
@@ -99,7 +97,10 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                     .iter()
                     .map(|p| format!("PID {} ({})", p.pid, p.process_name))
                     .collect();
-                Ok(Some(format!("puerto {port} liberado terminando {}", pids.join(", "))))
+                Ok(Some(format!(
+                    "puerto {port} liberado terminando {}",
+                    pids.join(", ")
+                )))
             }
         }
         Change::ServiceUp {
@@ -121,17 +122,11 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                 info.name, info.port, info.env_var_key, info.env_var_value
             )))
         }
-        Change::ServiceDown {
-            service,
-            state_dir,
-        } => {
+        Change::ServiceDown { service, state_dir } => {
             crate::service::stop_service(service, state_dir)?;
             Ok(Some(format!("servicio «{service}» detenido y limpiado")))
         }
-        Change::ServiceStatus {
-            service,
-            state_dir,
-        } => {
+        Change::ServiceStatus { service, state_dir } => {
             let services = crate::service::get_service_status(service.as_deref(), state_dir)?;
             if services.is_empty() {
                 Ok(Some("no hay servicios efímeros aprovisionados".into()))

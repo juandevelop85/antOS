@@ -1,8 +1,8 @@
 //! Global Heap Allocator for antOS Userspace backed by SYS_MMAP (T23.5).
 
+use crate::syscall;
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::syscall;
 
 const CHUNK_SIZE: usize = 64 * 1024; // Request 64 KiB per mmap expansion
 

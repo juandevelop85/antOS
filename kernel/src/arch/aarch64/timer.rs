@@ -6,8 +6,8 @@
 //! When the first ticks fail to arrive the driver falls back to the EL1
 //! physical timer (`CNTP_*`, PPI 30), and `ticks()` stays monotonic either way.
 
-use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use crate::arch::aarch64::gic;
+use core::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 
 /// PPI INTID for the EL1 virtual timer.
 pub const TIMER_IRQ_VIRTUAL: u32 = 27;
@@ -50,7 +50,6 @@ pub fn current_counter() -> u64 {
     }
     count
 }
-
 
 /// Computes the down-counter reload value for a periodic tick.
 ///
@@ -126,7 +125,8 @@ pub fn delay_ms(ms: u64) {
 #[inline]
 unsafe fn arm_virtual(interval: u64) {
     core::arch::asm!("msr cntv_tval_el0, {}", in(reg) interval, options(nomem, nostack));
-    core::arch::asm!("msr cntv_ctl_el0, {}", in(reg) 1u64, options(nomem, nostack)); // enable, unmasked
+    core::arch::asm!("msr cntv_ctl_el0, {}", in(reg) 1u64, options(nomem, nostack));
+    // enable, unmasked
 }
 
 #[inline]
@@ -190,7 +190,9 @@ pub fn verify_and_fallback() -> TimerSource {
     }
 
     if source() == TimerSource::Virtual {
-        crate::println!("  timer        sin pulsos del timer virtual (PPI 27) · fallback a físico EL1 (PPI 30)");
+        crate::println!(
+            "  timer        sin pulsos del timer virtual (PPI 27) · fallback a físico EL1 (PPI 30)"
+        );
         if switch_to_physical() && wait_for_tick() {
             return TimerSource::Physical;
         }

@@ -9,7 +9,9 @@
 
 use antos_protocol::{CapabilityFidelity, RuntimeCapabilitiesMatrix};
 
-use super::{PlatformRuntime, ProcessWatchdogMonitor, QuotaMonitor, SimulatedTelemetry, TelemetryProvider};
+use super::{
+    PlatformRuntime, ProcessWatchdogMonitor, QuotaMonitor, SimulatedTelemetry, TelemetryProvider,
+};
 use crate::sandbox::{self, Sandbox};
 
 /// Bare-metal runtime for the antOS kernel (future).

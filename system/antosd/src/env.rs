@@ -98,7 +98,9 @@ impl EnvEngine {
             Some(EnvProfile::Rust)
         } else if workspace.join("package.json").exists() {
             Some(EnvProfile::Node)
-        } else if workspace.join("pyproject.toml").exists() || workspace.join("requirements.txt").exists() {
+        } else if workspace.join("pyproject.toml").exists()
+            || workspace.join("requirements.txt").exists()
+        {
             Some(EnvProfile::Python)
         } else if workspace.join("go.mod").exists() {
             Some(EnvProfile::Go)
@@ -115,7 +117,11 @@ impl EnvEngine {
         create_flake: bool,
     ) -> Result<InitSummary> {
         let mut created = Vec::new();
-        let packages: Vec<String> = profile.default_packages().into_iter().map(String::from).collect();
+        let packages: Vec<String> = profile
+            .default_packages()
+            .into_iter()
+            .map(String::from)
+            .collect();
 
         // 1. Create .antos/env.toml
         let antos_dir = workspace.join(".antos");
@@ -128,8 +134,7 @@ impl EnvEngine {
             env_vars: BTreeMap::new(),
         };
         let env_toml_path = antos_dir.join("env.toml");
-        let toml_str = toml::to_string_pretty(&config)
-            .context("failed to serialize env config")?;
+        let toml_str = toml::to_string_pretty(&config).context("failed to serialize env config")?;
         std::fs::write(&env_toml_path, toml_str)
             .with_context(|| format!("failed to write {}", env_toml_path.display()))?;
         created.push(".antos/env.toml".to_string());
@@ -184,7 +189,11 @@ impl EnvEngine {
             let v: serde_json::Value = serde_json::from_str(&content)?;
             let pkgs = v["packages"]
                 .as_array()
-                .map(|arr| arr.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             return Ok(Some(ProjectEnvConfig {
                 profile: "devbox".to_string(),
@@ -198,15 +207,18 @@ impl EnvEngine {
 
     /// Checks availability of declared tools on the system PATH.
     pub fn check_toolchains(workspace: &Path) -> Result<Vec<ToolchainStatus>> {
-        let config = Self::load_config(workspace)?
-            .unwrap_or_else(|| {
-                let detected = Self::detect_stack(workspace).unwrap_or(EnvProfile::Base);
-                ProjectEnvConfig {
-                    profile: detected.as_str().to_string(),
-                    packages: detected.default_packages().into_iter().map(String::from).collect(),
-                    env_vars: BTreeMap::new(),
-                }
-            });
+        let config = Self::load_config(workspace)?.unwrap_or_else(|| {
+            let detected = Self::detect_stack(workspace).unwrap_or(EnvProfile::Base);
+            ProjectEnvConfig {
+                profile: detected.as_str().to_string(),
+                packages: detected
+                    .default_packages()
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                env_vars: BTreeMap::new(),
+            }
+        });
 
         let mut results = Vec::new();
         for pkg in config.packages {
@@ -250,7 +262,10 @@ impl EnvEngine {
 /// rejected up front, with a clear reason, instead of silently failing to
 /// resolve to any file on `PATH`.
 fn is_valid_binary_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
 }
 
 /// Searches `PATH` directly for an executable named `binary`, with no shell
@@ -322,8 +337,14 @@ mod tests {
     #[test]
     fn test_profile_parsing_and_defaults() {
         assert_eq!(EnvProfile::from_str_loose("rust"), Some(EnvProfile::Rust));
-        assert_eq!(EnvProfile::from_str_loose("typescript"), Some(EnvProfile::Node));
-        assert_eq!(EnvProfile::from_str_loose("python"), Some(EnvProfile::Python));
+        assert_eq!(
+            EnvProfile::from_str_loose("typescript"),
+            Some(EnvProfile::Node)
+        );
+        assert_eq!(
+            EnvProfile::from_str_loose("python"),
+            Some(EnvProfile::Python)
+        );
         assert_eq!(EnvProfile::from_str_loose("go"), Some(EnvProfile::Go));
 
         let rust_pkgs = EnvProfile::Rust.default_packages();
@@ -337,15 +358,17 @@ mod tests {
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).expect("create tempdir");
 
-        let summary = EnvEngine::init_profile(&temp_dir, EnvProfile::Rust, true, true)
-            .expect("init profile");
+        let summary =
+            EnvEngine::init_profile(&temp_dir, EnvProfile::Rust, true, true).expect("init profile");
 
         assert_eq!(summary.profile, "rust");
         assert!(temp_dir.join(".antos/env.toml").exists());
         assert!(temp_dir.join("devbox.json").exists());
         assert!(temp_dir.join("flake.nix").exists());
 
-        let cfg = EnvEngine::load_config(&temp_dir).expect("load config").expect("exists");
+        let cfg = EnvEngine::load_config(&temp_dir)
+            .expect("load config")
+            .expect("exists");
         assert_eq!(cfg.profile, "rust");
         assert!(cfg.packages.contains(&"cargo".to_string()));
 
@@ -356,11 +379,13 @@ mod tests {
 
     #[test]
     fn test_check_toolchains_rejects_shell_metacharacters_in_package_name() {
-        let temp_dir = std::env::temp_dir().join(format!("antos-env-injection-test-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("antos-env-injection-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(temp_dir.join(".antos")).expect("create tempdir");
 
-        let probe = std::env::temp_dir().join(format!("antos-injection-probe-{}", std::process::id()));
+        let probe =
+            std::env::temp_dir().join(format!("antos-injection-probe-{}", std::process::id()));
         let _ = std::fs::remove_file(&probe);
 
         let config = ProjectEnvConfig {
@@ -371,10 +396,17 @@ mod tests {
         let toml_str = toml::to_string_pretty(&config).expect("serialize config");
         std::fs::write(temp_dir.join(".antos/env.toml"), toml_str).expect("write env.toml");
 
-        let results = EnvEngine::check_toolchains(&temp_dir).expect("check toolchains must not error");
+        let results =
+            EnvEngine::check_toolchains(&temp_dir).expect("check toolchains must not error");
         assert_eq!(results.len(), 1);
-        assert!(!results[0].available, "a malicious package name must resolve to \"not found\", not execute");
-        assert!(!probe.exists(), "a malicious package name must never reach a shell");
+        assert!(
+            !results[0].available,
+            "a malicious package name must resolve to \"not found\", not execute"
+        );
+        assert!(
+            !probe.exists(),
+            "a malicious package name must never reach a shell"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         let _ = std::fs::remove_file(&probe);
@@ -387,7 +419,9 @@ mod tests {
         assert!(is_valid_binary_name("node_modules.bin"));
         assert!(is_valid_binary_name("g++"));
 
-        assert!(!is_valid_binary_name("foo; touch /tmp/antos-injection-probe"));
+        assert!(!is_valid_binary_name(
+            "foo; touch /tmp/antos-injection-probe"
+        ));
         assert!(!is_valid_binary_name("foo | sh"));
         assert!(!is_valid_binary_name("$(whoami)"));
         assert!(!is_valid_binary_name("foo`whoami`"));
@@ -405,7 +439,8 @@ mod tests {
 
     #[test]
     fn test_detect_stack() {
-        let temp_dir = std::env::temp_dir().join(format!("antos-stack-test-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("antos-stack-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).expect("create tempdir");
 

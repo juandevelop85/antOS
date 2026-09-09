@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
     if args.is_empty() || args[0] == "list" || args[0] == "roles" {
@@ -67,7 +67,10 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!(
                 "\n{}",
-                paint("antOS antFlow · Matriz de Modelos Asignados por Rol de Agente (T19.4)", BOLD)
+                paint(
+                    "antOS antFlow · Matriz de Modelos Asignados por Rol de Agente (T19.4)",
+                    BOLD
+                )
             );
             println!("  Personaliza qué motor y modelo ejecuta cada fase del ciclo de vida multi-agente:\n");
             println!(
@@ -102,10 +105,25 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
 
             println!("\n  Para cambiar el modelo de un rol:");
-            println!("    {}", paint("antos agent config --role coder --llm ollama:qwen2.5-coder:latest", CYAN));
+            println!(
+                "    {}",
+                paint(
+                    "antos agent config --role coder --llm ollama:qwen2.5-coder:latest",
+                    CYAN
+                )
+            );
             println!("    {}", paint("antos agent config --role architect --llm openrouter:deepseek/deepseek-r1:free", CYAN));
-            println!("    {}", paint("antos agent config --role qa --llm groq:llama-3.3-70b-versatile", CYAN));
-            println!("    Para ver catálogo de modelos gratuitos: {}\n", paint("antos llm free", YELLOW));
+            println!(
+                "    {}",
+                paint(
+                    "antos agent config --role qa --llm groq:llama-3.3-70b-versatile",
+                    CYAN
+                )
+            );
+            println!(
+                "    Para ver catálogo de modelos gratuitos: {}\n",
+                paint("antos llm free", YELLOW)
+            );
             return Ok(());
         }
         "run" => {
@@ -291,7 +309,10 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     let tasks = flow_engine.list_tasks();
 
     let banner_text = if let Some(ref cur) = ctx.current_project {
-        let name = cur.file_name().and_then(|n| n.to_str()).unwrap_or("proyecto");
+        let name = cur
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("proyecto");
         format!("antOS · KANBAN - PROYECTO: {} (Super + A)", name)
     } else {
         "antOS · CENTRO DE CONTROL DE AGENTES Y TABLERO KANBAN (Super + A)".to_string()
@@ -314,7 +335,10 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     ];
 
     for (etiqueta_rol, rol) in roles {
-        let active_tasks: Vec<_> = tasks.iter().filter(|t| t.current_role == Some(rol)).collect();
+        let active_tasks: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.current_role == Some(rol))
+            .collect();
         if active_tasks.is_empty() {
             println!(
                 "    {} {:<18} {}",
@@ -512,4 +536,3 @@ pub fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------- vfs
-

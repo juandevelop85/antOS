@@ -28,7 +28,10 @@ pub struct Size {
 }
 
 impl Size {
-    pub const ZERO: Size = Size { width: 0, height: 0 };
+    pub const ZERO: Size = Size {
+        width: 0,
+        height: 0,
+    };
 
     pub const fn new(width: u32, height: u32) -> Self {
         Size { width, height }
@@ -45,10 +48,20 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub const ZERO: Rect = Rect { x: 0, y: 0, width: 0, height: 0 };
+    pub const ZERO: Rect = Rect {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    };
 
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Rect { x, y, width, height }
+        Rect {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     #[inline]
@@ -180,21 +193,21 @@ impl Color {
 pub mod palette {
     use super::Color;
 
-    pub const ANTOS_BG: Color = Color::rgb(13, 17, 23);               // #0d1117 (Deep Slate)
-    pub const STATUSBAR_BG: Color = Color::rgb(22, 27, 34);           // #161b22 (Top Bar)
-    pub const STATUSBAR_BORDER: Color = Color::rgb(48, 54, 61);       // #30363d
-    pub const ACCENT_BLUE: Color = Color::rgb(88, 166, 255);          // #58a6ff (Primary Accent)
-    pub const ACCENT_CYAN: Color = Color::rgb(56, 189, 248);          // #38bdf8 (Logo Accent)
-    pub const ACCENT_GREEN: Color = Color::rgb(63, 185, 80);          // #3fb950 (HAL OK)
-    pub const ACCENT_YELLOW: Color = Color::rgb(210, 153, 34);        // #d29922 (Heap / Mem)
-    pub const ACCENT_RED: Color = Color::rgb(248, 81, 73);            // #f85149 (Close btn)
-    pub const WINDOW_BG: Color = Color::rgb(15, 20, 27);              // #0f141b (Terminal canvas)
-    pub const WINDOW_TITLEBAR: Color = Color::rgb(33, 38, 45);        // #21262d
-    pub const WINDOW_BORDER: Color = Color::rgb(48, 54, 61);          // #30363d
+    pub const ANTOS_BG: Color = Color::rgb(13, 17, 23); // #0d1117 (Deep Slate)
+    pub const STATUSBAR_BG: Color = Color::rgb(22, 27, 34); // #161b22 (Top Bar)
+    pub const STATUSBAR_BORDER: Color = Color::rgb(48, 54, 61); // #30363d
+    pub const ACCENT_BLUE: Color = Color::rgb(88, 166, 255); // #58a6ff (Primary Accent)
+    pub const ACCENT_CYAN: Color = Color::rgb(56, 189, 248); // #38bdf8 (Logo Accent)
+    pub const ACCENT_GREEN: Color = Color::rgb(63, 185, 80); // #3fb950 (HAL OK)
+    pub const ACCENT_YELLOW: Color = Color::rgb(210, 153, 34); // #d29922 (Heap / Mem)
+    pub const ACCENT_RED: Color = Color::rgb(248, 81, 73); // #f85149 (Close btn)
+    pub const WINDOW_BG: Color = Color::rgb(15, 20, 27); // #0f141b (Terminal canvas)
+    pub const WINDOW_TITLEBAR: Color = Color::rgb(33, 38, 45); // #21262d
+    pub const WINDOW_BORDER: Color = Color::rgb(48, 54, 61); // #30363d
     pub const WINDOW_BORDER_ACTIVE: Color = Color::rgb(88, 166, 255); // #58a6ff
-    pub const TEXT_MAIN: Color = Color::rgb(201, 209, 217);           // #c9d1d9
-    pub const TEXT_MUTED: Color = Color::rgb(139, 148, 158);          // #8b949e
-    pub const TEXT_BRIGHT: Color = Color::rgb(240, 246, 252);         // #f0f6fc
+    pub const TEXT_MAIN: Color = Color::rgb(201, 209, 217); // #c9d1d9
+    pub const TEXT_MUTED: Color = Color::rgb(139, 148, 158); // #8b949e
+    pub const TEXT_BRIGHT: Color = Color::rgb(240, 246, 252); // #f0f6fc
     pub const SHADOW_COLOR: Color = Color::rgba(0, 0, 0, 140);
 }
 

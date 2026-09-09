@@ -57,7 +57,9 @@ impl CgroupV2Manager {
     pub fn is_available() -> bool {
         #[cfg(target_os = "linux")]
         {
-            Path::new(Self::CGROUP_ROOT).join("cgroup.controllers").exists()
+            Path::new(Self::CGROUP_ROOT)
+                .join("cgroup.controllers")
+                .exists()
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -92,8 +94,12 @@ impl CgroupV2Manager {
     /// Moves a child PID into the cgroup.
     pub fn attach_pid(cgroup_path: &Path, pid: u32) -> Result<()> {
         let procs_file = cgroup_path.join("cgroup.procs");
-        fs::write(&procs_file, pid.to_string())
-            .with_context(|| format!("failed to attach PID {pid} to cgroup {}", procs_file.display()))?;
+        fs::write(&procs_file, pid.to_string()).with_context(|| {
+            format!(
+                "failed to attach PID {pid} to cgroup {}",
+                procs_file.display()
+            )
+        })?;
         Ok(())
     }
 
@@ -200,7 +206,9 @@ impl ProcessWatchdog {
         loop {
             if let Some(_) = child.try_wait()? {
                 self.cleanup();
-                return child.wait_with_output().context("failed to collect child output");
+                return child
+                    .wait_with_output()
+                    .context("failed to collect child output");
             }
 
             let elapsed = start_time.elapsed();
@@ -285,8 +293,8 @@ pub fn load_quota(workspace: &Path) -> Result<ResourceQuota> {
     if path.exists() {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("failed to read quota config from {}", path.display()))?;
-        let quota: ResourceQuota = toml::from_str(&content)
-            .with_context(|| "failed to parse quota.toml")?;
+        let quota: ResourceQuota =
+            toml::from_str(&content).with_context(|| "failed to parse quota.toml")?;
         Ok(quota)
     } else {
         Ok(ResourceQuota::default())
@@ -300,8 +308,8 @@ pub fn save_quota(workspace: &Path, quota: &ResourceQuota) -> Result<()> {
         .with_context(|| format!("failed to create directory {}", dir.display()))?;
 
     let path = dir.join("quota.toml");
-    let content = toml::to_string_pretty(quota)
-        .context("failed to serialize quota configuration")?;
+    let content =
+        toml::to_string_pretty(quota).context("failed to serialize quota configuration")?;
 
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, content)?;
@@ -326,7 +334,8 @@ mod tests {
 
     #[test]
     fn test_save_and_load_quota() {
-        let temp_dir = std::env::temp_dir().join(format!("antos-quota-test-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("antos-quota-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).expect("create tempdir");
 
@@ -362,6 +371,9 @@ mod tests {
         let result = watchdog.supervise(child);
         assert!(result.is_err(), "debe fallar por timeout de 1 segundo");
         let err_str = result.err().unwrap().to_string();
-        assert!(err_str.contains("tiempo de ejecución agotado"), "mensaje de error: {err_str}");
+        assert!(
+            err_str.contains("tiempo de ejecución agotado"),
+            "mensaje de error: {err_str}"
+        );
     }
 }

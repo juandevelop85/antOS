@@ -42,7 +42,10 @@ impl DocArchEngine {
             ("builder", "generador de imágenes UEFI"),
             ("system/protocolo", "protocolo IPC tipado serde"),
             ("system/antosd", "demonio principal y runtime antOS"),
-            ("system/capabilities", "catálogo de capacidades declarativas"),
+            (
+                "system/capabilities",
+                "catálogo de capacidades declarativas",
+            ),
             ("system/barra", "shell de escritorio Wayland GTK4"),
         ];
 
@@ -53,11 +56,17 @@ impl DocArchEngine {
         }
 
         // 2. Scan internal modules of antosd
-        let main_rs = effective_root.join("system").join("antosd").join("src").join("main.rs");
+        let main_rs = effective_root
+            .join("system")
+            .join("antosd")
+            .join("src")
+            .join("main.rs");
         if let Ok(content) = fs::read_to_string(&main_rs) {
             for line in content.lines() {
                 let trimmed = line.trim();
-                if (trimmed.starts_with("pub mod ") || trimmed.starts_with("mod ")) && trimmed.ends_with(';') {
+                if (trimmed.starts_with("pub mod ") || trimmed.starts_with("mod "))
+                    && trimmed.ends_with(';')
+                {
                     let mod_name = trimmed
                         .trim_start_matches("pub mod ")
                         .trim_start_matches("mod ")
@@ -72,11 +81,19 @@ impl DocArchEngine {
         }
 
         // 3. Scan IPC requests and events in system/protocolo/src/ipc.rs (or lib.rs)
-        let proto_ipc = effective_root.join("system").join("protocolo").join("src").join("ipc.rs");
+        let proto_ipc = effective_root
+            .join("system")
+            .join("protocolo")
+            .join("src")
+            .join("ipc.rs");
         let proto_rs = if proto_ipc.exists() {
             proto_ipc
         } else {
-            effective_root.join("system").join("protocolo").join("src").join("lib.rs")
+            effective_root
+                .join("system")
+                .join("protocolo")
+                .join("src")
+                .join("lib.rs")
         };
         if let Ok(content) = fs::read_to_string(&proto_rs) {
             if let Some(req_start) = content.find("pub enum Request {") {
@@ -191,7 +208,8 @@ impl DocArchEngine {
         \x20\x20Sandbox-->>Daemon: Resultado verificado y salida\n\
         \x20\x20Daemon->>TM: Registrar en bitácora inmutable (journal.jsonl)\n\
         \x20\x20Daemon-->>IPC: Event::Done / Event::Milestone\n\
-        \x20\x20IPC-->>User: Actualización reactiva en HUD/Barra".to_string()
+        \x20\x20IPC-->>User: Actualización reactiva en HUD/Barra"
+            .to_string()
     }
 
     /// Generates antFlow multi-agent lifecycle state diagram in Mermaid.
@@ -205,7 +223,8 @@ impl DocArchEngine {
         \x20\x20Auditor --> BenchDiff: Evaluación de Rendimiento Continuo\n\
         \x20\x20BenchDiff --> Coder: Regresión Detectada (>15% latencia o RSS)\n\
         \x20\x20BenchDiff --> PullRequest: Rendimiento y Calidad Certificados\n\
-        \x20\x20PullRequest --> [*]: antos pr create / Publicado en GitHub o GitLab".to_string()
+        \x20\x20PullRequest --> [*]: antos pr create / Publicado en GitHub o GitLab"
+            .to_string()
     }
 
     /// Generates the requested Mermaid diagram based on kind.
@@ -291,7 +310,10 @@ impl DocArchEngine {
 
         let original = fs::read_to_string(file_path)?;
 
-        if let (Some(start_idx), Some(end_idx)) = (original.find(Self::START_DELIM), original.find(Self::END_DELIM)) {
+        if let (Some(start_idx), Some(end_idx)) = (
+            original.find(Self::START_DELIM),
+            original.find(Self::END_DELIM),
+        ) {
             if end_idx >= start_idx {
                 let actual_end = end_idx + Self::END_DELIM.len();
                 let before = &original[..start_idx];
@@ -373,7 +395,10 @@ impl DocArchEngine {
             files_updated: updated,
             in_sync: true,
             updated_paths,
-            message: format!("Sincronización completada: {} archivo(s) actualizados de {} escaneados.", updated, scanned),
+            message: format!(
+                "Sincronización completada: {} archivo(s) actualizados de {} escaneados.",
+                updated, scanned
+            ),
         })
     }
 
@@ -413,7 +438,10 @@ impl DocArchEngine {
             if path.exists() {
                 scanned += 1;
                 let content = fs::read_to_string(&path)?;
-                if let (Some(start_idx), Some(end_idx)) = (content.find(Self::START_DELIM), content.find(Self::END_DELIM)) {
+                if let (Some(start_idx), Some(end_idx)) = (
+                    content.find(Self::START_DELIM),
+                    content.find(Self::END_DELIM),
+                ) {
                     if end_idx >= start_idx {
                         let actual_end = end_idx + Self::END_DELIM.len();
                         let current_block = &content[start_idx..actual_end];
@@ -431,13 +459,20 @@ impl DocArchEngine {
 
         let in_sync = out_of_sync_paths.is_empty();
         let message = if in_sync {
-            "✅ La documentación de arquitectura está 100% sincronizada con el código fuente.".to_string()
+            "✅ La documentación de arquitectura está 100% sincronizada con el código fuente."
+                .to_string()
         } else {
-            format!("⚠️ Divergencia detectada: {} archivo(s) desactualizados.", out_of_sync_paths.len())
+            format!(
+                "⚠️ Divergencia detectada: {} archivo(s) desactualizados.",
+                out_of_sync_paths.len()
+            )
         };
 
         if !in_sync {
-            bail!("documentación de arquitectura desactualizada en: {:?}", out_of_sync_paths);
+            bail!(
+                "documentación de arquitectura desactualizada en: {:?}",
+                out_of_sync_paths
+            );
         }
 
         Ok(DocSyncReport {
@@ -464,8 +499,14 @@ mod tests {
         assert!(!topo.crates.is_empty(), "crates must not be empty");
         assert!(topo.crates.iter().any(|c| c.contains("system/antosd")));
         assert!(topo.crates.iter().any(|c| c.contains("system/protocolo")));
-        assert!(!topo.antosd_modules.is_empty(), "antosd modules must not be empty");
-        assert!(topo.capabilities_count > 0, "must find capabilities in catalog");
+        assert!(
+            !topo.antosd_modules.is_empty(),
+            "antosd modules must not be empty"
+        );
+        assert!(
+            topo.capabilities_count > 0,
+            "must find capabilities in catalog"
+        );
         assert!(topo.ipc_requests_count > 0, "must find IPC requests");
         assert!(topo.ipc_events_count > 0, "must find IPC events");
     }
@@ -519,7 +560,8 @@ mod tests {
         assert!(!content_after.contains("Viejo diagrama"));
 
         // 2. Second update without changes returns false (already in sync)
-        let updated_again = DocArchEngine::update_markdown_file(&doc_file, &block).expect("update again");
+        let updated_again =
+            DocArchEngine::update_markdown_file(&doc_file, &block).expect("update again");
         assert!(!updated_again);
 
         let _ = fs::remove_dir_all(&temp_dir);

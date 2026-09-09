@@ -73,7 +73,10 @@ pub fn extraer_ticket_id(texto: &str) -> Option<String> {
 }
 
 pub fn append(path: &Path, record: &Record) -> Result<()> {
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(f, "{}", serde_json::to_string(record)?)?;
     Ok(())
 }
@@ -108,8 +111,14 @@ mod tests {
 
     #[test]
     fn test_extract_ticket_id() {
-        assert_eq!(extract_ticket_id("desarrolla el ticket T1.2 ahora"), Some("T1.2".into()));
-        assert_eq!(extract_ticket_id("corrige bug en t3.3"), Some("T3.3".into()));
+        assert_eq!(
+            extract_ticket_id("desarrolla el ticket T1.2 ahora"),
+            Some("T1.2".into())
+        );
+        assert_eq!(
+            extract_ticket_id("corrige bug en t3.3"),
+            Some("T3.3".into())
+        );
         assert_eq!(extract_ticket_id("haz commit normal"), None);
     }
 

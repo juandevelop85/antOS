@@ -52,7 +52,10 @@ pub struct LinkedListAllocator {
 
 impl LinkedListAllocator {
     pub const fn new() -> Self {
-        LinkedListAllocator { head: ListNode::new(0), heap_size: 0 }
+        LinkedListAllocator {
+            head: ListNode::new(0),
+            heap_size: 0,
+        }
     }
 
     /// # Safety
@@ -130,7 +133,10 @@ impl LinkedListAllocator {
             .align_to(mem::align_of::<ListNode>())
             .expect("alineación imposible")
             .pad_to_align();
-        (layout.size().max(mem::size_of::<ListNode>()), layout.align())
+        (
+            layout.size().max(mem::size_of::<ListNode>()),
+            layout.align(),
+        )
     }
 
     pub fn free(&self) -> usize {

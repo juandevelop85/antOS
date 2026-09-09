@@ -57,9 +57,7 @@ pub fn parse_mcfg(table: &[u8]) -> Vec<McfgAllocation> {
     while off + 16 <= len {
         let e = &table[off..off + 16];
         out.push(McfgAllocation {
-            base_address: u64::from_le_bytes([
-                e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7],
-            ]),
+            base_address: u64::from_le_bytes([e[0], e[1], e[2], e[3], e[4], e[5], e[6], e[7]]),
             pci_segment: u16::from_le_bytes([e[8], e[9]]),
             start_bus: e[10],
             end_bus: e[11],
@@ -196,8 +194,7 @@ pub unsafe fn find_table(rsdp_ptr: *const u8, sig: &[u8; 4]) -> Option<&'static 
         }
         let hdr = core::slice::from_raw_parts(table_ptr as *const u8, 36);
         if &hdr[0..4] == sig {
-            let tlen =
-                u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
+            let tlen = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]) as usize;
             if (36..=1024 * 1024).contains(&tlen) {
                 return Some(core::slice::from_raw_parts(table_ptr as *const u8, tlen));
             }
@@ -222,7 +219,7 @@ mod tests {
     fn parses_mcfg_ecam_allocations() {
         let mut t = acpi_header(b"MCFG", 44 + 32).to_vec();
         t.extend_from_slice(&[0u8; 8]); // reserved
-        // Entry 0: base 0x4010000000, segment 0, bus 0..255.
+                                        // Entry 0: base 0x4010000000, segment 0, bus 0..255.
         t.extend_from_slice(&0x40_1000_0000u64.to_le_bytes());
         t.extend_from_slice(&0u16.to_le_bytes());
         t.extend_from_slice(&[0x00, 0xFF, 0, 0, 0, 0]);

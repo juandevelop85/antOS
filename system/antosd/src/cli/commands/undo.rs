@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
     let mut records = crate::journal::read_all(&ctx.journal_path())?;
@@ -144,7 +144,10 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
     let Some(snap_id) = records[idx].snapshot.clone() else {
         // `rposition` above only ever selects an index where
         // `snapshot.is_some()`; reaching this means the invariant broke.
-        bail!("el registro «{}» no tiene instantánea asociada (estado del journal inconsistente)", records[idx].id);
+        bail!(
+            "el registro «{}» no tiene instantánea asociada (estado del journal inconsistente)",
+            records[idx].id
+        );
     };
     let snap = crate::snapshot::load(&snap_id, &ctx.snapshots_dir())?;
 
@@ -183,4 +186,3 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // ------------------------------------------------------------ otros comandos
-

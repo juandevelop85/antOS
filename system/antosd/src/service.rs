@@ -40,10 +40,7 @@ pub fn build_connection_url(service: &str, port: u16, db_name: &str) -> (String,
             "DATABASE_URL".to_string(),
             format!("postgres://antos:antos@127.0.0.1:{port}/{db_name}"),
         ),
-        "redis" => (
-            "REDIS_URL".to_string(),
-            format!("redis://127.0.0.1:{port}"),
-        ),
+        "redis" => ("REDIS_URL".to_string(), format!("redis://127.0.0.1:{port}")),
         "mariadb" | "mysql" => (
             "DATABASE_URL".to_string(),
             format!("mysql://antos:antos@127.0.0.1:{port}/{db_name}"),
@@ -127,7 +124,10 @@ pub fn stop_service(service: &str, state_dir: &Path) -> Result<()> {
             }
         }
     } else {
-        bail!("no se encontró servicio activo «{s_clean}» en {}", svc_dir.display());
+        bail!(
+            "no se encontró servicio activo «{s_clean}» en {}",
+            svc_dir.display()
+        );
     }
 
     Ok(())
@@ -237,14 +237,23 @@ mod tests {
         let workspace = temp_base.join("workspace");
         fs::create_dir_all(&workspace).unwrap();
 
-        let info = start_service("postgres", Some(5433), Some("testdb"), &state_dir, &workspace)
-            .expect("must start service");
+        let info = start_service(
+            "postgres",
+            Some(5433),
+            Some("testdb"),
+            &state_dir,
+            &workspace,
+        )
+        .expect("must start service");
 
         assert_eq!(info.name, "postgres");
         assert_eq!(info.port, 5433);
         assert_eq!(info.status, "running");
         assert_eq!(info.env_var_key, "DATABASE_URL");
-        assert_eq!(info.env_var_value, "postgres://antos:antos@127.0.0.1:5433/testdb");
+        assert_eq!(
+            info.env_var_value,
+            "postgres://antos:antos@127.0.0.1:5433/testdb"
+        );
 
         // Verify .env file injection
         let env_content = fs::read_to_string(workspace.join(".env")).expect(".env must exist");

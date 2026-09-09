@@ -109,14 +109,26 @@ impl IntentHud {
             hud_x + 14,
             hud_y + 6,
             "HUD de Intenciones · antOS Developer Shell",
-            if self.focused { palette::ACCENT_BLUE } else { palette::TEXT_MUTED },
+            if self.focused {
+                palette::ACCENT_BLUE
+            } else {
+                palette::TEXT_MUTED
+            },
             None,
         );
 
         // 5. Input Field
         let input_box = Rect::new(hud_x + 14, hud_y + 38, hud_w - 28, 44);
         surface.fill_rect(input_box, palette::WINDOW_BG);
-        surface.draw_rect_outline(input_box, 1, if self.focused { palette::ACCENT_CYAN } else { palette::WINDOW_BORDER });
+        surface.draw_rect_outline(
+            input_box,
+            1,
+            if self.focused {
+                palette::ACCENT_CYAN
+            } else {
+                palette::WINDOW_BORDER
+            },
+        );
 
         let prompt = "> ";
         surface.draw_text(hud_x + 24, hud_y + 52, prompt, palette::ACCENT_CYAN, None);
@@ -139,7 +151,11 @@ impl IntentHud {
 
         // Cursor (rendered only if focused or when typing)
         if self.focused {
-            let cursor_offset = if input_text.is_empty() { 0 } else { input_text.len() };
+            let cursor_offset = if input_text.is_empty() {
+                0
+            } else {
+                input_text.len()
+            };
             let cursor_x = input_x + (cursor_offset * FONT_WIDTH) as i32 + 2;
             surface.draw_char(cursor_x, hud_y + 52, '_', palette::ACCENT_CYAN, None);
         }

@@ -39,8 +39,6 @@ pub struct NotificationItem {
     pub actions: Vec<NotificationAction>,
 }
 
-
-
 // ----------------------------------------------------------- semantic vfs (T10.1)
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,8 +169,6 @@ pub struct ProfileReport {
     pub suggestions: Vec<ProfileSuggestion>,
 }
 
-
-
 // ------------------------------------------------ Desktop Session (T13.0)
 
 /// Global desktop hotkey in antOS.
@@ -228,8 +224,6 @@ pub struct BootPipelineStatus {
     pub qemu_installed: bool,
     pub target_arch: String,
 }
-
-
 
 // ------------------------------------------------ Visual QA & Screencopy (T14.2)
 
@@ -548,7 +542,6 @@ pub struct UsbFlashReport {
 }
 
 // ------------------------------------------------------------- packages (antpkg)
-
 
 /// Application type classification for an antOS package (T25.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

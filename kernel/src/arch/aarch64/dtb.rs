@@ -169,7 +169,9 @@ fn scan_dtb_at(addr: u64) -> Option<FramebufferConfig> {
                 cursor += 1; // skip null byte
                 cursor = (cursor + 3) & !3; // align to 4 bytes
 
-                let node_name = core::str::from_utf8(&struct_block[name_start..cursor.saturating_sub(1)]).unwrap_or("");
+                let node_name =
+                    core::str::from_utf8(&struct_block[name_start..cursor.saturating_sub(1)])
+                        .unwrap_or("");
 
                 // Parse properties of this node
                 let mut is_simple_fb = false;
@@ -221,7 +223,9 @@ fn scan_dtb_at(addr: u64) -> Option<FramebufferConfig> {
                         } else if prop_name == "stride" && prop_len >= 4 {
                             stride = read_u32_be(prop_val, 0)? as usize;
                         } else if prop_name == "format" {
-                            if contains_str(prop_val, "r8g8b8") || contains_str(prop_val, "r8g8b8a8") {
+                            if contains_str(prop_val, "r8g8b8")
+                                || contains_str(prop_val, "r8g8b8a8")
+                            {
                                 pixel_fmt = PixelFormat::Rgb;
                             } else {
                                 pixel_fmt = PixelFormat::Bgr;
@@ -290,7 +294,11 @@ pub fn find_pcie_ecam() -> Option<(u64, u8, u8)> {
                 .find_compatible("pci-host-ecam-generic")
                 .into_iter()
                 .next()
-                .or_else(|| fdt.find_compatible("pci-host-cam-generic").into_iter().next());
+                .or_else(|| {
+                    fdt.find_compatible("pci-host-cam-generic")
+                        .into_iter()
+                        .next()
+                });
             if let Some(node) = node {
                 if let Some((base, _)) = node.reg() {
                     let (lo, hi) = node
@@ -426,12 +434,12 @@ pub fn find_gic() -> Option<GicInfo> {
     // Primary: the generic FDT parser (T28.8).
     for candidate in [dtb_base(), 0x4000_0000] {
         if let Some(fdt) = unsafe { super::fdt::from_ptr(candidate as *const u8) } {
-            let (node, is_v3) = if let Some(n) = fdt.find_compatible("arm,gic-v3").into_iter().next()
-            {
-                (Some(n), true)
-            } else {
-                (fdt.find_compatible("gic").into_iter().next(), false)
-            };
+            let (node, is_v3) =
+                if let Some(n) = fdt.find_compatible("arm,gic-v3").into_iter().next() {
+                    (Some(n), true)
+                } else {
+                    (fdt.find_compatible("gic").into_iter().next(), false)
+                };
             if let Some(node) = node {
                 if let Some((gicd_base, _)) = node.reg_at(0) {
                     let second_base = node.reg_at(1).map(|(a, _)| a).unwrap_or(0);
@@ -594,7 +602,10 @@ pub fn firmware_summary() -> alloc::string::String {
         .into_iter()
         .find_map(|c| unsafe { super::fdt::from_ptr(c as *const u8) });
     let Some(fdt) = fdt else {
-        let _ = write!(out, "firmware: sin DTB alcanzable (usando sondas heredadas)");
+        let _ = write!(
+            out,
+            "firmware: sin DTB alcanzable (usando sondas heredadas)"
+        );
         return out;
     };
 

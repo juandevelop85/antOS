@@ -2,9 +2,8 @@
 
 extern crate antos_protocol;
 
-use std::path::{Path, PathBuf};
-use anyhow::{bail, Context, Result};
 use crate::capability::{Catalog, Tier};
+use crate::cli::args::Opts;
 use crate::ctx::Ctx;
 use crate::grants::Grants;
 use crate::journal::{Outcome, Record};
@@ -13,7 +12,8 @@ use crate::planner::{
     openai_compat::OpenAiCompatPlanner, Planner,
 };
 use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN, RED, YELLOW};
-use crate::cli::args::Opts;
+use anyhow::{bail, Context, Result};
+use std::path::{Path, PathBuf};
 
 pub fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
     let mut project = None;
@@ -47,13 +47,19 @@ pub fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
         );
         println!(
             "  Proyecto activo:     {}",
-            paint(status.active_project.as_deref().unwrap_or("workspace"), CYAN)
+            paint(
+                status.active_project.as_deref().unwrap_or("workspace"),
+                CYAN
+            )
         );
         println!(
             "  Editor configurado:  {}",
             paint(&status.editor_command, GREEN)
         );
-        println!("  Dimensiones:         {}x{}", status.term_columns, status.term_rows);
+        println!(
+            "  Dimensiones:         {}x{}",
+            status.term_columns, status.term_rows
+        );
         println!(
             "  Panel lateral:       {}",
             if status.side_panel_visible {
@@ -332,4 +338,3 @@ pub fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // ------------------------------------------------------------------ dev / workspace (T20.1)
-

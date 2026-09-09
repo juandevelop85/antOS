@@ -3,8 +3,8 @@
 //! Parses 8-byte USB HID Boot Keyboard reports conforming to the
 //! Device Class Definition for HID 1.11, generating typed `InputEvent`s.
 
-use alloc::vec::Vec;
 use crate::input::{InputEvent, KeyCode};
+use alloc::vec::Vec;
 
 /// Maps standard USB HID Usage IDs (Usage Page 0x07) to `KeyCode`.
 pub fn hid_usage_to_key(usage: u8) -> KeyCode {

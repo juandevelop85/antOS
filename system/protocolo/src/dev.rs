@@ -104,8 +104,6 @@ pub struct DapSessionStatus {
     pub variables: Vec<DapVariable>,
 }
 
-
-
 // ----------------------------------------------------------- local ci & git hooks (T20.3)
 
 /// Execution status of a single CI pipeline stage.
@@ -251,8 +249,6 @@ pub struct BenchmarkDiffReport {
     pub auditor_verdict: String,
 }
 
-
-
 // ------------------------------------ live architecture & mermaid docs (T21.3)
 
 /// Diagram type for living architecture documentation (T21.3).
@@ -296,4 +292,3 @@ pub struct DocSyncReport {
     pub updated_paths: Vec<String>,
     pub message: String,
 }
-

@@ -100,7 +100,10 @@ impl ForgeEngine {
         }
 
         // Format 2: https://host/owner/repo
-        if let Some(rest) = trimmed.strip_prefix("https://").or_else(|| trimmed.strip_prefix("http://")) {
+        if let Some(rest) = trimmed
+            .strip_prefix("https://")
+            .or_else(|| trimmed.strip_prefix("http://"))
+        {
             let parts: Vec<&str> = rest.split('/').collect();
             if parts.len() >= 3 {
                 let host = parts[0];
@@ -257,20 +260,27 @@ impl ForgeEngine {
         let issue_num = clean_id_str.parse::<u64>().unwrap_or(1);
         let issues = Self::list_issues(workspace, state_dir)?;
 
-        let issue = issues.into_iter().find(|i| i.number == issue_num).unwrap_or(RemoteIssue {
-            id: issue_num * 100,
-            number: issue_num,
-            title: format!("Issue Remoto #{}", issue_num),
-            body: "Descripción importada automáticamente desde la forja Git remota.".into(),
-            state: "open".into(),
-            author: "remote-user".into(),
-            labels: vec!["importado".into()],
-            url: format!("https://github.com/origin/issues/{}", issue_num),
-            created_at: "2026-09-04T00:00:00Z".into(),
-        });
+        let issue = issues
+            .into_iter()
+            .find(|i| i.number == issue_num)
+            .unwrap_or(RemoteIssue {
+                id: issue_num * 100,
+                number: issue_num,
+                title: format!("Issue Remoto #{}", issue_num),
+                body: "Descripción importada automáticamente desde la forja Git remota.".into(),
+                state: "open".into(),
+                author: "remote-user".into(),
+                labels: vec!["importado".into()],
+                url: format!("https://github.com/origin/issues/{}", issue_num),
+                created_at: "2026-09-04T00:00:00Z".into(),
+            });
 
         // Determine prefix: T-GH or T-GL
-        let prefix = if issue.url.contains("gitlab") { "T-GL" } else { "T-GH" };
+        let prefix = if issue.url.contains("gitlab") {
+            "T-GL"
+        } else {
+            "T-GH"
+        };
         let ticket_id = format!("{}-{}", prefix, issue.number);
 
         let ticket_path = Self::generate_ticket_from_issue(workspace, &ticket_id, &issue)?;
@@ -288,7 +298,8 @@ impl ForgeEngine {
             .unwrap_or_else(|_| workspace.join("docs").join("tickets"));
         let _ = fs::create_dir_all(&tickets_dir);
 
-        let slug = issue.title
+        let slug = issue
+            .title
             .to_lowercase()
             .replace([' ', '/', ':', '_'], "-")
             .chars()
@@ -383,7 +394,11 @@ impl ForgeEngine {
             .ok()
             .and_then(|o| {
                 let b = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if b.is_empty() { None } else { Some(b) }
+                if b.is_empty() {
+                    None
+                } else {
+                    Some(b)
+                }
             })
             .unwrap_or_else(|| "feature/worktree-patch".into());
 
@@ -402,7 +417,10 @@ impl ForgeEngine {
 
         let mut storage = Self::load_storage(state_dir);
         let next_number = storage.created_prs.len() as u64 + 1;
-        let pr_url = format!("https://{}/{}/{}/pull/{}", repo_info.host, repo_info.owner, repo_info.name, next_number);
+        let pr_url = format!(
+            "https://{}/{}/{}/pull/{}",
+            repo_info.host, repo_info.owner, repo_info.name, next_number
+        );
 
         let pr = RemotePullRequest {
             id: next_number * 100,
@@ -467,7 +485,10 @@ impl ForgeEngine {
     /// Synthesizes structured markdown PR description.
     pub fn synthesize_pr_body(_workspace: &Path, head_branch: &str, title: &str) -> String {
         let issue_link = if let Some(pos) = head_branch.find("T-GH-") {
-            let num = head_branch[pos + 5..].chars().take_while(|c| c.is_ascii_digit()).collect::<String>();
+            let num = head_branch[pos + 5..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<String>();
             if !num.is_empty() {
                 format!("\n\nFixes #{}", num)
             } else {
@@ -522,21 +543,32 @@ impl ForgeEngine {
         }
 
         if let Ok(items) = serde_json::from_str::<Vec<GitHubIssueItem>>(body) {
-            let res = items.into_iter().map(|item| {
-                let author = item.user.map(|u| u.login).unwrap_or_else(|| "unknown".into());
-                let labels = item.labels.unwrap_or_default().into_iter().map(|l| l.name).collect();
-                RemoteIssue {
-                    id: item.id,
-                    number: item.number,
-                    title: item.title,
-                    body: item.body.unwrap_or_default(),
-                    state: item.state,
-                    author,
-                    labels,
-                    url: item.html_url,
-                    created_at: item.created_at,
-                }
-            }).collect();
+            let res = items
+                .into_iter()
+                .map(|item| {
+                    let author = item
+                        .user
+                        .map(|u| u.login)
+                        .unwrap_or_else(|| "unknown".into());
+                    let labels = item
+                        .labels
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|l| l.name)
+                        .collect();
+                    RemoteIssue {
+                        id: item.id,
+                        number: item.number,
+                        title: item.title,
+                        body: item.body.unwrap_or_default(),
+                        state: item.state,
+                        author,
+                        labels,
+                        url: item.html_url,
+                        created_at: item.created_at,
+                    }
+                })
+                .collect();
             return Ok(res);
         }
 
@@ -552,7 +584,8 @@ mod tests {
 
     #[test]
     fn test_parse_remote_url_formats() {
-        let r1 = ForgeEngine::parse_remote_url("git@github.com:juandevelop85/antOS.git").expect("r1");
+        let r1 =
+            ForgeEngine::parse_remote_url("git@github.com:juandevelop85/antOS.git").expect("r1");
         assert_eq!(r1.host, "github.com");
         assert_eq!(r1.owner, "juandevelop85");
         assert_eq!(r1.name, "antOS");
@@ -567,7 +600,8 @@ mod tests {
 
     #[test]
     fn test_generate_ticket_from_issue() {
-        let temp_dir = std::env::temp_dir().join(format!("test_forge_ticket_{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_forge_ticket_{}", std::process::id()));
         let _ = fs::create_dir_all(&temp_dir);
 
         let issue = RemoteIssue {
@@ -582,7 +616,8 @@ mod tests {
             created_at: "2026-09-04".into(),
         };
 
-        let path = ForgeEngine::generate_ticket_from_issue(&temp_dir, "T-GH-42", &issue).expect("ticket path");
+        let path = ForgeEngine::generate_ticket_from_issue(&temp_dir, "T-GH-42", &issue)
+            .expect("ticket path");
         assert!(path.exists());
 
         let content = fs::read_to_string(&path).expect("content");
@@ -595,7 +630,11 @@ mod tests {
 
     #[test]
     fn test_synthesize_pr_body() {
-        let body = ForgeEngine::synthesize_pr_body(Path::new("/tmp"), "ticket/T-GH-42-mux", "Fix multiplexing");
+        let body = ForgeEngine::synthesize_pr_body(
+            Path::new("/tmp"),
+            "ticket/T-GH-42-mux",
+            "Fix multiplexing",
+        );
         assert!(body.contains("Fixes #42"));
         assert!(body.contains("antFlow"));
         assert!(body.contains("cargo test --workspace"));
@@ -612,7 +651,8 @@ mod tests {
             Some("feat: test pr"),
             Some("master"),
             false,
-        ).expect("create pr");
+        )
+        .expect("create pr");
 
         assert_eq!(pr.number, 1);
         assert_eq!(pr.state, "open");

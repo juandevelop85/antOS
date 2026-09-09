@@ -13,7 +13,7 @@ use crate::grants::Grants;
 use crate::journal::{self, Outcome, Record};
 use crate::plan::{self, Plan, Step};
 use crate::planner::Planner;
-use crate::protocol::{BlastRadius, Enclosure, ExecutionResult, SessionHandler, Proposal};
+use crate::protocol::{BlastRadius, Enclosure, ExecutionResult, Proposal, SessionHandler};
 use crate::{exec, preview, sandbox, snapshot};
 use anyhow::{bail, Result};
 

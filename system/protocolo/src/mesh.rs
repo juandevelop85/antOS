@@ -39,4 +39,3 @@ pub struct MeshStatus {
     pub local_node: PeerNode,
     pub peers: Vec<PeerNode>,
 }
-

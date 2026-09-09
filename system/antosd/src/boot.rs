@@ -71,13 +71,19 @@ impl BootEngine {
         let img_path = Self::bios_image_path(workspace);
 
         let (kernel_elf_exists, kernel_elf_size_bytes) = if elf_path.exists() {
-            (true, std::fs::metadata(&elf_path).map(|m| m.len()).unwrap_or(0))
+            (
+                true,
+                std::fs::metadata(&elf_path).map(|m| m.len()).unwrap_or(0),
+            )
         } else {
             (false, 0)
         };
 
         let (bios_image_exists, bios_image_size_bytes) = if img_path.exists() {
-            (true, std::fs::metadata(&img_path).map(|m| m.len()).unwrap_or(0))
+            (
+                true,
+                std::fs::metadata(&img_path).map(|m| m.len()).unwrap_or(0),
+            )
         } else {
             (false, 0)
         };
@@ -97,7 +103,10 @@ impl BootEngine {
         let root = Self::find_repo_root(workspace);
         let kernel_dir = root.join("kernel");
         if !kernel_dir.exists() {
-            bail!("No se encontró el subdirectorio 'kernel/' en {}", root.display());
+            bail!(
+                "No se encontró el subdirectorio 'kernel/' en {}",
+                root.display()
+            );
         }
 
         // 1. Compilar kernel no_std
@@ -108,12 +117,18 @@ impl BootEngine {
             .context("Error al ejecutar 'cargo build' dentro de kernel/")?;
 
         if !build_status.success() {
-            bail!("Fallo la compilación cruzada del kernel (código {:?})", build_status.code());
+            bail!(
+                "Fallo la compilación cruzada del kernel (código {:?})",
+                build_status.code()
+            );
         }
 
         let elf_path = Self::kernel_elf_path(workspace);
         if !elf_path.exists() {
-            bail!("El binario ELF del kernel no fue generado en {}", elf_path.display());
+            bail!(
+                "El binario ELF del kernel no fue generado en {}",
+                elf_path.display()
+            );
         }
 
         // 2. Ejecutar builder para generar la imagen de disco BIOS
@@ -130,7 +145,10 @@ impl BootEngine {
 
         let img_path = Self::bios_image_path(workspace);
         if !img_path.exists() {
-            bail!("La imagen arrancable no fue generada en {}", img_path.display());
+            bail!(
+                "La imagen arrancable no fue generada en {}",
+                img_path.display()
+            );
         }
 
         Ok(img_path)
@@ -153,8 +171,14 @@ impl BootEngine {
 
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
-            if out.status.success() && (stdout.contains("antOS · kernel") || stdout.contains("Verificación de arranque exitosa")) {
-                return Ok(format!("✓ Arranque de kernel antOS verificado en QEMU:\n{}", stdout.trim()));
+            if out.status.success()
+                && (stdout.contains("antOS · kernel")
+                    || stdout.contains("Verificación de arranque exitosa"))
+            {
+                return Ok(format!(
+                    "✓ Arranque de kernel antOS verificado en QEMU:\n{}",
+                    stdout.trim()
+                ));
             } else {
                 bail!("Prueba de arranque fallida: {}\n{}", stdout, stderr);
             }
@@ -182,7 +206,10 @@ impl BootEngine {
             .output()?;
 
         if out.status.success() {
-            Ok(format!("✓ Kernel arrancó con éxito en QEMU (imagen: {})", img_path.display()))
+            Ok(format!(
+                "✓ Kernel arrancó con éxito en QEMU (imagen: {})",
+                img_path.display()
+            ))
         } else {
             bail!("No se detectó el banner de arranque del kernel en la salida serial de QEMU");
         }
@@ -201,7 +228,12 @@ impl BootEngine {
             let kernel_elf = root.join("kernel/target/aarch64-unknown-none/debug/kernel");
             if !kernel_elf.exists() {
                 let status = Command::new("cargo")
-                    .args(["build", "--target", "aarch64-unknown-none", "--manifest-path"])
+                    .args([
+                        "build",
+                        "--target",
+                        "aarch64-unknown-none",
+                        "--manifest-path",
+                    ])
                     .arg(root.join("kernel/Cargo.toml"))
                     .status()?;
                 if !status.success() {
@@ -228,7 +260,10 @@ impl BootEngine {
 
         let iso_script = root.join("system/iso/build-iso.sh");
         if !iso_script.exists() {
-            bail!("No se encontró el script de construcción de ISO en {}", iso_script.display());
+            bail!(
+                "No se encontró el script de construcción de ISO en {}",
+                iso_script.display()
+            );
         }
 
         let status = Command::new("bash")
@@ -254,7 +289,10 @@ impl BootEngine {
         let root = Self::find_repo_root(workspace);
         let rel_script = root.join("system/build-release.sh");
         if !rel_script.exists() {
-            bail!("No se encontró el script de empaquetado en {}", rel_script.display());
+            bail!(
+                "No se encontró el script de empaquetado en {}",
+                rel_script.display()
+            );
         }
 
         let out = Command::new("bash")
