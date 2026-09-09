@@ -19,17 +19,28 @@
         antos-barra = final.callPackage ./system/nixos/barra.nix { };
       };
 
-      # Lo común a todas las variantes de la máquina.
-      base = [
-        ./system/nixos/configuracion.nix
+      # Los módulos de antOS y su overlay. Sin la configuración de la máquina,
+      # para que el instalador (que trae la suya) pueda reutilizarlos.
+      nucleo = [
         self.nixosModules.default
         self.nixosModules.desktop
         { nixpkgs.overlays = [ overlayAntos ]; }
       ];
 
-      maquina = extra: nixpkgs.lib.nixosSystem {
-        system = "aarch64-linux";
+      # Lo común a las variantes que SÍ son "la máquina antOS".
+      base = [ ./system/nixos/configuracion.nix ] ++ nucleo;
+
+      maquina = extra: maquinaPara "aarch64-linux" extra;
+      maquinaPara = system: extra: nixpkgs.lib.nixosSystem {
+        inherit system;
         modules = base ++ extra;
+      };
+
+      # La ISO parte de `nucleo` (sin `configuracion.nix`): el perfil del
+      # instalador aporta arranque, particiones y autologin propios.
+      isoPara = system: nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = nucleo ++ [ ./system/nixos/iso.nix ];
       };
     in
     {
@@ -37,6 +48,9 @@
         default = pkgs.callPackage ./system/nixos/paquete.nix { };
         antosd = pkgs.callPackage ./system/nixos/paquete.nix { };
         antos-barra = pkgs.callPackage ./system/nixos/barra.nix { };
+
+        # ISO instalable de antOS Linux (Método 5), por arquitectura.
+        iso = (isoPara pkgs.stdenv.hostPlatform.system).config.system.build.isoImage;
       });
 
       # El entorno para compilar la barra de intención.
@@ -62,12 +76,18 @@
       # La misma máquina, arrancable en QEMU.
       nixosConfigurations.antos-vm = maquina [ ./system/nixos/vm.nix ];
 
-      # La máquina con el escritorio antOS Linux activado (T30.1). La imagen
-      # gráfica de VM/ISO es T30.2; aquí sirve para evaluar el camino
-      # `services.antos.desktop.enable = true`.
+      # La máquina con el escritorio antOS Linux activado (T30.1). Sirve para
+      # evaluar el camino `services.antos.desktop.enable = true` en hardware.
       nixosConfigurations.antos-desktop = maquina [
         ./system/nixos/arranque.nix
         { services.antos.desktop.enable = true; }
       ];
+
+      # La VM gráfica: arranca directa al escritorio antOS (T30.2).
+      # `system/arrancar-vm.sh --grafica` construye y lanza esta.
+      nixosConfigurations.antos-desktop-vm = maquina [ ./system/nixos/vm-grafica.nix ];
+
+      # La ISO instalable de antOS Linux (T30.2). `nix build .#iso`.
+      nixosConfigurations.antos-iso = isoPara "aarch64-linux";
     };
 }

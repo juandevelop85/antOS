@@ -20,6 +20,15 @@ Esta guía proporciona instrucciones detalladas, actualizadas y verificadas paso
 
 ---
 
+> 🧭 **Esta guía cubre el kernel _bare-metal_ (`no_std`) de antOS** (Método 6 del
+> manual). El **escritorio antOS Linux** (Fase 30) es otra cosa: una **ISO de
+> NixOS** (`nix build .#iso` → `antos-linux-*.iso`) que arranca a la sesión
+> Wayland con `antos-barra`. Se emula como **cualquier ISO de Linux**: en
+> QEMU/UTM/VirtualBox, Display **`virtio-gpu-pci`** (o `virtio-vga-gl`), entrada
+> **USB** (`usb-tablet`), ≥ 3 GiB de RAM, aceleración si hay `/dev/kvm`. No
+> necesita puerto serie ni las advertencias de abajo. Para probar rápido:
+> `./system/arrancar-vm.sh --grafica` (VNC en `localhost:5901`).
+
 ## 1. Arquitectura Gráfica vs Serie (Comprender la Salida de Pantalla)
 
 Antes de configurar cualquier máquina virtual, es fundamental entender por dónde emite sus mensajes el kernel bare-metal de antOS según la arquitectura objetivo:

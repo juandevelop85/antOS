@@ -205,16 +205,38 @@ nix eval .#nixosConfigurations.antos-desktop.config.system.build.toplevel.drvPat
 nix build .#antos-barra          # -> result/bin/antos-barra
 ```
 
-> La **imagen gráfica de VM/ISO** que arranca directa a este escritorio
-> (`virtio-gpu` + Mesa) es el ticket **T30.2**. Este método deja el módulo y el
-> paquete listos; hoy `./system/arrancar-vm.sh` sigue siendo headless.
-
 Sobre un Linux **no-NixOS** (desarrollo), la sesión se lanza con el guion
 equivalente, que instala la misma configuración de Labwc:
 
 ```bash
 system/desktop/start-session.sh          # requiere `labwc` en el PATH
 ```
+
+#### VM gráfica e ISO instalable de antOS Linux — T30.2
+
+Tres variantes de máquina (flake):
+
+| Salida | Qué es | Comando |
+| :--- | :--- | :--- |
+| `nixosConfigurations.antos-vm` | VM headless (serie), para CI | `./system/arrancar-vm.sh` |
+| `nixosConfigurations.antos-desktop-vm` | VM **gráfica**: arranca directa al escritorio antOS (`virtio-gpu` + `usb-tablet`, 3 GiB) | `./system/arrancar-vm.sh --grafica` |
+| `packages.<arch>.iso` / `nixosConfigurations.antos-iso` | **ISO instalable de antOS Linux** (`installation-cd-graphical-base` + `services.antos.desktop`) | `nix build .#iso` → `result/iso/antos-linux-*.iso` |
+
+```bash
+# VM gráfica (construye en contenedor, arranca con VNC en localhost:5901)
+./system/arrancar-vm.sh --grafica
+
+# ISO instalable de antOS Linux (Método 5) — NO es el Live del kernel
+# bare-metal de `antos usb build` (Método 6).
+nix build .#iso
+```
+
+> ⚠️ Bajo emulación (sin `/dev/kvm`) el arranque gráfico es **lento**. Para una
+> ventana nativa en macOS, construye la imagen de disco en el contenedor y
+> ejecuta QEMU en el host con `-device virtio-gpu-pci -display cocoa
+> -device qemu-xhci -device usb-tablet`. En **UTM / VirtualBox**: importa la
+> ISO como unidad, Display = `virtio-gpu-pci`, Input = USB. Resultado esperado:
+> el escritorio antOS con la barra `antos-barra` anclada arriba.
 
 ---
 

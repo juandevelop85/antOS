@@ -576,7 +576,7 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 29** | [T29.2](docs/tickets/T29.2-ejecucion-de-elf-y-coreutils-minimas-no-std.md) · Ejecución de ELF Externos y Coreutils Mínimas `no_std` | ⏳ Pendiente |
 | **Fase 29** | [T29.3](docs/tickets/T29.3-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) · Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
 | **Fase 30** *(antOS Linux · driver diario)* | [T30.1](docs/tickets/T30.1-paquete-nix-de-antos-barra-y-modulo-de-sesion-wayland-declarativo.md) · Paquete Nix de `antos-barra` y Módulo de Sesión Wayland Declarativo | 🔄 En Progreso |
-| **Fase 30** | [T30.2](docs/tickets/T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) · Imagen Gráfica de VM e ISO de antOS Linux | ⏳ Pendiente |
+| **Fase 30** | [T30.2](docs/tickets/T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) · Imagen Gráfica de VM e ISO de antOS Linux | 🔄 En Progreso |
 | **Fase 30** | [T30.3](docs/tickets/T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) · Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | ⏳ Pendiente |
 | **Fase 30** | [T30.4](docs/tickets/T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) · Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | ⏳ Pendiente |
 | **Fase 30** | [T30.5](docs/tickets/T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) · Instalación de antOS Linux en Hardware Real y Dual-Boot | ⏳ Pendiente |
