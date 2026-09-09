@@ -168,7 +168,10 @@ propio driver gráfico, compositor de escritorio nativo y un runtime/shell de es
 **Fases 27-28** añaden arranque Limine real por UEFI, pila PCIe/USB xHCI y HID bare-metal, y
 periféricos nativos (VirtIO-Input, GIC v2/v3, `virtio-gpu-pci`/`ramfb`, descubrimiento por DTB/ACPI)
 a paridad entre x86_64 y AArch64; el kernel arranca hasta el shell interactivo en **QEMU**,
-**VirtualBox ARM64** y **UTM**. El backlog
-íntegro y actualizado de las 28 fases (99 tickets) vive en [`docs/tickets/README.md`](tickets/README.md);
+**VirtualBox ARM64** y **UTM**. La **Fase 29** (en curso) lleva la superficie de comandos al
+shell soberano: framework de despacho, ejecución de programas externos, coreutils `no_std`,
+puente `antos`⇄host por IPC y edición de línea con historial y autocompletado. El backlog
+íntegro y actualizado (28 fases completadas + Fase 29 planificada, 104 tickets) vive en
+[`docs/tickets/README.md`](tickets/README.md);
 el resumen navegable por fase está en el [`README.md`](../README.md) raíz del repositorio, y el registro
 cronológico de lo entregado en cada fase, en [`CHANGELOG.md`](../CHANGELOG.md).

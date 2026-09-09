@@ -107,3 +107,8 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 28** | [T28.8](T28.8-descubrimiento-por-firmware-dtb-acpi-y-bring-up-sin-direcciones-hardcodeadas.md) | Descubrimiento por Firmware (DTB/ACPI) y Bring-Up sin Direcciones Hardcodeadas | ✅ Completado |
 | **Fase 28** | [T28.9](T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) | Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | ✅ Completado |
 | **Fase 28** | [T28.10](T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) | Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | ✅ Completado |
+| **Fase 29** | [T29.1](T29.1-framework-de-despacho-de-comandos-y-parser-de-linea-en-el-shell-soberano.md) | Framework de Despacho de Comandos y Parser de Línea en el Shell Soberano | ⏳ Pendiente |
+| **Fase 29** | [T29.2](T29.2-ejecucion-de-programas-externos-sys-spawn-con-argv-env-y-codigos-de-salida.md) | Ejecución de Programas Externos: `SYS_SPAWN` con `argv`/`env`, `wait` y Códigos de Salida | ⏳ Pendiente |
+| **Fase 29** | [T29.3](T29.3-coreutils-soberanas-no-std-para-el-shell-bare-metal.md) | Coreutils Soberanas `no_std` para el Shell Bare-Metal | ⏳ Pendiente |
+| **Fase 29** | [T29.4](T29.4-puente-de-comandos-antos-host-por-ipc.md) | Puente de Comandos `antos` ⇄ Host por IPC (Superficie Completa del CLI) | ⏳ Pendiente |
+| **Fase 29** | [T29.5](T29.5-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) | Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
