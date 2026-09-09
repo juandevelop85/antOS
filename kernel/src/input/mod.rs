@@ -810,9 +810,15 @@ impl EvdevAccumulator {
             let ry = self.abs_y.unwrap_or(self.last_abs_y);
             self.last_abs_x = rx;
             self.last_abs_y = ry;
+            // Emit the canonical 0..=32767 range that `InputEvent::MouseAbsolute`
+            // carries (the same the USB-HID path normalises to). `Cursor::move_abs`
+            // scales that to screen pixels; scaling to pixels *here* as well
+            // double-applied it and squashed a full sweep into ~1/32 of the
+            // screen. `to_screen(_, 32768)` yields `raw * 32767 / span`.
+            let _ = screen;
             out.push(InputEvent::MouseAbsolute {
-                x: self.abs_x_info.to_screen(rx, screen.0),
-                y: self.abs_y_info.to_screen(ry, screen.1),
+                x: self.abs_x_info.to_screen(rx, 32768),
+                y: self.abs_y_info.to_screen(ry, 32768),
             });
         }
 
