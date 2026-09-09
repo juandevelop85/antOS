@@ -259,6 +259,39 @@ antos lsp config # genera la config del LSP para nvim/vscode/helix/emacs
 antpkg install <paquete>       # o `antos app install <flatpak>`
 ```
 
+#### Verificación del escritorio — T30.4
+
+**Smoke automatizado** (`system/desktop/smoke.sh`, *job* `antos-linux-desktop`
+de CI): arranca un compositor `wlroots` sin pantalla (`labwc` + backend
+headless) + `antosd` + `antos-barra` y comprueba `zwlr_layer_shell_v1`, el
+socket IPC, que la barra sobrevive y una captura `grim` no vacía. Ejecutable en
+un Linux de desarrollo:
+
+```bash
+ANTOS_BIN=target/release/antos \
+ANTOS_BARRA_BIN=system/barra/target/release/antos-barra \
+  bash system/desktop/smoke.sh        # -> "SMOKE OK" o "SMOKE FALLO: <causa>"
+```
+
+**Integración host** (sin GUI, corre en cualquier plataforma):
+`cargo test -p antosd --test desktop_ipc` — lanza `antos demonio`, le envía una
+`Request::Intent` por el socket UNIX igual que la barra, y verifica que
+despacha y emite el flujo de `Event` (`Start` → terminal) y que responde a
+`QueryGitStatus` (la insignia de git de la barra).
+
+**Checklist manual** en la VM gráfica de T30.2:
+
+| # | Comprobación | Esperado |
+| :- | :--- | :--- |
+| 1 | La sesión arranca por `greetd` sin login manual | Escritorio antOS visible; `systemctl status greetd` activo |
+| 2 | `systemctl status antos-doctor` | `active (exited)` sin fallos de recinto |
+| 3 | `pgrep -a antos-barra` | La barra corre; anclada arriba por `wlr-layer-shell` |
+| 4 | `Super+Space` | La barra toma foco de teclado (modo *on-demand*) |
+| 5 | Escribir una intención + `Enter` | El panel refleja el estado de `antFlow` en vivo (evento `FlowTransition`) |
+| 6 | `Super+A` / `Super+Return` / `Super+W` / `Super+Q` | Panel de agentes / terminal / `antos dev` / cerrar ventana |
+| 7 | `grim ~/shot.png` | PNG no vacío del escritorio |
+| 8 | `nvim` sobre un proyecto del workspace | `:LspInfo` muestra `antos_lsp` adjuntado; diagnósticos/hover |
+
 ---
 
 ### Método 6: Núcleo Bare-Metal `no_std` Multi-Arquitectura (x86_64 y AArch64) en QEMU y UEFI

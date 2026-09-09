@@ -27,7 +27,10 @@ Esta guía proporciona instrucciones detalladas, actualizadas y verificadas paso
 > QEMU/UTM/VirtualBox, Display **`virtio-gpu-pci`** (o `virtio-vga-gl`), entrada
 > **USB** (`usb-tablet`), ≥ 3 GiB de RAM, aceleración si hay `/dev/kvm`. No
 > necesita puerto serie ni las advertencias de abajo. Para probar rápido:
-> `./system/arrancar-vm.sh --grafica` (VNC en `localhost:5901`).
+> `./system/arrancar-vm.sh --grafica` (VNC en `localhost:5901`). El **checklist
+> de verificación** del escritorio (barra anclada, atajos, IPC en vivo, captura
+> `grim`) y el *smoke* headless (`system/desktop/smoke.sh`) están en
+> `docs/manual-de-comandos.md` (Método 5 · T30.4).
 
 ## 1. Arquitectura Gráfica vs Serie (Comprender la Salida de Pantalla)
 

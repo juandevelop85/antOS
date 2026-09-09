@@ -288,3 +288,46 @@ jobs:
 
       - name: Input-injection smoke test
         run: ${{ matrix.script }} --test-input --kbd ${{ matrix.kbd }} --gpu ${{ matrix.gpu }}
+
+  # ──────────────────────── Escritorio antOS Linux · smoke headless (T30.4)
+  # Arranca un compositor wlroots sin pantalla + antosd + antos-barra y
+  # verifica: global zwlr_layer_shell_v1, socket IPC vivo, barra en pie y una
+  # captura `grim` no vacía. El detalle está en system/desktop/smoke.sh.
+  antos-linux-desktop:
+    name: "Escritorio antOS Linux · smoke headless"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install Wayland desktop dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            labwc grim wayland-utils \
+            libgtk-4-dev libgtk4-layer-shell-dev \
+            pkg-config
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            system/barra/target
+          key: desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: desktop-
+
+      - name: Build antos (daemon/CLI) and antos-barra
+        run: |
+          cargo build -p antosd --release
+          cargo build --manifest-path system/barra/Cargo.toml --release
+
+      - name: Headless desktop smoke
+        run: |
+          export ANTOS_BIN="$PWD/target/release/antos"
+          export ANTOS_BARRA_BIN="$PWD/system/barra/target/release/antos-barra"
+          bash system/desktop/smoke.sh
