@@ -119,4 +119,50 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | 🔄 En Progreso |
 | **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | 🔄 En Progreso |
 | **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | 🔄 En Progreso |
-| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso |
+| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso || **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ⏳ Pendiente |
+| **Fase 31** | [T31.2](T31.2-ciclo-de-vida-y-limites-de-recursos-del-servidor-de-consola-web.md) | Ciclo de Vida y Límites de Recursos del Servidor de Consola Web | ⏳ Pendiente |
+| **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ⏳ Pendiente |
+| **Fase 31** | [T31.4](T31.4-aislamiento-real-de-microvm-y-eliminacion-de-inyeccion-de-shell.md) | Aislamiento Real de MicroVM y Eliminación de Inyección de Shell | ⏳ Pendiente |
+| **Fase 31** | [T31.5](T31.5-identidad-criptografica-real-en-antmesh.md) | Identidad Criptográfica Real y Tokens de Emparejamiento en antMesh | ⏳ Pendiente |
+| **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ⏳ Pendiente |
+| **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ⏳ Pendiente |
+| **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ⏳ Pendiente |
+| **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ⏳ Pendiente |
+| **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ⏳ Pendiente |
+| **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ⏳ Pendiente |
+| **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ⏳ Pendiente |
+| **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ⏳ Pendiente |
+| **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ⏳ Pendiente |
+| **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ⏳ Pendiente |
+| **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ⏳ Pendiente |
+
+---
+
+## Fase 31 · Auditoría de Código (September 2026)
+
+Revisión completa del árbol (`system/`, `kernel/`, `builder/`, `user/`) sin
+modificar código. Los dieciséis tickets de arriba recogen lo encontrado,
+agrupados en tres bloques:
+
+- **Defectos de seguridad y corrección (T31.1 – T31.9).** Bypass de
+  autenticación en la consola web, tokens predecibles, desbordamientos
+  aritméticos en el cargador ELF del kernel, ejecución sin aislamiento en
+  `vm exec`, inyección de shell en la detección de herramientas, identidad de
+  antMesh derivada de un hash no criptográfico, secretos en claro, pánicos por
+  `unwrap` y límites ausentes en el socket IPC y en el intérprete WASM.
+- **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
+  `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
+  en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
+  kernel para ambas arquitecturas sí pasan. Aparte, los 86 tests escritos en
+  el kernel no compilan: falta el arnés `no_std` y no hay trabajo de CI que
+  los ejecute.
+- **Mejoras estructurales (T31.11 – T31.15).** Retirada de la capa `syso` y de
+  los 45 símbolos deprecados, finalización de la nomenclatura en inglés,
+  cobertura de tests de la capa CLI y de la barra, alineación de las cabeceras
+  de módulo con lo realmente implementado, y descomposición de los ficheros que
+  han vuelto a superar las 1500 líneas.
+
+Orden sugerido de ataque: **T31.1 → T31.4 → T31.10 → T31.16 → T31.3 → T31.5
+→ T31.6**, y el resto según convenga. T31.10 y T31.16 conviene abordarlos
+pronto: sin CI verde y sin tests de kernel ejecutables, las correcciones de
+T31.3 no tienen forma de verificarse.
