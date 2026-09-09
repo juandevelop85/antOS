@@ -107,20 +107,7 @@ impl MeshEngine {
     /// (T31.1, T31.5).
     fn save_keypair(workspace: &Path, keypair: &Ed25519Keypair) -> Result<()> {
         let path = Self::identity_key_path(workspace);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, keypair.secret_hex())?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&path)?.permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(&path, perms)?;
-        }
-
-        Ok(())
+        crypto::write_secret_file(&path, keypair.secret_hex().as_bytes())
     }
 
     /// Loads the node's private key. Fails loudly if it's missing — unlike
@@ -415,21 +402,11 @@ impl MeshEngine {
         serde_json::from_str(&data).unwrap_or_default()
     }
 
-    /// Persists pairing tokens with owner-only permissions (T31.5), mirroring
+    /// Persists pairing tokens atomically with owner-only permissions
+    /// (T31.5, T31.6), via the crate-wide hardened writer shared with
     /// `Vault::save` and the web console's session storage.
     fn save_stored_tokens(path: &Path, stored: &[StoredPairingToken]) -> Result<()> {
-        let json = serde_json::to_string_pretty(stored)?;
-        fs::write(path, json)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(path)?.permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(path, perms)?;
-        }
-
-        Ok(())
+        crypto::write_secret_file(path, serde_json::to_string_pretty(stored)?.as_bytes())
     }
 }
 

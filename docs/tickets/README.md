@@ -125,7 +125,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ✅ Completado |
 | **Fase 31** | [T31.4](T31.4-aislamiento-real-de-microvm-y-eliminacion-de-inyeccion-de-shell.md) | Aislamiento Real de MicroVM y Eliminación de Inyección de Shell | ✅ Completado |
 | **Fase 31** | [T31.5](T31.5-identidad-criptografica-real-en-antmesh.md) | Identidad Criptográfica Real y Tokens de Emparejamiento en antMesh | ✅ Completado |
-| **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ⏳ Pendiente |
+| **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ✅ Completado |
 | **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ⏳ Pendiente |
 | **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ⏳ Pendiente |
 | **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ⏳ Pendiente |
@@ -165,8 +165,13 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   sobre `ed25519-dalek`, clave privada `0600` separada de la identidad
   pública, tokens de emparejamiento con 128 bits de entropía y un solo uso,
   `md5_hash` retirada por completo, T9.1 corregido con el estado real del
-  transporte), secretos en claro, pánicos por `unwrap` y límites ausentes en
-  el socket IPC y en el intérprete WASM.
+  transporte) y secretos en claro en la bóveda (**✅ T31.6 resuelto**:
+  `vault.json` cifrado con ChaCha20-Poly1305, clave AEAD separada en
+  `vault.key`, escritura atómica unificada en `crypto::write_secret_file` y
+  aplicada también a las sesiones web y la identidad de antMesh, `SecretValue`
+  con `Debug` redactado y borrado de memoria al soltarse, migración
+  transparente de bóvedas en claro previas), pánicos por `unwrap` y límites
+  ausentes en el socket IPC y en el intérprete WASM.
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
   `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
   en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
@@ -180,7 +185,7 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
-~~T31.5~~ **→ T31.10 → T31.16 → T31.6**, y el resto según convenga. T31.10 y
-T31.16 conviene
-abordarlos pronto: sin CI verde y sin tests de kernel ejecutables, las
-correcciones de T31.3 no tienen forma de verificarse.
+~~T31.5~~ → ~~T31.6~~ **→ T31.10 → T31.16**, y el resto según convenga.
+T31.10 y T31.16 conviene abordarlos pronto: sin CI verde y sin tests de
+kernel ejecutables, las correcciones de T31.3 no tienen forma de
+verificarse.

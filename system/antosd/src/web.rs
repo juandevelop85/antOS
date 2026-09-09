@@ -101,7 +101,7 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
 // `secure_random_bytes`, `to_hex`, and `constant_time_eq` moved to
 // `crate::crypto` (T31.5), which `mesh.rs` now needs too — see that module
 // for the doc comments.
-use crate::crypto::{constant_time_eq, secure_random_bytes, to_hex};
+use crate::crypto::{self, constant_time_eq, secure_random_bytes, to_hex};
 
 /// Seconds since the Unix epoch, without panicking if the system clock is
 /// ever set before 1970 (the wider sweep of this pattern is T31.7).
@@ -363,23 +363,12 @@ impl WebEngine {
         StoredSessions::default()
     }
 
-    /// Persists sessions with owner-only permissions, mirroring `Vault::save`.
+    /// Persists sessions atomically with owner-only permissions (T31.6), via
+    /// the crate-wide hardened writer shared with `Vault::save` and
+    /// `mesh.rs`'s identity/token storage.
     fn save_sessions(state_dir: &Path, stored: &StoredSessions) -> Result<()> {
         let path = Self::sessions_path(state_dir);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, serde_json::to_string_pretty(stored)?)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs::metadata(&path)?.permissions();
-            perms.set_mode(0o600);
-            fs::set_permissions(&path, perms)?;
-        }
-
-        Ok(())
+        crypto::write_secret_file(&path, serde_json::to_string_pretty(stored)?.as_bytes())
     }
 
     /// Queries current status of the web console.

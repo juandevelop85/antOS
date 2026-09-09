@@ -27,3 +27,12 @@ libc = "0.2"
 # implementación casera es un riesgo, no un ahorro. `ed25519-dalek` es la
 # biblioteca de referencia del ecosistema Rust para esta curva.
 ed25519-dalek = "2"
+# Cifrado en reposo de la bóveda de secretos (T31.6). AEAD auténtico, no un
+# XOR casero: ChaCha20-Poly1305 es la cifra de referencia del ecosistema
+# RustCrypto, sin dependencias de aceleración de hardware específicas de
+# plataforma (a diferencia de AES-GCM sin soporte AES-NI).
+chacha20poly1305 = "0.10"
+# Higiene de memoria de secretos (T31.6): borra el búfer de un valor en
+# cuanto se suelta, en vez de confiar en que nadie más lo lea antes de que
+# el asignador reutilice esa memoria.
+zeroize = "1"

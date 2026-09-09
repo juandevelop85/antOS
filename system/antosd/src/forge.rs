@@ -136,8 +136,9 @@ impl ForgeEngine {
                 ForgeKind::Generic => "FORGE_TOKEN",
             };
             if let Some(tok) = vault.secrets.get(key) {
-                if !tok.trim().is_empty() {
-                    return Some(tok.trim().to_string());
+                let exposed = tok.expose().trim();
+                if !exposed.is_empty() {
+                    return Some(exposed.to_string());
                 }
             }
         }
