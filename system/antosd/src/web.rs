@@ -98,34 +98,10 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
     out
 }
 
-/// Reads `n` bytes of OS-provided cryptographic randomness from `/dev/urandom`
-/// (present on both macOS and Linux, the two supported hosts). Session tokens
-/// must never be derived from the clock, a label, or any other predictable
-/// input — see T31.1.
-fn secure_random_bytes(n: usize) -> Result<Vec<u8>> {
-    let mut f = fs::File::open("/dev/urandom").context("opening /dev/urandom for secure token generation")?;
-    let mut buf = vec![0u8; n];
-    f.read_exact(&mut buf).context("reading secure randomness from /dev/urandom")?;
-    Ok(buf)
-}
-
-fn to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Constant-time comparison of two equal-length, hex-encoded digests, so that
-/// token validation does not leak a stored hash through timing side-channels.
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    let (ab, bb) = (a.as_bytes(), b.as_bytes());
-    if ab.len() != bb.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in ab.iter().zip(bb.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
+// `secure_random_bytes`, `to_hex`, and `constant_time_eq` moved to
+// `crate::crypto` (T31.5), which `mesh.rs` now needs too — see that module
+// for the doc comments.
+use crate::crypto::{constant_time_eq, secure_random_bytes, to_hex};
 
 /// Seconds since the Unix epoch, without panicking if the system clock is
 /// ever set before 1970 (the wider sweep of this pattern is T31.7).

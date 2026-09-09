@@ -26,7 +26,7 @@ pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("uso: antos mesh connect <IP:PUERTO|MULTIADDR>"))?;
             let peer = engine.connect_peer(&ctx.workspace, addr)?;
             println!(
-                "\n{} Conectado al nodo peer en la malla antMesh.",
+                "\n{} Nodo peer registrado en antMesh (registro local; sin cifrado ni verificación de identidad — T31.5).",
                 paint("✓", GREEN)
             );
             println!("  • Nodo ID:    {}", paint(&peer.id, BOLD));
@@ -74,7 +74,7 @@ pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
             let status = engine.status(&ctx.workspace)?;
             println!(
                 "\n{}",
-                paint("antOS · Red P2P Cifrada antMesh (T9.1)", BOLD)
+                paint("antOS · Registro de Nodos antMesh (T9.1 — sin transporte cifrado aún, T31.5)", BOLD)
             );
             println!(
                 "  Espacio de trabajo: {}\n",

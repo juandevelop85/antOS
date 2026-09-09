@@ -1426,7 +1426,7 @@ pub fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(t.active_pair_session.as_deref().unwrap_or("inactiva"), CYAN)
             );
             println!(
-                "  • Nodos antMesh:        {} vecinos descubiertos",
+                "  • Nodos antMesh:        {} registrados manualmente",
                 t.mesh_peers_count
             );
             println!(

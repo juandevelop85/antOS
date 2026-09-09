@@ -15,6 +15,7 @@ pub mod capability;
 pub mod ci;
 pub mod cli;
 pub mod collab;
+pub mod crypto;
 pub mod ctx;
 pub mod desktop;
 pub mod dev_tui;
