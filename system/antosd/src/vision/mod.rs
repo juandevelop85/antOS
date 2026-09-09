@@ -20,7 +20,7 @@ impl VisionEngine {
         let file_header_size = 14u32;
         let dib_header_size = 40u32;
         let pixel_offset = file_header_size + dib_header_size;
-        let image_size = (width * height * 4) as u32;
+        let image_size = width * height * 4;
         let file_size = pixel_offset + image_size;
 
         let mut bmp = Vec::with_capacity(file_size as usize);
@@ -45,7 +45,7 @@ impl VisionEngine {
         bmp.extend_from_slice(&0u32.to_le_bytes()); // Important colors
 
         // --- Pixel Data (convert RGBA to BGRA) ---
-        for chunk in rgba.chunks_exact(4) {
+        for chunk in rgba.as_chunks::<4>().0 {
             let r = chunk[0];
             let g = chunk[1];
             let b = chunk[2];
@@ -63,7 +63,7 @@ impl VisionEngine {
     pub fn encode_base64(data: &[u8]) -> String {
         const CHARSET: &[u8; 64] =
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        let mut result = String::with_capacity((data.len() + 2) / 3 * 4);
+        let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
 
         for chunk in data.chunks(3) {
             let b0 = chunk[0] as usize;
@@ -112,7 +112,7 @@ impl VisionEngine {
                     pixels[idx + 1] = 24;
                     pixels[idx + 2] = 37;
                     pixels[idx + 3] = 255;
-                } else if y >= 60 && y <= 620 && x >= 100 && x <= 1180 {
+                } else if (60..=620).contains(&y) && (100..=1180).contains(&x) {
                     // Ventana de aplicación enfocada (#1e1e2e)
                     if y < 90 {
                         // Barra de título (#313244)

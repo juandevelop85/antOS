@@ -95,7 +95,7 @@ pub fn cmd_vfs(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!(
                         "  {} {} ({}):",
                         paint("●", YELLOW),
-                        paint(*cat, BOLD),
+                        paint(cat, BOLD),
                         cat_syms.len()
                     );
                     for s in cat_syms {

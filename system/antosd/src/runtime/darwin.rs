@@ -18,6 +18,12 @@ pub struct DarwinRuntime {
     hypervisor_available: bool,
 }
 
+impl Default for DarwinRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DarwinRuntime {
     pub fn new() -> Self {
         Self {

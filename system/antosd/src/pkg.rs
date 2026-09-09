@@ -43,7 +43,7 @@ pub mod crypto {
         }
         msg.extend_from_slice(&bit_len.to_be_bytes());
 
-        for chunk in msg.chunks_exact(64) {
+        for chunk in msg.as_chunks::<64>().0 {
             let mut w = [0u32; 64];
             for i in 0..16 {
                 w[i] = u32::from_be_bytes([
@@ -843,10 +843,8 @@ impl PackageEngine {
                             warnings.push("Campo 'Categories' debería terminar con punto y coma ';' según especificación XDG".to_string());
                         }
                     }
-                    "MimeType" => {
-                        if !value.ends_with(';') {
-                            warnings.push("Campo 'MimeType' debería terminar con punto y coma ';' según especificación XDG".to_string());
-                        }
+                    "MimeType" if !value.ends_with(';') => {
+                        warnings.push("Campo 'MimeType' debería terminar con punto y coma ';' según especificación XDG".to_string());
                     }
                     _ => {}
                 }

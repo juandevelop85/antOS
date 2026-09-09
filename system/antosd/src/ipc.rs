@@ -433,7 +433,7 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
 
                 let mut cmd = std::process::Command::new("git");
                 cmd.current_dir(diff_dir)
-                    .args(&["diff", target.as_deref().unwrap_or("HEAD")]);
+                    .args(["diff", target.as_deref().unwrap_or("HEAD")]);
                 if !ceiling_val.is_empty() {
                     cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
                 }

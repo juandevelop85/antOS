@@ -204,7 +204,7 @@ impl ProcessWatchdog {
         let pid = child.id();
 
         loop {
-            if let Some(_) = child.try_wait()? {
+            if child.try_wait()?.is_some() {
                 self.cleanup();
                 return child
                     .wait_with_output()
@@ -339,9 +339,11 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
         fs::create_dir_all(&temp_dir).expect("create tempdir");
 
-        let mut custom = ResourceQuota::default();
-        custom.timeout_secs = 45;
-        custom.max_memory_mb = 512;
+        let custom = ResourceQuota {
+            timeout_secs: 45,
+            max_memory_mb: 512,
+            ..Default::default()
+        };
 
         save_quota(&temp_dir, &custom).expect("save");
         let loaded = load_quota(&temp_dir).expect("load");

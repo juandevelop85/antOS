@@ -228,7 +228,7 @@ impl BenchEngine {
             let wt_path = state_dir
                 .join("worktrees")
                 .join(format!("bench-baseline-{}", base_branch));
-            let _ = fs::create_dir_all(&state_dir.join("worktrees"));
+            let _ = fs::create_dir_all(state_dir.join("worktrees"));
 
             if crate::git::create_worktree(
                 workspace,

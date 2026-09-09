@@ -319,7 +319,7 @@ mod tests {
 
         // HUD must be centered horizontally
         assert_eq!(layout.intent_hud.width, 640);
-        assert_eq!(layout.intent_hud.x, ((1024 - 640) / 2) as i32);
+        assert_eq!(layout.intent_hud.x, (1024 - 640) / 2);
         assert_eq!(layout.intent_hud.y, 56);
 
         // Terminal window must fit within screen bounds

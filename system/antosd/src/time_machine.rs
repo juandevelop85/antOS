@@ -151,7 +151,7 @@ impl TimeMachineEngine {
             }
         }
 
-        list.sort_by(|a, b| b.timestamp_secs.cmp(&a.timestamp_secs));
+        list.sort_by_key(|a| std::cmp::Reverse(a.timestamp_secs));
         Ok(list)
     }
 

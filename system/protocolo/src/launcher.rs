@@ -24,6 +24,18 @@ pub struct LauncherAppItem {
 
 impl LauncherAppItem {
     /// Creates a new launcher item with detected editor status.
+    ///
+    /// T31.10: clippy señala `too_many_arguments` (9). Agrupar estos
+    /// parámetros en una estructura obligaría a tocar sus siete sitios de
+    /// llamada en `system/barra` —un *workspace* aparte que este árbol no
+    /// puede compilar ni verificar en este entorno (requiere GTK4, ausente
+    /// aquí; ver la nota de T31.10 sobre `system/barra` en el propio
+    /// ticket)— sin poder confirmar que el cambio compila. Los nueve campos
+    /// son, además, una copia directa y sin relación lógica entre sí de los
+    /// campos públicos de `LauncherAppItem`: agruparlos en un struct
+    /// intermedio no añadiría significado, solo indirección. Se documenta
+    /// la excepción en vez de forzar un refactor no verificable.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: impl Into<String>,
         name: impl Into<String>,

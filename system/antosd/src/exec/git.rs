@@ -136,7 +136,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::GitStatus { repo_root } => {
             if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(repo_root)? {
-                let lineas = vec![
+                let lineas = [
                     format!(
                         "rama: {}",
                         status.branch.unwrap_or_else(|| "HEAD desacoplado".into())

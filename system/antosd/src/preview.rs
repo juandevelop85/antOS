@@ -145,9 +145,9 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 out.push(Line::Add(format!(
                     "  + iniciar demonio de {service} en background"
                 )));
-                out.push(Line::Add(format!(
-                    "  + inyectar variable de conexión en .env"
-                )));
+                out.push(Line::Add(
+                    "  + inyectar variable de conexión en .env".to_string(),
+                ));
             }
             Change::ServiceDown { service, .. } => {
                 out.push(Line::Info(format!("detiene y limpia servicio {service}")));

@@ -126,7 +126,7 @@ pub fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(svc, BOLD)
             );
         }
-        "status" | "list" | _ => {
+        _ => {
             let svc_filter = if sub != "status" && sub != "list" {
                 Some(sub)
             } else {
@@ -219,7 +219,7 @@ pub fn cmd_secrets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
-        "list" | _ => {
+        _ => {
             let list = crate::vault::list_secrets(&ctx.state)?;
             let active_grants = grants.list_active();
 
@@ -415,7 +415,6 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
 }
 
 #[allow(dead_code)]
-
 pub fn pick_planner_by_name(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
     pick_planner(None, nombre)
 }
@@ -721,7 +720,7 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint("antos llm use <proveedor>", CYAN)
             );
         }
-        "status" | _ => {
+        _ => {
             println!(
                 "\n{}",
                 paint(
@@ -967,7 +966,7 @@ pub fn cmd_memory(ctx: &Ctx, args: &[String]) -> Result<()> {
                 }
             }
         }
-        "status" | _ => {
+        _ => {
             let exists = db_path.exists();
             println!(
                 "\n{}",
@@ -1090,7 +1089,7 @@ pub fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
                 println!("  {} Faltan herramientas por aprovisionar. Puedes usar devbox shell o nix develop.\n", paint("! Advertencia:", YELLOW));
             }
         }
-        "status" | _ => {
+        _ => {
             println!(
                 "\n{}",
                 paint("antOS · Estado del Perfil de Entorno (T7.1)", BOLD)
@@ -1196,7 +1195,7 @@ pub fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint("✓", GREEN)
             );
         }
-        "status" | _ => {
+        _ => {
             println!(
                 "\n{}",
                 paint(
@@ -1333,7 +1332,6 @@ pub fn cmd_diff(ctx: &Ctx, args: &[String]) -> Result<()> {
 ///   The second arg (if present) is the target ref.
 /// - Otherwise the first arg (if present) is the target ref.
 /// - Falls back to (current_project, "HEAD").
-
 fn parse_diff_args(
     args: &[String],
     workspace: &std::path::Path,
@@ -1367,7 +1365,6 @@ fn parse_diff_args(
 /// Uses ceiling-aware git root detection (T17.1) to verify the project has its
 /// own `.git` before invoking `git diff`. If it does not, prints an informative
 /// file listing and actionable guidance.
-
 fn diff_single_project(proj: &std::path::Path, target: &str, antos_root: Option<&std::path::Path>) {
     let project_name = proj
         .file_name()
@@ -1457,7 +1454,7 @@ fn diff_single_project(proj: &std::path::Path, target: &str, antos_root: Option<
     }
 
     let mut git_cmd = std::process::Command::new("git");
-    git_cmd.current_dir(proj).args(&["diff", target]);
+    git_cmd.current_dir(proj).args(["diff", target]);
     if !ceiling_val.is_empty() {
         git_cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
     }
@@ -2657,9 +2654,8 @@ pub fn cmd_snapshot(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
             if meta.memory_graph_included {
                 println!(
-                    "  {} {}",
-                    paint("Memoria Semántica:", CYAN),
-                    "Grafo de contexto preservado"
+                    "  {} Grafo de contexto preservado",
+                    paint("Memoria Semántica:", CYAN)
                 );
             }
             println!("  {} {}", paint("Mecanismo CoW:", DIM), meta.method);
@@ -3342,15 +3338,7 @@ pub fn cmd_screenshot(ctx: &Ctx, args: &[String]) -> Result<()> {
         None
     };
 
-    let actual_target = if let Some(t) = target {
-        if t.ends_with(".png") || t.ends_with(".bmp") {
-            None
-        } else {
-            Some(t)
-        }
-    } else {
-        None
-    };
+    let actual_target = target.filter(|&t| !(t.ends_with(".png") || t.ends_with(".bmp")));
 
     println!(
         "\n{} Captura de Pantalla Wayland:",

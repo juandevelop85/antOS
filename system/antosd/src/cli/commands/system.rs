@@ -60,7 +60,6 @@ pub fn cmd_caps(catalog: &Catalog, ctx: &Ctx) -> Result<()> {
 /// No basta con generar una política y confiar: `doctor` intenta de verdad
 /// escribir fuera de lo declarado y salir a la red, y solo da por buena la
 /// garantía si el kernel lo impide.
-
 pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
     let rt = crate::runtime::detect();
     let jail = rt.sandbox_provider();
@@ -537,7 +536,7 @@ pub fn cmd_boot(ctx: &Ctx, args: &[String]) -> Result<()> {
             let res = engine.build_release(&ctx.workspace)?;
             println!("{}\n", res);
         }
-        "status" | _ => {
+        _ => {
             let st = engine.status(&ctx.workspace);
             println!(
                 "\n{} Estado del Pipeline de Arranque Bare Metal:",
@@ -614,7 +613,7 @@ pub fn cmd_plugin(ctx: &Ctx, args: &[String]) -> Result<()> {
                 );
             } else {
                 for p in list {
-                    let kb = (p.wasm_size_bytes + 1023) / 1024;
+                    let kb = p.wasm_size_bytes.div_ceil(1024);
                     println!(
                         "  • {} v{} ({} KiB) - {}",
                         paint(&p.name, GREEN),
@@ -1156,7 +1155,7 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(vm_id, BOLD)
             );
         }
-        "status" | _ => {
+        _ => {
             println!(
                 "\n{} Diagnóstico de Hipervisor y MicroVMs:",
                 paint("antOS MicroVM ·", BOLD)
@@ -1380,7 +1379,7 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  ✓ {} Incidente descartado.\n", paint("DESCARTADO", DIM));
         }
 
-        "status" | _ => {
+        _ => {
             let st = crate::autopilot::AutopilotEngine::status(&ctx.state, &ctx.workspace)?;
             let status_badge = if st.active {
                 paint("ACTIVO (Vigilando)", GREEN)
@@ -1531,7 +1530,7 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
         }
 
-        "status" | _ => {
+        _ => {
             let st = crate::web::WebEngine::status(&ctx.state)?;
             let status_badge = if st.running {
                 paint("ACTIVO (En línea)", GREEN)
@@ -1589,7 +1588,7 @@ pub fn cmd_barra(_ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&msg, GREEN)
             );
         }
-        "status" | "telemetry" | "telemetria" | _ => {
+        _ => {
             let t = manager.get_telemetry();
             let mb = t.profiler_rss_bytes as f64 / (1024.0 * 1024.0);
             println!(
@@ -1684,7 +1683,7 @@ pub fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
             println!();
         }
-        "status" | "estado" | _ => {
+        _ => {
             let status = crate::desktop::DesktopManager::get_status();
             let st = if status.running {
                 paint("En ejecución", GREEN)

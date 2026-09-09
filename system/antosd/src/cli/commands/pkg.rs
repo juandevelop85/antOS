@@ -421,7 +421,7 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
             println!();
         }
-        "status" | _ => {
+        _ => {
             println!(
                 "\n{} Estado del Almacén Inmutable y Perfiles:",
                 paint("antOS antpkg ·", BOLD)

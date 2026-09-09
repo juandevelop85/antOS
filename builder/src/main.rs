@@ -28,7 +28,7 @@ fn main() {
         match args[i].as_str() {
             "--arch" => {
                 if i + 1 < args.len() {
-                    explicit_arch = Architecture::from_str(&args[i + 1]);
+                    explicit_arch = Architecture::from_name(&args[i + 1]);
                     i += 1;
                 }
             }

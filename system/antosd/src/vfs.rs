@@ -127,7 +127,7 @@ impl VfsEngine {
                 let name = trimmed
                     .trim_start_matches("pub struct ")
                     .trim_start_matches("struct ")
-                    .split(|c: char| c == ' ' || c == '{' || c == '<' || c == '(')
+                    .split([' ', '{', '<', '('])
                     .next()
                     .unwrap_or("")
                     .trim();
@@ -152,7 +152,7 @@ impl VfsEngine {
                 let name = trimmed
                     .trim_start_matches("pub enum ")
                     .trim_start_matches("enum ")
-                    .split(|c: char| c == ' ' || c == '{' || c == '<')
+                    .split([' ', '{', '<'])
                     .next()
                     .unwrap_or("")
                     .trim();
@@ -177,7 +177,7 @@ impl VfsEngine {
                 let name = trimmed
                     .trim_start_matches("pub fn ")
                     .trim_start_matches("fn ")
-                    .split(|c: char| c == '(' || c == '<' || c == ' ')
+                    .split(['(', '<', ' '])
                     .next()
                     .unwrap_or("")
                     .trim();
@@ -200,7 +200,7 @@ impl VfsEngine {
                 let name = trimmed
                     .trim_start_matches("pub trait ")
                     .trim_start_matches("trait ")
-                    .split(|c: char| c == ' ' || c == '{' || c == '<' || c == ':')
+                    .split([' ', '{', '<', ':'])
                     .next()
                     .unwrap_or("")
                     .trim();
@@ -332,7 +332,8 @@ impl VfsEngine {
                             .and_then(|n| n.to_str())
                             .unwrap_or(p)
                             .to_string();
-                        let rendered = crate::diff_view::DiffEngine::render_terminal(&[d.clone()]);
+                        let rendered =
+                            crate::diff_view::DiffEngine::render_terminal(std::slice::from_ref(&d));
                         entries.push(VfsEntry {
                             path: format!("/antfs/git/uncommitted/{name}"),
                             name,
@@ -400,7 +401,9 @@ impl VfsEngine {
                         .iter()
                         .find(|d| d.new_path.ends_with(fname) || d.old_path.ends_with(fname))
                     {
-                        return Ok(crate::diff_view::DiffEngine::render_terminal(&[d.clone()]));
+                        return Ok(crate::diff_view::DiffEngine::render_terminal(
+                            std::slice::from_ref(d),
+                        ));
                     }
                     bail!("diff no encontrado para «{fname}»");
                 }
@@ -478,7 +481,7 @@ impl VfsEngine {
                 .and_then(|n| n.to_str())
                 .unwrap_or("diff")
                 .to_string();
-            let rendered = crate::diff_view::DiffEngine::render_terminal(&[d.clone()]);
+            let rendered = crate::diff_view::DiffEngine::render_terminal(std::slice::from_ref(&d));
             let _ = fs::write(git_dir.join(format!("{name}.diff")), rendered);
         }
 

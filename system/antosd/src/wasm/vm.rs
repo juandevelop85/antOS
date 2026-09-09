@@ -237,9 +237,7 @@ impl WasmInstance {
             }
         }
         for &(count, _) in &local_decls {
-            for _ in 0..count {
-                locals.push(0);
-            }
+            locals.extend(std::iter::repeat_n(0, count as usize));
         }
 
         let mut stack: Vec<i32> = Vec::with_capacity(64);

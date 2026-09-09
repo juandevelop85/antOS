@@ -16,7 +16,12 @@ pub enum Architecture {
 }
 
 impl Architecture {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Analiza el nombre de una arquitectura. Nombre distinto de `from_str`
+    /// a propósito (T31.10 / clippy::should_implement_trait): esta función
+    /// devuelve `Option`, no el `Result` que exige `std::str::FromStr`, y
+    /// darle el mismo nombre que el método del trait estándar induciría a
+    /// confusión sobre cuál de los dos se está llamando.
+    pub fn from_name(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "x86_64" | "x86-64" | "amd64" | "x64" => Some(Self::X86_64),
             "aarch64" | "arm64" | "arm" => Some(Self::AArch64),
@@ -153,7 +158,7 @@ pub fn create_uefi_disk_image(
         u32::try_from((disk_size / sector_size) - 1).unwrap_or(0xFFFFFFFF),
     );
     mbr.overwrite_lba0(&mut file)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+        .map_err(|e| std::io::Error::other(format!("{e}")))?;
     drop(file);
 
     // 2. Initialize GPT partition table using gpt crate
@@ -165,7 +170,7 @@ pub fn create_uefi_disk_image(
         let mut gpt_disk = gpt::GptConfig::new()
             .writable(true)
             .create(out_image)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+            .map_err(|e| std::io::Error::other(format!("{e}")))?;
 
         gpt_disk
             .add_partition(
@@ -175,10 +180,10 @@ pub fn create_uefi_disk_image(
                 0,
                 Some(2048),
             )
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+            .map_err(|e| std::io::Error::other(format!("{e}")))?;
         gpt_disk
             .write()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e}")))?;
+            .map_err(|e| std::io::Error::other(format!("{e}")))?;
     }
 
     // 3. Format ESP partition with FAT32 and populate Limine Bootloader files
@@ -259,13 +264,19 @@ mod tests {
 
     #[test]
     fn test_architecture_from_str() {
-        assert_eq!(Architecture::from_str("x86_64"), Some(Architecture::X86_64));
         assert_eq!(
-            Architecture::from_str("aarch64"),
+            Architecture::from_name("x86_64"),
+            Some(Architecture::X86_64)
+        );
+        assert_eq!(
+            Architecture::from_name("aarch64"),
             Some(Architecture::AArch64)
         );
-        assert_eq!(Architecture::from_str("arm64"), Some(Architecture::AArch64));
-        assert_eq!(Architecture::from_str("unknown"), None);
+        assert_eq!(
+            Architecture::from_name("arm64"),
+            Some(Architecture::AArch64)
+        );
+        assert_eq!(Architecture::from_name("unknown"), None);
     }
 
     #[test]

@@ -799,11 +799,9 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
                             i += 1;
                         }
                     }
-                    "--out" | "-o" => {
-                        if i + 1 < args.len() {
-                            out_path = Some(PathBuf::from(&args[i + 1]));
-                            i += 1;
-                        }
+                    "--out" | "-o" if i + 1 < args.len() => {
+                        out_path = Some(PathBuf::from(&args[i + 1]));
+                        i += 1;
                     }
                     _ => {}
                 }
@@ -894,11 +892,9 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
                             i += 1;
                         }
                     }
-                    "--target" | "-t" => {
-                        if i + 1 < args.len() {
-                            target_device = Some(args[i + 1].clone());
-                            i += 1;
-                        }
+                    "--target" | "-t" if i + 1 < args.len() => {
+                        target_device = Some(args[i + 1].clone());
+                        i += 1;
                     }
                     _ => {}
                 }

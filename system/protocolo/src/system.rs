@@ -544,17 +544,12 @@ pub struct UsbFlashReport {
 // ------------------------------------------------------------- packages (antpkg)
 
 /// Application type classification for an antOS package (T25.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PackageAppType {
+    #[default]
     Cli,
     Gui,
-}
-
-impl Default for PackageAppType {
-    fn default() -> Self {
-        Self::Cli
-    }
 }
 
 /// Freedesktop XDG desktop entry specification metadata (T25.1).

@@ -41,10 +41,7 @@ pub fn detect_antos_root() -> Option<PathBuf> {
         if candidate.join("system").join("capabilities").is_dir() {
             return Some(candidate.to_path_buf());
         }
-        match candidate.parent() {
-            Some(p) => candidate = p,
-            None => return None,
-        }
+        candidate = candidate.parent()?;
     }
 }
 
@@ -273,7 +270,7 @@ fn calcular_delante_detras(repo_root: &Path) -> (usize, usize) {
     if let Ok(out) = output {
         if out.status.success() {
             let text = String::from_utf8_lossy(&out.stdout);
-            let parts: Vec<&str> = text.trim().split_whitespace().collect();
+            let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.len() == 2 {
                 let behind = parts[0].parse::<usize>().unwrap_or(0);
                 let ahead = parts[1].parse::<usize>().unwrap_or(0);
@@ -463,10 +460,8 @@ pub fn remove_worktree(repo_root: &Path, destination: &Path, force: bool) -> Res
     cmd.arg(destination);
     let out = cmd.output().context("executing git worktree remove")?;
 
-    if !out.status.success() {
-        if destination.exists() {
-            let _ = fs::remove_dir_all(destination);
-        }
+    if !out.status.success() && destination.exists() {
+        let _ = fs::remove_dir_all(destination);
     }
 
     let _ = git_cmd_with_ceiling(antos_root.as_deref())

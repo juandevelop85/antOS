@@ -651,6 +651,11 @@ pub fn save_task_to_disk(state_dir: &Path, task: &FlowTask) {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
+    // T31.10: estos tests ejercitan deliberadamente la API deprecada
+    // (`iniciar_tarea`/`avanzar_fase`/`ejecutar_pipeline_worktree`) para
+    // comprobar que sigue funcionando mientras exista; no es un olvido de
+    // migración.
+    #![allow(deprecated)]
 
     use super::*;
 

@@ -67,10 +67,10 @@ pub fn cmd_mesh(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
             println!(
                 "\n  Usa «{}» en el nodo remoto para unirte a este clúster.\n",
-                paint(&format!("antos mesh connect <ESTA_IP>:9042"), BOLD)
+                paint("antos mesh connect <ESTA_IP>:9042", BOLD)
             );
         }
-        Some("status" | "list") | _ => {
+        _ => {
             let status = engine.status(&ctx.workspace)?;
             println!(
                 "\n{}",

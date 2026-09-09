@@ -130,15 +130,6 @@ impl CrdtDocument {
         }
     }
 
-    /// Renders current text state omitting tombstones.
-    pub fn to_string(&self) -> String {
-        self.chars
-            .iter()
-            .filter(|c| !c.deleted)
-            .map(|c| c.ch)
-            .collect()
-    }
-
     /// Returns the last CharId for subsequent sequential inserts.
     pub fn last_visible_id(&self) -> Option<CharId> {
         self.chars
@@ -146,6 +137,22 @@ impl CrdtDocument {
             .rev()
             .find(|c| !c.deleted)
             .map(|c| c.id.clone())
+    }
+}
+
+impl std::fmt::Display for CrdtDocument {
+    /// Renders current text state omitting tombstones. `Display` (not an
+    /// inherent `to_string`, T31.10 / clippy::inherent_to_string) so every
+    /// existing `doc.to_string()` call keeps working via the blanket
+    /// `ToString` impl, sin tocar a ningún llamador.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text: String = self
+            .chars
+            .iter()
+            .filter(|c| !c.deleted)
+            .map(|c| c.ch)
+            .collect();
+        write!(f, "{text}")
     }
 }
 

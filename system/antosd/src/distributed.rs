@@ -128,7 +128,7 @@ impl SwarmEngine {
                 });
             }
             _ => {
-                candidates.sort_by(|a, b| a.latency_ms.cmp(&b.latency_ms));
+                candidates.sort_by_key(|a| a.latency_ms);
             }
         }
 

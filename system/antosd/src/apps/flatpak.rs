@@ -332,17 +332,17 @@ impl FlatpakClient {
                 .iter()
                 .any(|c| c.to_lowercase().contains(&q_lower));
 
-            if id_matches || name_matches || desc_matches || cat_matches || q_lower.is_empty() {
-                if !results.iter().any(|r| r.id == app.id) {
-                    results.push(AppSearchResult {
-                        id: app.id,
-                        name: app.name,
-                        version: app.version,
-                        source: AppSource::Flatpak,
-                        description: app.description,
-                        installed: false,
-                    });
-                }
+            if (id_matches || name_matches || desc_matches || cat_matches || q_lower.is_empty())
+                && !results.iter().any(|r| r.id == app.id)
+            {
+                results.push(AppSearchResult {
+                    id: app.id,
+                    name: app.name,
+                    version: app.version,
+                    source: AppSource::Flatpak,
+                    description: app.description,
+                    installed: false,
+                });
             }
         }
 
@@ -422,7 +422,7 @@ impl FlatpakClient {
             .find(|a| a.id == id)
             .unwrap_or_else(|| DesktopApp {
                 id: id.to_string(),
-                name: id.split('.').last().unwrap_or(id).to_string(),
+                name: id.split('.').next_back().unwrap_or(id).to_string(),
                 version: "1.0.0".to_string(),
                 source: AppSource::Flatpak,
                 description: format!("Flatpak application {}", id),

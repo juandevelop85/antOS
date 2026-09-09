@@ -166,7 +166,7 @@ mod tests {
 
             let mut size = 0usize;
             for &b in &header[124..136] {
-                if b >= b'0' && b <= b'7' {
+                if (b'0'..=b'7').contains(&b) {
                     size = size * 8 + (b - b'0') as usize;
                 } else if b == 0 || b == b' ' {
                     break;
@@ -174,7 +174,7 @@ mod tests {
             }
 
             entries.push((name.to_string(), size));
-            let blocks = (size + 511) / 512;
+            let blocks = size.div_ceil(512);
             offset += 512 + blocks * 512;
         }
 

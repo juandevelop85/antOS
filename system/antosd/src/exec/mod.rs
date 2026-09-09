@@ -2051,7 +2051,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     }
 
                     let mut cmd = std::process::Command::new("git");
-                    cmd.current_dir(diff_dir).args(&["diff", target_ref]);
+                    cmd.current_dir(diff_dir).args(["diff", target_ref]);
                     if !ceiling_val.is_empty() {
                         cmd.env("GIT_CEILING_DIRECTORIES", &ceiling_val);
                     }
@@ -2104,7 +2104,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 if let Some("status") = action.as_deref() {
                     let status = crate::dev_tui::DevWorkspaceManager::get_status(
                         project.as_deref(),
-                        &workspace,
+                        workspace,
                     );
                     output.push(format!(
                         "dev workspace: editor={} term={}x{}",
@@ -2113,7 +2113,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 } else {
                     crate::dev_tui::DevWorkspaceManager::launch(
                         project.as_deref(),
-                        &workspace,
+                        workspace,
                         false,
                     )?;
                     output.push("dev workspace: blueprint renderizado exitosamente".into());
@@ -2715,7 +2715,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     let mut lines = Vec::new();
                     lines.push(format!("antOS Plugins ({} instalados):", list.len()));
                     for p in list {
-                        let kb = (p.wasm_size_bytes + 1023) / 1024;
+                        let kb = p.wasm_size_bytes.div_ceil(1024);
                         lines.push(format!(
                             "  • {} v{} ({} KiB) - {} [acciones: {}]",
                             p.name,
@@ -2861,8 +2861,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 target_mount,
                 ..
             } => {
-                let mut cfg = antos_protocol::InstallConfig::default();
-                cfg.target_device = target_device.clone();
+                let mut cfg = antos_protocol::InstallConfig {
+                    target_device: target_device.clone(),
+                    ..Default::default()
+                };
                 if let Some(ref m) = target_mount {
                     cfg.target_mount = m.clone();
                 }

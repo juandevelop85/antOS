@@ -172,7 +172,7 @@ impl Ctx {
     }
 
     /// Renders a path relative to the workspace for cleaner terminal output.
-    pub fn display<'a>(&self, p: &'a Path) -> String {
+    pub fn display(&self, p: &Path) -> String {
         p.strip_prefix(&self.workspace)
             .map(|r| r.display().to_string())
             .unwrap_or_else(|_| p.display().to_string())
@@ -192,10 +192,7 @@ fn find_antos_root_from_cwd() -> Option<PathBuf> {
         if candidate.join("system").join("capabilities").is_dir() {
             return Some(candidate.to_path_buf());
         }
-        match candidate.parent() {
-            Some(p) => candidate = p,
-            None => return None,
-        }
+        candidate = candidate.parent()?;
     }
 }
 

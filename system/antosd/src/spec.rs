@@ -584,8 +584,8 @@ pub fn parsear_archivo_ticket(
     for linea in contenido.lines() {
         let l = linea.trim();
 
-        if l.starts_with("# ") {
-            let encabezado = l[2..].trim();
+        if let Some(resto) = l.strip_prefix("# ") {
+            let encabezado = resto.trim();
             if let Some((_, tit)) = encabezado.split_once('·') {
                 titulo = tit.trim().to_string();
             } else if let Some((_, tit)) = encabezado.split_once('-') {
@@ -596,8 +596,8 @@ pub fn parsear_archivo_ticket(
             continue;
         }
 
-        if l.starts_with("## ") {
-            let sec_nombre = l[3..].to_lowercase();
+        if let Some(resto) = l.strip_prefix("## ") {
+            let sec_nombre = resto.to_lowercase();
             if sec_nombre.contains("descrip") {
                 seccion_actual = "descripcion";
             } else if sec_nombre.contains("alcance") || sec_nombre.contains("técnico") {
@@ -633,17 +633,16 @@ pub fn parsear_archivo_ticket(
                     }
                 }
             }
-            "criterios" => {
+            "criterios"
                 if l.starts_with('*')
                     || l.starts_with('-')
                     || l.starts_with("1.")
                     || l.starts_with("2.")
-                    || l.starts_with("3.")
-                {
-                    let limpio = limpiar_item_markdown(l);
-                    if !limpio.is_empty() {
-                        criterios_aceptacion.push(limpio);
-                    }
+                    || l.starts_with("3.") =>
+            {
+                let limpio = limpiar_item_markdown(l);
+                if !limpio.is_empty() {
+                    criterios_aceptacion.push(limpio);
                 }
             }
             _ => {}

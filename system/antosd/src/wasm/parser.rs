@@ -72,10 +72,10 @@ impl WasmModule {
             );
         }
 
-        if &bytes[0..4] != WASM_MAGIC {
+        if bytes[0..4] != WASM_MAGIC {
             bail!("Número mágico de WebAssembly inválido");
         }
-        if &bytes[4..8] != WASM_VERSION {
+        if bytes[4..8] != WASM_VERSION {
             bail!("Versión de WebAssembly no soportada (esperada v1)");
         }
 

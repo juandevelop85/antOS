@@ -235,11 +235,10 @@ fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
         let rest = &text[start + 7..];
         let end = rest.find("```").unwrap_or(rest.len());
         rest[..end].trim()
-    } else if let Some(start) = text.find('{') {
+    } else {
+        let start = text.find('{')?;
         let end = text.rfind('}').map(|i| i + 1).unwrap_or(text.len());
         &text[start..end]
-    } else {
-        return None;
     };
 
     let v: Value = serde_json::from_str(json_str).ok()?;
