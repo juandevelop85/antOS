@@ -9,14 +9,30 @@ use antos_protocol::{
     WebAuthSession, WebConsoleConfig, WebConsoleStatus, WebSocketMessage,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+// -------------------------------------------------------------- server limits
+
+/// Hard limits for the embedded HTTP/WebSocket server (T31.2): bound how many
+/// concurrent connections and how much header data a single client can make
+/// the daemon hold onto, so an unauthenticated peer that opens sockets and
+/// never finishes a request cannot exhaust threads or memory.
+const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+const MAX_HEADER_BYTES: usize = 16 * 1024;
+/// Applies only while reading the initial request line and headers — once a
+/// WebSocket upgrade is accepted, the timeout is lifted for that connection's
+/// long-lived ping/pong loop, exactly like before T31.2.
+const INITIAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(10);
+const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 // ------------------------------------------------------------- crypto helpers
 
@@ -152,7 +168,17 @@ pub fn encode_ws_text_frame(payload: &str) -> Vec<u8> {
 }
 
 /// Decodes a masked RFC 6455 WebSocket frame (Client-to-Server).
+///
+/// `payload_len` for the extended-length forms comes straight from the
+/// client; T31.2 fixed this to reject an implausibly large declared length
+/// up front and to use checked arithmetic for the final bounds check, so a
+/// length near `usize::MAX` cannot wrap the addition and slip past the
+/// `data.len()` guard.
 pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
+    /// Generous for this console's JSON/text traffic; anything past this is
+    /// certainly not a legitimate frame for this server.
+    const MAX_WS_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
+
     if data.len() < 2 {
         return None;
     }
@@ -175,6 +201,10 @@ pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
         offset = 10;
     }
 
+    if payload_len > MAX_WS_FRAME_PAYLOAD {
+        return None;
+    }
+
     let mask = if is_masked {
         if data.len() < offset + 4 {
             return None;
@@ -186,11 +216,12 @@ pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
         None
     };
 
-    if data.len() < offset + payload_len {
+    let end = offset.checked_add(payload_len)?;
+    if data.len() < end {
         return None;
     }
 
-    let raw_payload = &data[offset..offset + payload_len];
+    let raw_payload = &data[offset..end];
     let unmasked: Vec<u8> = if let Some(m) = mask {
         raw_payload.iter().enumerate().map(|(i, &b)| b ^ m[i % 4]).collect()
     } else {
@@ -222,6 +253,48 @@ struct StoredSessionRecord {
 struct StoredSessions {
     #[serde(default)]
     sessions: Vec<StoredSessionRecord>,
+}
+
+// ----------------------------------------------------------- process lifecycle
+
+/// Process-wide registry of running accept loops, keyed by state directory
+/// (T31.2). `start`/`serve_blocking` register their `running_flag` here
+/// before spawning the accept loop; `stop` flips it. This is what makes
+/// `stop` actually stop the server instead of only rewriting `status.json`.
+fn running_flags_registry() -> &'static Mutex<HashMap<PathBuf, Arc<AtomicBool>>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<PathBuf, Arc<AtomicBool>>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn registry_lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, Arc<AtomicBool>>> {
+    running_flags_registry().lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Decrements the shared connection counter when a connection's handler
+/// thread ends, however it ends — including on an early `return` or a panic
+/// unwinding through the thread (T31.2).
+struct ConnectionCountGuard(Arc<AtomicUsize>);
+
+impl Drop for ConnectionCountGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Reserves one of `MAX_CONCURRENT_CONNECTIONS` slots, or returns `None` if
+/// the server is already at capacity — the caller must then refuse the
+/// connection without spawning a thread for it (T31.2).
+fn try_reserve_connection_slot(counter: &Arc<AtomicUsize>) -> Option<ConnectionCountGuard> {
+    let mut current = counter.load(Ordering::SeqCst);
+    loop {
+        if current >= MAX_CONCURRENT_CONNECTIONS {
+            return None;
+        }
+        match counter.compare_exchange_weak(current, current + 1, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return Some(ConnectionCountGuard(counter.clone())),
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 pub struct WebEngine;
@@ -383,7 +456,7 @@ impl WebEngine {
         );
     }
 
-    /// Starts the embedded HTTP and WebSocket server.
+    /// Starts the embedded HTTP and WebSocket server on a background thread.
     pub fn start(
         state_dir: &Path,
         workspace_dir: &Path,
@@ -395,12 +468,10 @@ impl WebEngine {
         let listener = TcpListener::bind(&addr)
             .with_context(|| format!("Failed to bind web console on {addr}"))?;
 
-        listener.set_nonblocking(true)?;
-
         let state_dir_buf = state_dir.to_path_buf();
         let ws_dir_buf = workspace_dir.to_path_buf();
         let running_flag = Arc::new(AtomicBool::new(true));
-        let flag_clone = running_flag.clone();
+        registry_lock().insert(state_dir_buf.clone(), running_flag.clone());
 
         let status = WebConsoleStatus {
             running: true,
@@ -415,32 +486,19 @@ impl WebEngine {
         fs::create_dir_all(&dir)?;
         fs::write(Self::status_path(state_dir), serde_json::to_string_pretty(&status)?)?;
 
-        // Spawn background server loop
+        // Spawn the background accept loop; `stop()` flips `running_flag`
+        // via the registry above, which this loop notices within one poll
+        // tick and then frees the port (T31.2).
         thread::spawn(move || {
-            while flag_clone.load(Ordering::SeqCst) {
-                match listener.accept() {
-                    Ok((mut stream, _)) => {
-                        let _ = stream.set_nonblocking(false);
-                        let s_dir = state_dir_buf.clone();
-                        let w_dir = ws_dir_buf.clone();
-                        thread::spawn(move || {
-                            let _ = Self::handle_client(&mut stream, &s_dir, &w_dir, auth_required);
-                        });
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                    Err(_) => {
-                        break;
-                    }
-                }
-            }
+            Self::run_accept_loop(listener, running_flag, state_dir_buf, ws_dir_buf, auth_required);
         });
 
         Ok(status)
     }
 
-    /// Runs the web console server loop blocking the current thread.
+    /// Runs the web console server loop, blocking the current thread until
+    /// `stop()` is called for the same `state_dir` from elsewhere in this
+    /// process, or the listener errors.
     pub fn serve_blocking(
         state_dir: &Path,
         workspace_dir: &Path,
@@ -467,26 +525,81 @@ impl WebEngine {
 
         let state_dir_buf = state_dir.to_path_buf();
         let ws_dir_buf = workspace_dir.to_path_buf();
+        let running_flag = Arc::new(AtomicBool::new(true));
+        registry_lock().insert(state_dir_buf.clone(), running_flag.clone());
 
-        for stream_res in listener.incoming() {
-            match stream_res {
-                Ok(mut stream) => {
-                    let s_dir = state_dir_buf.clone();
-                    let w_dir = ws_dir_buf.clone();
-                    thread::spawn(move || {
-                        let _ = Self::handle_client(&mut stream, &s_dir, &w_dir, auth_required);
-                    });
-                }
-                Err(_) => {
-                    break;
-                }
-            }
-        }
+        Self::run_accept_loop(listener, running_flag, state_dir_buf, ws_dir_buf, auth_required);
         Ok(())
     }
 
-    /// Stops the web console server.
+    /// Shared accept loop used by both `start` (on a spawned thread) and
+    /// `serve_blocking` (on the calling thread). Polls a non-blocking
+    /// listener so it can notice `running_flag` going false — set by `stop`
+    /// — and return promptly, dropping (and so closing) `listener` (T31.2).
+    ///
+    /// Each accepted connection is granted a bounded read/write timeout
+    /// covering only the initial request line and headers, and only after
+    /// reserving one of `MAX_CONCURRENT_CONNECTIONS` slots; a connection
+    /// beyond that budget is closed immediately, without a thread or a
+    /// response, so it cannot hold memory or a thread hostage.
+    fn run_accept_loop(
+        listener: TcpListener,
+        running_flag: Arc<AtomicBool>,
+        state_dir: PathBuf,
+        workspace_dir: PathBuf,
+        auth_required: bool,
+    ) {
+        let _ = listener.set_nonblocking(true);
+        let connection_count = Arc::new(AtomicUsize::new(0));
+
+        while running_flag.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => match try_reserve_connection_slot(&connection_count) {
+                    Some(guard) => {
+                        let _ = stream.set_nonblocking(false);
+                        let _ = stream.set_read_timeout(Some(INITIAL_REQUEST_TIMEOUT));
+                        let _ = stream.set_write_timeout(Some(RESPONSE_WRITE_TIMEOUT));
+                        let s_dir = state_dir.clone();
+                        let w_dir = workspace_dir.clone();
+                        thread::spawn(move || {
+                            let _guard = guard;
+                            let _ = Self::handle_client(&mut stream, &s_dir, &w_dir, auth_required);
+                        });
+                    }
+                    None => {
+                        // At capacity: refuse without spawning a thread or
+                        // replying, so an over-budget client cannot grow the
+                        // daemon's memory or thread count (T31.2).
+                        drop(stream);
+                    }
+                },
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(ACCEPT_POLL_INTERVAL);
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Self-clean the registry, but only if we are still the current
+        // entry for this state_dir — a fresh `start()` may have already
+        // replaced us with its own flag.
+        let mut reg = registry_lock();
+        if let Some(current) = reg.get(&state_dir) {
+            if Arc::ptr_eq(current, &running_flag) {
+                reg.remove(&state_dir);
+            }
+        }
+    }
+
+    /// Stops the web console server: flips the registered `running_flag` so
+    /// the accept loop for this `state_dir` exits and frees the port, then
+    /// records the stopped state (T31.2 — previously this only rewrote
+    /// `status.json` and never touched the running listener).
     pub fn stop(state_dir: &Path) -> Result<WebConsoleStatus> {
+        if let Some(flag) = registry_lock().remove(state_dir) {
+            flag.store(false, Ordering::SeqCst);
+        }
+
         let mut st = Self::status(state_dir)?;
         st.running = false;
         st.connected_clients = 0;
@@ -512,6 +625,20 @@ impl WebEngine {
         Ok(())
     }
 
+    /// Writes a `431 Request Header Fields Too Large` response — the
+    /// request's headers exceeded `MAX_HEADER_BYTES` without a terminating
+    /// blank line (T31.2).
+    fn respond_header_too_large(stream: &mut TcpStream) -> Result<()> {
+        let body = b"431 Request Header Fields Too Large\n";
+        let response = format!(
+            "HTTP/1.1 431 Request Header Fields Too Large\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(response.as_bytes())?;
+        stream.write_all(body)?;
+        Ok(())
+    }
+
     /// Handles a single incoming HTTP request or WebSocket upgrade.
     ///
     /// When `auth_required` is set (the default, from
@@ -525,13 +652,32 @@ impl WebEngine {
     /// to authenticate itself. Every other route ignores it, so a token
     /// never has to appear in a URL, browser history, or access log.
     fn handle_client(stream: &mut TcpStream, state_dir: &Path, workspace_dir: &Path, auth_required: bool) -> Result<()> {
-        let mut buffer = [0u8; 4096];
-        let n = stream.read(&mut buffer)?;
-        if n == 0 {
-            return Ok(());
+        // Read until the blank line that ends the headers, since TCP is free
+        // to deliver a single request across several `read` calls — a single
+        // 4 KiB read used to silently drop a header that landed in a later
+        // segment (T31.2, defect 3). A request whose headers never terminate
+        // within MAX_HEADER_BYTES gets `431` instead of growing forever.
+        let mut request_buf: Vec<u8> = Vec::with_capacity(4096);
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = stream.read(&mut chunk)?;
+            if n == 0 {
+                if request_buf.is_empty() {
+                    return Ok(());
+                }
+                break;
+            }
+            request_buf.extend_from_slice(&chunk[..n]);
+
+            if request_buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+            if request_buf.len() > MAX_HEADER_BYTES {
+                return Self::respond_header_too_large(stream);
+            }
         }
 
-        let request_str = String::from_utf8_lossy(&buffer[..n]);
+        let request_str = String::from_utf8_lossy(&request_buf);
         let mut lines = request_str.lines();
         let req_line = lines.next().unwrap_or("");
         let mut parts = req_line.split_whitespace();
@@ -585,6 +731,14 @@ impl WebEngine {
                         return Self::respond_unauthorized(stream);
                     }
                 }
+
+                // The pre-handshake read timeout (T31.2) only guards against
+                // a peer that never finishes its request; a genuine,
+                // authenticated WebSocket connection is meant to sit idle
+                // between events, so lift it before the long-lived loop
+                // below — restoring the pre-T31.2 blocking behavior for a
+                // connection that has actually earned it.
+                let _ = stream.set_read_timeout(None);
 
                 let accept = compute_ws_accept(key);
                 let response = format!(
@@ -1020,6 +1174,164 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200"), "a valid token must be accepted, got: {response}");
         assert!(response.contains("Content-Type: application/json"));
 
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    // ---------------------------------------------------------------- T31.2
+
+    fn t31_2_free_local_port() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn test_decode_ws_frame_rejects_near_max_extended_length_without_panicking() {
+        // FIN + text opcode, 127 = "use the following 64-bit length field",
+        // with that field claiming a payload almost as large as `usize` can
+        // represent — and no payload bytes actually following it.
+        let mut frame = vec![0x81u8, 0x7Fu8];
+        frame.extend_from_slice(&(u64::MAX - 1).to_be_bytes());
+        assert_eq!(decode_ws_frame(&frame), None, "an implausible declared length must be rejected, not overflow");
+
+        // Same, but with the mask bit set (real client frames are masked).
+        frame[1] |= 0x80;
+        frame.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(decode_ws_frame(&frame), None);
+    }
+
+    #[test]
+    fn test_stop_frees_the_port() {
+        let state_dir = t31_1_temp_state_dir("stop_frees_port");
+        let workspace_dir = state_dir.parent().unwrap().join("workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        let port = t31_2_free_local_port();
+        let config = WebConsoleConfig {
+            bind_addr: "127.0.0.1".into(),
+            port,
+            auth_required: false,
+            ws_ping_interval_secs: 30,
+        };
+
+        WebEngine::start(&state_dir, &workspace_dir, config).unwrap();
+        assert!(TcpStream::connect(("127.0.0.1", port)).is_ok(), "server should be reachable right after start()");
+
+        WebEngine::stop(&state_dir).unwrap();
+
+        // The accept loop notices the flag on its next poll tick; retry for
+        // a bounded window instead of sleeping a fixed, possibly-flaky span.
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if TcpStream::connect(("127.0.0.1", port)).is_err() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "stop() did not free the port within 2s");
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_fragmented_request_headers_are_still_recognized() {
+        let state_dir = t31_1_temp_state_dir("fragmented_headers");
+        let workspace_dir = state_dir.parent().unwrap().join("workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        let session = WebEngine::generate_token(&state_dir, Some("fragmented".into()), Some(3600)).unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let token = session.token.clone();
+        let client_handle = thread::spawn(move || {
+            let mut client = TcpStream::connect(addr).unwrap();
+            // First fragment: request line + Host, no blank line yet.
+            client.write_all(b"GET /api/status HTTP/1.1\r\nHost: localhost\r\n").unwrap();
+            client.flush().ok();
+            thread::sleep(Duration::from_millis(150));
+            // Second fragment, arriving later: the Authorization header and
+            // the terminating blank line.
+            let second = format!("Authorization: Bearer {token}\r\nConnection: close\r\n\r\n");
+            client.write_all(second.as_bytes()).unwrap();
+            let mut resp = Vec::new();
+            client.read_to_end(&mut resp).ok();
+            String::from_utf8_lossy(&resp).to_string()
+        });
+
+        let (mut server_stream, _) = listener.accept().unwrap();
+        let _ = WebEngine::handle_client(&mut server_stream, &state_dir, &workspace_dir, true);
+        drop(server_stream);
+        let response = client_handle.join().unwrap();
+
+        assert!(
+            response.starts_with("HTTP/1.1 200"),
+            "the Authorization header split across two writes must still be recognized, got: {response}"
+        );
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_oversized_headers_are_rejected_with_431() {
+        let state_dir = t31_1_temp_state_dir("huge_headers");
+        let workspace_dir = state_dir.parent().unwrap().join("workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        let mut oversized = String::from("GET / HTTP/1.1\r\nHost: localhost\r\n");
+        while oversized.len() < MAX_HEADER_BYTES + 1024 {
+            oversized.push_str("X-Padding: filler-value-to-exceed-the-header-budget\r\n");
+        }
+        // Deliberately never terminated with a blank line.
+
+        let response = t31_1_send_request(&state_dir, &workspace_dir, &oversized);
+        assert!(response.starts_with("HTTP/1.1 431"), "oversized headers must be rejected, got: {response}");
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_connection_limit_rejects_excess_beyond_the_configured_maximum() {
+        let state_dir = t31_1_temp_state_dir("conn_limit");
+        let workspace_dir = state_dir.parent().unwrap().join("workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        let port = t31_2_free_local_port();
+        let config = WebConsoleConfig {
+            bind_addr: "127.0.0.1".into(),
+            port,
+            auth_required: false,
+            ws_ping_interval_secs: 30,
+        };
+        WebEngine::start(&state_dir, &workspace_dir, config).unwrap();
+
+        // Saturate the connection budget with clients that connect but never
+        // finish a request, so each holds its slot for the duration of the
+        // test (well under their own 10s initial-request timeout).
+        let mut holders = Vec::new();
+        for _ in 0..MAX_CONCURRENT_CONNECTIONS {
+            holders.push(TcpStream::connect(("127.0.0.1", port)).unwrap());
+        }
+
+        // Let the accept loop actually accept & reserve all of them.
+        thread::sleep(Duration::from_millis(300));
+
+        // One more connection must be refused: the kernel still completes
+        // the TCP handshake, but the server closes it immediately, with no
+        // reply and no worker thread spawned for it.
+        let mut extra = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        extra.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut buf = [0u8; 16];
+        match extra.read(&mut buf) {
+            Ok(0) => {} // closed immediately: expected
+            Ok(_) => panic!("an over-budget connection must not receive any response bytes"),
+            Err(e) => assert!(
+                matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+                "unexpected error waiting on the over-budget connection: {e}"
+            ),
+        }
+
+        drop(holders);
+        let _ = WebEngine::stop(&state_dir);
         let _ = fs::remove_dir_all(state_dir.parent().unwrap());
     }
 }
