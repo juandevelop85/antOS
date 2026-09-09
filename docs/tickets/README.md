@@ -128,7 +128,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ✅ Completado |
 | **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ✅ Completado |
 | **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ✅ Completado |
-| **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ⏳ Pendiente |
+| **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ✅ Completado |
 | **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ⏳ Pendiente |
 | **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ⏳ Pendiente |
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ⏳ Pendiente |
@@ -181,7 +181,12 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   por conexión —liberado el de lectura tras la petición inicial, para no
   cortar una aprobación humana interactiva—, `bind` bajo `umask` restrictiva
   sin ventana de permisos, serialización de conexiones documentada como
-  deliberada en la cabecera del módulo) y en el intérprete WASM.
+  deliberada en la cabecera del módulo) y en el intérprete WASM (**✅ T31.9
+  resuelto**: `checked_add` en `read_memory`/`write_memory` y en el cómputo
+  de dirección de `i32.load`/`i32.store*`, `saturating_add` en
+  `consume_fuel`, nuevo `Trap::MalformedModule` para bytecode truncado e
+  índices de función/tipo fuera de rango en `call_function`, corpus de seis
+  módulos malformados verificado con `catch_unwind`).
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
   `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
   en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
@@ -195,7 +200,7 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
-~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ **→ T31.10 → T31.16 → T31.9**, y
-el resto según convenga. T31.10 y T31.16 conviene abordarlos pronto: sin CI
-verde y sin tests de kernel ejecutables, las correcciones de T31.3 no tienen
-forma de verificarse.
+~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ **→ T31.10 →
+T31.16**, y el resto según convenga. T31.10 y T31.16 conviene abordarlos
+pronto: sin CI verde y sin tests de kernel ejecutables, las correcciones de
+T31.3 no tienen forma de verificarse.
