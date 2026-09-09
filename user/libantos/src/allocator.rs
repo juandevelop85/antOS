@@ -21,6 +21,12 @@ impl UserHeapAllocator {
     }
 }
 
+impl Default for UserHeapAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 unsafe impl GlobalAlloc for UserHeapAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let align = layout.align();

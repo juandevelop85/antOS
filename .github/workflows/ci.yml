@@ -49,6 +49,21 @@ jobs:
         run: cargo fmt --all -- --check
         working-directory: user
 
+      # T31.10: `system/barra` is its own workspace but is NOT a member (nor
+      # excluded) in the root Cargo.toml, and antos-protocol — a member of
+      # the root workspace — is one of its path dependencies. `cargo fmt
+      # --all` run with `working-directory: system/barra` (the pattern used
+      # above for kernel/user) resolves through that path dependency into
+      # the *root* workspace and reformats antosd/builder/protocolo instead
+      # of just barra — reproduced locally, `cargo metadata`/
+      # `cargo locate-project` from that directory correctly report barra as
+      # self-contained, so this is specific to how `cargo-fmt` enumerates
+      # `--all` packages, not a real workspace ambiguity. `--manifest-path`
+      # from the repo root does not exhibit the leak and is what
+      # `check-format` uses instead.
+      - name: Check formatting (system/barra)
+        run: cargo fmt --manifest-path system/barra/Cargo.toml -- --check
+
   # ──────────────────────────────────────────────── Clippy lint (host)
   clippy-host:
     name: "Lint · clippy (host)"
@@ -229,6 +244,21 @@ jobs:
       - name: Clippy (kernel, x86_64 bare-metal)
         run: cargo clippy --manifest-path kernel/Cargo.toml --target x86_64-unknown-none -- -D warnings
 
+      # T31.10: `user/` (antos-init + libantos) had no clippy coverage at
+      # all — only the fmt step above touched it. Shares this job's
+      # toolchain (rust-src for building core/alloc from source) rather than
+      # clippy-host's, since user/ is also a `no_std` bare-metal target.
+      # `--target` is explicit rather than relying on `user/.cargo/config.toml`:
+      # Cargo's config-file discovery walks up from the current *directory*,
+      # not from `--manifest-path`, so invoking this from the repo root
+      # without an explicit `--target` silently falls back to the host
+      # triple instead of `x86_64-unknown-none` (reproduced locally — it
+      # still "compiles", but lints a different, wrong build). `--all-targets`
+      # is deliberately omitted: it hits the same missing `test` crate gap
+      # T31.16 exists to close for the kernel.
+      - name: Clippy (user workspace, x86_64 bare-metal)
+        run: cargo clippy --manifest-path user/Cargo.toml --target x86_64-unknown-none -- -D warnings
+
   # ──────────────────────────────────────────────── Builder validation
   builder-tests:
     name: "Builder · GPT/EFI image tests"
@@ -340,3 +370,42 @@ jobs:
           export ANTOS_BIN="$PWD/target/release/antos"
           export ANTOS_BARRA_BIN="$PWD/system/barra/target/release/antos-barra"
           bash system/desktop/smoke.sh
+
+  # ──────────────────────────────────────────────── Lint · clippy (barra)
+  # T31.10: `system/barra` had no quality gate at all beyond compiling in
+  # the desktop-smoke job above (and without -D warnings there). GTK4/
+  # gtk4-layer-shell only exist on Linux with Wayland — this crate cannot be
+  # built, let alone linted, on macOS (confirmed locally: pkg-config can't
+  # find gtk4 or gtk4-layer-shell on Homebrew), so this runs only here, on
+  # the Linux runner that already installs those headers for the desktop
+  # smoke job.
+  clippy-barra:
+    name: "Lint · clippy (system/barra)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain with clippy
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+
+      - name: Install GTK4 / layer-shell dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libgtk4-layer-shell-dev \
+            pkg-config
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            system/barra/target
+          key: clippy-barra-${{ hashFiles('system/barra/Cargo.lock') }}
+          restore-keys: clippy-barra-
+
+      - name: Clippy (system/barra)
+        run: cargo clippy --manifest-path system/barra/Cargo.toml -- -D warnings

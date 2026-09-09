@@ -7,6 +7,21 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 > - **Kernel bare-metal (I+D de soberanía, Fase 29 y sucesivas):** el núcleo `no_std` propio (`kernel/` + `user/`), con su compositor 2D y su shell. Vía de investigación en paralelo; no ejecuta software POSIX.
 > El CLI `antos` y `antos-barra` (`system/`) son compartidos por la vía Linux y por el host.
 
+> **CI verde es requisito de cierre (T31.10).** La regla 2 de
+> [`.agents/rules/antos-development.md`](../../.agents/rules/antos-development.md)
+> ya exige verificar los criterios de aceptación con `cargo test --workspace`
+> antes de marcar un ticket como completado; esto lo deja explícito para las
+> puertas de calidad de [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
+> también: **ningún ticket se da por cerrado si deja algún trabajo de la CI en
+> rojo**, ni siquiera uno que el propio ticket no tocó. Antes de T31.10 la CI
+> llevaba tiempo en rojo de fondo (`check-format`/`clippy-host`/`clippy-kernel`
+> nunca pasaban sobre el árbol real) precisamente porque nada distinguía "mi
+> cambio rompió algo" de "ya estaba roto", así que los tickets se cerraban sin
+> esa señal. Si un ticket necesita tocar código fuera de su alcance declarado
+> para no dejar la CI en rojo, se documenta esa ampliación de alcance en el
+> propio ticket (como ya viene siendo la práctica en la Fase 31), no se deja
+> pasar en silencio.
+
 ---
 
 ## Estado Global del Backlog
@@ -129,7 +144,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ✅ Completado |
 | **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ✅ Completado |
 | **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ✅ Completado |
-| **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ⏳ Pendiente |
+| **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ✅ Completado |
 | **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ⏳ Pendiente |
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ⏳ Pendiente |
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ⏳ Pendiente |
@@ -188,8 +203,16 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   índices de función/tipo fuera de rango en `call_function`, corpus de seis
   módulos malformados verificado con `catch_unwind`).
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
-  `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
-  en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
+  `rustfmt` de T22.6 fallaban sobre el árbol actual, así que la CI llevaba
+  tiempo en rojo (**✅ T31.10 resuelto**: 170 ficheros reformateados en un
+  commit aislado; 97 avisos de clippy resueltos en el host —dos con
+  `unsafe`/`Result<_, ()>` reales corregidos con intención, el resto
+  mecánico— y 58 en el kernel para ambos objetivos —15 secciones `# Safety`
+  escritas de verdad y 3 `Result<_, ()>` con error nombrado o eliminados
+  por no tener ningún camino de fallo—; cerrados los huecos de cobertura de
+  `system/barra` y `user/`, con un job de CI dedicado para cada uno; nota
+  anti-regresión añadida al encabezado del propio catálogo). Los tests del
+  workspace del anfitrión (383 a la fecha de T31.10) y las compilaciones del
   kernel para ambas arquitecturas sí pasan. Aparte, los 86 tests escritos en
   el kernel no compilan: falta el arnés `no_std` y no hay trabajo de CI que
   los ejecute.
@@ -200,7 +223,7 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
-~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ **→ T31.10 →
-T31.16**, y el resto según convenga. T31.10 y T31.16 conviene abordarlos
-pronto: sin CI verde y sin tests de kernel ejecutables, las correcciones de
+~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~
+**→ T31.16**, y el resto según convenga. T31.16 conviene abordarlo pronto:
+sin tests de kernel ejecutables, las correcciones de
 T31.3 no tienen forma de verificarse.

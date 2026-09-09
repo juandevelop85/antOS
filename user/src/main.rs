@@ -122,10 +122,7 @@ pub extern "C" fn _start(mode: u64) -> ! {
 
     // 2. SYS_MMAP & #[global_allocator] — verify dynamic Box, Vec, String in Ring 3
     let heap_box = Box::new(0x4242u64);
-    let mut heap_vec = Vec::new();
-    heap_vec.push(10);
-    heap_vec.push(20);
-    heap_vec.push(30);
+    let heap_vec = alloc::vec![10, 20, 30];
     let heap_str = "Ring3 Dynamic Heap Active".to_string();
 
     let _ = write("[init] heap alloc: Box=");

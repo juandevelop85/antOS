@@ -29,6 +29,12 @@ pub const ENOSYS: u64 = (-38i64) as u64;
 
 /// Raw 3-argument syscall. Kept for call sites that never need a 4th
 /// argument; forwards to [`raw_syscall4`] with `arg4 = 0`.
+///
+/// # Safety
+///
+/// See [`raw_syscall4`]: the arguments must be whatever `number` (one of the
+/// `SYS_*` constants) expects, since the kernel interprets them without any
+/// further validation on this side of the boundary.
 #[inline(always)]
 pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
     unsafe { raw_syscall4(number, arg1, arg2, arg3, 0) }
@@ -36,6 +42,13 @@ pub unsafe fn raw_syscall(number: u64, arg1: u64, arg2: u64, arg3: u64) -> u64 {
 
 /// Raw 4-argument syscall. `SYS_FS_LIST`, `SYS_FS_READFILE` and `SYS_SYSINFO`
 /// are the only ones that use the 4th slot today (T26.5).
+///
+/// # Safety
+///
+/// `number` must be one of the `SYS_*` constants above, and `arg1..arg4`
+/// must be valid for whatever that syscall expects (e.g. a pointer/length
+/// pair naming memory this process actually owns) — the kernel trusts these
+/// values as-is once the trap instruction fires.
 #[cfg(target_arch = "x86_64")]
 #[inline]
 pub unsafe fn raw_syscall4(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
@@ -54,6 +67,9 @@ pub unsafe fn raw_syscall4(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u
     result
 }
 
+/// # Safety
+///
+/// Same contract as the x86_64 variant above.
 #[cfg(target_arch = "aarch64")]
 #[inline]
 pub unsafe fn raw_syscall4(number: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64) -> u64 {
@@ -75,7 +91,13 @@ pub fn exit(code: u64) -> ! {
     unsafe {
         raw_syscall(SYS_EXIT, code, 0, 0);
     }
-    loop {}
+    // SYS_EXIT never returns in practice; this is the safety net for the
+    // (should-be-impossible) case where the kernel hands control back
+    // anyway. `spin_loop` (not an empty `loop {}`) hints the CPU it's a
+    // deliberate spin-wait, not a bug.
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
 #[inline(always)]
