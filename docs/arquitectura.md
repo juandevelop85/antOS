@@ -167,6 +167,17 @@ interfaz gráfica: el propio kernel `no_std` trae su driver de vídeo, su compos
 espacio de usuario soberano, mientras que en el lado del host `antpkg` y Flatpak convergen en un único
 gestor de aplicaciones gráficas.
 
+> **Dos pilas gráficas, dos vías (desde la Fase 29):**
+>
+> | | Pila | Runtime | Vía |
+> | :--- | :--- | :--- | :--- |
+> | **`kernel/src/ui/`** (Fase 26) | Compositor 2D propio sobre el framebuffer, sin GTK ni Wayland | Kernel `no_std`, 16 syscalls, sin libc | **Kernel bare-metal** — I+D de soberanía (Fase 29). No ejecuta software POSIX. |
+> | **`system/barra`** (GTK4 + `wlr-layer-shell`) | Cliente Wayland de un compositor `wlroots` (Labwc, T13.0) | Linux con `std` | **antOS Linux** — driver diario (Fase 30). Neovim, Git, navegadores, `antos dev`. |
+>
+> El demonio `antosd` y el CLI `antos` (`system/`) son comunes: corren en el host
+> hoy y en la imagen de antOS Linux. El compositor bare-metal y `antos-barra`
+> **nunca** comparten proceso ni máquina.
+
 ```mermaid
 graph TD
   subgraph HOST["🖥️ Gestión de Apps Gráficas en el Host (Fase 25)"]

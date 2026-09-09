@@ -2,6 +2,11 @@
 
 Este directorio contiene el desglose técnico y ordenado de tareas para transformar el sistema en **antOS**: el sistema operativo personal para desarrolladores impulsado por IA y orquestación multi-agente nativa.
 
+> **Dos vías a partir de la Fase 29:**
+> - **antOS Linux (driver diario, Fase 30):** NixOS + sesión Wayland + `antos-barra` + userland de desarrollo (Neovim, Git, `antos dev`). Es el sistema pensado para usarse a diario; corre software existente porque es Linux.
+> - **Kernel bare-metal (I+D de soberanía, Fase 29 y sucesivas):** el núcleo `no_std` propio (`kernel/` + `user/`), con su compositor 2D y su shell. Vía de investigación en paralelo; no ejecuta software POSIX.
+> El CLI `antos` y `antos-barra` (`system/`) son compartidos por la vía Linux y por el host.
+
 ---
 
 ## Estado Global del Backlog
@@ -108,7 +113,10 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 28** | [T28.9](T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) | Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | ✅ Completado |
 | **Fase 28** | [T28.10](T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) | Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | ✅ Completado |
 | **Fase 29** | [T29.1](T29.1-framework-de-despacho-de-comandos-y-parser-de-linea-en-el-shell-soberano.md) | Framework de Despacho de Comandos y Parser de Línea en el Shell Soberano | ⏳ Pendiente |
-| **Fase 29** | [T29.2](T29.2-ejecucion-de-programas-externos-sys-spawn-con-argv-env-y-codigos-de-salida.md) | Ejecución de Programas Externos: `SYS_SPAWN` con `argv`/`env`, `wait` y Códigos de Salida | ⏳ Pendiente |
-| **Fase 29** | [T29.3](T29.3-coreutils-soberanas-no-std-para-el-shell-bare-metal.md) | Coreutils Soberanas `no_std` para el Shell Bare-Metal | ⏳ Pendiente |
-| **Fase 29** | [T29.4](T29.4-puente-de-comandos-antos-host-por-ipc.md) | Puente de Comandos `antos` ⇄ Host por IPC (Superficie Completa del CLI) | ⏳ Pendiente |
-| **Fase 29** | [T29.5](T29.5-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) | Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
+| **Fase 29** | [T29.2](T29.2-ejecucion-de-elf-y-coreutils-minimas-no-std.md) | Ejecución de ELF Externos y Coreutils Mínimas `no_std` | ⏳ Pendiente |
+| **Fase 29** | [T29.3](T29.3-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) | Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
+| **Fase 30** | [T30.1](T30.1-paquete-nix-de-antos-barra-y-modulo-de-sesion-wayland-declarativo.md) | Paquete Nix de `antos-barra` y Módulo de Sesión Wayland Declarativo | ⏳ Pendiente |
+| **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | ⏳ Pendiente |
+| **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | ⏳ Pendiente |
+| **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | ⏳ Pendiente |
+| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | ⏳ Pendiente |

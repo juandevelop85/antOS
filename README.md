@@ -7,7 +7,7 @@
 [![Tests](https://img.shields.io/badge/Tests-313%2F313%20Passed-brightgreen.svg)]()
 [![Wayland](https://img.shields.io/badge/UI-Wayland%20GTK4-blue.svg?logo=gnome)]()
 [![Security](https://img.shields.io/badge/Sandbox-Landlock%20%2F%20Seatbelt-purple.svg)]()
-[![Tickets Backlog](https://img.shields.io/badge/Backlog-99%2F104%20completados%20%C2%B7%20Fase%2029%20en%20curso-brightgreen.svg)](docs/tickets/README.md)
+[![Tickets Backlog](https://img.shields.io/badge/Backlog-99%2F107%20completados%20%C2%B7%20Fases%2029--30%20en%20curso-brightgreen.svg)](docs/tickets/README.md)
 [![Manual de Comandos](https://img.shields.io/badge/Documentaci%C3%B3n-Manual%20de%20Comandos-blueviolet.svg)](docs/manual-de-comandos.md)
 [![Guía UTM y VirtualBox](https://img.shields.io/badge/Gu%C3%ADa-UTM%20%26%20VirtualBox-blue.svg)](docs/guia-emulacion-utm-virtualbox.md)
 
@@ -572,11 +572,14 @@ El desarrollo de antOS se gestiona bajo la metodología **Spec-Driven Developmen
 | **Fase 28** | [T28.9](docs/tickets/T28.9-perifericos-x86-64-raton-ps2-y-pila-usb-xhci-en-x86-64.md) · Periféricos x86_64: Ratón PS/2 y Pila USB xHCI en x86_64 | ✅ Completado |
 | **Fase 28** | [T28.10](docs/tickets/T28.10-banco-de-pruebas-de-perifericos-matriz-de-emulacion-y-tests-de-integracion.md) · Banco de Pruebas de Periféricos: Matriz de Emulación y Tests de Integración de Entrada | ✅ Completado |
 | **Runtime** | Endurecimiento de arranque en VirtualBox ARM64 y UTM: GICv3 por ACPI, BAR PCIe sin asignar, tormenta de IRQ, compositor sobre GOP crudo, teclado y puntero. Ver [`CHANGELOG.md`](CHANGELOG.md) y [`docs/guia-emulacion-utm-virtualbox.md`](docs/guia-emulacion-utm-virtualbox.md). | ✅ |
-| **Fase 29** | [T29.1](docs/tickets/T29.1-framework-de-despacho-de-comandos-y-parser-de-linea-en-el-shell-soberano.md) · Framework de Despacho de Comandos y Parser de Línea en el Shell Soberano | ⏳ Pendiente |
-| **Fase 29** | [T29.2](docs/tickets/T29.2-ejecucion-de-programas-externos-sys-spawn-con-argv-env-y-codigos-de-salida.md) · Ejecución de Programas Externos: `SYS_SPAWN` con `argv`/`env`, `wait` y Códigos de Salida | ⏳ Pendiente |
-| **Fase 29** | [T29.3](docs/tickets/T29.3-coreutils-soberanas-no-std-para-el-shell-bare-metal.md) · Coreutils Soberanas `no_std` para el Shell Bare-Metal | ⏳ Pendiente |
-| **Fase 29** | [T29.4](docs/tickets/T29.4-puente-de-comandos-antos-host-por-ipc.md) · Puente de Comandos `antos` ⇄ Host por IPC (Superficie Completa del CLI) | ⏳ Pendiente |
-| **Fase 29** | [T29.5](docs/tickets/T29.5-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) · Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
+| **Fase 29** *(kernel bare-metal · I+D)* | [T29.1](docs/tickets/T29.1-framework-de-despacho-de-comandos-y-parser-de-linea-en-el-shell-soberano.md) · Framework de Despacho de Comandos y Parser de Línea en el Shell Soberano | ⏳ Pendiente |
+| **Fase 29** | [T29.2](docs/tickets/T29.2-ejecucion-de-elf-y-coreutils-minimas-no-std.md) · Ejecución de ELF Externos y Coreutils Mínimas `no_std` | ⏳ Pendiente |
+| **Fase 29** | [T29.3](docs/tickets/T29.3-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) · Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
+| **Fase 30** *(antOS Linux · driver diario)* | [T30.1](docs/tickets/T30.1-paquete-nix-de-antos-barra-y-modulo-de-sesion-wayland-declarativo.md) · Paquete Nix de `antos-barra` y Módulo de Sesión Wayland Declarativo | ⏳ Pendiente |
+| **Fase 30** | [T30.2](docs/tickets/T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) · Imagen Gráfica de VM e ISO de antOS Linux | ⏳ Pendiente |
+| **Fase 30** | [T30.3](docs/tickets/T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) · Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | ⏳ Pendiente |
+| **Fase 30** | [T30.4](docs/tickets/T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) · Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | ⏳ Pendiente |
+| **Fase 30** | [T30.5](docs/tickets/T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) · Instalación de antOS Linux en Hardware Real y Dual-Boot | ⏳ Pendiente |
 
 
 ---
