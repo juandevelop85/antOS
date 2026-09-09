@@ -316,6 +316,12 @@ framebuffer GOP de Limine.
 * **La ventana `ramfb` está negra pero el Terminal serie sí muestra el log:**  
   El *Emulated Display Card* no está en `ramfb`. Cámbialo en la barra lateral
   de Dispositivos → Display.
+* **El log se detiene justo tras `GICv2 … activos` y nunca llega a `antos>`:**  
+  Era una tormenta de IRQ: el driver VirtIO-Input no reconocía la interrupción
+  del transporte MMIO y el manejador entraba en *live-lock* en cuanto se
+  añadía cualquier función PCI (UTM añade red, audio, xHCI, blk, rng…).
+  **Corregido**; recompila desde `master`. Si por lo que sea reaparece, verás
+  `irq-storm  INTID N … enmascarada` y el arranque continúa igualmente.
 * **`pcie-xhci … BAR0 sin asignar · omitido` en el log:**  
   Esperado en el Método A (sin firmware). No es un error; el teclado/ratón van
   por VirtIO-Input.
