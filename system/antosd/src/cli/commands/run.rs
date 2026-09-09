@@ -16,9 +16,8 @@ use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
 pub fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result<()> {
-    let force_local = std::env::var_os("ANTOS_SIN_DEMONIO")
-        .or_else(|| std::env::var_os("SYSO_SIN_DEMONIO"))
-        .is_some();
+    let force_local =
+        crate::util::env_with_legacy_fallback("ANTOS_SIN_DEMONIO", "SYSO_SIN_DEMONIO").is_some();
     if !force_local && crate::ipc::hay_demonio(ctx) {
         return crate::ipc::intencion_remota(
             &crate::ipc::socket_path(ctx),
@@ -116,12 +115,6 @@ pub fn cmd_listen(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) ->
 
     // From here on, same as if you had typed it.
     cmd_intent(ctx, catalog, &intent_text, opts)
-}
-
-/// Backwards compatibility alias.
-#[deprecated(note = "use cmd_listen")]
-pub fn cmd_escuchar(ctx: &Ctx, catalog: &Catalog, args: &[String], opts: &Opts) -> Result<()> {
-    cmd_listen(ctx, catalog, args, opts)
 }
 
 /// Builds the prompt that primes the transcriber.

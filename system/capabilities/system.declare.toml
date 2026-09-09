@@ -8,7 +8,7 @@ package = { type = "slug", max = 128 }
 # fuga: $SYSTEM_CONFIG es una raíz declarada, con nombre. Pero cambia la
 # máquina entera, así que el nivel es "concesión" por definición.
 [effects]
-writes = ["$SYSTEM_CONFIG/syso-paquetes.nix"]
+writes = ["$SYSTEM_CONFIG/antos-paquetes.nix"]
 
 [policy]
 tier = "grant"

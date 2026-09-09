@@ -1,4 +1,4 @@
-# El módulo que convierte a syso en parte del sistema.
+# El módulo que convierte a antOS en parte del sistema.
 { config, lib, pkgs, ... }:
 
 let
@@ -37,7 +37,11 @@ in
       ANTOS_STATE = cfg.state;
       ANTOS_CAPABILITIES = "${cfg.package}/share/antos/capabilities";
       ANTOS_SYSTEM_CONFIG = "/etc/nixos";
-      # Compatibilidad hacia atrás
+      # Compatibilidad hacia atrás con la marca `syso` de antes del
+      # renombrado (T31.11): un ciclo de transición suave — `antos` siempre
+      # prefiere el `ANTOS_*` de arriba, así que estas nunca se leen aquí,
+      # pero cualquier otra herramienta del sistema que todavía las exporte
+      # o las espere sigue funcionando mientras se retiran del todo.
       SYSO_WORKSPACE = cfg.workspace;
       SYSO_STATE = cfg.state;
       SYSO_CAPABILITIES = "${cfg.package}/share/antos/capabilities";

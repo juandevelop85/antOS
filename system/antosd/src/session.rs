@@ -227,16 +227,3 @@ pub fn intent_session(
         }
     }
 }
-
-/// Backwards compatibility alias.
-#[deprecated(note = "use intent_session")]
-pub fn intencion(
-    ctx: &Ctx,
-    catalog: &Catalog,
-    texto: &str,
-    planificador: &dyn Planner,
-    seco: bool,
-    con: &mut dyn SessionHandler,
-) -> Result<()> {
-    intent_session(ctx, catalog, texto, planificador, seco, con)
-}

@@ -97,16 +97,6 @@ impl FlowEngine {
         Ok(task)
     }
 
-    #[deprecated]
-    pub fn iniciar_tarea(
-        &self,
-        workspace: &Path,
-        state_dir: &Path,
-        ticket_id: &str,
-    ) -> Result<FlowTask> {
-        self.start_task(workspace, state_dir, ticket_id)
-    }
-
     /// Advances the task's state machine to the next phase, recording the model used.
     pub fn advance_phase_with_model(
         &self,
@@ -262,16 +252,6 @@ impl FlowEngine {
         self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
     }
 
-    #[deprecated]
-    pub fn avanzar_fase(
-        &self,
-        ticket_id: &str,
-        detalle: &str,
-        test_exitoso: bool,
-    ) -> Result<FlowTask> {
-        self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
-    }
-
     /// Alias compatible con modelo.
     pub fn avanzar_fase_con_modelo(
         &self,
@@ -324,11 +304,6 @@ impl FlowEngine {
         Ok(task.clone())
     }
 
-    #[deprecated]
-    pub fn aprobar_tarea(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
-        self.approve_task(ticket_id, decision)
-    }
-
     /// Consulta una tarea por su ticket ID.
     pub fn get_task(&self, ticket_id: &str) -> Option<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
@@ -354,11 +329,6 @@ impl FlowEngine {
             }
         }
         None
-    }
-
-    #[deprecated]
-    pub fn consultar_tarea(&self, ticket_id: &str) -> Option<FlowTask> {
-        self.get_task(ticket_id)
     }
 
     /// Lista todas las tareas orquestadas.
@@ -391,11 +361,6 @@ impl FlowEngine {
         }
         tasks.sort_by(|a, b| a.id.cmp(&b.id));
         tasks
-    }
-
-    #[deprecated]
-    pub fn listar_tareas(&self) -> Vec<FlowTask> {
-        self.list_tasks()
     }
 
     /// Ejecuta el pipeline completo de agentes en segundo plano para un ticket (T3.2):
@@ -522,17 +487,6 @@ impl FlowEngine {
         save_task_to_disk(state_dir, &task);
         Ok(task)
     }
-
-    #[deprecated]
-    pub fn ejecutar_pipeline_worktree(
-        &self,
-        workspace: &Path,
-        state_dir: &Path,
-        ticket_id: &str,
-        cambios_ficheros: &[(String, String)],
-    ) -> Result<FlowTask> {
-        self.run_worktree_pipeline(workspace, state_dir, ticket_id, cambios_ficheros)
-    }
 }
 
 /// Runs the test suite inside the worktree directory.
@@ -582,11 +536,6 @@ pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
     }
 }
 
-#[deprecated]
-pub fn ejecutar_tests_en_worktree(worktree: &Path) -> Result<(bool, String)> {
-    run_worktree_tests(worktree)
-}
-
 /// Calculates consolidated diff of a worktree against HEAD.
 pub fn calculate_worktree_diff(worktree: &Path) -> Result<String> {
     let out = std::process::Command::new("git")
@@ -620,11 +569,6 @@ pub fn calculate_worktree_diff(worktree: &Path) -> Result<String> {
     Ok("sin cambios pendientes".into())
 }
 
-#[deprecated]
-pub fn calcular_diff_worktree(worktree: &Path) -> Result<String> {
-    calculate_worktree_diff(worktree)
-}
-
 pub fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -651,11 +595,6 @@ pub fn save_task_to_disk(state_dir: &Path, task: &FlowTask) {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
-    // T31.10: estos tests ejercitan deliberadamente la API deprecada
-    // (`iniciar_tarea`/`avanzar_fase`/`ejecutar_pipeline_worktree`) para
-    // comprobar que sigue funcionando mientras exista; no es un olvido de
-    // migración.
-    #![allow(deprecated)]
 
     use super::*;
 
@@ -683,7 +622,7 @@ mod tests {
 
         // 1. Iniciar tarea con ticket T3.1
         let task = engine
-            .iniciar_tarea(&cwd, &state_dir, "T3.1")
+            .start_task(&cwd, &state_dir, "T3.1")
             .expect("iniciar tarea T3.1");
 
         assert_eq!(task.ticket_id, "T3.1");
@@ -692,28 +631,28 @@ mod tests {
 
         // 2. Arquitecto termina plan -> Coder
         let task = engine
-            .avanzar_fase("T3.1", "arquitectura validada", true)
+            .advance_phase("T3.1", "arquitectura validada", true)
             .expect("avanzar a Coder");
         assert_eq!(task.state, FlowState::Implementing);
         assert_eq!(task.current_role, Some(AgentRole::Coder));
 
         // 3. Coder termina código -> QA
         let task = engine
-            .avanzar_fase("T3.1", "codigo generado", true)
+            .advance_phase("T3.1", "codigo generado", true)
             .expect("avanzar a QA");
         assert_eq!(task.state, FlowState::Testing);
         assert_eq!(task.current_role, Some(AgentRole::QA));
 
         // 4. QA pasa tests -> Auditor
         let task = engine
-            .avanzar_fase("T3.1", "tests pasaron en verde", true)
+            .advance_phase("T3.1", "tests pasaron en verde", true)
             .expect("avanzar a Auditor");
         assert_eq!(task.state, FlowState::Reviewing);
         assert_eq!(task.current_role, Some(AgentRole::Auditor));
 
         // 5. Auditor termina revisión -> Listo para aprobación
         let task = engine
-            .avanzar_fase("T3.1", "auditoria completada", true)
+            .advance_phase("T3.1", "auditoria completada", true)
             .expect("avanzar a ListoParaAprobacion");
         assert_eq!(task.state, FlowState::ReadyForApproval);
         assert_eq!(task.current_role, None);
@@ -731,13 +670,13 @@ mod tests {
         let state_dir = cwd.join(".antos");
 
         // Iniciar con ticket T1.1
-        let _ = engine.iniciar_tarea(&cwd, &state_dir, "T1.1");
-        let _ = engine.avanzar_fase("T1.1", "plan", true); // -> Implementing
-        let _ = engine.avanzar_fase("T1.1", "codigo", true); // -> Testing
+        let _ = engine.start_task(&cwd, &state_dir, "T1.1");
+        let _ = engine.advance_phase("T1.1", "plan", true); // -> Implementing
+        let _ = engine.advance_phase("T1.1", "codigo", true); // -> Testing
 
         // QA reporta fallo -> debe volver a Implementing con reintento 1
         let task_reintento = engine
-            .avanzar_fase("T1.1", "assertion failed line 42", false)
+            .advance_phase("T1.1", "assertion failed line 42", false)
             .expect("reintento QA");
 
         assert_eq!(task_reintento.state, FlowState::Implementing);
@@ -764,7 +703,7 @@ mod tests {
         // Ejecutar pipeline completo pasando cambios
         let cambios = vec![("src/lib.rs".to_string(), "// test autogenerado".to_string())];
         let task = engine
-            .ejecutar_pipeline_worktree(&ws_dir, &state_dir, "T9.1", &cambios)
+            .run_worktree_pipeline(&ws_dir, &state_dir, "T9.1", &cambios)
             .expect("ejecutar pipeline");
 
         assert_eq!(task.ticket_id, "T9.1");

@@ -72,18 +72,9 @@ pub fn socket_path(ctx: &Ctx) -> PathBuf {
     ctx.state.join("antos.sock")
 }
 
-/// Backwards compatibility alias.
-#[deprecated(note = "use socket_path")]
-pub fn ruta_socket(ctx: &Ctx) -> PathBuf {
-    socket_path(ctx)
-}
-
 // ------------------------------------------------------------- el protocolo
 
-#[allow(unused_imports, deprecated)]
-pub use antos_protocol::Peticion;
-#[allow(unused_imports, deprecated)]
-pub use antos_protocol::{Event, Evento, PackageAppType, Request};
+pub use antos_protocol::{Event, PackageAppType, Request};
 
 /// Una línea de JSON por mensaje. Sin marco binario ni longitudes: se puede
 /// leer con `nc` y depurar mirándolo, que a esta escala vale más que los
@@ -225,7 +216,7 @@ pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
 
     println!(
         "{} {}",
-        terminal::paint("syso · demonio escuchando en", terminal::BOLD),
+        terminal::paint("antOS · demonio escuchando en", terminal::BOLD),
         terminal::paint(&path.display().to_string(), terminal::DIM)
     );
 

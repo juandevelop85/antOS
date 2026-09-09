@@ -56,47 +56,45 @@ impl Ctx {
         let antos_root = find_antos_root_from_cwd();
 
         // ── Step 2: resolve workspace ────────────────────────────────────────
-        let workspace = match std::env::var_os("ANTOS_WORKSPACE")
-            .or_else(|| std::env::var_os("SYSO_WORKSPACE"))
-        {
-            Some(v) => PathBuf::from(v),
-            None => {
-                // Prefer the workspace relative to the detected antOS root;
-                // fall back to a relative path (legacy behaviour).
-                antos_root
-                    .as_deref()
-                    .map(|r| r.join("workspace"))
-                    .unwrap_or_else(|| PathBuf::from("workspace"))
-            }
-        };
+        let workspace =
+            match crate::util::env_with_legacy_fallback("ANTOS_WORKSPACE", "SYSO_WORKSPACE") {
+                Some(v) => PathBuf::from(v),
+                None => {
+                    // Prefer the workspace relative to the detected antOS root;
+                    // fall back to a relative path (legacy behaviour).
+                    antos_root
+                        .as_deref()
+                        .map(|r| r.join("workspace"))
+                        .unwrap_or_else(|| PathBuf::from("workspace"))
+                }
+            };
         std::fs::create_dir_all(&workspace)?;
         // Canonicalisation is mandatory: containment checks compare path prefixes,
         // and "workspace" vs "/Users/.../workspace" would not match otherwise.
         let workspace = workspace.canonicalize()?;
 
         // ── Step 3: resolve state dir ────────────────────────────────────────
-        let state = match std::env::var_os("ANTOS_STATE").or_else(|| std::env::var_os("SYSO_STATE"))
-        {
+        let state = match crate::util::env_with_legacy_fallback("ANTOS_STATE", "SYSO_STATE") {
             Some(v) => PathBuf::from(v),
             None => {
                 // Prefer state dir relative to antOS root when known.
                 let base = antos_root.as_deref().unwrap_or(Path::new("."));
-                if base.join(".antos").is_dir() {
-                    base.join(".antos")
-                } else if base.join(".syso").is_dir() {
-                    base.join(".syso")
-                } else {
-                    base.join(".antos")
-                }
+                let new_state = base.join(".antos");
+                // One-time migration (T31.11): an installation that still has
+                // `.syso/` from before the rename gets moved to `.antos/`
+                // exactly once; afterwards only `.antos/` is ever consulted.
+                let _ = crate::util::migrate_legacy_path(&base.join(".syso"), &new_state);
+                new_state
             }
         };
         std::fs::create_dir_all(&state)?;
         let state = state.canonicalize()?;
 
         // ── Step 4: locate the capability catalogue ──────────────────────────
-        let caps_dir = match std::env::var_os("ANTOS_CAPABILITIES")
-            .or_else(|| std::env::var_os("SYSO_CAPABILITIES"))
-        {
+        let caps_dir = match crate::util::env_with_legacy_fallback(
+            "ANTOS_CAPABILITIES",
+            "SYSO_CAPABILITIES",
+        ) {
             Some(v) => PathBuf::from(v),
             None => {
                 // Build candidate list anchored at the antOS root (preferred),
@@ -121,9 +119,10 @@ impl Ctx {
         };
 
         // ── Step 5: system configuration root ───────────────────────────────
-        let system_config = match std::env::var_os("ANTOS_SYSTEM_CONFIG")
-            .or_else(|| std::env::var_os("SYSO_SYSTEM_CONFIG"))
-        {
+        let system_config = match crate::util::env_with_legacy_fallback(
+            "ANTOS_SYSTEM_CONFIG",
+            "SYSO_SYSTEM_CONFIG",
+        ) {
             Some(v) => PathBuf::from(v),
             None => {
                 let nixos = PathBuf::from("/etc/nixos");

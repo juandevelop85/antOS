@@ -5,7 +5,11 @@ target/
 *.iso
 *.log
 
-# estado en ejecución de antOS / sysod: instantáneas, bitácora, concesiones
+# estado en ejecución de antOS / antosd: instantáneas, bitácora, concesiones
+# `.syso/` es el nombre previo al renombrado (T0.1); se conserva en la lista
+# por si queda una instalación sin migrar (T31.11 migra automáticamente al
+# primer arranque, pero un `.syso/` residual no debería colarse en git
+# mientras tanto).
 .syso/
 .antos/
 

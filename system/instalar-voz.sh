@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Deja lista la transcripción local para `syso escucha`.
+# Deja lista la transcripción local para `antos escucha`.
 #
 # Todo corre en esta máquina: el audio no sale a ningún sitio.
 set -euo pipefail
 
 MODELO="${1:-base}"   # tiny | base | small | medium
-DESTINO="$HOME/.cache/syso/modelos"
+DESTINO="$HOME/.cache/antos/modelos"
 FICHERO="$DESTINO/ggml-${MODELO}.bin"
 
 echo ">> herramientas"
@@ -27,7 +27,7 @@ ls -lh "$FICHERO"
 echo
 echo "listo. Pruébalo sin micrófono, sintetizando la frase:"
 echo "  say -v Monica -o /tmp/prueba.aiff \"crea un proyecto rust llamado demo\""
-echo "  target/debug/syso escucha --desde /tmp/prueba.aiff"
+echo "  target/debug/antos escucha --desde /tmp/prueba.aiff"
 echo
 echo "Con micrófono (macOS pedirá permiso la primera vez):"
-echo "  target/debug/syso escucha --segundos 5"
+echo "  target/debug/antos escucha --segundos 5"

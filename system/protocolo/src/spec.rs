@@ -46,16 +46,6 @@ impl TicketStatus {
             TicketStatus::Completed => "✅ Completed",
         }
     }
-
-    #[deprecated(note = "use tag")]
-    pub fn etiqueta(&self) -> &'static str {
-        match self {
-            TicketStatus::Pending => "⏳ Pendiente",
-            TicketStatus::InProgress => "🔄 En Progreso",
-            TicketStatus::InReview => "🔍 En Revisión",
-            TicketStatus::Completed => "✅ Completado",
-        }
-    }
 }
 
 /// Summary of a ticket for listings and Kanban boards.

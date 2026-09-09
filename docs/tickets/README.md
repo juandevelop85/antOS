@@ -145,7 +145,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ✅ Completado |
 | **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ✅ Completado |
 | **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ✅ Completado |
-| **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ⏳ Pendiente |
+| **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ✅ Completado |
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ⏳ Pendiente |
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ⏳ Pendiente |
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ⏳ Pendiente |
@@ -217,13 +217,26 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   el kernel no compilan: falta el arnés `no_std` y no hay trabajo de CI que
   los ejecute.
 - **Mejoras estructurales (T31.11 – T31.15).** Retirada de la capa `syso` y de
-  los 45 símbolos deprecados, finalización de la nomenclatura en inglés,
-  cobertura de tests de la capa CLI y de la barra, alineación de las cabeceras
-  de módulo con lo realmente implementado, y descomposición de los ficheros que
-  han vuelto a superar las 1500 líneas.
+  los 45 símbolos deprecados (**✅ T31.11 resuelto**: transición suave para
+  variables de entorno vía nuevo `env_with_legacy_fallback` —`SYSO_*` con
+  aviso de obsolescencia, no en silencio—, migración real de una sola vez
+  para rutas en disco vía `migrate_legacy_path` —`.syso/` → `.antos/`,
+  claves en `~/.config/syso/` → `~/.config/antos/`, ficheros de proyecto
+  `syso.packages.toml`/`syso-paquetes.nix` → `antos.packages.toml`/
+  `antos-paquetes.nix`, este último renombrado también en disco—,
+  `POLICY_ENV` a `ANTOS_SANDBOX_POLICY` sin alias, los 45 símbolos
+  deprecados eliminados y sus 8 usos internos en tests de `flow.rs`
+  reescritos contra la API real; de paso, corregido un manifiesto de
+  capacidad —`pkg.declare.toml`/`system.declare.toml`— que declaraba
+  `writes` contra los nombres de fichero viejos y habría hecho que el
+  recinto denegara la escritura real), finalización de la nomenclatura en
+  inglés, cobertura de tests de la capa CLI y de la barra, alineación de
+  las cabeceras de módulo con lo realmente implementado, y descomposición
+  de los ficheros que han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
-~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~
-**→ T31.16**, y el resto según convenga. T31.16 conviene abordarlo pronto:
-sin tests de kernel ejecutables, las correcciones de
-T31.3 no tienen forma de verificarse.
+~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
+~~T31.11~~ **→ T31.16 → T31.12**, y el resto según convenga. T31.16 conviene
+abordarlo pronto: sin tests de kernel ejecutables, las correcciones de T31.3
+no tienen forma de verificarse. T31.12 ya puede empezar — su dependencia
+declarada (T31.11) está resuelta.

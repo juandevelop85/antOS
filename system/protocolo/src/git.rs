@@ -78,11 +78,6 @@ impl GitRepoStatus {
     pub fn is_clean(&self) -> bool {
         self.modified.is_empty() && self.staged.is_empty() && self.untracked.is_empty()
     }
-
-    #[deprecated(note = "use is_clean")]
-    pub fn es_limpio(&self) -> bool {
-        self.is_clean()
-    }
 }
 
 // --------------------------------------------------- git forge & issues / PRs (T21.2)

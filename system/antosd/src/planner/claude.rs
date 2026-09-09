@@ -28,7 +28,9 @@ pub struct ClaudePlanner {
 impl ClaudePlanner {
     pub fn from_env() -> Result<Self> {
         let api_key = leer_clave()?;
-        let model = std::env::var("SYSO_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let model = crate::util::env_with_legacy_fallback("ANTOS_MODEL", "SYSO_MODEL")
+            .and_then(|v| v.into_string().ok())
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         Ok(Self { api_key, model })
     }
 }
@@ -38,7 +40,14 @@ fn ruta_clave() -> PathBuf {
     let base = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    base.join(".config/syso/anthropic.key")
+    let new_path = base.join(".config/antos/anthropic.key");
+    // Migración de una sola vez (T31.11): una instalación con la clave en
+    // `~/.config/syso/anthropic.key` de antes del renombrado se mueve a
+    // `~/.config/antos/anthropic.key` exactamente una vez. Por fichero, no
+    // por directorio completo: `~/.config/antos/` puede existir ya por otras
+    // claves migradas (openai_compat.rs) sin que esta lo haya sido todavía.
+    let _ = crate::util::migrate_legacy_path(&base.join(".config/syso/anthropic.key"), &new_path);
+    new_path
 }
 
 /// Lee la clave de un fichero, y solo como último recurso del entorno.
@@ -78,11 +87,11 @@ fn leer_clave() -> Result<String> {
     bail!(
         "no encuentro la clave de la API.\n\
          Ponla en {} (solo lectura para ti):\n\
-         \n  mkdir -p ~/.config/syso && chmod 700 ~/.config/syso\n\
+         \n  mkdir -p ~/.config/antos && chmod 700 ~/.config/antos\n\
          \n  read -rs CLAVE && printf '%s' \"$CLAVE\" > {} && unset CLAVE\n\
          \n  chmod 600 {}\n\
          \nO usa el planificador local, que no necesita clave:\n\
-         \n  syso --planificador local \"…\"",
+         \n  antos --planificador local \"…\"",
         ruta.display(),
         ruta.display(),
         ruta.display()
@@ -207,7 +216,7 @@ impl Planner for ClaudePlanner {
 }
 
 const SYSTEM: &str = "\
-Eres el planificador de syso, un sistema operativo para desarrolladores.
+Eres el planificador de antOS, un sistema operativo para desarrolladores.
 
 Traduces la intención del usuario a llamadas de las capacidades disponibles.
 Reglas:

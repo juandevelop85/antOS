@@ -24,7 +24,7 @@ Antes de escribir código:
    - Leer el archivo del ticket (ej. `docs/tickets/T1.1-*.md`).
    - Identificar:
      - **Descripción y Objetivo.**
-     - **Alcance Técnico:** crates afectados (`system/protocolo`, `system/sysod`, `kernel`, `builder`, etc.), tipos de datos y mensajes IPC.
+     - **Alcance Técnico:** crates afectados (`system/protocolo`, `system/antosd`, `kernel`, `builder`, etc.), tipos de datos y mensajes IPC.
      - **Criterios de Aceptación:** tests unitarios, compatibilidad, no regresiones.
 
 ---
@@ -34,7 +34,7 @@ Antes de escribir código:
 1. **Determinación de Crates Afectados:**
    - Identificar si el cambio requiere modificaciones en:
      - `system/protocolo`: Estructuras tipadas, serialización `serde`, mensajes IPC.
-     - `system/sysod`: Demonio del sistema, analizadores de fondo, despacho de capacidades.
+     - `system/antosd`: Demonio del sistema, analizadores de fondo, despacho de capacidades.
      - `system/capabilities`: Módulos de aislamiento, Sandboxing (Landlock), Git semántico.
      - `system/barra`: UI en GTK4 / Relm4 / Wayland.
      - `kernel`: Bare metal x86_64 / aarch64 (si aplica).
@@ -83,7 +83,7 @@ Una vez verificados los tests y actualizado el backlog, crear un commit de Git c
 
 1. Preparar los archivos relevantes (`git add`).
 2. Generar un commit semántico y descriptivo:
-   - **Título:** Formato `<tipo>(<área>): <TID> - <título corto del ticket>` (ej. `feat(sysod): T1.2 - analizador de repositorios git en segundo plano`).
+   - **Título:** Formato `<tipo>(<área>): <TID> - <título corto del ticket>` (ej. `feat(antosd): T1.2 - analizador de repositorios git en segundo plano`).
    - **Cuerpo:**
      - Resumen del objetivo del ticket.
      - Lista detallada de archivos y módulos creados o modificados.

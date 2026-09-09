@@ -29,7 +29,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Por dónde viaja la política hasta un ejecutor que se encierra solo.
-pub const POLICY_ENV: &str = "SYSO_RECINTO";
+///
+/// Contrato interno entre el proceso padre y el ejecutor confinado (ambos
+/// leen esta misma constante, así que no hace falta compatibilidad hacia
+/// atrás: T31.11 retira la marca `syso` de raíz en vez de mantener un alias).
+pub const POLICY_ENV: &str = "ANTOS_SANDBOX_POLICY";
 
 pub const EXEC_SUBCOMMAND: &str = "__ejecutar";
 pub const NET_SUBCOMMAND: &str = "__probar-red";

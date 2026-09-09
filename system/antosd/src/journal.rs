@@ -66,12 +66,6 @@ pub fn extract_ticket_id(text: &str) -> Option<String> {
     None
 }
 
-/// Backwards compatibility alias.
-#[deprecated(note = "use extract_ticket_id")]
-pub fn extraer_ticket_id(texto: &str) -> Option<String> {
-    extract_ticket_id(texto)
-}
-
 pub fn append(path: &Path, record: &Record) -> Result<()> {
     let mut f = std::fs::OpenOptions::new()
         .create(true)

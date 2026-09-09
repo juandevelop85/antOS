@@ -78,11 +78,6 @@ impl SpecEngine {
         Ok(tickets)
     }
 
-    #[deprecated]
-    pub fn listar_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
-        self.list_tickets(workspace_path)
-    }
-
     /// Obtiene el detalle completo de un ticket específico.
     pub fn get_ticket(
         &self,
@@ -152,15 +147,6 @@ impl SpecEngine {
         }
 
         Ok(Some(detalle))
-    }
-
-    #[deprecated]
-    pub fn obtener_ticket(
-        &self,
-        workspace_path: &Path,
-        ticket_id: &str,
-    ) -> Result<Option<TicketDetail>> {
-        self.get_ticket(workspace_path, ticket_id)
     }
 
     /// Crea un nuevo ticket técnico en el espacio de trabajo activo.
@@ -417,11 +403,6 @@ pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
 /// Encuentra el directorio de tickets ascendiendo sin ningún techo de contención.
 pub fn find_tickets_dir_unbounded(inicio: &Path) -> Option<PathBuf> {
     find_tickets_dir_with_ceiling(inicio, None)
-}
-
-#[deprecated]
-pub fn encontrar_directorio_tickets(inicio: &Path) -> Option<PathBuf> {
-    find_tickets_dir(inicio)
 }
 
 /// Indexa el directorio de tickets leyendo `README.md` (si existe) y los ficheros individuales.

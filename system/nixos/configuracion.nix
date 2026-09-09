@@ -9,7 +9,7 @@
     # traduzca la intención a comandos — la intención se convierte en una
     # línea de este fichero, la apruebas viendo el diff, y aplicarla es
     # cambiar de generación.
-    ./syso-paquetes.nix
+    ./antos-paquetes.nix
   ];
 
   services.antos.enable = true;

@@ -118,16 +118,6 @@ impl AgentRole {
             }
         }
     }
-
-    #[deprecated(note = "use description")]
-    pub fn descripcion(&self) -> &'static str {
-        self.description()
-    }
-
-    #[deprecated(note = "use system_prompt")]
-    pub fn prompt_sistema(&self) -> &'static str {
-        self.system_prompt()
-    }
 }
 
 /// Lifecycle state machine for an antFlow task.

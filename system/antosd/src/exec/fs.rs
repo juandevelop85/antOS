@@ -54,11 +54,11 @@ pub fn changes_for(
 
         "pkg.declare" => {
             let proj = ctx.workspace.join(&a["project"]);
-            let path = if proj.join("syso.packages.toml").exists() {
-                proj.join("syso.packages.toml")
-            } else {
-                proj.join("antos.packages.toml")
-            };
+            let path = proj.join("antos.packages.toml");
+            // Migración de una sola vez (T31.11): un proyecto con el fichero
+            // todavía llamado `syso.packages.toml` de antes del renombrado
+            // se migra a `antos.packages.toml` exactamente una vez.
+            let _ = crate::util::migrate_legacy_path(&proj.join("syso.packages.toml"), &path);
             let previo = leer_con_pendiente(&path, pendiente);
             Ok(Some(vec![Change::Write {
                 content: declare_package(&previo, &a["package"], &a["version"])?,
@@ -67,11 +67,13 @@ pub fn changes_for(
         }
 
         "system.declare" => {
-            let path = if ctx.system_config.join("syso-paquetes.nix").exists() {
-                ctx.system_config.join("syso-paquetes.nix")
-            } else {
-                ctx.system_config.join("antos-paquetes.nix")
-            };
+            let path = ctx.system_config.join("antos-paquetes.nix");
+            // Migración de una sola vez (T31.11): mismo caso que arriba,
+            // para el módulo Nix declarativo del sistema.
+            let _ = crate::util::migrate_legacy_path(
+                &ctx.system_config.join("syso-paquetes.nix"),
+                &path,
+            );
             let previo = leer_con_pendiente(&path, pendiente);
             Ok(Some(vec![Change::Write {
                 content: declare_system_package(&previo, &a["package"])?,

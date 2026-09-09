@@ -74,24 +74,12 @@ pub mod vte;
 pub mod wasm;
 pub mod web;
 
-/// Backwards compatibility module aliases.
-#[deprecated(note = "use protocol")]
-pub use protocol as protocolo;
-#[deprecated(note = "use session")]
-pub use session as sesion;
-#[deprecated(note = "use voice")]
-pub use voice as voz;
-
 use anyhow::Result;
 use capability::Catalog;
 use ctx::Ctx;
 use terminal::{paint, RED};
 
 pub use cli::commands::tools::{pick_planner, pick_planner_by_name};
-
-/// Backwards compatibility alias.
-#[deprecated(note = "use pick_planner_by_name")]
-pub use cli::commands::tools::pick_planner_by_name as pick_planner_por_nombre;
 
 fn main() {
     if let Err(e) = run() {

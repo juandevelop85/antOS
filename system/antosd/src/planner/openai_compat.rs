@@ -546,19 +546,22 @@ fn read_key_with_fallbacks(provider_name: &str, env_var: &str) -> Result<String>
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // Check ~/.config/antos/<provider>.key or ~/.config/syso/<provider>.key
-    let key_paths = [
-        home.join(format!(".config/antos/{provider_name}.key")),
-        home.join(format!(".config/syso/{provider_name}.key")),
-    ];
+    // Migración de una sola vez (T31.11): una clave guardada en
+    // `~/.config/syso/<proveedor>.key` de antes del renombrado se mueve a
+    // `~/.config/antos/<proveedor>.key` exactamente una vez. Por fichero,
+    // no por directorio completo: otras claves ya migradas no deben
+    // impedir que esta lo sea.
+    let key_path = home.join(format!(".config/antos/{provider_name}.key"));
+    let _ = crate::util::migrate_legacy_path(
+        &home.join(format!(".config/syso/{provider_name}.key")),
+        &key_path,
+    );
 
-    for path in &key_paths {
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let trimmed = content.trim().to_string();
-                if !trimmed.is_empty() {
-                    return Ok(trimmed);
-                }
+    if key_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&key_path) {
+            let trimmed = content.trim().to_string();
+            if !trimmed.is_empty() {
+                return Ok(trimmed);
             }
         }
     }

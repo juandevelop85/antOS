@@ -25,13 +25,27 @@ use std::sync::mpsc::{channel, Receiver};
 
 const BAR_WIDTH: i32 = 820;
 
+/// Reads an environment variable, falling back to its `SYSO_*` predecessor
+/// with a one-line deprecation notice on `stderr` (T31.11: retiring the
+/// `syso` compatibility layer over one soft-transition cycle instead of
+/// dropping `SYSO_*` in silence). Small enough to duplicate here rather than
+/// pull in a dependency on `antosd` — `antos-barra` only depends on
+/// `antos-protocol` today.
+fn env_with_legacy_fallback(current: &str, legacy: &str) -> Option<std::ffi::OsString> {
+    if let Some(v) = std::env::var_os(current) {
+        return Some(v);
+    }
+    let v = std::env::var_os(legacy)?;
+    eprintln!("antOS · aviso: {legacy} está obsoleta, usa {current} en su lugar (T31.11)");
+    Some(v)
+}
+
 /// Resolves the antOS daemon UNIX socket path.
 fn socket_path() -> PathBuf {
-    if let Some(v) = std::env::var_os("ANTOS_SOCKET").or_else(|| std::env::var_os("SYSO_SOCKET")) {
+    if let Some(v) = env_with_legacy_fallback("ANTOS_SOCKET", "SYSO_SOCKET") {
         return PathBuf::from(v);
     }
-    let state_dir = std::env::var_os("ANTOS_STATE")
-        .or_else(|| std::env::var_os("SYSO_STATE"))
+    let state_dir = env_with_legacy_fallback("ANTOS_STATE", "SYSO_STATE")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".antos"));
     state_dir.join("antos.sock")

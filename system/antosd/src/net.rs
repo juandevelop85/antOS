@@ -69,11 +69,6 @@ pub fn diagnose_ports(port_filter: Option<u16>) -> Result<Vec<PortDiagnosticInfo
     Ok(results)
 }
 
-#[deprecated(note = "use diagnose_ports")]
-pub fn diagnosticar_puertos(filtro_puerto: Option<u16>) -> Result<Vec<PortDiagnosticInfo>> {
-    diagnose_ports(filtro_puerto)
-}
-
 /// Terminates processes holding a network port.
 pub fn kill_port(port: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
     let processes = diagnose_ports(Some(port))?;
@@ -98,11 +93,6 @@ pub fn kill_port(port: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
     Ok(processes)
 }
 
-#[deprecated(note = "use kill_port")]
-pub fn liberar_puerto(puerto: u16, force: bool) -> Result<Vec<PortDiagnosticInfo>> {
-    kill_port(puerto, force)
-}
-
 /// Extracts port from socket descriptor e.g. `*:3000` or `127.0.0.1:8080`.
 pub fn extract_port(name: &str) -> Option<u16> {
     if let Some((_, port_str)) = name.rsplit_once(':') {
@@ -110,11 +100,6 @@ pub fn extract_port(name: &str) -> Option<u16> {
     } else {
         None
     }
-}
-
-#[deprecated(note = "use extract_port")]
-pub fn extraer_puerto(name: &str) -> Option<u16> {
-    extract_port(name)
 }
 
 /// Gets full process command line via `ps`.

@@ -34,15 +34,6 @@ impl Tier {
             Tier::Grant => "grant",
         }
     }
-
-    #[deprecated(note = "use label")]
-    pub fn label_es(self) -> &'static str {
-        match self {
-            Tier::Auto => "automático",
-            Tier::Confirm => "confirmación",
-            Tier::Grant => "concesión",
-        }
-    }
 }
 
 /// Atomic step in an execution plan requiring a specific capability.
@@ -205,12 +196,3 @@ pub struct ExecutionResult {
     #[serde(alias = "instantanea")]
     pub snapshot: Option<String>,
 }
-
-#[deprecated(note = "use Proposal")]
-pub type Propuesta = Proposal;
-#[deprecated(note = "use BlastRadius")]
-pub type Radio = BlastRadius;
-#[deprecated(note = "use Enclosure")]
-pub type Recinto = Enclosure;
-#[deprecated(note = "use ExecutionResult")]
-pub type Resultado = ExecutionResult;

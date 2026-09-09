@@ -5,10 +5,8 @@
 //! and that ignorance is exactly what allows more than one interface without
 //! duplicating logic or guarantees.
 
-#[allow(unused_imports, deprecated)]
+#[allow(unused_imports)]
 pub use antos_protocol::{BlastRadius, Enclosure, ExecutionResult, Proposal};
-#[allow(unused_imports, deprecated)]
-pub use antos_protocol::{Propuesta, Radio, Recinto, Resultado};
 
 /// Handler for the interactive session lifecycle.
 ///
@@ -33,9 +31,3 @@ pub trait SessionHandler {
     /// Final execution result.
     fn on_result(&mut self, result: &ExecutionResult) -> anyhow::Result<()>;
 }
-
-/// Backwards compatibility alias.
-#[deprecated(note = "use SessionHandler")]
-pub trait Interlocutor: SessionHandler {}
-#[allow(deprecated)]
-impl<T: SessionHandler> Interlocutor for T {}

@@ -198,11 +198,6 @@ pub fn find_git_root_with_ceiling(
     None
 }
 
-#[deprecated(note = "use find_git_root")]
-pub fn encontrar_raiz_git(inicio: &Path) -> Option<(PathBuf, PathBuf)> {
-    find_git_root(inicio)
-}
-
 fn get_mtime(ruta: &Path) -> Option<SystemTime> {
     fs::metadata(ruta).and_then(|m| m.modified()).ok()
 }
@@ -443,11 +438,6 @@ pub fn create_worktree(
     Ok(())
 }
 
-#[deprecated(note = "use create_worktree")]
-pub fn crear_worktree(repo_root: &Path, destino: &Path, branch: &str, base: &str) -> Result<()> {
-    create_worktree(repo_root, destino, branch, base)
-}
-
 /// Removes and prunes a Git worktree.
 /// Carries `GIT_CEILING_DIRECTORIES` to enforce workspace boundary isolation.
 pub fn remove_worktree(repo_root: &Path, destination: &Path, force: bool) -> Result<()> {
@@ -471,11 +461,6 @@ pub fn remove_worktree(repo_root: &Path, destination: &Path, force: bool) -> Res
         .output();
 
     Ok(())
-}
-
-#[deprecated(note = "use remove_worktree")]
-pub fn eliminar_worktree(repo_root: &Path, destino: &Path, force: bool) -> Result<()> {
-    remove_worktree(repo_root, destino, force)
 }
 
 /// Merges a worktree branch into the target branch.

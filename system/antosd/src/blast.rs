@@ -98,7 +98,7 @@ impl Blast {
     /// La derivación del nivel de permiso.
     ///
     /// El nivel declarado en el manifiesto es un suelo, no la última palabra:
-    /// syso lo eleva según lo que el plan vaya a tocar de verdad. Por eso no
+    /// antOS lo eleva según lo que el plan vaya a tocar de verdad. Por eso no
     /// se puede negociar con una frase persuasiva — no lo decide el modelo.
     pub fn required_tier(&self) -> (Tier, Vec<String>) {
         let mut tier = self.declared_tier;
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn escribir_hondo_declara_los_directorios_que_hay_que_crear() {
-        let ws = std::env::temp_dir().join("syso-prueba-ancestros");
+        let ws = std::env::temp_dir().join("antos-prueba-ancestros");
         let _ = std::fs::create_dir_all(&ws);
 
         let mut catalog = catalogo_sin_restricciones();

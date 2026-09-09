@@ -8,7 +8,7 @@ package = { type = "package", max = 128 }
 version = { type = "string", max = 32, optional = true, default = "*" }
 
 [effects]
-writes = ["$WORKSPACE/{project}/syso.packages.toml"]
+writes = ["$WORKSPACE/{project}/antos.packages.toml"]
 
 [policy]
 tier = "confirm"

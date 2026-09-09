@@ -42,27 +42,20 @@ pub struct Voice {
     language: String,
 }
 
-/// Backwards compatibility alias.
-#[deprecated(note = "use Voice")]
-pub type Voz = Voice;
-
 impl Voice {
     pub fn discover() -> Result<Self> {
-        let whisper = match std::env::var_os("ANTOS_WHISPER")
-            .or_else(|| std::env::var_os("SYSO_WHISPER"))
-        {
+        let whisper = match crate::util::env_with_legacy_fallback("ANTOS_WHISPER", "SYSO_WHISPER") {
             Some(path) => PathBuf::from(path),
             None => find_in_path(&["whisper-cli", "whisper-cpp"]).ok_or_else(|| {
                 anyhow::anyhow!("cannot find whisper. Install with:\n  brew install whisper-cpp")
             })?,
         };
 
-        let model = match std::env::var_os("ANTOS_MODELO_VOZ")
-            .or_else(|| std::env::var_os("SYSO_MODELO_VOZ"))
-        {
-            Some(path) => PathBuf::from(path),
-            None => default_model(),
-        };
+        let model =
+            match crate::util::env_with_legacy_fallback("ANTOS_MODELO_VOZ", "SYSO_MODELO_VOZ") {
+                Some(path) => PathBuf::from(path),
+                None => default_model(),
+            };
         if !model.exists() {
             bail!(
                 "cannot find voice model at {}.\n\
@@ -74,9 +67,9 @@ impl Voice {
         Ok(Voice {
             whisper,
             model,
-            language: std::env::var("ANTOS_IDIOMA_VOZ")
-                .or_else(|_| std::env::var("SYSO_IDIOMA_VOZ"))
-                .unwrap_or_else(|_| "es".into()),
+            language: crate::util::env_with_legacy_fallback("ANTOS_IDIOMA_VOZ", "SYSO_IDIOMA_VOZ")
+                .and_then(|v| v.into_string().ok())
+                .unwrap_or_else(|| "es".into()),
         })
     }
 
@@ -114,12 +107,6 @@ impl Voice {
         Ok(())
     }
 
-    /// Backwards compatibility alias for `record`.
-    #[deprecated(note = "use record")]
-    pub fn grabar(&self, segundos: u32, destino: &Path, dispositivo: &str) -> Result<()> {
-        self.record(segundos, destino, dispositivo)
-    }
-
     /// Converts any audio to the format expected by Whisper.
     pub fn normalize(&self, source: &Path, destination: &Path) -> Result<()> {
         let ffmpeg = find_in_path(&["ffmpeg"])
@@ -143,12 +130,6 @@ impl Voice {
             );
         }
         Ok(())
-    }
-
-    /// Backwards compatibility alias for `normalize`.
-    #[deprecated(note = "use normalize")]
-    pub fn normalizar(&self, origen: &Path, destino: &Path) -> Result<()> {
-        self.normalize(origen, destino)
     }
 
     /// Mean audio level in decibels.
@@ -189,11 +170,11 @@ impl Voice {
         // Filtering silence markers is not enough because the hallucination is
         // not marked. We must refuse to transcribe what does not have enough
         // energy to be a voice.
-        let threshold = std::env::var("ANTOS_UMBRAL_VOZ")
-            .or_else(|_| std::env::var("SYSO_UMBRAL_VOZ"))
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(THRESHOLD_DB);
+        let threshold =
+            crate::util::env_with_legacy_fallback("ANTOS_UMBRAL_VOZ", "SYSO_UMBRAL_VOZ")
+                .and_then(|v| v.into_string().ok())
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(THRESHOLD_DB);
 
         let level = self.level_db(wav)?;
         if level < threshold {
@@ -230,12 +211,6 @@ impl Voice {
             bail!("could not understand anything. Was the microphone active?");
         }
         Ok(clean)
-    }
-
-    /// Backwards compatibility alias for `transcribe`.
-    #[deprecated(note = "use transcribe")]
-    pub fn transcribir(&self, wav: &Path, vocabulario: &str) -> Result<String> {
-        self.transcribe(wav, vocabulario)
     }
 
     /// Audio devices visible to macOS, with their index.
@@ -280,20 +255,8 @@ impl Voice {
         Ok(lines.join("\n"))
     }
 
-    /// Backwards compatibility alias for `devices`.
-    #[deprecated(note = "use devices")]
-    pub fn dispositivos() -> Result<String> {
-        Self::devices()
-    }
-
     pub fn model_path(&self) -> &Path {
         &self.model
-    }
-
-    /// Backwards compatibility alias for `model_path`.
-    #[deprecated(note = "use model_path")]
-    pub fn modelo(&self) -> &Path {
-        self.model_path()
     }
 }
 
@@ -327,13 +290,13 @@ fn default_model() -> PathBuf {
     let base = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    let antos_model = base.join(".cache/antos/modelos/ggml-base.bin");
-    if antos_model.exists() {
-        return antos_model;
-    }
-    let syso_model = base.join(".cache/syso/modelos/ggml-base.bin");
-    if syso_model.exists() {
-        return syso_model;
-    }
-    antos_model
+    // One-time migration (T31.11): an installation that downloaded its model
+    // before the rename has it under `.cache/syso/modelos/`; move the whole
+    // directory to `.cache/antos/modelos/` exactly once instead of checking
+    // both paths on every call.
+    let _ = crate::util::migrate_legacy_path(
+        &base.join(".cache/syso/modelos"),
+        &base.join(".cache/antos/modelos"),
+    );
+    base.join(".cache/antos/modelos/ggml-base.bin")
 }

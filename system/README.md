@@ -35,26 +35,26 @@ Forzar uno: `--planificador local|claude`.
 ## Arrancar como sistema
 
 `flake.nix` define la máquina entera como un valor: el paquete, un módulo de
-NixOS y un servicio que al arrancar ejecuta `syso doctor` — el sistema
-comprueba su propio recinto antes de que nadie pueda pedirle nada.
+NixOS y el servicio `antos-doctor`, que al arrancar ejecuta `antos doctor` —
+el sistema comprueba su propio recinto antes de que nadie pueda pedirle nada.
 
 ```bash
 # La máquina, arrancable en QEMU
-nix build .#nixosConfigurations.syso-vm.config.system.build.vm
-./result/bin/run-syso-vm
+nix build .#nixosConfigurations.antos-vm.config.system.build.vm
+./result/bin/run-antos-vm
 ```
 
 Arrancada, el sistema comprueba su propio recinto antes de dar un login:
 
 ```
-Starting syso · comprobar que el recinto es real...
-syso[577]: recinto de ejecución
-syso[577]:   ✓ escritura fuera de lo declarado: la deniega el kernel
-syso[577]:   ✓ escritura dentro de lo declarado: permitida
-syso[577]:   ✓ lectura fuera de lo declarado: la deniega el kernel
-syso[577]:   ? red: no concluyente — esta máquina no llega a internet
-syso[577]: ✓ el recinto se comporta como dice
-[  OK  ] Finished syso · comprobar que el recinto es real.
+Starting antOS · comprobar que el recinto es real...
+antos-doctor[577]: recinto de ejecución
+antos-doctor[577]:   ✓ escritura fuera de lo declarado: la deniega el kernel
+antos-doctor[577]:   ✓ escritura dentro de lo declarado: permitida
+antos-doctor[577]:   ✓ lectura fuera de lo declarado: la deniega el kernel
+antos-doctor[577]:   ? red: no concluyente — esta máquina no llega a internet
+antos-doctor[577]: ✓ el recinto se comporta como dice
+[  OK  ] Finished antOS · comprobar que el recinto es real.
 ```
 
 Ese «la deniega el kernel» en la lectura es **Landlock**, en el sistema para
@@ -68,16 +68,16 @@ ensamblar la imagen y necesita `/dev/kvm`. `system.build.vm` no: se construye
 como una derivación normal y el resultado es un guion que lanza QEMU montando
 el store. Por eso es la vía que funciona aquí.
 
-La configuración declarativa es la **segunda raíz** que syso reconoce. No es
+La configuración declarativa es la **segunda raíz** que antOS reconoce. No es
 una fuga —tiene nombre, `$SYSTEM_CONFIG`— pero cualquier capacidad que la
 toque exige concesión, siempre, sin importar lo que diga su manifiesto:
 
 ```bash
-target/debug/syso grant system.declare --minutos 10
-target/debug/syso "declara htop en el sistema"
+target/debug/antos grant system.declare --minutos 10
+target/debug/antos "declara htop en el sistema"
 ```
 
-El diff es de una línea en [`system/nixos/syso-paquetes.nix`](nixos/syso-paquetes.nix),
+El diff es de una línea en [`system/nixos/antos-paquetes.nix`](nixos/antos-paquetes.nix),
 que `configuracion.nix` importa. Aplicarlo sigue siendo tuyo y explícito:
 `sudo nixos-rebuild switch`.
 
@@ -85,8 +85,8 @@ que `configuracion.nix` importa. Aplicarlo sigue siendo tuyo y explícito:
 
 ```bash
 ./system/instalar-voz.sh          # whisper-cpp + ffmpeg + modelo local
-target/debug/syso escucha         # graba 5 s del micrófono
-target/debug/syso escucha --desde grabacion.aiff
+target/debug/antos escucha         # graba 5 s del micrófono
+target/debug/antos escucha --desde grabacion.aiff
 ```
 
 El audio no sale de la máquina: transcribe Whisper en local. Y **la voz no
@@ -97,7 +97,7 @@ Probarlo sin micrófono, sintetizando la frase:
 
 ```bash
 say -v Monica -o /tmp/orden.aiff "crea un proyecto python llamado servidor"
-target/debug/syso escucha --desde /tmp/orden.aiff
+target/debug/antos escucha --desde /tmp/orden.aiff
 ```
 
 El transcriptor se ceba con el vocabulario del catálogo (`--prompt`), que sale
@@ -108,8 +108,8 @@ Elegir micrófono, porque el predeterminado del sistema suele ser un dispositivo
 virtual de Teams o Zoom y grabarías silencio sin enterarte:
 
 ```bash
-target/debug/syso escucha --dispositivos
-target/debug/syso escucha --dispositivo 1
+target/debug/antos escucha --dispositivos
+target/debug/antos escucha --dispositivo 1
 ```
 
 ### El silencio no es una intención
@@ -128,22 +128,22 @@ esta máquina, no de suponer:
 | habitación en silencio | −47 dB |
 | alguien hablando | −18 dB |
 
-El umbral está en −40 dB (`SYSO_UMBRAL_VOZ` lo cambia). Filtrar los marcadores
+El umbral está en −40 dB (`ANTOS_UMBRAL_VOZ` lo cambia). Filtrar los marcadores
 `[BLANK_AUDIO]` no bastaba: la alucinación no viene marcada.
 
 ## El demonio
 
-`sysod` se llamaba así desde el principio sin serlo. Ahora lo es:
+El binario se llama `antos`; el crate que lo compila, `antosd`, ya no arrastra el nombre viejo:
 
 ```bash
-target/debug/syso demonio          # escucha en .syso/syso.sock (0600)
-target/debug/syso "crea un proyecto rust llamado demo"
+target/debug/antos demonio          # escucha en .antos/antos.sock (0600)
+target/debug/antos "crea un proyecto rust llamado demo"
 ```
 
 Si hay demonio, los comandos van por el socket; si no, se hacen en proceso.
 La salida es **idéntica byte a byte** porque ambos caminos usan el mismo
 recorrido (`sesion.rs`) y el mismo dibujado (`terminal.rs`). Forzar el modo
-local: `SYSO_SIN_DEMONIO=1`.
+local: `ANTOS_SIN_DEMONIO=1`.
 
 Lo que un cliente puede decidir es exactamente una cosa: contestar sí o no a
 una propuesta. El nivel de permiso y las concesiones los decide el demonio,
@@ -159,8 +159,8 @@ por el socket con el mismo demonio que atiende al terminal.
 
 ```bash
 ./system/compilar-barra.sh        # solo compila en Linux
-syso demonio &
-syso-barra
+antos demonio &
+antos-barra
 ```
 
 No es un lanzador de aplicaciones: escribes una intención y la superficie
@@ -177,13 +177,13 @@ usan los dos lados. Un protocolo duplicado es un protocolo que diverge.
 
 ## El recinto
 
-La ejecución no ocurre en `sysod`: ocurre en un proceso aparte confinado por el
+La ejecución no ocurre en `antosd`: ocurre en un proceso aparte confinado por el
 kernel, con una política derivada de los efectos declarados. Esa separación es
 necesaria — el confinamiento afecta al proceso entero, así que si el broker
 ejecutara los cambios él mismo no podría escribir su propia bitácora.
 
 ```bash
-target/debug/syso doctor    # ataca su propio recinto y comprueba que aguanta
+target/debug/antos doctor    # ataca su propio recinto y comprueba que aguanta
 ```
 
 | Plataforma | Motor | Garantiza |
@@ -216,7 +216,7 @@ writes = ["{path}"]               # fichero
 ```
 
 No es cosmético. Landlock engancha sus reglas a un descriptor, así que la ruta
-tiene que existir antes de encerrarse: syso crea de antemano los directorios
+tiene que existir antes de encerrarse: antOS crea de antemano los directorios
 declarados. Deducirlo del nombre —¿tiene extensión?— sería exactamente el tipo
 de suposición que este diseño existe para eliminar.
 
@@ -250,7 +250,7 @@ Sin verificar todavía:
   esos formatos ensamblan la imagen dentro de una VM y Apple Silicon no da
   virtualización anidada. En cualquier Linux con `/dev/kvm` sí. Lo que sí
   funciona aquí es `system.build.vm`, que arranca la misma configuración.
-- **syso declara pero no aplica.** `nixos-rebuild switch` sigue siendo manual:
+- **antOS declara pero no aplica.** `nixos-rebuild switch` sigue siendo manual:
   aplicar toca todo el sistema y tendría que correr fuera del recinto.
 - **Los términos técnicos en español se transcriben mal.** «rust» sale como
   «rastre» con el modelo `base` y como «rastriamado» con `small`; el tamaño
