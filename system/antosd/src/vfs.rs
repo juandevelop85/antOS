@@ -8,6 +8,7 @@
 //! Provides CLI querying, in-memory resolution, and lightweight filesystem projection
 //! under `.antos/mnt/antfs` for inspection with native tools (`ls`, `cat`, `find`).
 
+use crate::util::lock_or_recover;
 use antos_protocol::{VfsEntry, VfsStatus};
 use anyhow::{bail, Result};
 use std::fs;
@@ -424,7 +425,7 @@ impl VfsEngine {
 
     /// Mounts a filesystem projection of /antfs to the mount point directory.
     pub fn mount(&self, workspace: &Path, mount_point: Option<&str>) -> Result<PathBuf> {
-        let _guard = VFS_LOCK_INIT.lock().unwrap();
+        let _guard = lock_or_recover(&VFS_LOCK_INIT);
         let target = match mount_point {
             Some(p) => {
                 let pb = PathBuf::from(p);
@@ -486,7 +487,7 @@ impl VfsEngine {
 
     /// Unmounts / cleans up the virtual filesystem projection.
     pub fn unmount(&self, workspace: &Path, mount_point: Option<&str>) -> Result<()> {
-        let _guard = VFS_LOCK_INIT.lock().unwrap();
+        let _guard = lock_or_recover(&VFS_LOCK_INIT);
         let target = match mount_point {
             Some(p) => {
                 let pb = PathBuf::from(p);
@@ -527,6 +528,8 @@ impl VfsEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

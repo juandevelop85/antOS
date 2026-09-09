@@ -165,7 +165,7 @@ pub fn run(sandbox: &dyn Sandbox, changes: &[Change], policy: &Policy) -> Result
     child
         .stdin
         .take()
-        .expect("stdin canalizado")
+        .ok_or_else(|| anyhow::anyhow!("no se pudo obtener la entrada estándar del ejecutor confinado"))?
         .write_all(&orden)?;
 
     let quota = policy.quota.clone().unwrap_or_default();

@@ -262,6 +262,8 @@ impl BootloaderEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     fn make_test_esp_dir(tag: &str) -> PathBuf {

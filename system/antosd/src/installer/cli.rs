@@ -564,6 +564,8 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use std::io::Cursor;
 

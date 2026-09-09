@@ -1161,6 +1161,8 @@ fn step(capability: &str, args: &[(&str, &str)]) -> Step {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use crate::ctx::Ctx;
 

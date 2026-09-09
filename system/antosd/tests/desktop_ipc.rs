@@ -9,6 +9,11 @@
 //! No hay GUI: es una verificación a nivel de protocolo, ejecutable en
 //! cualquier host donde compile el workspace.
 
+// This whole file is test code (a Rust integration test binary, compiled
+// separately from `src/`), so it's exempt from development rule 1 the same
+// way any `#[cfg(test)] mod tests` is (T31.7).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;

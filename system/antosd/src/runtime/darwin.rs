@@ -89,6 +89,8 @@ fn probe_wayland_fidelity() -> CapabilityFidelity {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

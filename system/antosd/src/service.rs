@@ -204,6 +204,8 @@ pub fn inject_env_variable(workspace: &Path, key: &str, value: &str) -> Result<(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

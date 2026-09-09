@@ -3,6 +3,7 @@
 //! Manages desktop and daemon notifications, alerts for multi-agent flow transitions,
 //! and handles direct one-click approvals, rejections, and worktree rollbacks.
 
+use crate::util::lock_or_recover;
 use antos_protocol::{NotificationAction, NotificationItem, NotificationKind};
 use anyhow::{bail, Result};
 use std::fs;
@@ -28,7 +29,7 @@ impl NotificationEngine {
 
     /// Lists all notifications, loading them from `.antos/notifications.json`.
     pub fn list(&self, workspace: &Path) -> Result<Vec<NotificationItem>> {
-        let _guard = NOTIF_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&NOTIF_LOCK);
         let path = Self::storage_path(workspace);
         if !path.exists() {
             return Ok(Vec::new());
@@ -45,7 +46,7 @@ impl NotificationEngine {
 
     /// Adds a new notification item and persists it atomically.
     pub fn notify(&self, workspace: &Path, mut item: NotificationItem) -> Result<()> {
-        let _guard = NOTIF_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&NOTIF_LOCK);
         let path = Self::storage_path(workspace);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -128,7 +129,7 @@ impl NotificationEngine {
                 notifs[idx].read = true;
             }
 
-            let _guard = NOTIF_LOCK.lock().unwrap();
+            let _guard = lock_or_recover(&NOTIF_LOCK);
             let path = Self::storage_path(workspace);
             let json = serde_json::to_string_pretty(&notifs)?;
             fs::write(&path, json)?;
@@ -139,7 +140,7 @@ impl NotificationEngine {
 
     /// Clears all read notifications from disk.
     pub fn clear(&self, workspace: &Path) -> Result<usize> {
-        let _guard = NOTIF_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&NOTIF_LOCK);
         let path = Self::storage_path(workspace);
         if !path.exists() {
             return Ok(0);
@@ -180,6 +181,8 @@ pub fn notify_ticket_ready_for_review(workspace: &Path, ticket_id: &str, title: 
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]
@@ -212,6 +215,45 @@ mod tests {
         assert!(msg.contains("descartada"));
 
         assert_eq!(engine.list(&temp).unwrap().len(), 0);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// T31.7 acceptance criterion, against the real production global lock
+    /// (not a synthetic one): poison `NOTIF_LOCK` by panicking on another
+    /// thread while holding it, then confirm the public API — `list`, which
+    /// takes that same lock via `lock_or_recover` — still works afterward,
+    /// in this same process, instead of panicking on the poison.
+    #[test]
+    fn test_notification_engine_survives_a_poisoned_global_lock() {
+        let temp = std::env::temp_dir().join(format!("test-notifs-poison-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).unwrap();
+
+        let handle = std::thread::spawn(|| {
+            let _guard = NOTIF_LOCK.lock().unwrap();
+            panic!("intentional panic to poison NOTIF_LOCK for this test");
+        });
+        assert!(handle.join().is_err(), "the spawned thread must actually have panicked");
+
+        // A plain `.lock().unwrap()` inside `list`/`notify` would panic
+        // again here, taking this test (and, in production, every other
+        // caller of NOTIF_LOCK) down with it. `lock_or_recover` must not.
+        let engine = NotificationEngine::global();
+        assert_eq!(engine.list(&temp).unwrap().len(), 0);
+
+        let notif = NotificationItem {
+            id: "notif-after-poison".into(),
+            ticket_id: "T31.7".into(),
+            title: "Sigue funcionando tras el envenenamiento".into(),
+            body: String::new(),
+            kind: NotificationKind::TaskFinished,
+            created_at: 1000,
+            read: false,
+            actions: vec![NotificationAction::Dismiss],
+        };
+        engine.notify(&temp, notif).unwrap();
+        assert_eq!(engine.list(&temp).unwrap().len(), 1);
+
         let _ = fs::remove_dir_all(&temp);
     }
 }

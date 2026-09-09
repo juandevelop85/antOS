@@ -3,6 +3,7 @@
 //! Provides in-memory syntax and grammar validation before persisting file writes
 //! to disk, preventing truncated or syntactically broken code from entering the repository.
 
+use crate::util::lock_or_recover;
 use anyhow::Result;
 use antos_protocol::{SyntaxValidationError, ValidationResult, VfsGuardStatus};
 use std::path::Path;
@@ -372,7 +373,7 @@ impl VfsGuardEngine {
 
     /// Intercepts a write attempt. If invalid, rejects and logs the attempt.
     pub fn intercept_write(&self, file_path: &str, content: &str) -> Result<ValidationResult> {
-        let mut state = GUARD_STATE.lock().unwrap();
+        let mut state = lock_or_recover(&GUARD_STATE);
         state.total_intercepted += 1;
 
         if !state.enabled {
@@ -398,7 +399,7 @@ impl VfsGuardEngine {
 
     /// Returns current statistics of the VFS write guard.
     pub fn status(&self) -> Result<VfsGuardStatus> {
-        let state = GUARD_STATE.lock().unwrap();
+        let state = lock_or_recover(&GUARD_STATE);
         Ok(VfsGuardStatus {
             enabled: state.enabled,
             total_intercepted: state.total_intercepted,
@@ -409,7 +410,7 @@ impl VfsGuardEngine {
 
     /// Resets interception counters.
     pub fn reset_stats(&self) {
-        let mut state = GUARD_STATE.lock().unwrap();
+        let mut state = lock_or_recover(&GUARD_STATE);
         state.total_intercepted = 0;
         state.total_rejected = 0;
         state.rejected_paths.clear();
@@ -418,6 +419,8 @@ impl VfsGuardEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

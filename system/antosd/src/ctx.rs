@@ -253,17 +253,20 @@ fn detect_project_from_cwd(workspace: &Path) -> Option<PathBuf> {
 }
 
 fn probe_local_llm_endpoints() -> LocalLlmStatus {
-    use std::net::{SocketAddr, TcpStream};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
     use std::time::Duration;
 
     let timeout = Duration::from_millis(50);
+    let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
+    // T31.7: built directly, not parsed from a string literal — a
+    // constant address has no failure mode to `.unwrap()` away.
     // 1. Probe Ollama (default 127.0.0.1:11434)
-    let ollama_addr: SocketAddr = "127.0.0.1:11434".parse().unwrap();
+    let ollama_addr = SocketAddr::new(localhost, 11434);
     let ollama_available = TcpStream::connect_timeout(&ollama_addr, timeout).is_ok();
 
     // 2. Probe OpenCode / llama.cpp (default 127.0.0.1:8080)
-    let opencode_addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+    let opencode_addr = SocketAddr::new(localhost, 8080);
     let opencode_available = TcpStream::connect_timeout(&opencode_addr, timeout).is_ok();
 
     let preferred_local_endpoint = if ollama_available {
@@ -285,6 +288,8 @@ fn probe_local_llm_endpoints() -> LocalLlmStatus {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

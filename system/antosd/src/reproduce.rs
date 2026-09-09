@@ -495,6 +495,8 @@ fn crc32_simple(bytes: &[u8]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

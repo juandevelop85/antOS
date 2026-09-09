@@ -4,6 +4,7 @@
 //! eBPF LSM probes (`bprm_check_security`, `file_open`, `socket_connect`) and
 //! high-throughput in-memory ring buffer tracing with zero latency overhead (<1%).
 
+use crate::util::lock_or_recover;
 use antos_protocol::{
     EbpfHookKind, EbpfSecurityAction, EbpfSecurityEvent, EbpfStatus, NotificationAction,
     NotificationItem, NotificationKind,
@@ -65,7 +66,7 @@ impl EbpfSentinelEngine {
 
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(persisted) = serde_json::from_str::<EbpfPersistedState>(&content) {
-                let mut state = EBPF_STATE.lock().unwrap();
+                let mut state = lock_or_recover(&EBPF_STATE);
                 state.total_events_captured = persisted.total_events_captured;
                 state.total_violations_blocked = persisted.total_violations_blocked;
                 state.ring_buffer.clear();
@@ -86,7 +87,7 @@ impl EbpfSentinelEngine {
             let _ = fs::create_dir_all(parent);
         }
 
-        let state = EBPF_STATE.lock().unwrap();
+        let state = lock_or_recover(&EBPF_STATE);
         let persisted = EbpfPersistedState {
             total_events_captured: state.total_events_captured,
             total_violations_blocked: state.total_violations_blocked,
@@ -125,7 +126,7 @@ impl EbpfSentinelEngine {
         let ws = Self::current_workspace();
         self.load_state(&ws);
 
-        let state = EBPF_STATE.lock().unwrap();
+        let state = lock_or_recover(&EBPF_STATE);
         let lsm_enabled = Self::is_lsm_supported();
 
         Ok(EbpfStatus {
@@ -144,7 +145,7 @@ impl EbpfSentinelEngine {
         let ws = Self::current_workspace();
         self.load_state(&ws);
 
-        let state = EBPF_STATE.lock().unwrap();
+        let state = lock_or_recover(&EBPF_STATE);
         let count = limit.min(state.ring_buffer.len());
         state
             .ring_buffer
@@ -160,7 +161,7 @@ impl EbpfSentinelEngine {
         let ws = Self::current_workspace();
         self.load_state(&ws);
 
-        let state = EBPF_STATE.lock().unwrap();
+        let state = lock_or_recover(&EBPF_STATE);
         state
             .ring_buffer
             .iter()
@@ -188,7 +189,7 @@ impl EbpfSentinelEngine {
             .unwrap_or(0);
 
         let event = {
-            let mut state = EBPF_STATE.lock().unwrap();
+            let mut state = lock_or_recover(&EBPF_STATE);
             state.total_events_captured += 1;
 
             if action_taken == EbpfSecurityAction::Blocked {
@@ -276,7 +277,7 @@ impl EbpfSentinelEngine {
         let path = Self::storage_path(&ws);
         let _ = fs::remove_file(path);
 
-        let mut state = EBPF_STATE.lock().unwrap();
+        let mut state = lock_or_recover(&EBPF_STATE);
         state.total_events_captured = 0;
         state.total_violations_blocked = 0;
         state.ring_buffer.clear();
@@ -285,6 +286,8 @@ impl EbpfSentinelEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());

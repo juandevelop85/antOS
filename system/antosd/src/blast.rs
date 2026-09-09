@@ -238,6 +238,8 @@ fn normalize(p: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use crate::capability::{Capability, Effects, Policy, Reversible};
     use crate::plan::Plan;

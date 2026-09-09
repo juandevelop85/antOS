@@ -126,7 +126,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.4](T31.4-aislamiento-real-de-microvm-y-eliminacion-de-inyeccion-de-shell.md) | Aislamiento Real de MicroVM y Eliminación de Inyección de Shell | ✅ Completado |
 | **Fase 31** | [T31.5](T31.5-identidad-criptografica-real-en-antmesh.md) | Identidad Criptográfica Real y Tokens de Emparejamiento en antMesh | ✅ Completado |
 | **Fase 31** | [T31.6](T31.6-cifrado-en-reposo-y-escritura-atomica-de-la-boveda-de-secretos.md) | Cifrado en Reposo y Escritura Atómica de la Bóveda de Secretos | ✅ Completado |
-| **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ⏳ Pendiente |
+| **Fase 31** | [T31.7](T31.7-eliminacion-de-panicos-por-unwrap-en-rutas-del-demonio.md) | Eliminación de Pánicos por `unwrap` en Rutas del Demonio | ✅ Completado |
 | **Fase 31** | [T31.8](T31.8-limites-y-tiempos-de-espera-en-el-socket-ipc-del-demonio.md) | Límites y Tiempos de Espera en el Socket IPC del Demonio | ⏳ Pendiente |
 | **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ⏳ Pendiente |
 | **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ⏳ Pendiente |
@@ -170,7 +170,12 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   `vault.key`, escritura atómica unificada en `crypto::write_secret_file` y
   aplicada también a las sesiones web y la identidad de antMesh, `SecretValue`
   con `Debug` redactado y borrado de memoria al soltarse, migración
-  transparente de bóvedas en claro previas), pánicos por `unwrap` y límites
+  transparente de bóvedas en claro previas) y pánicos por `unwrap`/`expect`
+  en rutas del demonio (**✅ T31.7 resuelto**: nuevo `crate::util` con
+  `lock_or_recover` aplicado a los ocho estados globales con cerrojo,
+  `partial_cmp` sustituido por `total_cmp` en el profiler, direcciones de
+  `ctx.rs` construidas sin *parsing*, `#![deny(clippy::unwrap_used,
+  clippy::expect_used)]` a nivel de crate con paso dedicado en CI) y límites
   ausentes en el socket IPC y en el intérprete WASM.
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
   `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
@@ -185,7 +190,7 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
-~~T31.5~~ → ~~T31.6~~ **→ T31.10 → T31.16**, y el resto según convenga.
-T31.10 y T31.16 conviene abordarlos pronto: sin CI verde y sin tests de
-kernel ejecutables, las correcciones de T31.3 no tienen forma de
-verificarse.
+~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ **→ T31.10 → T31.16 → T31.8 → T31.9**, y el
+resto según convenga. T31.10 y T31.16 conviene abordarlos pronto: sin CI
+verde y sin tests de kernel ejecutables, las correcciones de T31.3 no tienen
+forma de verificarse.

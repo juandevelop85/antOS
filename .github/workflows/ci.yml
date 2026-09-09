@@ -74,6 +74,15 @@ jobs:
       - name: Clippy (host workspace)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # T31.7: antosd's own crate-level `#![deny(clippy::unwrap_used,
+      # clippy::expect_used)]` (main.rs) already gates this locally, but a
+      # dedicated CI step means a regression fails here even if that
+      # `#![deny]` were ever weakened or removed by accident. Scoped to
+      # antosd — protocolo and builder aren't part of this ticket's audit
+      # and aren't expected to pass this stricter bar yet.
+      - name: Clippy (antosd · no unwrap()/expect() outside tests, T31.7)
+        run: cargo clippy -p antosd --all-targets -- -D clippy::unwrap_used -D clippy::expect_used
+
   # ──────────────────────────────────────────────── Test on Linux
   test-linux:
     name: "Test · Linux (ubuntu-latest)"

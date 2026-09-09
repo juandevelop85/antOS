@@ -3,6 +3,7 @@
 //! Enables delegating heavy agent workloads (e.g. Coder with 70B parameter models,
 //! QA with large test suites) across antMesh peer nodes with automated worktree delta synchronization.
 
+use crate::util::lock_or_recover;
 use antos_protocol::{AgentRole, PeerNode, SwarmNodeStatus, SwarmStatus, SwarmTaskAssignment};
 use anyhow::{bail, Result};
 use std::fs;
@@ -193,7 +194,7 @@ impl SwarmEngine {
         };
 
         // Persist task assignment
-        let _guard = SWARM_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&SWARM_LOCK);
         let path = Self::tasks_path(workspace);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -249,7 +250,7 @@ impl SwarmEngine {
 
     /// Lists active and completed swarm tasks.
     pub fn list_tasks(&self, workspace: &Path) -> Result<Vec<SwarmTaskAssignment>> {
-        let _guard = SWARM_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&SWARM_LOCK);
         let path = Self::tasks_path(workspace);
         if !path.exists() {
             return Ok(Vec::new());
@@ -267,6 +268,8 @@ impl SwarmEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

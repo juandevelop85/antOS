@@ -73,7 +73,13 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
 
         idxs_a_revertir.reverse();
         for idx in idxs_a_revertir {
-            let snap_id = records[idx].snapshot.clone().unwrap();
+            let Some(snap_id) = records[idx].snapshot.clone() else {
+                // The loop above only ever pushed indices where
+                // `snapshot.is_some()`; reaching this means the journal
+                // changed under us mid-loop, which is worth a clear error
+                // rather than a panic.
+                bail!("el registro «{}» no tiene instantánea asociada (estado del journal inconsistente)", records[idx].id);
+            };
             let snap = crate::snapshot::load(&snap_id, &ctx.snapshots_dir())?;
 
             println!(
@@ -135,7 +141,11 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
         return Ok(());
     };
 
-    let snap_id = records[idx].snapshot.clone().unwrap();
+    let Some(snap_id) = records[idx].snapshot.clone() else {
+        // `rposition` above only ever selects an index where
+        // `snapshot.is_some()`; reaching this means the invariant broke.
+        bail!("el registro «{}» no tiene instantánea asociada (estado del journal inconsistente)", records[idx].id);
+    };
     let snap = crate::snapshot::load(&snap_id, &ctx.snapshots_dir())?;
 
     println!();

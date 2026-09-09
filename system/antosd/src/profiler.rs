@@ -4,6 +4,7 @@
 //! detects algorithmic bottlenecks, and produces automated optimization
 //! suggestions for Coder and QA agents.
 
+use crate::util::lock_or_recover;
 use anyhow::{Context, Result};
 use antos_protocol::{ProfileHotspot, ProfileReport, ProfileSuggestion, ProfileSuggestionKind};
 use serde::{Deserialize, Serialize};
@@ -50,7 +51,7 @@ impl ProfilerEngine {
 
     /// Persists a report to disk.
     fn save_report(&self, workspace: &Path, report: ProfileReport) {
-        let _guard = PROFILER_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&PROFILER_LOCK);
         let mut reports = self.load_reports(workspace);
         reports.retain(|r| r.id != report.id);
         reports.insert(0, report);
@@ -296,8 +297,17 @@ impl ProfilerEngine {
             });
         }
 
-        // Heuristic 4: Hotspot-driven code refinement
-        if let Some(top) = hotspots.iter().max_by(|a, b| a.percentage_cpu.partial_cmp(&b.percentage_cpu).unwrap()) {
+        // Heuristic 4: Hotspot-driven code refinement.
+        //
+        // `total_cmp` (T31.7), not `partial_cmp().unwrap()`: every
+        // `percentage_cpu` in this file is a fixed literal today, so it
+        // can never actually be `NaN` — but `partial_cmp` returns `None`
+        // for it regardless, and `max_by` calling `.unwrap()` on that
+        // would panic the moment a real percentage (a division that can
+        // legitimately produce `0.0 / 0.0` for a zero-duration sample)
+        // replaces the simulated data here. `total_cmp` orders every
+        // `f64`, `NaN` included, so that day never arrives.
+        if let Some(top) = hotspots.iter().max_by(|a, b| a.percentage_cpu.total_cmp(&b.percentage_cpu)) {
             if top.percentage_cpu >= 40.0 {
                 suggestions.push(ProfileSuggestion {
                     kind: ProfileSuggestionKind::CpuOptimization,
@@ -358,6 +368,8 @@ impl ProfilerEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]
@@ -405,5 +417,45 @@ mod tests {
         assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::MemoryOptimization));
         assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::ConcurrencyOptimization));
         assert!(suggestions.iter().any(|s| s.kind == ProfileSuggestionKind::CpuOptimization));
+    }
+
+    /// T31.7 acceptance criterion: a sample whose `percentage_cpu` is `NaN`
+    /// — exactly what a real `0.0 / 0.0` division on a zero-duration sample
+    /// would produce, once heuristic 4 stops reading a fixed literal — must
+    /// still yield a valid report, not a panic from
+    /// `partial_cmp(...).unwrap()` inside `max_by`.
+    #[test]
+    fn test_generate_suggestions_handles_a_nan_hotspot_without_panicking() {
+        let hotspots = vec![
+            ProfileHotspot {
+                name: "normal::hotspot".into(),
+                percentage_cpu: 30.0,
+                percentage_memory: 10.0,
+                calls_or_samples: 5,
+            },
+            ProfileHotspot {
+                name: "zero_duration::sample".into(),
+                percentage_cpu: f32::NAN,
+                percentage_memory: 0.0,
+                calls_or_samples: 0,
+            },
+        ];
+
+        // Must return, not panic — that is the property under test.
+        let suggestions = ProfilerEngine::generate_suggestions(
+            "test-command",
+            100,
+            50,
+            10,
+            1024,
+            &hotspots,
+            Path::new("."),
+        );
+
+        // A valid report never surfaces the NaN value itself to the user.
+        assert!(
+            !suggestions.iter().any(|s| s.title.to_lowercase().contains("nan")),
+            "a NaN hotspot must never be surfaced as a dominant-hotspot suggestion: {suggestions:?}"
+        );
     }
 }

@@ -574,6 +574,8 @@ fn make_snippet(content: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

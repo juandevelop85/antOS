@@ -3,6 +3,16 @@
 //! Main entry point for the `antos` / `antosd` executable and daemon.
 //! Confinement, subsystem initialization and direct dispatch to `cli::dispatch`.
 
+// Development rule 1 / T31.7: no `unwrap()` or `expect()` in production
+// code — a panic in the daemon or in an IPC handler takes down whatever
+// else shares its process, and (before T31.7) a poisoned `Mutex` made that
+// permanent for the process's lifetime. Enforced by the compiler, not just
+// the rule text, so a new call site can't slip back in unnoticed. Every
+// `#[cfg(test)] mod tests` explicitly opts back in with its own
+// `#![allow(...)]` — tests asserting with `.unwrap()` is normal and
+// expected, and is not what this rule is about.
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 extern crate antos_protocol;
 
 pub mod apps;
@@ -53,6 +63,7 @@ pub mod snapshot;
 pub mod spec;
 pub mod terminal;
 pub mod time_machine;
+pub mod util;
 pub mod vault;
 pub mod vfs;
 pub mod vfs_guard;

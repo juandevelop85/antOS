@@ -284,7 +284,10 @@ impl WasmInstance {
                     let base = stack.pop().ok_or(Trap::StackUnderflow)? as usize;
                     let addr = base + offset as usize;
                     let bytes = self.read_memory(addr, 4)?;
-                    let val = i32::from_le_bytes(bytes.try_into().unwrap());
+                    let word: [u8; 4] = bytes
+                        .try_into()
+                        .map_err(|_| Trap::HostError("i32.load: memory slice was not 4 bytes".into()))?;
+                    let val = i32::from_le_bytes(word);
                     stack.push(val);
                 }
                 0x36 => { // i32.store

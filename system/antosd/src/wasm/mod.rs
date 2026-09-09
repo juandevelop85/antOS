@@ -10,6 +10,8 @@ pub use plugin::{PluginManager, PluginManifest, DEFAULT_FUEL_LIMIT};
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
     use std::collections::{BTreeMap, HashMap};
 

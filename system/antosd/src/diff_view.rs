@@ -351,6 +351,8 @@ pub fn highlight_syntax(line: &str, ext: &str) -> Vec<SyntaxToken> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     const SAMPLE_DIFF: &str = r#"diff --git a/src/main.rs b/src/main.rs

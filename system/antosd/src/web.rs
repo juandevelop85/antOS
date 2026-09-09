@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 // -------------------------------------------------------------- server limits
 
@@ -102,15 +102,10 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
 // `crate::crypto` (T31.5), which `mesh.rs` now needs too — see that module
 // for the doc comments.
 use crate::crypto::{self, constant_time_eq, secure_random_bytes, to_hex};
+use crate::util::unix_now;
 
-/// Seconds since the Unix epoch, without panicking if the system clock is
-/// ever set before 1970 (the wider sweep of this pattern is T31.7).
-fn unix_now() -> Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is set before the Unix epoch")?
-        .as_secs())
-}
+// `unix_now` moved to `crate::util` (T31.7) — the same clock-unwrap fix
+// this module needed turned out to be the crate's most-repeated one.
 
 /// Computes the RFC 6455 Sec-WebSocket-Accept key.
 pub fn compute_ws_accept(client_key: &str) -> String {
@@ -718,7 +713,7 @@ impl WebEngine {
                 let initial = WebSocketMessage {
                     topic: "telemetry".into(),
                     payload: format!("{{\"status\": \"connected\", \"workspace\": \"{}\"}}", workspace_dir.display()),
-                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                    timestamp: unix_now()?,
                 };
                 let frame = encode_ws_text_frame(&serde_json::to_string(&initial)?);
                 stream.write_all(&frame)?;
@@ -741,7 +736,7 @@ impl WebEngine {
                             let resp = WebSocketMessage {
                                 topic: "echo".into(),
                                 payload: text,
-                                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                                timestamp: unix_now()?,
                             };
                             let resp_frame = encode_ws_text_frame(&serde_json::to_string(&resp)?);
                             stream.write_all(&resp_frame)?;
@@ -925,6 +920,8 @@ impl WebEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

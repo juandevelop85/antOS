@@ -270,6 +270,8 @@ fn is_dir(fd: libc::c_int) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

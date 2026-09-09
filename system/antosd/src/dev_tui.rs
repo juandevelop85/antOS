@@ -251,6 +251,8 @@ fn detect_active_project_name(workspace: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

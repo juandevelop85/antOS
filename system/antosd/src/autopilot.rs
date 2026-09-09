@@ -5,6 +5,7 @@
 //! (Architect, Coder, QA, Auditor) to generate fixes in ephemeral worktrees and send
 //! notification alerts ready for human approval.
 
+use crate::util::unix_now;
 use anyhow::{Context, Result};
 use antos_protocol::{
     AutopilotConfig, AutopilotFixProposal, AutopilotIncident, AutopilotStatus,
@@ -13,7 +14,6 @@ use antos_protocol::{
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredAutopilotState {
@@ -184,7 +184,7 @@ impl AutopilotEngine {
                         title: format!("antOS Autopilot · Incidente en {rel_path}"),
                         body: format!("Detectado error sintáctico: {err_msg}. Solución propuesta lista para aprobación."),
                         kind: NotificationKind::System,
-                        created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                        created_at: unix_now()?,
                         read: false,
                         actions: vec![
                             NotificationAction::Approve,
@@ -360,6 +360,8 @@ impl AutopilotEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

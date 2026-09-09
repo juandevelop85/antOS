@@ -275,6 +275,8 @@ pub fn write_secret_file(path: &Path, contents: &[u8]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

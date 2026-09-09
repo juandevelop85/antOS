@@ -102,6 +102,8 @@ pub fn rewrite(path: &Path, records: &[Record]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

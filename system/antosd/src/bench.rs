@@ -3,6 +3,7 @@
 //! Provides automated microbenchmarks execution, worktree-based performance comparison (`perf diff`),
 //! statistical latency distribution (mean, p95, p99), peak RSS memory tracking, and antFlow Auditor regression checks.
 
+use crate::util::lock_or_recover;
 use antos_protocol::{
     BenchmarkComparisonMetric, BenchmarkDiffReport, BenchmarkMetric, BenchmarkRunReport,
 };
@@ -48,7 +49,7 @@ impl BenchEngine {
 
     /// Saves a benchmark report to history.
     pub fn save_report(state_dir: &Path, report: BenchmarkRunReport) -> Result<()> {
-        let _guard = BENCH_LOCK.lock().unwrap();
+        let _guard = lock_or_recover(&BENCH_LOCK);
         let mut reports = Self::load_history(state_dir);
         reports.retain(|r| r.id != report.id);
         reports.insert(0, report);
@@ -508,6 +509,8 @@ impl BenchEngine {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]

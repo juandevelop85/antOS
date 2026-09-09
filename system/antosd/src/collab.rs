@@ -3,6 +3,7 @@
 //! Provides conflict-free concurrent editing (CRDT), agent cursor and ghost-text
 //! projection, and an isolated Debug Adapter Protocol (DAP) supervisor for sandbox processes.
 
+use crate::util::lock_or_recover;
 use antos_protocol::{
     CollabCursor, CollabSessionStatus, DapBreakpoint, DapSessionStatus, DapVariable,
 };
@@ -283,11 +284,9 @@ impl CollabEngine {
     where
         F: FnOnce(&mut HashMap<String, CollabSession>) -> R,
     {
-        let mut guard = SESSIONS.lock().unwrap();
-        if guard.is_none() {
-            *guard = Some(HashMap::new());
-        }
-        f(guard.as_mut().unwrap())
+        let mut guard = lock_or_recover(&SESSIONS);
+        let sessions = guard.get_or_insert_with(HashMap::new);
+        f(sessions)
     }
 
     /// Starts or joins an interactive pair programming session.
@@ -599,6 +598,8 @@ impl DapServer {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]
