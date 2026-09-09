@@ -238,6 +238,27 @@ nix build .#iso
 > ISO como unidad, Display = `virtio-gpu-pci`, Input = USB. Resultado esperado:
 > el escritorio antOS con la barra `antos-barra` anclada arriba.
 
+#### Herramientas de desarrollo incluidas — T30.3
+
+`services.antos.desktop.devTools` (por defecto `true`) añade a la imagen, de
+forma declarativa:
+
+| | |
+| :--- | :--- |
+| **Editor** | `neovim` (por defecto), configurado contra el LSP unificado de antOS. **No hay binario `antos-lsp`**: es el subcomando `antos lsp` (lo aporta `antosd`). `nvim` registra el *language server* `antos_lsp` con `cmd = { "antos", "lsp" }`. |
+| **Git** | `git`, `gh`, `delta`, `direnv` + `nix-direnv` |
+| **CLI** | `tmux`, `ripgrep`, `fd`, `bat`, `jq`, `htop`, `fastfetch`, `yazi`, `wget`, `curl` |
+| **Navegador** | `firefox` (opción `services.antos.desktop.browser`, `null` para omitir) |
+| **Apps** | `services.flatpak.enable` para `antos app`. Añade el remoto una vez: `flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo` |
+
+```bash
+# Dentro de la sesión antOS:
+antos dev        # o Super+W — layout Neovim + monitor de agentes + diffs + VTE (T20.1)
+antos edit <f>   # o Super+E — abre el editor por defecto
+antos lsp config # genera la config del LSP para nvim/vscode/helix/emacs
+antpkg install <paquete>       # o `antos app install <flatpak>`
+```
+
 ---
 
 ### Método 6: Núcleo Bare-Metal `no_std` Multi-Arquitectura (x86_64 y AArch64) en QEMU y UEFI

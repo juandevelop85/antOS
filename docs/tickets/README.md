@@ -117,6 +117,6 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 29** | [T29.3](T29.3-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) | Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
 | **Fase 30** | [T30.1](T30.1-paquete-nix-de-antos-barra-y-modulo-de-sesion-wayland-declarativo.md) | Paquete Nix de `antos-barra` y Módulo de Sesión Wayland Declarativo | 🔄 En Progreso |
 | **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | 🔄 En Progreso |
-| **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | ⏳ Pendiente |
+| **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | 🔄 En Progreso |
 | **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | ⏳ Pendiente |
 | **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | ⏳ Pendiente |

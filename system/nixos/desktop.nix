@@ -84,9 +84,26 @@ in
       defaultText = lib.literalExpression "pkgs.antos-barra";
       description = "Paquete de la barra de intención (`system/nixos/barra.nix`).";
     };
+
+    devTools = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Incluye el userland de desarrollo en la imagen: Neovim configurado
+        contra `antos lsp`, Git + `gh` + `delta`, terminal, `ripgrep`/`fd`/
+        `bat`/`jq`, `direnv` y Flatpak para `antos app` (T30.3).
+      '';
+    };
+
+    browser = lib.mkOption {
+      type = lib.types.nullOr lib.types.package;
+      default = pkgs.firefox;
+      defaultText = lib.literalExpression "pkgs.firefox";
+      description = "Navegador incluido de fábrica (`null` para no incluir ninguno).";
+    };
   };
 
-  config = lib.mkIf cfg.enable {
+  config = lib.mkIf cfg.enable (lib.mkMerge [ {
     # El escritorio implica el demonio.
     services.antos.enable = lib.mkDefault true;
 
@@ -138,5 +155,71 @@ in
       extraPortals = [ pkgs.xdg-desktop-portal-wlr ];
       config.common.default = "wlr";
     };
-  };
+  }
+
+  # ── Userland de desarrollo (T30.3) ────────────────────────────────────
+  (lib.mkIf cfg.devTools {
+    # Neovim configurado contra el servidor LSP unificado de antOS
+    # (`antos lsp`, T12.1). No hay binario `antos-lsp` aparte: es un
+    # subcomando del CLI `antos` que aporta el paquete `antosd`.
+    programs.neovim = {
+      enable = true;
+      defaultEditor = true;
+      viAlias = true;
+      vimAlias = true;
+      configure = {
+        packages.antos.start = with pkgs.vimPlugins; [
+          nvim-lspconfig
+          (nvim-treesitter.withPlugins (p: [ p.rust p.python p.nix p.lua p.markdown p.bash p.javascript p.typescript ]))
+          telescope-nvim
+          plenary-nvim
+          fzf-lua
+        ];
+        customRC = ''
+          set number expandtab shiftwidth=2 tabstop=2
+          lua << EOF
+            local ok, lspconfig = pcall(require, 'lspconfig')
+            if ok then
+              local configs = require('lspconfig.configs')
+              if not configs.antos_lsp then
+                configs.antos_lsp = {
+                  default_config = {
+                    cmd = { 'antos', 'lsp' },
+                    filetypes = { 'rust', 'python', 'javascript', 'typescript', 'lua', 'nix', 'markdown' },
+                    root_dir = lspconfig.util.root_pattern('.git', 'Cargo.toml', 'flake.nix'),
+                  },
+                }
+              end
+              lspconfig.antos_lsp.setup {}
+            end
+          EOF
+        '';
+      };
+    };
+
+    programs.direnv = {
+      enable = true;
+      nix-direnv.enable = true;
+    };
+
+    # Flatpak para `antos app` (el remoto `flathub` se añade en el primer
+    # arranque: `flatpak remote-add --if-not-exists flathub …`).
+    services.flatpak.enable = true;
+
+    environment.systemPackages = with pkgs; [
+      gh
+      delta
+      tmux
+      ripgrep
+      fd
+      bat
+      jq
+      htop
+      fastfetch
+      yazi
+      wget
+      curl
+    ] ++ lib.optional (cfg.browser != null) cfg.browser;
+  })
+  ]);
 }
