@@ -5,13 +5,22 @@
 
 use core::arch::global_asm;
 use core::fmt::Write;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Set while a "safe probe" access is in flight; the dispatcher checks this
 /// before deciding to panic on a Data/Instruction Abort.
 static PROBE_ARMED: AtomicBool = AtomicBool::new(false);
 /// Set by the dispatcher when a guarded probe access actually aborted.
 static PROBE_FAULTED: AtomicBool = AtomicBool::new(false);
+
+/// Storm breaker: the last non-timer INTID seen and how many times in a row it
+/// has fired without any other interrupt in between. A line that keeps
+/// re-asserting with no driver to quiesce it (a half-initialised PCIe device on
+/// a shared INTx, say) would otherwise live-lock the CPU in the IRQ handler.
+static LAST_IRQ_ID: AtomicU32 = AtomicU32::new(u32::MAX);
+static SAME_IRQ_STREAK: AtomicU32 = AtomicU32::new(0);
+/// Consecutive repeats of the same unhandled INTID before it is masked.
+const IRQ_STORM_LIMIT: u32 = 4_000;
 
 /// Reads a 32-bit value from a possibly-nonexistent MMIO/physical address
 /// without crashing the kernel if the access raises a Data or Instruction
@@ -275,6 +284,8 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
         }
 
         if timer::is_timer_irq(irq_id) {
+            LAST_IRQ_ID.store(u32::MAX, Ordering::Relaxed);
+            SAME_IRQ_STREAK.store(0, Ordering::Relaxed);
             timer::handle_timer_interrupt();
             crate::drivers::usb::poll();
             // Preemption hook: check quantum and switch context if needed
@@ -289,6 +300,25 @@ pub extern "C" fn aarch64_exception_dispatch(ctx: &mut ExceptionContext, vector_
             let (w, h) = crate::console::resolution();
             crate::drivers::usb::poll();
             crate::drivers::virtio_input::poll_virtio_inputs(w, h);
+
+            // Storm breaker: if the same INTID keeps coming back with nothing
+            // draining it, mask it at the GIC and move on. Prevents a
+            // half-initialised PCIe device on a shared INTx line from
+            // live-locking the boot.
+            let streak = if LAST_IRQ_ID.swap(irq_id, Ordering::Relaxed) == irq_id {
+                SAME_IRQ_STREAK.fetch_add(1, Ordering::Relaxed) + 1
+            } else {
+                SAME_IRQ_STREAK.store(1, Ordering::Relaxed);
+                1
+            };
+            if streak >= IRQ_STORM_LIMIT {
+                gic::disable_interrupt(irq_id);
+                SAME_IRQ_STREAK.store(0, Ordering::Relaxed);
+                crate::println!(
+                    "  irq-storm    INTID {} sin manejador · enmascarada tras {} repeticiones",
+                    irq_id, streak
+                );
+            }
         }
 
         gic::end_of_interrupt(irq_id);

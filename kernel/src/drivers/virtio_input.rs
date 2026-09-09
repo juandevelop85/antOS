@@ -34,6 +34,8 @@ const MMIO_QUEUE_ALIGN: usize = 0x03c; // Version 1 only
 const MMIO_QUEUE_PFN: usize = 0x040; // Version 1 only
 const MMIO_QUEUE_READY: usize = 0x044; // Version 2 only
 const MMIO_QUEUE_NOTIFY: usize = 0x050;
+const MMIO_INTERRUPT_STATUS: usize = 0x060;
+const MMIO_INTERRUPT_ACK: usize = 0x064;
 const MMIO_STATUS: usize = 0x070;
 const MMIO_QUEUE_DESC_LOW: usize = 0x080; // Version 2 only
 const MMIO_QUEUE_DESC_HIGH: usize = 0x084; // Version 2 only
@@ -333,6 +335,18 @@ impl VirtioInputDevice {
     /// the current screen resolution, and forwards coalesced events to the
     /// kernel queue. Returns the number of raw evdev triples consumed.
     pub fn poll_events(&mut self, screen: (u32, u32)) -> usize {
+        // Acknowledge any pending VirtIO-MMIO interrupt so a level-triggered
+        // line de-asserts. Without this, a used-buffer or config-change
+        // notification keeps the GIC SPI asserted and the IRQ handler
+        // live-locks (the storm breaker in the dispatcher would eventually mask
+        // the line, losing input from this device).
+        unsafe {
+            let isr = read32(self.mmio_base, MMIO_INTERRUPT_STATUS);
+            if isr != 0 {
+                write32(self.mmio_base, MMIO_INTERRUPT_ACK, isr);
+            }
+        }
+
         let vring = unsafe { &mut *core::ptr::addr_of_mut!(EVENT_VRINGS[self.device_index]) };
         let used_idx = unsafe { core::ptr::read_volatile(&vring.used_idx) };
         let mut processed = 0usize;

@@ -21,6 +21,7 @@ pub const GICR_BASE_DEFAULT: usize = 0x080A_0000;
 // GIC Distributor register offsets (common to v2/v3).
 const GICD_CTLR: usize = 0x000;
 const GICD_ISENABLER: usize = 0x100;
+const GICD_ICENABLER: usize = 0x180;
 const GICD_IPRIORITYR: usize = 0x400;
 const GICD_ITARGETSR: usize = 0x800;
 const GICD_IGROUPR: usize = 0x080;
@@ -41,6 +42,7 @@ const GICR_WAKER: usize = 0x0014;
 const GICR_SGI_BASE: usize = 0x1_0000;
 const GICR_IGROUPR0: usize = GICR_SGI_BASE + 0x080;
 const GICR_ISENABLER0: usize = GICR_SGI_BASE + 0x100;
+const GICR_ICENABLER0: usize = GICR_SGI_BASE + 0x180;
 const GICR_IPRIORITYR: usize = GICR_SGI_BASE + 0x400;
 
 const GICR_WAKER_PROCESSOR_SLEEP: u32 = 1 << 1;
@@ -348,6 +350,23 @@ fn enable_interrupt_v3(id: u32) {
     }
 }
 
+/// Masks interrupt `id` at the distributor (or this CPU's redistributor for a
+/// PPI on GICv3). Used by the IRQ dispatcher's storm breaker to silence a line
+/// that keeps re-asserting with no driver to service it.
+pub fn disable_interrupt(id: u32) {
+    let reg_index = (id / 32) as usize;
+    let bit_mask = 1u32 << (id % 32);
+    unsafe {
+        match version() {
+            GicVersion::V3 if id < 32 => {
+                let gicr = GICR_BASE.load(Ordering::Relaxed);
+                write_reg(gicr, GICR_ICENABLER0, bit_mask);
+            }
+            _ => write_gicd(GICD_ICENABLER + reg_index * 4, bit_mask),
+        }
+    }
+}
+
 /// Acknowledges the pending interrupt and returns its INTID. `1020..=1023` are
 /// special (spurious / group mismatch) and must not be EOI'd.
 #[inline]
@@ -379,14 +398,22 @@ pub fn is_spurious(intid: u32) -> bool {
 /// that fires is de-asserted before EOI — no interrupt storm from enabling one
 /// that happens to be unused.
 pub fn enable_peripheral_irqs() {
-    // QEMU `-M virt`: PCIe INTA..INTD = SPI 3..6 -> INTID 35..38.
-    for intid in 35..=38 {
-        enable_interrupt(intid);
-    }
     // QEMU `-M virt`: 32 virtio-mmio slots = SPI 16..47 -> INTID 48..79.
+    // These back the devices the kernel actually services from the IRQ path
+    // (VirtIO-Input, and the VirtIO-GPU/MMIO transport).
     for intid in 48..=79 {
         enable_interrupt(intid);
     }
+
+    // NOTE: the PCIe legacy INTx lines (INTA..INTD = SPI 3..6 -> INTID 35..38)
+    // are deliberately *not* blanket-enabled. The kernel drives every PCIe
+    // device it supports (xHCI, VirtIO-GPU-PCI) by polling, never by interrupt,
+    // so enabling those shared, level-triggered lines only invites a storm:
+    // on `-M virt -kernel` the firmware leaves PCI devices half-initialised and
+    // any one of them (virtio-net, HD-audio, a second xHCI, …) can hold its
+    // INTx asserted. With the line enabled, the first `daifclr` live-locks the
+    // CPU in the IRQ handler before the boot finishes. A future
+    // interrupt-driven PCI driver must enable its own specific line.
 }
 
 #[cfg(test)]
