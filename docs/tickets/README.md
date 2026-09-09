@@ -119,7 +119,8 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | 🔄 En Progreso |
 | **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | 🔄 En Progreso |
 | **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | 🔄 En Progreso |
-| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso || **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ⏳ Pendiente |
+| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso |
+| **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ✅ Completado |
 | **Fase 31** | [T31.2](T31.2-ciclo-de-vida-y-limites-de-recursos-del-servidor-de-consola-web.md) | Ciclo de Vida y Límites de Recursos del Servidor de Consola Web | ⏳ Pendiente |
 | **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ⏳ Pendiente |
 | **Fase 31** | [T31.4](T31.4-aislamiento-real-de-microvm-y-eliminacion-de-inyeccion-de-shell.md) | Aislamiento Real de MicroVM y Eliminación de Inyección de Shell | ⏳ Pendiente |
@@ -141,15 +142,17 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 ## Fase 31 · Auditoría de Código (September 2026)
 
 Revisión completa del árbol (`system/`, `kernel/`, `builder/`, `user/`) sin
-modificar código. Los dieciséis tickets de arriba recogen lo encontrado,
-agrupados en tres bloques:
+modificar código en el momento de la auditoría. Los dieciséis tickets de
+arriba recogen lo encontrado, agrupados en tres bloques:
 
 - **Defectos de seguridad y corrección (T31.1 – T31.9).** Bypass de
-  autenticación en la consola web, tokens predecibles, desbordamientos
-  aritméticos en el cargador ELF del kernel, ejecución sin aislamiento en
-  `vm exec`, inyección de shell en la detección de herramientas, identidad de
-  antMesh derivada de un hash no criptográfico, secretos en claro, pánicos por
-  `unwrap` y límites ausentes en el socket IPC y en el intérprete WASM.
+  autenticación en la consola web (**✅ T31.1 resuelto**: token obligatorio
+  con 401 real, entropía de 256 bits, solo el hash en disco, bind loopback
+  por defecto), tokens predecibles, desbordamientos aritméticos en el
+  cargador ELF del kernel, ejecución sin aislamiento en `vm exec`, inyección
+  de shell en la detección de herramientas, identidad de antMesh derivada de
+  un hash no criptográfico, secretos en claro, pánicos por `unwrap` y límites
+  ausentes en el socket IPC y en el intérprete WASM.
 - **Integración continua (T31.10, T31.16).** Las puertas de `clippy` y
   `rustfmt` de T22.6 fallan sobre el árbol actual, así que la CI lleva tiempo
   en rojo. Los 318 tests del workspace del anfitrión y las compilaciones del
@@ -162,7 +165,7 @@ agrupados en tres bloques:
   de módulo con lo realmente implementado, y descomposición de los ficheros que
   han vuelto a superar las 1500 líneas.
 
-Orden sugerido de ataque: **T31.1 → T31.4 → T31.10 → T31.16 → T31.3 → T31.5
-→ T31.6**, y el resto según convenga. T31.10 y T31.16 conviene abordarlos
-pronto: sin CI verde y sin tests de kernel ejecutables, las correcciones de
-T31.3 no tienen forma de verificarse.
+Orden sugerido de ataque: ~~T31.1~~ **→ T31.4 → T31.10 → T31.16 → T31.3 →
+T31.5 → T31.6**, y el resto según convenga. T31.10 y T31.16 conviene
+abordarlos pronto: sin CI verde y sin tests de kernel ejecutables, las
+correcciones de T31.3 no tienen forma de verificarse.

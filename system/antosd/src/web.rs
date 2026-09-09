@@ -4,7 +4,7 @@
 //! and orchestrate antOS remotely through modern web browsers, with real-time streaming
 //! of telemetry, Kanban tickets, autopilot incidents, and cryptographic token auth.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use antos_protocol::{
     WebAuthSession, WebConsoleConfig, WebConsoleStatus, WebSocketMessage,
 };
@@ -80,6 +80,44 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
     out[12..16].copy_from_slice(&h3.to_be_bytes());
     out[16..20].copy_from_slice(&h4.to_be_bytes());
     out
+}
+
+/// Reads `n` bytes of OS-provided cryptographic randomness from `/dev/urandom`
+/// (present on both macOS and Linux, the two supported hosts). Session tokens
+/// must never be derived from the clock, a label, or any other predictable
+/// input — see T31.1.
+fn secure_random_bytes(n: usize) -> Result<Vec<u8>> {
+    let mut f = fs::File::open("/dev/urandom").context("opening /dev/urandom for secure token generation")?;
+    let mut buf = vec![0u8; n];
+    f.read_exact(&mut buf).context("reading secure randomness from /dev/urandom")?;
+    Ok(buf)
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Constant-time comparison of two equal-length, hex-encoded digests, so that
+/// token validation does not leak a stored hash through timing side-channels.
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (ab, bb) = (a.as_bytes(), b.as_bytes());
+    if ab.len() != bb.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in ab.iter().zip(bb.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Seconds since the Unix epoch, without panicking if the system clock is
+/// ever set before 1970 (the wider sweep of this pattern is T31.7).
+fn unix_now() -> Result<u64> {
+    Ok(SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is set before the Unix epoch")?
+        .as_secs())
 }
 
 /// Computes the RFC 6455 Sec-WebSocket-Accept key.
@@ -165,9 +203,25 @@ pub fn decode_ws_frame(data: &[u8]) -> Option<(u8, String)> {
 
 // ------------------------------------------------------------- sessions & state
 
+/// On-disk representation of a session. Deliberately **not** `WebAuthSession`:
+/// the plaintext token is shown to the caller exactly once, at generation
+/// time, and never written to disk again. Only a salted digest is persisted
+/// (T31.1), so a leak or backup of `sessions.json` cannot be replayed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredSessionRecord {
+    /// Random per-session salt, hex-encoded.
+    salt: String,
+    /// `sha256(salt ":" token)`, hex-encoded.
+    token_hash: String,
+    created_at: u64,
+    expires_at: u64,
+    client_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct StoredSessions {
-    pub sessions: Vec<WebAuthSession>,
+    #[serde(default)]
+    sessions: Vec<StoredSessionRecord>,
 }
 
 pub struct WebEngine;
@@ -186,6 +240,11 @@ impl WebEngine {
     }
 
     /// Generates a new cryptographic authentication token for remote client access.
+    ///
+    /// The token carries 256 bits of OS-provided entropy (T31.1): it is never
+    /// derived from the clock, the client label, or any other guessable
+    /// input. Only the returned [`WebAuthSession`] carries the plaintext
+    /// token — disk storage keeps a salted digest only.
     pub fn generate_token(
         state_dir: &Path,
         client_label: Option<String>,
@@ -194,36 +253,53 @@ impl WebEngine {
         let dir = Self::web_dir(state_dir);
         fs::create_dir_all(&dir)?;
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = unix_now()?;
         let ttl = ttl_secs.unwrap_or(86400); // 24 hours default
-        let expires_at = now + ttl;
+        let expires_at = now.saturating_add(ttl);
 
-        let seed = format!("{now}-{ttl}-{:?}", client_label);
-        let hash = sha1(seed.as_bytes());
-        let token_hex = hash.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let token = format!("ant_{token_hex}");
+        let token = format!("ant_{}", to_hex(&secure_random_bytes(32)?));
+        let salt = to_hex(&secure_random_bytes(16)?);
+        let token_hash = crate::pkg::crypto::sha256(format!("{salt}:{token}").as_bytes());
 
         let session = WebAuthSession {
             token,
             created_at: now,
             expires_at,
-            client_label,
+            client_label: client_label.clone(),
         };
 
         let mut stored = Self::load_sessions(state_dir);
         // Prune expired sessions
         stored.sessions.retain(|s| s.expires_at > now);
-        stored.sessions.push(session.clone());
+        stored.sessions.push(StoredSessionRecord {
+            salt,
+            token_hash,
+            created_at: now,
+            expires_at,
+            client_label,
+        });
 
-        fs::write(Self::sessions_path(state_dir), serde_json::to_string_pretty(&stored)?)?;
+        Self::save_sessions(state_dir, &stored)?;
         Ok(session)
     }
 
     /// Validates an incoming token against stored active sessions.
+    ///
+    /// Compares the salted digest of `token` against each stored record in
+    /// constant time, and rejects anything expired. A clock that cannot be
+    /// read denies rather than panics.
     pub fn validate_token(state_dir: &Path, token: &str) -> bool {
+        let Ok(now) = unix_now() else {
+            return false;
+        };
         let stored = Self::load_sessions(state_dir);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        stored.sessions.iter().any(|s| s.token == token && s.expires_at > now)
+        stored.sessions.iter().any(|s| {
+            if s.expires_at <= now {
+                return false;
+            }
+            let candidate_hash = crate::pkg::crypto::sha256(format!("{}:{}", s.salt, token).as_bytes());
+            constant_time_eq(&candidate_hash, &s.token_hash)
+        })
     }
 
     fn load_sessions(state_dir: &Path) -> StoredSessions {
@@ -235,7 +311,26 @@ impl WebEngine {
                 }
             }
         }
-        StoredSessions { sessions: Vec::new() }
+        StoredSessions::default()
+    }
+
+    /// Persists sessions with owner-only permissions, mirroring `Vault::save`.
+    fn save_sessions(state_dir: &Path, stored: &StoredSessions) -> Result<()> {
+        let path = Self::sessions_path(state_dir);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, serde_json::to_string_pretty(stored)?)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&path)?.permissions();
+            perms.set_mode(0o600);
+            fs::set_permissions(&path, perms)?;
+        }
+
+        Ok(())
     }
 
     /// Queries current status of the web console.
@@ -248,7 +343,7 @@ impl WebEngine {
         };
 
         let sessions = Self::load_sessions(state_dir);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = unix_now()?;
         let active_sessions = sessions.sessions.iter().filter(|s| s.expires_at > now).count();
 
         if let Some(mut st) = stored_status {
@@ -269,12 +364,33 @@ impl WebEngine {
         }
     }
 
+    /// Refuses to bind to a non-loopback address unless the operator has
+    /// explicitly opted in via `ANTOS_WEB_ALLOW_REMOTE_BIND`, so a console
+    /// meant for local development doesn't silently become reachable from
+    /// the network (T31.1).
+    fn ensure_safe_bind_addr(bind_addr: &str) -> Result<()> {
+        let is_loopback = matches!(bind_addr, "127.0.0.1" | "localhost" | "::1")
+            || bind_addr.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false);
+
+        if is_loopback || std::env::var_os("ANTOS_WEB_ALLOW_REMOTE_BIND").is_some() {
+            return Ok(());
+        }
+
+        bail!(
+            "antOS Web Console: se rechaza el enlace a «{bind_addr}» por no ser loopback; \
+             expondría la consola a la red. Si es intencional, repite el comando con la \
+             variable de entorno ANTOS_WEB_ALLOW_REMOTE_BIND=1."
+        );
+    }
+
     /// Starts the embedded HTTP and WebSocket server.
     pub fn start(
         state_dir: &Path,
         workspace_dir: &Path,
         config: WebConsoleConfig,
     ) -> Result<WebConsoleStatus> {
+        Self::ensure_safe_bind_addr(&config.bind_addr)?;
+        let auth_required = config.auth_required;
         let addr = format!("{}:{}", config.bind_addr, config.port);
         let listener = TcpListener::bind(&addr)
             .with_context(|| format!("Failed to bind web console on {addr}"))?;
@@ -308,7 +424,7 @@ impl WebEngine {
                         let s_dir = state_dir_buf.clone();
                         let w_dir = ws_dir_buf.clone();
                         thread::spawn(move || {
-                            let _ = Self::handle_client(&mut stream, &s_dir, &w_dir);
+                            let _ = Self::handle_client(&mut stream, &s_dir, &w_dir, auth_required);
                         });
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -330,6 +446,8 @@ impl WebEngine {
         workspace_dir: &Path,
         config: WebConsoleConfig,
     ) -> Result<()> {
+        Self::ensure_safe_bind_addr(&config.bind_addr)?;
+        let auth_required = config.auth_required;
         let addr = format!("{}:{}", config.bind_addr, config.port);
         let listener = TcpListener::bind(&addr)
             .with_context(|| format!("Failed to bind web console on {addr}"))?;
@@ -356,7 +474,7 @@ impl WebEngine {
                     let s_dir = state_dir_buf.clone();
                     let w_dir = ws_dir_buf.clone();
                     thread::spawn(move || {
-                        let _ = Self::handle_client(&mut stream, &s_dir, &w_dir);
+                        let _ = Self::handle_client(&mut stream, &s_dir, &w_dir, auth_required);
                     });
                 }
                 Err(_) => {
@@ -380,8 +498,33 @@ impl WebEngine {
         Ok(st)
     }
 
+    /// Writes a `401 Unauthorized` response and nothing else — no status,
+    /// ticket, or incident data ever reaches an unauthenticated caller
+    /// (T31.1).
+    fn respond_unauthorized(stream: &mut TcpStream) -> Result<()> {
+        let body = b"Unauthorized: a valid antOS web console token is required\n";
+        let response = format!(
+            "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Bearer realm=\"antOS Web Console\"\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(response.as_bytes())?;
+        stream.write_all(body)?;
+        Ok(())
+    }
+
     /// Handles a single incoming HTTP request or WebSocket upgrade.
-    fn handle_client(stream: &mut TcpStream, state_dir: &Path, workspace_dir: &Path) -> Result<()> {
+    ///
+    /// When `auth_required` is set (the default, from
+    /// [`WebConsoleConfig::auth_required`]), every route that can return
+    /// data — the JSON API and the WebSocket upgrade — requires a valid,
+    /// unexpired token before doing any work (T31.1). The token is accepted
+    /// via `Authorization: Bearer` everywhere; the `?token=` query parameter
+    /// is honored **only** for the WebSocket upgrade, because the browser
+    /// `WebSocket` constructor cannot set custom request headers on its
+    /// handshake and there is no other way for this page's own event stream
+    /// to authenticate itself. Every other route ignores it, so a token
+    /// never has to appear in a URL, browser history, or access log.
+    fn handle_client(stream: &mut TcpStream, state_dir: &Path, workspace_dir: &Path, auth_required: bool) -> Result<()> {
         let mut buffer = [0u8; 4096];
         let n = stream.read(&mut buffer)?;
         if n == 0 {
@@ -401,13 +544,14 @@ impl WebEngine {
             (path_and_query, "")
         };
 
-        // Extract Authorization header or ?token= query parameter
-        let mut req_token = None;
+        // `?token=`: accepted only for the WebSocket upgrade below (see the
+        // doc comment on this function for why).
+        let mut query_token = None;
         if !query.is_empty() {
             for param in query.split('&') {
                 if let Some((k, v)) = param.split_once('=') {
                     if k == "token" {
-                        req_token = Some(v.to_string());
+                        query_token = Some(v.to_string());
                         break;
                     }
                 }
@@ -416,11 +560,12 @@ impl WebEngine {
 
         let mut is_ws_upgrade = false;
         let mut ws_key = None;
+        let mut header_token = None;
 
         for line in lines {
             let lower = line.to_lowercase();
             if lower.starts_with("authorization: bearer ") {
-                req_token = Some(line[22..].trim().to_string());
+                header_token = Some(line[22..].trim().to_string());
             } else if lower.starts_with("upgrade:") && lower.contains("websocket") {
                 is_ws_upgrade = true;
             } else if lower.starts_with("sec-websocket-key:") {
@@ -428,59 +573,71 @@ impl WebEngine {
             }
         }
 
-        let _is_authed = req_token.as_deref().map(|t| Self::validate_token(state_dir, t)).unwrap_or(false);
+        let header_authed = header_token.as_deref().map(|t| Self::validate_token(state_dir, t)).unwrap_or(false);
 
         // Check if WebSocket upgrade requested
-        if is_ws_upgrade && ws_key.is_some() {
-            let key = ws_key.unwrap();
-            let accept = compute_ws_accept(&key);
-            let response = format!(
-                "HTTP/1.1 101 Switching Protocols\r\n\
-                Upgrade: websocket\r\n\
-                Connection: Upgrade\r\n\
-                Sec-WebSocket-Accept: {accept}\r\n\r\n"
-            );
-            stream.write_all(response.as_bytes())?;
-
-            // Send initial connected event
-            let initial = WebSocketMessage {
-                topic: "telemetry".into(),
-                payload: format!("{{\"status\": \"connected\", \"workspace\": \"{}\"}}", workspace_dir.display()),
-                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            };
-            let frame = encode_ws_text_frame(&serde_json::to_string(&initial)?);
-            stream.write_all(&frame)?;
-
-            // Keep connection alive for incoming ping/pong or queries
-            let mut ws_buf = [0u8; 2048];
-            while let Ok(read_len) = stream.read(&mut ws_buf) {
-                if read_len == 0 {
-                    break;
-                }
-                if let Some((opcode, text)) = decode_ws_frame(&ws_buf[..read_len]) {
-                    if opcode == 0x8 {
-                        // Close frame
-                        break;
-                    } else if opcode == 0x9 {
-                        // Ping -> Pong
-                        stream.write_all(&[0x8A, 0x00])?;
-                    } else if opcode == 0x1 {
-                        // Echo or respond to telemetry request
-                        let resp = WebSocketMessage {
-                            topic: "echo".into(),
-                            payload: text,
-                            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                        };
-                        let resp_frame = encode_ws_text_frame(&serde_json::to_string(&resp)?);
-                        stream.write_all(&resp_frame)?;
+        if is_ws_upgrade {
+            if let Some(key) = ws_key.as_deref() {
+                if auth_required {
+                    let ws_authed = header_authed
+                        || query_token.as_deref().map(|t| Self::validate_token(state_dir, t)).unwrap_or(false);
+                    if !ws_authed {
+                        return Self::respond_unauthorized(stream);
                     }
                 }
+
+                let accept = compute_ws_accept(key);
+                let response = format!(
+                    "HTTP/1.1 101 Switching Protocols\r\n\
+                    Upgrade: websocket\r\n\
+                    Connection: Upgrade\r\n\
+                    Sec-WebSocket-Accept: {accept}\r\n\r\n"
+                );
+                stream.write_all(response.as_bytes())?;
+
+                // Send initial connected event
+                let initial = WebSocketMessage {
+                    topic: "telemetry".into(),
+                    payload: format!("{{\"status\": \"connected\", \"workspace\": \"{}\"}}", workspace_dir.display()),
+                    timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                };
+                let frame = encode_ws_text_frame(&serde_json::to_string(&initial)?);
+                stream.write_all(&frame)?;
+
+                // Keep connection alive for incoming ping/pong or queries
+                let mut ws_buf = [0u8; 2048];
+                while let Ok(read_len) = stream.read(&mut ws_buf) {
+                    if read_len == 0 {
+                        break;
+                    }
+                    if let Some((opcode, text)) = decode_ws_frame(&ws_buf[..read_len]) {
+                        if opcode == 0x8 {
+                            // Close frame
+                            break;
+                        } else if opcode == 0x9 {
+                            // Ping -> Pong
+                            stream.write_all(&[0x8A, 0x00])?;
+                        } else if opcode == 0x1 {
+                            // Echo or respond to telemetry request
+                            let resp = WebSocketMessage {
+                                topic: "echo".into(),
+                                payload: text,
+                                timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            };
+                            let resp_frame = encode_ws_text_frame(&serde_json::to_string(&resp)?);
+                            stream.write_all(&resp_frame)?;
+                        }
+                    }
+                }
+                return Ok(());
             }
-            return Ok(());
         }
 
-        // API endpoints
+        // API endpoints — token required via `Authorization: Bearer` only.
         if path == "/api/status" {
+            if auth_required && !header_authed {
+                return Self::respond_unauthorized(stream);
+            }
             let st = Self::status(state_dir)?;
             let json = serde_json::to_string_pretty(&st)?;
             let response = format!(
@@ -493,6 +650,9 @@ impl WebEngine {
         }
 
         if path == "/api/tickets" {
+            if auth_required && !header_authed {
+                return Self::respond_unauthorized(stream);
+            }
             let spec = crate::spec::SpecEngine::global();
             let tickets = spec.list_tickets(workspace_dir).unwrap_or_default();
             let json = serde_json::to_string_pretty(&tickets)?;
@@ -506,6 +666,9 @@ impl WebEngine {
         }
 
         if path == "/api/autopilot" {
+            if auth_required && !header_authed {
+                return Self::respond_unauthorized(stream);
+            }
             let incs = crate::autopilot::AutopilotEngine::list_incidents(state_dir).unwrap_or_default();
             let json = serde_json::to_string_pretty(&incs)?;
             let response = format!(
@@ -517,7 +680,10 @@ impl WebEngine {
             return Ok(());
         }
 
-        // Serve embedded HTML Single Page App
+        // Serve embedded HTML Single Page App. This is the static shell only
+        // — it carries no system data, so it is intentionally reachable
+        // without a token; every route above that does return data requires
+        // one.
         let html = Self::embedded_html();
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -693,5 +859,167 @@ mod tests {
         let html = WebEngine::embedded_html();
         assert!(html.contains("antOS · Consola Web Remota"));
         assert!(html.contains("WebSocket"));
+    }
+
+    // ---------------------------------------------------------------- T31.1
+
+    fn t31_1_temp_state_dir(label: &str) -> PathBuf {
+        let temp_dir = std::env::temp_dir().join(format!("antos_test_web_t31_1_{label}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let state_dir = temp_dir.join(".antos");
+        fs::create_dir_all(&state_dir).unwrap();
+        state_dir
+    }
+
+    #[test]
+    fn test_two_tokens_generated_in_the_same_second_are_distinct() {
+        let state_dir = t31_1_temp_state_dir("distinct_tokens");
+
+        let a = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
+        let b = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
+
+        assert_ne!(a.token, b.token, "tokens must carry real entropy, not a clock-derived value");
+        assert!(WebEngine::validate_token(&state_dir, &a.token));
+        assert!(WebEngine::validate_token(&state_dir, &b.token));
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_sessions_file_never_contains_the_plaintext_token() {
+        let state_dir = t31_1_temp_state_dir("no_cleartext");
+
+        let session = WebEngine::generate_token(&state_dir, Some("laptop".into()), Some(3600)).unwrap();
+        let raw = fs::read_to_string(WebEngine::sessions_path(&state_dir)).unwrap();
+
+        assert!(!raw.contains(&session.token), "sessions.json must never store the plaintext token");
+        assert!(raw.contains("token_hash"), "sessions.json should store a salted digest instead");
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_sessions_file_has_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let state_dir = t31_1_temp_state_dir("perms");
+        let _ = WebEngine::generate_token(&state_dir, None, Some(3600)).unwrap();
+
+        let mode = fs::metadata(WebEngine::sessions_path(&state_dir)).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "sessions.json must be readable only by its owner");
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_legacy_clock_derived_token_no_longer_validates() {
+        let state_dir = t31_1_temp_state_dir("legacy_scheme");
+
+        let label = Some("legacy-client".to_string());
+        let ttl = 3600u64;
+        let session = WebEngine::generate_token(&state_dir, label.clone(), Some(ttl)).unwrap();
+
+        // Reconstruct exactly what the pre-T31.1 scheme would have produced
+        // for the very same inputs and creation second.
+        let seed = format!("{}-{ttl}-{:?}", session.created_at, label);
+        let legacy_hash = sha1(seed.as_bytes());
+        let legacy_token = format!("ant_{}", to_hex(&legacy_hash));
+
+        assert_ne!(legacy_token, session.token, "sanity: the new scheme must not coincide with the old one");
+        assert!(!WebEngine::validate_token(&state_dir, &legacy_token));
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
+    }
+
+    #[test]
+    fn test_web_console_refuses_non_loopback_bind_without_explicit_opt_in() {
+        std::env::remove_var("ANTOS_WEB_ALLOW_REMOTE_BIND");
+        assert!(WebEngine::ensure_safe_bind_addr("127.0.0.1").is_ok());
+        assert!(WebEngine::ensure_safe_bind_addr("localhost").is_ok());
+
+        let err = WebEngine::ensure_safe_bind_addr("0.0.0.0").expect_err("must refuse a non-loopback bind");
+        assert!(err.to_string().contains("ANTOS_WEB_ALLOW_REMOTE_BIND"));
+
+        std::env::set_var("ANTOS_WEB_ALLOW_REMOTE_BIND", "1");
+        assert!(WebEngine::ensure_safe_bind_addr("0.0.0.0").is_ok());
+        std::env::remove_var("ANTOS_WEB_ALLOW_REMOTE_BIND");
+    }
+
+    /// Sends `raw_request` to a fresh, single-shot `handle_client` and
+    /// returns the raw HTTP response text.
+    fn t31_1_send_request(state_dir: &Path, workspace_dir: &Path, raw_request: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let req_owned = raw_request.to_string();
+        let client_handle = thread::spawn(move || {
+            let mut client = TcpStream::connect(addr).unwrap();
+            client.write_all(req_owned.as_bytes()).unwrap();
+            let mut resp = Vec::new();
+            client.read_to_end(&mut resp).ok();
+            String::from_utf8_lossy(&resp).to_string()
+        });
+        let (mut server_stream, _) = listener.accept().unwrap();
+        let _ = WebEngine::handle_client(&mut server_stream, state_dir, workspace_dir, true);
+        drop(server_stream);
+        client_handle.join().unwrap()
+    }
+
+    #[test]
+    fn test_protected_routes_reject_missing_or_invalid_tokens_and_leak_nothing() {
+        let state_dir = t31_1_temp_state_dir("protected_routes");
+        let workspace_dir = state_dir.parent().unwrap().join("workspace");
+        fs::create_dir_all(&workspace_dir).unwrap();
+
+        let ws_upgrade_line = "GET /ws/events HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n";
+
+        let no_token_requests = [
+            ("/api/status", "GET /api/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
+            ("/api/tickets", "GET /api/tickets HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
+            ("/api/autopilot", "GET /api/autopilot HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".to_string()),
+            ("/ws/events upgrade", format!("{ws_upgrade_line}\r\n")),
+        ];
+
+        for (label, raw_request) in &no_token_requests {
+            let response = t31_1_send_request(&state_dir, &workspace_dir, raw_request);
+            assert!(response.starts_with("HTTP/1.1 401"), "route «{label}» must reject a request with no token, got: {response}");
+            assert!(!response.contains("Content-Type: application/json"), "route «{label}» must not leak JSON data on 401");
+        }
+
+        // An unknown-but-well-formed token must be rejected on every route too.
+        let invalid_token_requests = [
+            (
+                "/api/status",
+                "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ant_deadbeef\r\nConnection: close\r\n\r\n".to_string(),
+            ),
+            (
+                "/api/tickets",
+                "GET /api/tickets HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ant_deadbeef\r\nConnection: close\r\n\r\n".to_string(),
+            ),
+            (
+                "/api/autopilot",
+                "GET /api/autopilot HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ant_deadbeef\r\nConnection: close\r\n\r\n".to_string(),
+            ),
+            ("/ws/events upgrade", format!("{ws_upgrade_line}Authorization: Bearer ant_deadbeef\r\n\r\n")),
+        ];
+
+        for (label, raw_request) in &invalid_token_requests {
+            let response = t31_1_send_request(&state_dir, &workspace_dir, raw_request);
+            assert!(response.starts_with("HTTP/1.1 401"), "route «{label}» must reject an invalid token, got: {response}");
+            assert!(!response.contains("Content-Type: application/json"), "route «{label}» must not leak JSON data on 401");
+        }
+
+        // A freshly generated, genuine token must be accepted.
+        let session = WebEngine::generate_token(&state_dir, Some("test-client".into()), Some(3600)).unwrap();
+        let good_req = format!(
+            "GET /api/status HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nConnection: close\r\n\r\n",
+            session.token
+        );
+        let response = t31_1_send_request(&state_dir, &workspace_dir, &good_req);
+        assert!(response.starts_with("HTTP/1.1 200"), "a valid token must be accepted, got: {response}");
+        assert!(response.contains("Content-Type: application/json"));
+
+        let _ = fs::remove_dir_all(state_dir.parent().unwrap());
     }
 }
