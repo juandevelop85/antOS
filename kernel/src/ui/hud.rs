@@ -177,3 +177,9 @@ impl IntentHud {
         }
     }
 }
+
+impl Default for IntentHud {
+    fn default() -> Self {
+        Self::new()
+    }
+}

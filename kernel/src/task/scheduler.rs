@@ -45,6 +45,14 @@ impl Scheduler {
     }
 
     /// Spawns a new process and its primary thread.
+    ///
+    /// T31.10: clippy counts 8 (7 params + `&mut self`). The free function
+    /// `scheduler::spawn_process` right below is the real public entry point
+    /// and already sits at exactly 7 by itself; this method is only ever
+    /// called from that one wrapper, so grouping these into a struct would
+    /// add indirection at both call sites without a second, independent
+    /// caller to justify it.
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_process(
         &mut self,
         name: &'static str,

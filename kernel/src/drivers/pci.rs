@@ -177,21 +177,42 @@ impl PciDevice {
     }
 
     /// Reads a 32-bit dword from this device's configuration space.
+    ///
+    /// # Safety
+    ///
+    /// See the free function [`read_config_u32`]: this device's `bus`,
+    /// `slot`, and `func` are threaded through automatically.
     pub unsafe fn read_config_u32(&self, offset: u8) -> u32 {
         read_config_u32(self.bus, self.slot, self.func, offset)
     }
 
     /// Writes a 32-bit dword to this device's configuration space.
+    ///
+    /// # Safety
+    ///
+    /// See the free function [`write_config_u32`]: `offset` must land
+    /// inside this device's real configuration space, and the caller must
+    /// be prepared for the write to change this device's state.
     pub unsafe fn write_config_u32(&self, offset: u8, value: u32) {
         write_config_u32(self.bus, self.slot, self.func, offset, value)
     }
 
     /// Reads a 16-bit word from this device's configuration space.
+    ///
+    /// # Safety
+    ///
+    /// See the free function [`read_config_u16`].
     pub unsafe fn read_config_u16(&self, offset: u8) -> u16 {
         read_config_u16(self.bus, self.slot, self.func, offset)
     }
 
     /// Writes a 16-bit word to this device's configuration space.
+    ///
+    /// # Safety
+    ///
+    /// See the free function [`write_config_u16`]: `offset` must land
+    /// inside this device's real configuration space, and the caller must
+    /// be prepared for the write to change this device's state.
     pub unsafe fn write_config_u16(&self, offset: u8, value: u16) {
         write_config_u16(self.bus, self.slot, self.func, offset, value)
     }
@@ -232,6 +253,15 @@ impl PciDevice {
 }
 
 /// Reads a 32-bit dword from PCI configuration space.
+///
+/// # Safety
+///
+/// `bus`/`slot`/`func`/`offset` select an arbitrary PCI configuration space
+/// register; per the PCI spec, a non-existent device simply reads back as
+/// `0xFFFF_FFFF`, so the device is not required to exist. On non-x86_64
+/// targets this dereferences raw ECAM MMIO instead of I/O ports, so the
+/// caller must additionally ensure `get_ecam_base()` returns an address
+/// that is actually mapped in the currently active page tables.
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let address = 0x8000_0000u32
@@ -243,6 +273,16 @@ pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     inl(PCI_CONFIG_DATA)
 }
 
+/// Reads a 32-bit dword from PCI configuration space (ECAM path).
+///
+/// # Safety
+///
+/// `bus`/`slot`/`func`/`offset` select an arbitrary PCI configuration space
+/// register; per the PCI spec, a non-existent device simply reads back as
+/// `0xFFFF_FFFF`, so the device is not required to exist. On non-x86_64
+/// targets this dereferences raw ECAM MMIO instead of I/O ports, so the
+/// caller must additionally ensure `get_ecam_base()` returns an address
+/// that is actually mapped in the currently active page tables.
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
@@ -261,6 +301,16 @@ pub unsafe fn read_config_u32(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
 }
 
 /// Writes a 32-bit dword to PCI configuration space.
+///
+/// # Safety
+///
+/// Same addressing rules as the read variant, but a write can reconfigure
+/// or disable a real device's state (BARs, command register, etc.). The
+/// caller must ensure `bus`/`slot`/`func` identifies a device it is safe to
+/// modify and that `offset` lies within that device's real configuration
+/// space. On non-x86_64 targets this dereferences raw ECAM MMIO, so
+/// `get_ecam_base()` must return an address mapped in the currently active
+/// page tables.
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
     let address = 0x8000_0000u32
@@ -272,6 +322,17 @@ pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u
     outl(PCI_CONFIG_DATA, value);
 }
 
+/// Writes a 32-bit dword to PCI configuration space (ECAM path).
+///
+/// # Safety
+///
+/// Same addressing rules as the read variant, but a write can reconfigure
+/// or disable a real device's state (BARs, command register, etc.). The
+/// caller must ensure `bus`/`slot`/`func` identifies a device it is safe to
+/// modify and that `offset` lies within that device's real configuration
+/// space. On non-x86_64 targets this dereferences raw ECAM MMIO, so
+/// `get_ecam_base()` must return an address mapped in the currently active
+/// page tables.
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u32) {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
@@ -279,6 +340,15 @@ pub unsafe fn write_config_u32(bus: u8, slot: u8, func: u8, offset: u8, value: u
 }
 
 /// Reads a 16-bit word from PCI configuration space.
+///
+/// # Safety
+///
+/// `bus`/`slot`/`func`/`offset` select an arbitrary PCI configuration space
+/// register; per the PCI spec, a non-existent device simply reads back as
+/// `0xFFFF_FFFF`, so the device is not required to exist. On non-x86_64
+/// targets this dereferences raw ECAM MMIO instead of I/O ports, so the
+/// caller must additionally ensure `get_ecam_base()` returns an address
+/// that is actually mapped in the currently active page tables.
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let address = 0x8000_0000u32
@@ -291,6 +361,16 @@ pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     inw(port)
 }
 
+/// Reads a 16-bit word from PCI configuration space (ECAM path).
+///
+/// # Safety
+///
+/// `bus`/`slot`/`func`/`offset` select an arbitrary PCI configuration space
+/// register; per the PCI spec, a non-existent device simply reads back as
+/// `0xFFFF_FFFF`, so the device is not required to exist. On non-x86_64
+/// targets this dereferences raw ECAM MMIO instead of I/O ports, so the
+/// caller must additionally ensure `get_ecam_base()` returns an address
+/// that is actually mapped in the currently active page tables.
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);
@@ -311,6 +391,16 @@ pub unsafe fn read_config_u16(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
 }
 
 /// Writes a 16-bit word to PCI configuration space.
+///
+/// # Safety
+///
+/// Same addressing rules as the read variant, but a write can reconfigure
+/// or disable a real device's state (BARs, command register, etc.). The
+/// caller must ensure `bus`/`slot`/`func` identifies a device it is safe to
+/// modify and that `offset` lies within that device's real configuration
+/// space. On non-x86_64 targets this dereferences raw ECAM MMIO, so
+/// `get_ecam_base()` must return an address mapped in the currently active
+/// page tables.
 #[cfg(target_arch = "x86_64")]
 pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u16) {
     let address = 0x8000_0000u32
@@ -323,6 +413,17 @@ pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u
     outw(port, value);
 }
 
+/// Writes a 16-bit word to PCI configuration space (ECAM path).
+///
+/// # Safety
+///
+/// Same addressing rules as the read variant, but a write can reconfigure
+/// or disable a real device's state (BARs, command register, etc.). The
+/// caller must ensure `bus`/`slot`/`func` identifies a device it is safe to
+/// modify and that `offset` lies within that device's real configuration
+/// space. On non-x86_64 targets this dereferences raw ECAM MMIO, so
+/// `get_ecam_base()` must return an address mapped in the currently active
+/// page tables.
 #[cfg(not(target_arch = "x86_64"))]
 pub unsafe fn write_config_u16(bus: u8, slot: u8, func: u8, offset: u8, value: u16) {
     let addr = get_ecam_base() + ecam_offset(bus, slot, func, offset);

@@ -181,45 +181,43 @@ pub fn parse_configuration_bundle(data: &[u8]) -> (Option<u8>, Vec<ParsedHidInte
                     current_iface = Some(iface);
                 }
             }
-            DESC_TYPE_ENDPOINT => {
-                if len >= 7 {
-                    let mut ep = EndpointDescriptor::default();
-                    unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            data[offset..].as_ptr(),
-                            &mut ep as *mut _ as *mut u8,
-                            7,
+            DESC_TYPE_ENDPOINT if len >= 7 => {
+                let mut ep = EndpointDescriptor::default();
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        data[offset..].as_ptr(),
+                        &mut ep as *mut _ as *mut u8,
+                        7,
+                    );
+                }
+
+                if let Some(iface) = current_iface {
+                    if iface.interface_class == CLASS_HID && ep.is_in() && ep.is_interrupt() {
+                        crate::println!(
+                            "    usb-debug  hid iface {}: class={:#x} sub={:#x} proto={:#x}",
+                            iface.interface_number,
+                            iface.interface_class,
+                            iface.interface_subclass,
+                            iface.interface_protocol
                         );
-                    }
+                        let is_keyboard = iface.interface_protocol == PROTOCOL_KEYBOARD
+                            || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
+                                && iface.interface_protocol == 1);
+                        let is_mouse = iface.interface_protocol == PROTOCOL_MOUSE
+                            || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
+                                && iface.interface_protocol == 2);
 
-                    if let Some(iface) = current_iface {
-                        if iface.interface_class == CLASS_HID && ep.is_in() && ep.is_interrupt() {
-                            crate::println!(
-                                "    usb-debug  hid iface {}: class={:#x} sub={:#x} proto={:#x}",
-                                iface.interface_number,
-                                iface.interface_class,
-                                iface.interface_subclass,
-                                iface.interface_protocol
-                            );
-                            let is_keyboard = iface.interface_protocol == PROTOCOL_KEYBOARD
-                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
-                                    && iface.interface_protocol == 1);
-                            let is_mouse = iface.interface_protocol == PROTOCOL_MOUSE
-                                || (iface.interface_subclass == SUBCLASS_BOOT_INTERFACE
-                                    && iface.interface_protocol == 2);
-
-                            interfaces.push(ParsedHidInterface {
-                                interface_number: iface.interface_number,
-                                interface_class: iface.interface_class,
-                                interface_subclass: iface.interface_subclass,
-                                interface_protocol: iface.interface_protocol,
-                                is_boot_keyboard: is_keyboard,
-                                is_boot_mouse: is_mouse,
-                                ep_addr: ep.endpoint_address,
-                                ep_max_packet: ep.max_packet_size,
-                                ep_interval: ep.interval,
-                            });
-                        }
+                        interfaces.push(ParsedHidInterface {
+                            interface_number: iface.interface_number,
+                            interface_class: iface.interface_class,
+                            interface_subclass: iface.interface_subclass,
+                            interface_protocol: iface.interface_protocol,
+                            is_boot_keyboard: is_keyboard,
+                            is_boot_mouse: is_mouse,
+                            ep_addr: ep.endpoint_address,
+                            ep_max_packet: ep.max_packet_size,
+                            ep_interval: ep.interval,
+                        });
                     }
                 }
             }

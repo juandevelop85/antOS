@@ -26,6 +26,12 @@ impl StatusBar {
     }
 
     /// Renders the status bar directly onto `surface`.
+    ///
+    /// T31.10: clippy counts 8 (7 params + `&self`). Single call site
+    /// (`compositor.rs`), all params are independent pieces of frame state
+    /// the compositor already tracks separately — grouping them into a
+    /// struct would just relocate the same seven fields one level up.
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &self,
         surface: &mut Surface,
@@ -83,7 +89,7 @@ impl StatusBar {
         // 3. Right Section: Real-time Heap, Timer ticks, and Clock
         // Construct string without heap allocation using a stack buffer
         let mut right_buf = [0u8; 96];
-        let heap_kb = (heap_used_bytes + 1023) / 1024;
+        let heap_kb = heap_used_bytes.div_ceil(1024);
         let total_kb = heap_total_bytes / 1024;
 
         let right_str = format_stat_str(&mut right_buf, heap_kb, total_kb, ticks);
@@ -95,12 +101,13 @@ impl StatusBar {
     }
 }
 
-fn format_stat_str<'a>(
-    buf: &'a mut [u8; 96],
-    heap_kb: usize,
-    total_kb: usize,
-    ticks: u64,
-) -> &'a str {
+impl Default for StatusBar {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn format_stat_str(buf: &mut [u8; 96], heap_kb: usize, total_kb: usize, ticks: u64) -> &str {
     use core::fmt::Write;
 
     struct SliceWriter<'b> {

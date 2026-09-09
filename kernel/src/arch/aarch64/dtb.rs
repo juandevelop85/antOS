@@ -238,31 +238,33 @@ fn scan_dtb_at(addr: u64) -> Option<FramebufferConfig> {
                     }
                 }
 
-                if is_simple_fb || node_name.starts_with("framebuffer") {
-                    if reg_addr != 0 && width > 0 && height > 0 {
-                        let bytes_per_pixel = 4;
-                        let stride_pixels = if stride > 0 {
-                            stride / bytes_per_pixel
-                        } else {
-                            width
-                        };
-                        let calc_size = if reg_size > 0 {
-                            reg_size
-                        } else {
-                            stride_pixels * height * bytes_per_pixel
-                        };
+                if (is_simple_fb || node_name.starts_with("framebuffer"))
+                    && reg_addr != 0
+                    && width > 0
+                    && height > 0
+                {
+                    let bytes_per_pixel = 4;
+                    let stride_pixels = if stride > 0 {
+                        stride / bytes_per_pixel
+                    } else {
+                        width
+                    };
+                    let calc_size = if reg_size > 0 {
+                        reg_size
+                    } else {
+                        stride_pixels * height * bytes_per_pixel
+                    };
 
-                        return Some(FramebufferConfig {
-                            phys_addr: reg_addr,
-                            size: calc_size,
-                            width,
-                            height,
-                            stride: stride_pixels,
-                            bytes_per_pixel,
-                            format: pixel_fmt,
-                            is_virtio: false,
-                        });
-                    }
+                    return Some(FramebufferConfig {
+                        phys_addr: reg_addr,
+                        size: calc_size,
+                        width,
+                        height,
+                        stride: stride_pixels,
+                        bytes_per_pixel,
+                        format: pixel_fmt,
+                        is_virtio: false,
+                    });
                 }
             }
             FDT_END_NODE | FDT_NOP => {}
@@ -788,7 +790,7 @@ fn scan_dtb_for_virtio_gpu(addr: u64) -> Option<u64> {
                 }
             }
 
-            if is_virtio_mmio && mmio_base >= 0x0a00_0000 && mmio_base < 0x0a20_0000 {
+            if is_virtio_mmio && (0x0a00_0000..0x0a20_0000).contains(&mmio_base) {
                 // Check if this virtio MMIO peripheral is a GPU (DeviceID == 16)
                 // Offset 0x00: Magic (0x74726976)
                 // Offset 0x08: DeviceID

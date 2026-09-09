@@ -306,7 +306,7 @@ fn parse_header(header: &[u8]) -> Option<(String, usize, bool)> {
 fn parse_octal(bytes: &[u8]) -> usize {
     let mut val = 0usize;
     for &b in bytes {
-        if b >= b'0' && b <= b'7' {
+        if (b'0'..=b'7').contains(&b) {
             val = val.saturating_mul(8).saturating_add((b - b'0') as usize);
         } else if b == 0 || b == b' ' {
             break;

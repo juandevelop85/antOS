@@ -228,17 +228,12 @@ impl XhciRegisters {
 
     pub fn set_interrupter0_iman(&self, val: u32) {
         unsafe {
-            core::ptr::write_volatile(
-                (self.base + self.interrupter0_offset() + 0x00) as *mut u32,
-                val,
-            );
+            core::ptr::write_volatile((self.base + self.interrupter0_offset()) as *mut u32, val);
         }
     }
 
     pub fn read_interrupter0_iman(&self) -> u32 {
-        unsafe {
-            core::ptr::read_volatile((self.base + self.interrupter0_offset() + 0x00) as *const u32)
-        }
+        unsafe { core::ptr::read_volatile((self.base + self.interrupter0_offset()) as *const u32) }
     }
 
     // ── Doorbell Registers ───────────────────────────────────────────────

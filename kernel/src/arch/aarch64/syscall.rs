@@ -83,8 +83,9 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             if uaddr != 0 && len > 0 && syscall::validate_user_buffer(uaddr, len as u64) {
                 // Safely translate user virtual address to kernel-mapped physical RAM
                 // to avoid PAN (Privileged Access Never) hardware faults on Apple Silicon / ARMv8.1+
-                let kaddr = if uaddr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
-                    && uaddr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
+                let kaddr = if (crate::arch::aarch64::mmu::USER_SPACE_VIRT
+                    ..crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000)
+                    .contains(&uaddr)
                 {
                     (uaddr - crate::arch::aarch64::mmu::USER_SPACE_VIRT)
                         + crate::arch::aarch64::mmu::USER_SPACE_PHYS
@@ -202,8 +203,9 @@ pub fn dispatch(ctx: &mut ExceptionContext) {
             } else if path_len > 256 {
                 ctx.x[0] = syscall::EINVAL;
             } else {
-                let kaddr = if path_ptr >= crate::arch::aarch64::mmu::USER_SPACE_VIRT
-                    && path_ptr < crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000
+                let kaddr = if (crate::arch::aarch64::mmu::USER_SPACE_VIRT
+                    ..crate::arch::aarch64::mmu::USER_SPACE_VIRT + 0x0020_0000)
+                    .contains(&path_ptr)
                 {
                     (path_ptr - crate::arch::aarch64::mmu::USER_SPACE_VIRT)
                         + crate::arch::aarch64::mmu::USER_SPACE_PHYS
@@ -372,6 +374,13 @@ fn copy_out(out_ptr: u64, out_len: u64, bytes: &[u8]) -> u64 {
 /// Transitions the CPU to EL0 (userspace) and executes `entry_point`.
 ///
 /// Saves kernel state so `SYS_EXIT` can return here.
+///
+/// # Safety
+///
+/// `entry_point` and `stack_top` must be virtual addresses already mapped
+/// with EL0 access permissions (see [`crate::arch::aarch64::mmu`]) — the CPU
+/// starts executing/using them the instant it drops to EL0, with no
+/// intervening checks.
 pub unsafe fn enter_user_mode(entry_point: u64, stack_top: u64, arg0: u64, arg1: u64) -> u64 {
     ArmSyscall::init();
 
@@ -432,6 +441,12 @@ pub unsafe fn enter_user_mode(entry_point: u64, stack_top: u64, arg0: u64, arg1:
 }
 
 /// Restores the kernel execution context from `SYS_EXIT`.
+///
+/// # Safety
+///
+/// `KERNEL_SP`/`KERNEL_LR` must have already been populated by a prior
+/// [`enter_user_mode`] call on this CPU — this jumps to whatever they hold,
+/// unconditionally.
 pub unsafe fn return_to_kernel(exit_code: u64) -> ! {
     let k_sp = KERNEL_SP.load(Ordering::Relaxed);
     let k_lr = KERNEL_LR.load(Ordering::Relaxed);
@@ -448,6 +463,13 @@ pub unsafe fn return_to_kernel(exit_code: u64) -> ! {
 }
 
 /// Prepares user space at `USER_SPACE_VIRT` with test user code and message.
+///
+/// # Safety
+///
+/// Test-only helper: requires the identity-mapped user-space window at
+/// `USER_SPACE_VIRT`/`USER_SPACE_PHYS` (see
+/// [`crate::arch::aarch64::mmu::init`]) to already be live, and must not run
+/// concurrently with anything else writing that window.
 pub unsafe fn setup_test_userspace() -> (u64, u64, u64, u64) {
     let virt_entry = crate::arch::aarch64::mmu::USER_SPACE_VIRT;
     let virt_msg = virt_entry + 0x1000;
@@ -480,6 +502,12 @@ pub unsafe fn setup_test_userspace() -> (u64, u64, u64, u64) {
 /// Standalone assembly routine executed by EL0.
 ///
 /// Uses the formal ABI: SYS_WRITE=2, SYS_EXIT=1.
+///
+/// # Safety
+///
+/// Never called directly from Rust: this is machine code copied into the
+/// `.text.user` section and reached only by the CPU executing at EL0 after
+/// [`enter_user_mode`] jumps to it.
 #[no_mangle]
 #[link_section = ".text.user"]
 pub unsafe extern "C" fn user_test_entry() {

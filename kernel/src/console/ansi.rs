@@ -207,3 +207,9 @@ impl AnsiParser {
         }
     }
 }
+
+impl Default for AnsiParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}

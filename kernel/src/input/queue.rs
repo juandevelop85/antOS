@@ -74,6 +74,12 @@ impl InputEventQueue {
     }
 }
 
+impl Default for InputEventQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Global system input event queue.
 pub static GLOBAL_INPUT_QUEUE: SpinLock<InputEventQueue> = SpinLock::new(InputEventQueue::new());
 

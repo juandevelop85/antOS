@@ -286,6 +286,14 @@ extern "x86-interrupt" fn double_fault(frame: InterruptStackFrame, _error_code: 
 /// passes a pointer to the context to `timer_interrupt_handler` for potential
 /// task preemption / context switching, and then executes `iretq` to resume the
 /// chosen thread.
+///
+/// # Safety
+///
+/// This is a naked function: it has no prologue/epilogue and expects the
+/// exact stack layout the CPU produces when it delivers a hardware interrupt
+/// (an `InterruptStackFrame`, per the vector-32 entry the IDT installs).
+/// Never call it directly from Rust — it must only ever be reached via the
+/// CPU dispatching interrupt vector 32 through the IDT.
 #[unsafe(naked)]
 pub unsafe extern "C" fn timer_interrupt_entry() {
     core::arch::naked_asm!(

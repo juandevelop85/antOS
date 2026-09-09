@@ -181,7 +181,11 @@ pub fn init() {
         // Attr 1: 0xFF = Normal Memory Write-Back
         // Attr 2: 0x44 = Normal Memory Non-Cacheable (for linear framebuffer display)
         // Attr 3: 0x00 = Device-nGnRnE
-        let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
+        // Attr 3 (0x00, Device-nGnRnE) is the all-zero encoding at bits
+        // 24..31, so it contributes nothing to the OR below — left out of
+        // the expression itself (T31.10 / clippy::identity_op) but still
+        // documented above.
+        let mair: u64 = 0xFF | (0xFF << 8) | (0x44 << 16);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         // 3. Configure TCR_EL1:
@@ -314,7 +318,11 @@ pub fn init_ttbr0_under_limine() {
             core::ptr::addr_of!(L1_TABLE_HIGH) as u64,
         ));
 
-        let mair: u64 = (0xFF << 0) | (0xFF << 8) | (0x44 << 16) | (0x00 << 24);
+        // Attr 3 (0x00, Device-nGnRnE) is the all-zero encoding at bits
+        // 24..31, so it contributes nothing to the OR below — left out of
+        // the expression itself (T31.10 / clippy::identity_op) but still
+        // documented above.
+        let mair: u64 = 0xFF | (0xFF << 8) | (0x44 << 16);
         core::arch::asm!("msr mair_el1, {}", in(reg) mair, options(nomem, nostack));
 
         let mut mmfr0: u64;
@@ -347,7 +355,11 @@ pub fn init_ttbr0_under_limine() {
 /// using Normal Non-Cacheable memory attributes (Attr 2).
 ///
 /// Returns the virtual address where the framebuffer is mapped (identity mapped).
-pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> Result<u64, ()> {
+///
+/// T31.10 (clippy::result_unit_err): this used to return `Result<u64, ()>`,
+/// but every path through the function falls through to success — there was
+/// never an `Err(())` to produce. A signature that can't fail says so.
+pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> u64 {
     unsafe {
         if phys_addr < 0x4000_0000 {
             // First 1 GiB peripheral space: map 2 MiB blocks in L2_TABLE_PERIPHERALS
@@ -362,13 +374,13 @@ pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> Result<u64, ()> {
                 }
                 cur += 0x20_0000;
             }
-        } else if phys_addr >= 0x4000_0000 && phys_addr < 0x8000_0000 {
+        } else if (0x4000_0000..0x8000_0000).contains(&phys_addr) {
             // Already identity mapped in L1_TABLE[1] (0x4000_0000..0x8000_0000)
-        } else if phys_addr >= 0x8000_0000 && phys_addr < 0xc000_0000 {
+        } else if (0x8000_0000..0xc000_0000).contains(&phys_addr) {
             // 2 GiB..3 GiB: install 1 GiB block in L1_TABLE[2]
             L1_TABLE.entries[2] = 0x8000_0000 | FRAMEBUFFER_BLOCK_FLAGS;
             ArmMmu::flush_tlb(0x8000_0000);
-        } else if phys_addr >= 0xc000_0000 && phys_addr < 0x1_0000_0000 {
+        } else if (0xc000_0000..0x1_0000_0000).contains(&phys_addr) {
             // 3 GiB..4 GiB: install 1 GiB block in L1_TABLE[3]
             L1_TABLE.entries[3] = 0xc000_0000 | FRAMEBUFFER_BLOCK_FLAGS;
             ArmMmu::flush_tlb(0xc000_0000);
@@ -376,5 +388,5 @@ pub fn map_framebuffer_range(phys_addr: u64, size: usize) -> Result<u64, ()> {
 
         core::arch::asm!("isb", options(nomem, nostack));
     }
-    Ok(phys_addr)
+    phys_addr
 }

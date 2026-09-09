@@ -75,6 +75,14 @@ pub fn init() {
 }
 
 /// Allocates and maps a user program stack at a custom top virtual address.
+///
+/// # Safety
+///
+/// The caller must ensure `stack_top` and the `USER_STACK_PAGES` pages below
+/// it are not already mapped in `mapper`'s address space (this function does
+/// not check for aliasing) and that `mapper`/`allocator` correspond to the
+/// page tables currently active for the target process — otherwise the
+/// mapping lands in the wrong address space.
 pub unsafe fn map_user_stack_at(
     stack_top: u64,
     mapper: &mut Mapper,
@@ -302,7 +310,7 @@ fn sys_mmap(requested_size: u64) -> u64 {
         return syscall::EINVAL;
     }
 
-    let pages = (requested_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let pages = requested_size.div_ceil(PAGE_SIZE);
     let size = pages * PAGE_SIZE;
     let addr = MMAP_NEXT.fetch_add(size, Ordering::Relaxed);
 
@@ -313,13 +321,13 @@ fn sys_mmap(requested_size: u64) -> u64 {
 }
 
 fn sys_munmap(addr: u64, size: u64) -> u64 {
-    if addr % PAGE_SIZE != 0 || size == 0 {
+    if !addr.is_multiple_of(PAGE_SIZE) || size == 0 {
         return syscall::EINVAL;
     }
     if let Err(e) = syscall::validate_user_ptr(addr, size) {
         return e;
     }
-    let pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+    let pages = size.div_ceil(PAGE_SIZE);
     match crate::memory::munmap_user_pages(addr, pages as usize) {
         Ok(()) => 0,
         Err(e) => e,

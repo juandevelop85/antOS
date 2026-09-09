@@ -81,6 +81,13 @@ pub unsafe fn inl(port: u16) -> u32 {
 /// El PIC 8259 es de 1976 y necesita unos microsegundos entre comandos: una
 /// CPU moderna le habla más rápido de lo que puede escuchar. El puerto 0x80
 /// lo usaba el POST de la BIOS y escribir en él es inofensivo.
+///
+/// # Safety
+///
+/// Ejecuta la instrucción privilegiada `out`; solo es válida con CPL0 (el
+/// kernel siempre lo es). El puerto 0x80 no tiene ningún dispositivo real
+/// detrás en el hardware moderno, así que no hay ningún estado que este
+/// escritura pueda corromper.
 pub unsafe fn io_wait() {
     outb(0x80, 0);
 }

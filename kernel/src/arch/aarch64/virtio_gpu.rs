@@ -217,14 +217,36 @@ unsafe impl Sync for VirtioGpu {}
 
 pub static VIRTIO_GPU: SpinLock<Option<VirtioGpu>> = SpinLock::new(None);
 
+/// Why [`VirtioGpu::init`] declined to bring up the device. T31.10
+/// (clippy::result_unit_err): the one caller only matches `Err(_)` today,
+/// but a named reason documents the failure modes at the boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VirtioGpuInitError {
+    /// The MMIO magic value or device ID doesn't identify a virtio-gpu device.
+    NotAVirtioGpuDevice,
+    /// The control queue reported `QUEUE_NUM_MAX == 0` (no usable queue).
+    QueueSetupFailed,
+    /// A setup command (resource create / attach backing / set scanout)
+    /// timed out waiting for the device to consume it.
+    CommandFailed,
+}
+
 impl VirtioGpu {
-    pub unsafe fn init(mmio_base: u64, width: usize, height: usize) -> Result<Self, ()> {
+    /// # Safety
+    ///
+    /// `mmio_base` must be the base of a mapped VirtIO MMIO transport window
+    /// for a device that is not concurrently accessed elsewhere.
+    pub unsafe fn init(
+        mmio_base: u64,
+        width: usize,
+        height: usize,
+    ) -> Result<Self, VirtioGpuInitError> {
         let magic = core::ptr::read_volatile(mmio_base as *const u32);
         let version = core::ptr::read_volatile((mmio_base + MMIO_VERSION as u64) as *const u32);
         let device_id = core::ptr::read_volatile((mmio_base + MMIO_DEVICE_ID as u64) as *const u32);
 
         if magic != 0x74726976 || device_id != 16 {
-            return Err(());
+            return Err(VirtioGpuInitError::NotAVirtioGpuDevice);
         }
 
         // Reset device
@@ -265,7 +287,7 @@ impl VirtioGpu {
         core::ptr::write_volatile((mmio_base + MMIO_QUEUE_SEL as u64) as *mut u32, 0);
         let q_max = core::ptr::read_volatile((mmio_base + MMIO_QUEUE_NUM_MAX as u64) as *const u32);
         if q_max == 0 {
-            return Err(());
+            return Err(VirtioGpuInitError::QueueSetupFailed);
         }
 
         core::ptr::write_volatile(
@@ -358,7 +380,8 @@ impl VirtioGpu {
             width: width as u32,
             height: height as u32,
         };
-        dev.exec_cmd(&create_cmd)?;
+        dev.exec_cmd(&create_cmd)
+            .map_err(|_| VirtioGpuInitError::CommandFailed)?;
 
         // Command 2: RESOURCE_ATTACH_BACKING
         let attach_cmd = CmdAttachBacking {
@@ -377,7 +400,8 @@ impl VirtioGpu {
                 padding: 0,
             },
         };
-        dev.exec_cmd(&attach_cmd)?;
+        dev.exec_cmd(&attach_cmd)
+            .map_err(|_| VirtioGpuInitError::CommandFailed)?;
 
         // Command 3: SET_SCANOUT
         let scanout_cmd = CmdSetScanout {
@@ -397,7 +421,8 @@ impl VirtioGpu {
             scanout_id: 0,
             resource_id: 1,
         };
-        dev.exec_cmd(&scanout_cmd)?;
+        dev.exec_cmd(&scanout_cmd)
+            .map_err(|_| VirtioGpuInitError::CommandFailed)?;
 
         // Initial clear and flush
         core::ptr::write_bytes(fb_ptr, 0, fb_len);

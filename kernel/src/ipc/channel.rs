@@ -78,6 +78,12 @@ impl ChannelRegistry {
     }
 }
 
+impl Default for ChannelRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 static NEXT_CHANNEL_ID: AtomicU64 = AtomicU64::new(1);
 static REGISTRY: SpinLock<ChannelRegistry> = SpinLock::new(ChannelRegistry::new());
 

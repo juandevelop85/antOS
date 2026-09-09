@@ -153,7 +153,7 @@ impl Console {
 
     /// Writes a single Unicode character, interpreting ANSI escape sequences.
     pub fn write_char(&mut self, c: char) {
-        let mut parser = core::mem::replace(&mut self.ansi_parser, AnsiParser::new());
+        let mut parser = core::mem::take(&mut self.ansi_parser);
         parser.process(c, |action| {
             self.handle_action(action);
         });

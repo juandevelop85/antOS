@@ -59,6 +59,12 @@ impl SlotDma {
     }
 }
 
+impl Default for SlotDma {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Static DMA pool for xHCI controller structures aligned to 4096 bytes.
 #[repr(C, align(4096))]
 pub struct XhciDmaPool {
@@ -82,6 +88,12 @@ impl XhciDmaPool {
             event_ring: EventRing::new(),
             slots: [const { SlotDma::new() }; MAX_SLOTS],
         }
+    }
+}
+
+impl Default for XhciDmaPool {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

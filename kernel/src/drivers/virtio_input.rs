@@ -190,6 +190,21 @@ pub struct VirtioInputDevice {
     name_len: usize,
 }
 
+/// Why [`VirtioInputDevice::init`] declined to bring up a device. T31.10
+/// (clippy::result_unit_err): the caller only checks `Ok`/`Err` today, but a
+/// named reason is worth having at the boundary instead of an opaque `()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VirtioInputInitError {
+    /// `device_index >= MAX_DEVICES`: no static ring/buffer slice left to own.
+    DeviceIndexOutOfRange,
+    /// The MMIO magic value or device ID doesn't identify a virtio-input device.
+    NotAVirtioInputDevice,
+    /// The device didn't latch `FEATURES_OK` after feature negotiation (v2 MMIO).
+    FeatureNegotiationFailed,
+    /// The mandatory event queue (0) didn't report a usable size (`QUEUE_NUM_MAX == 0`).
+    QueueSetupFailed,
+}
+
 impl VirtioInputDevice {
     /// Initializes the VirtIO Input MMIO device at `mmio_base`, using the
     /// `device_index`-th slice of the static ring/buffer pools.
@@ -198,16 +213,16 @@ impl VirtioInputDevice {
     /// `mmio_base` must be the base of a mapped VirtIO MMIO transport window,
     /// and `device_index` must be unique per live device (`< MAX_DEVICES`);
     /// each index owns a disjoint slice of the static ring/buffer pools.
-    pub unsafe fn init(mmio_base: u64, device_index: usize) -> Result<Self, ()> {
+    pub unsafe fn init(mmio_base: u64, device_index: usize) -> Result<Self, VirtioInputInitError> {
         if device_index >= MAX_DEVICES {
-            return Err(());
+            return Err(VirtioInputInitError::DeviceIndexOutOfRange);
         }
 
         let magic = read32(mmio_base, MMIO_MAGIC_VALUE);
         let version = read32(mmio_base, MMIO_VERSION);
         let device_id = read32(mmio_base, MMIO_DEVICE_ID);
         if magic != 0x7472_6976 || device_id != 18 {
-            return Err(());
+            return Err(VirtioInputInitError::NotAVirtioInputDevice);
         }
 
         // 1. Reset, then ACKNOWLEDGE | DRIVER.
@@ -237,7 +252,7 @@ impl VirtioInputDevice {
                 STATUS_ACKNOWLEDGE | STATUS_DRIVER | STATUS_FEATURES_OK,
             );
             if read32(mmio_base, MMIO_STATUS) & STATUS_FEATURES_OK == 0 {
-                return Err(());
+                return Err(VirtioInputInitError::FeatureNegotiationFailed);
             }
         }
 
@@ -273,7 +288,8 @@ impl VirtioInputDevice {
             version,
             EVENT_QUEUE,
             core::ptr::addr_of_mut!(EVENT_VRINGS[device_index]),
-        )?;
+        )
+        .map_err(|_| VirtioInputInitError::QueueSetupFailed)?;
         setup_queue(
             mmio_base,
             version,

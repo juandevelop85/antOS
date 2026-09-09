@@ -225,6 +225,12 @@ impl CommandRing {
     }
 }
 
+impl Default for CommandRing {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Circular buffer representing an xHCI Event Ring.
 #[repr(C, align(64))]
 pub struct EventRing {
@@ -261,6 +267,12 @@ impl EventRing {
             self.cycle_state = !self.cycle_state;
         }
         Some(event)
+    }
+}
+
+impl Default for EventRing {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

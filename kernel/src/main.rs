@@ -257,36 +257,33 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
                 fb.size / 1024
             );
 
-            if let Ok(mapped_addr) =
-                arch::aarch64::mmu::map_framebuffer_range(fb.phys_addr, fb.size)
-            {
-                println!(
-                    "  mmu          mapeado en {:#x} (Normal Non-Cacheable)",
-                    mapped_addr
+            // T31.10: `map_framebuffer_range` ya no devuelve `Result` — nunca
+            // tuvo un camino de error real, siempre mapeaba con éxito.
+            let mapped_addr = arch::aarch64::mmu::map_framebuffer_range(fb.phys_addr, fb.size);
+            println!(
+                "  mmu          mapeado en {:#x} (Normal Non-Cacheable)",
+                mapped_addr
+            );
+            unsafe {
+                console::init_raw(
+                    mapped_addr as *mut u8,
+                    fb.size,
+                    fb.width,
+                    fb.height,
+                    fb.stride,
+                    fb.bytes_per_pixel,
+                    fb.format,
                 );
-                unsafe {
-                    console::init_raw(
-                        mapped_addr as *mut u8,
-                        fb.size,
-                        fb.width,
-                        fb.height,
-                        fb.stride,
-                        fb.bytes_per_pixel,
-                        fb.format,
-                    );
-                }
-                if let Some(c) = console::CONSOLE.lock().as_mut() {
-                    c.draw_header_banner(
-                        "antOS · AArch64",
-                        "CPU: Cortex-A72 (EL1)",
-                        "RAM: 512 KiB Heap",
-                    );
-                }
-                println!("  consola      activa en pantalla gráfica y serie simultáneamente");
-                graphical_fb_active = true;
-            } else {
-                println!("  error        fallo al mapear el framebuffer en la MMU");
             }
+            if let Some(c) = console::CONSOLE.lock().as_mut() {
+                c.draw_header_banner(
+                    "antOS · AArch64",
+                    "CPU: Cortex-A72 (EL1)",
+                    "RAM: 512 KiB Heap",
+                );
+            }
+            println!("  consola      activa en pantalla gráfica y serie simultáneamente");
+            graphical_fb_active = true;
         }
     }
 
@@ -1246,18 +1243,17 @@ fn halt_loop() -> ! {
             input::service_auto_repeat(arch::aarch64::timer::ticks());
             input::sync_keyboard_leds();
             let (screen_w, screen_h) = console::resolution();
-            if drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0
-                || input::has_events()
+            if (drivers::virtio_input::poll_virtio_inputs(screen_w, screen_h) > 0
+                || input::has_events())
+                && ui::dispatch_pending_inputs(screen_w, screen_h)
             {
-                if ui::dispatch_pending_inputs(screen_w, screen_h) {
-                    if let Some(c) = console::CONSOLE.lock().as_mut() {
-                        ui::render_desktop(
-                            c.framebuffer_mut(),
-                            allocator::used(),
-                            AARCH64_HEAP_SIZE,
-                            arch::aarch64::timer::ticks(),
-                        );
-                    }
+                if let Some(c) = console::CONSOLE.lock().as_mut() {
+                    ui::render_desktop(
+                        c.framebuffer_mut(),
+                        allocator::used(),
+                        AARCH64_HEAP_SIZE,
+                        arch::aarch64::timer::ticks(),
+                    );
                 }
             }
         }

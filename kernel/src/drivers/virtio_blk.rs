@@ -119,7 +119,7 @@ impl VirtioBlock {
         outb(io_base + 0x12, STATUS_ACKNOWLEDGE | STATUS_DRIVER);
 
         // 4. Feature negotiation (accept default feature set)
-        let _device_features = inl(io_base + 0x00);
+        let _device_features = inl(io_base);
         outl(io_base + 0x04, 0);
 
         // 5. Configure Queue 0
@@ -188,7 +188,7 @@ impl VirtioBlock {
 
     /// Reads contiguous 512-byte sectors into `buf`.
     pub fn read_blocks(&mut self, start_sector: u64, buf: &mut [u8]) -> Result<(), VirtioError> {
-        if buf.len() % SECTOR_SIZE != 0 {
+        if !buf.len().is_multiple_of(SECTOR_SIZE) {
             return Err(VirtioError::BufferMisaligned);
         }
 
@@ -203,7 +203,7 @@ impl VirtioBlock {
 
     /// Writes contiguous 512-byte sectors from `buf`.
     pub fn write_blocks(&mut self, start_sector: u64, buf: &[u8]) -> Result<(), VirtioError> {
-        if buf.len() % SECTOR_SIZE != 0 {
+        if !buf.len().is_multiple_of(SECTOR_SIZE) {
             return Err(VirtioError::BufferMisaligned);
         }
 
