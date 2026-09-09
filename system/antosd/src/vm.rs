@@ -1,13 +1,84 @@
-//! antOS MicroVM Hardware-Isolated Execution Manager (T16.1).
+//! antOS MicroVM Lifecycle Registry (T16.1).
 //!
-//! Provides ultra-lightweight hardware isolation using KVM and Cloud-Hypervisor / Firecracker,
-//! with fast startup (<50ms), minimal footprint, and bidirectional `vsock` communication.
+//! ## Estado real del aislamiento (T31.4)
+//!
+//! Este módulo gestiona un **registro** de instancias de "microVM": un
+//! fichero JSON con id, PID, vCPUs y memoria declarados. No lanza ningún
+//! hipervisor, ni KVM, ni Cloud-Hypervisor, ni Firecracker, ni un canal
+//! `vsock` real — `spawn_vm` fabrica un PID (`std::process::id() + 1000 + …`)
+//! y jamás abre `/dev/kvm` para nada más que consultarlo en `get_status`.
+//! `exec_vm` corre el comando **en el anfitrión**, no dentro de una VM
+//! aislada: pasa por `sandbox::run` con la política más restrictiva posible
+//! (ver [`exec_policy`]), que en Linux confina de verdad con Landlock y en
+//! macOS con Seatbelt — la misma frontera que usa cualquier otra capacidad
+//! del demonio, ni mejor ni peor. Cuando esta plataforma no ofrece ningún
+//! recinto (`sandbox::SinRecinto`), el comando corre sin confinar y
+//! `get_status().hypervisor_engine` lo sigue etiquetando como emulado.
+//!
+//! Se documenta así, en vez de prometer una frontera de hipervisor que no
+//! existe, porque un consumidor —el autopilot, un rol de antFlow, un
+//! plugin— que confiara en esa promesa estaría ejecutando sin recinto real.
+//! Implementar aislamiento real por hipervisor (lanzar el binario de la VM y
+//! hablar por `vsock`) queda fuera del alcance de este módulo tal como está
+//! hoy; si se aborda, es un ticket propio, no una corrección puntual.
 
+use crate::exec::Change;
+use crate::sandbox::{self, Policy};
 use anyhow::{bail, Context, Result};
 use antos_protocol::{MicrovmConfig, MicrovmExecResult, MicrovmInstance, MicrovmStatus};
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+/// Result of running a shell command inside the sandboxed executor process
+/// (T31.4). Serialized to JSON and carried back through `sandbox::run`'s
+/// plain `Vec<String>` output channel, since that protocol wasn't designed
+/// to carry structured exec results — see `Change::HostShellExec`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostExecOutcome {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// The most restrictive policy this module ever grants: no declared writes,
+/// no declared reads beyond the sandbox's own defaults, no network, no
+/// access to secrets. An ad hoc `vm exec` command carries no capability
+/// declaration to derive a tighter or looser radius from — the safe default
+/// is to assume it needs nothing beyond running and producing output, and
+/// require an explicit, separate capability grant for anything more (T31.4).
+pub fn exec_policy() -> Policy {
+    Policy::default()
+}
+
+/// Actually runs `command` via `sh -c` (T31.4).
+///
+/// This is the one legitimate `sh -c` in this module — a MicroVM `exec` is
+/// fundamentally "run this shell command", the same kind of request `ci.rs`
+/// serves for its pipeline stages. What changed is *where* it's allowed to
+/// run: this function must only ever be invoked from inside the sandboxed
+/// executor process, reached through `Change::HostShellExec` +
+/// `sandbox::run` — never directly from `exec_vm` in the broker process,
+/// which would run it unconfined.
+pub fn run_host_shell_command(command: &str) -> HostExecOutcome {
+    if command.trim().is_empty() {
+        return HostExecOutcome { exit_code: 0, stdout: String::new(), stderr: String::new() };
+    }
+
+    match std::process::Command::new("sh").arg("-c").arg(command).output() {
+        Ok(output) => HostExecOutcome {
+            exit_code: output.status.code().unwrap_or(0),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        },
+        Err(e) => HostExecOutcome {
+            exit_code: -1,
+            stdout: String::new(),
+            stderr: format!("failed to execute host shell command: {e}"),
+        },
+    }
+}
 
 pub struct MicrovmManager;
 
@@ -92,33 +163,40 @@ impl MicrovmManager {
         Ok(instance)
     }
 
-    /// Executes a command inside the specified microVM via vsock / isolated channel.
+    /// Runs `command` on the host, confined by `sandbox::for_host()`
+    /// (T31.4) — see this module's doc comment for why that's what
+    /// "executing inside the microVM" actually means today.
+    ///
+    /// Requires `vm_id` to name a registered instance (so `vm exec` on an
+    /// unregistered or already-destroyed id still fails the way it always
+    /// did), but the registry entry itself carries no capability
+    /// declaration to sandbox against — every command runs under the same
+    /// [`exec_policy`], the most restrictive one this module grants.
     pub fn exec_vm(state_dir: &Path, vm_id: &str, command: &str) -> Result<MicrovmExecResult> {
         let vms = Self::list_vms(state_dir)?;
-        let vm = vms.iter().find(|v| v.id == vm_id).ok_or_else(|| {
-            anyhow::anyhow!("MicroVM «{vm_id}» not found or not active")
-        })?;
+        if !vms.iter().any(|v| v.id == vm_id) {
+            bail!("MicroVM «{vm_id}» not found or not active");
+        }
 
         let start = Instant::now();
 
-        // In real KVM environment with vsock listener or subprocess:
-        // Execute safely or simulate command execution in guest environment
         let (exit_code, stdout, stderr) = if command.trim().is_empty() {
             (0, String::new(), String::new())
         } else {
-            // Execute in host subprocess if safe or return execution report
-            let out = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .output();
+            let sandbox = sandbox::for_host();
+            let changes = vec![Change::HostShellExec { command: command.to_string() }];
 
-            match out {
-                Ok(output) => (
-                    output.status.code().unwrap_or(0),
-                    String::from_utf8_lossy(&output.stdout).to_string(),
-                    String::from_utf8_lossy(&output.stderr).to_string(),
-                ),
-                Err(e) => (-1, String::new(), format!("Failed to exec in vm {}: {e}", vm.id)),
+            match sandbox::run(sandbox.as_ref(), &changes, &exec_policy()) {
+                Ok(outputs) => match outputs.first() {
+                    Some(raw) => match serde_json::from_str::<HostExecOutcome>(raw) {
+                        Ok(outcome) => (outcome.exit_code, outcome.stdout, outcome.stderr),
+                        Err(e) => (-1, String::new(), format!("malformed sandboxed executor response: {e}")),
+                    },
+                    None => (-1, String::new(), "sandboxed executor returned no output".to_string()),
+                },
+                // Sandboxing failure must never fall back to running the
+                // command unconfined — surface it as the failed exec it is.
+                Err(e) => (-1, String::new(), format!("sandboxed execution failed: {e:#}")),
             }
         };
 
@@ -214,11 +292,29 @@ mod tests {
         assert_eq!(vms.len(), 1);
         assert_eq!(vms[0].id, "vm-qa-agent");
 
-        // 4. Exec
-        let exec_res = MicrovmManager::exec_vm(&temp_dir, "vm-qa-agent", "echo 'in microvm'").expect("exec vm");
-        assert!(exec_res.success);
-        assert_eq!(exec_res.exit_code, 0);
-        assert!(exec_res.stdout.contains("in microvm"));
+        // 4. Exec — routes through `sandbox::run`, which re-execs
+        // `std::env::current_exe()` with the `__ejecutar` subcommand
+        // (T31.4). Inside `cargo test` that binary is the test harness
+        // itself, not `antos`, so it can't dispatch that subcommand and the
+        // sandboxed round trip fails — the same architectural limitation
+        // every other `sandbox::run` caller in this codebase already has
+        // (none of them are unit-tested at this exact boundary either; see
+        // `session.rs` and `cli/commands/system.rs`). What this test can and
+        // does verify: `exec_vm` never panics, never falls back to running
+        // the command unconfined, and reports the sandboxing failure
+        // through the normal `MicrovmExecResult` shape rather than an
+        // opaque `Err` — see `test_run_host_shell_command_*` below for
+        // direct coverage of the actual execution logic that runs once
+        // inside the confined executor.
+        let exec_res = MicrovmManager::exec_vm(&temp_dir, "vm-qa-agent", "echo 'in microvm'").expect("exec_vm must not error out itself");
+        assert!(!exec_res.success, "sandboxing cannot succeed inside the test harness — see comment above");
+        assert_eq!(exec_res.exit_code, -1);
+        assert!(exec_res.stdout.is_empty(), "must never leak unconfined output when sandboxing fails");
+        assert!(
+            exec_res.stderr.contains("sandboxed execution failed"),
+            "failure must be attributed to sandboxing, not silently swallowed: {}",
+            exec_res.stderr
+        );
 
         // 5. Status
         let status = MicrovmManager::get_status(&temp_dir).expect("get status");
@@ -263,5 +359,56 @@ mod tests {
         assert!(MicrovmManager::spawn_vm(&temp_dir, &cfg_low_mem).is_err());
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    // ---------------------------------------------------------------- T31.4
+
+    #[test]
+    fn test_run_host_shell_command_captures_stdout_and_exit_code() {
+        let outcome = run_host_shell_command("printf '%s' 'hello from antOS'");
+        assert_eq!(outcome.exit_code, 0);
+        assert_eq!(outcome.stdout, "hello from antOS");
+        assert!(outcome.stderr.is_empty());
+    }
+
+    #[test]
+    fn test_run_host_shell_command_captures_nonzero_exit_and_stderr() {
+        let outcome = run_host_shell_command("echo 'boom' 1>&2; exit 7");
+        assert_eq!(outcome.exit_code, 7);
+        assert!(outcome.stderr.contains("boom"));
+    }
+
+    #[test]
+    fn test_run_host_shell_command_empty_command_is_a_no_op() {
+        let outcome = run_host_shell_command("   ");
+        assert_eq!(outcome.exit_code, 0);
+        assert!(outcome.stdout.is_empty());
+        assert!(outcome.stderr.is_empty());
+    }
+
+    #[test]
+    fn test_exec_policy_is_the_most_restrictive_default() {
+        // No declared writes, reads, or network — an ad hoc `vm exec`
+        // command carries no capability declaration to derive a tighter or
+        // looser radius from, so the safe default is the empty policy.
+        let policy = exec_policy();
+        assert!(policy.writes.is_empty());
+        assert!(policy.reads.is_empty());
+        assert!(!policy.network);
+        assert!(policy.allowed_secrets.is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_exec_policy_seatbelt_profile_denies_writes_and_network() {
+        // On macOS, `sandbox::for_host()` picks Seatbelt whenever
+        // `/usr/bin/sandbox-exec` exists (true on every supported macOS
+        // host). Confirms the actual SBPL profile `exec_vm` would run
+        // under denies both by default, directly — without needing the
+        // full self-re-exec round trip that `test_microvm_lifecycle_*`
+        // can't exercise inside the test harness.
+        let profile = crate::sandbox::seatbelt::sbpl(&exec_policy());
+        assert!(profile.contains("(deny file-write*)"));
+        assert!(profile.contains("(deny network*)"));
     }
 }

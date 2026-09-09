@@ -1,7 +1,12 @@
 //! Local Parallel CI/CD Engine and Intelligent Git Hooks for antOS (Ticket T20.3).
 //!
-//! Provides millisecond-fast local continuous integration in sandboxes, declarative stage execution
+//! Provides millisecond-fast local continuous integration, declarative stage execution
 //! (.antos/ci.toml), security and secret leakage scanning, and automated Git pre-commit/pre-push hooks.
+//!
+//! Stage commands run directly on the host today, not inside a `sandbox::`
+//! recinto (reviewed and left as a flagged follow-up under T31.4 — see the
+//! comment at the stage-execution call site for why it's a materially
+//! different, larger change than that ticket's scope).
 
 use antos_protocol::{CiReport, CiStageResult, CiStageStatus, GitHookStatus};
 use anyhow::{Context, Result};
@@ -372,7 +377,27 @@ impl CiEngine {
                     }
                 }
             } else {
-                // External shell / tool execution
+                // External shell / tool execution.
+                //
+                // Reviewed under T31.4: unlike `vm.rs`'s ad hoc `vm exec` or
+                // `env.rs`'s toolchain probe, this `sh -c` is not a defect —
+                // running the user's own declared CI stage command IS the
+                // feature, exactly like a real CI runner. `stage.command`
+                // comes from the project's own `.antos/ci.toml`, which the
+                // project owner controls (same trust boundary as any script
+                // they'd commit and run themselves).
+                //
+                // It does run fully unconfined today, though — no
+                // `sandbox::` recinto, direct read/write to `workspace`. The
+                // module doc comment above overstates this as running "in
+                // sandboxes"; that is aspirational, not current behavior.
+                // Routing CI stages through `sandbox::run` is a reasonable
+                // follow-up, but a materially different one than T31.4's ad
+                // hoc single-command case: a CI stage legitimately needs
+                // broad read/write across the whole workspace, so it needs
+                // its own `Policy` derivation, not the empty one `vm.rs`
+                // uses — left for a dedicated ticket rather than folded in
+                // here.
                 let output_res = Command::new("sh")
                     .arg("-c")
                     .arg(&stage.command)

@@ -317,6 +317,15 @@ pub enum Change {
         state_dir: PathBuf,
         vm_id: String,
     },
+    /// Runs an ad hoc shell command on the host, confined by whatever
+    /// recinto `sandbox::for_host()` offers on this platform (T31.4).
+    ///
+    /// This is the *only* place this command actually executes: it must
+    /// only ever be submitted to `sandbox::run`, never applied directly by
+    /// a broker process. `crate::vm::MicrovmManager::exec_vm` is the sole
+    /// intended caller — see that module's doc comment for why a "MicroVM"
+    /// exec ends up here instead of inside a hypervisor-isolated guest.
+    HostShellExec { command: String },
     PackageInstall {
         state_dir: PathBuf,
         package: String,
@@ -600,6 +609,7 @@ impl Pendiente {
             | Change::MicrovmSpawn { .. }
             | Change::MicrovmExec { .. }
             | Change::MicrovmDestroy { .. }
+            | Change::HostShellExec { .. }
             | Change::PackageInstall { .. }
             | Change::PackageRemove { .. }
             | Change::PackageRollback { .. }
@@ -2395,13 +2405,22 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::MicrovmExec { state_dir, vm_id, command } => {
                 let res = crate::vm::MicrovmManager::exec_vm(state_dir, vm_id, command)?;
                 output.push(format!(
-                    "antOS MicroVM · Comando ejecutado en «{}» [Código: {}]:\n  • Salida:   {}\n  • Duración: {} ms",
+                    "antOS MicroVM · Comando ejecutado en el anfitrión bajo el recinto local, asociado a la microVM registrada «{}» [Código: {}]:\n  • Salida:   {}\n  • Duración: {} ms",
                     res.vm_id, res.exit_code, res.stdout.trim(), res.duration_ms
                 ));
             }
             Change::MicrovmDestroy { state_dir, vm_id } => {
                 crate::vm::MicrovmManager::kill_vm(state_dir, vm_id)?;
                 output.push(format!("antOS MicroVM · Instancia «{vm_id}» destruida y recursos liberados"));
+            }
+            Change::HostShellExec { command } => {
+                // Reached only inside the sandboxed executor process — see
+                // the doc comment on this variant and on `vm::exec_policy`
+                // (T31.4). Encoded as JSON so the caller on the other side
+                // of `sandbox::run` (crate::vm::MicrovmManager::exec_vm) gets
+                // back the exit code and both streams, not just one string.
+                let outcome = crate::vm::run_host_shell_command(command);
+                output.push(serde_json::to_string(&outcome)?);
             }
             Change::PackageInstall { state_dir, package, dry_run } => {
                 let rep = crate::pkg::PackageEngine::install(state_dir, package, *dry_run)?;

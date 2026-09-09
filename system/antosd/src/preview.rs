@@ -323,13 +323,19 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 out.push(Line::Info(format!("instala gestor de arranque UEFI en «{}» (timeout: {}s){sim}", config.esp_mount, config.timeout_seconds)));
             }
             Change::MicrovmSpawn { config, .. } => {
-                out.push(Line::Info(format!("instancia microVM «{}» ({} vCPUs, {} MB RAM, kernel: {})", config.vm_id, config.vcpu_count, config.memory_mb, config.kernel_image)));
+                out.push(Line::Info(format!("registra microVM «{}» ({} vCPUs, {} MB RAM declarados — registro simulado, sin hipervisor real; T31.4)", config.vm_id, config.vcpu_count, config.memory_mb)));
             }
             Change::MicrovmExec { vm_id, command, .. } => {
-                out.push(Line::Info(format!("ejecuta comando «{command}» en microVM aislada «{vm_id}» vía vsock")));
+                out.push(Line::Info(format!("ejecuta comando «{command}» en el anfitrión bajo el recinto local (asociado a la microVM registrada «{vm_id}»; no hay aislamiento por hipervisor — T31.4)")));
             }
             Change::MicrovmDestroy { vm_id, .. } => {
-                out.push(Line::Info(format!("destruye microVM «{vm_id}» y libera recursos del hipervisor")));
+                out.push(Line::Info(format!("elimina el registro de la microVM «{vm_id}»")));
+            }
+            Change::HostShellExec { command } => {
+                // Interno: solo lo construye `vm::MicrovmManager::exec_vm`
+                // justo antes de pasarlo a `sandbox::run`; nunca forma parte
+                // de un plan que este render llegue a mostrarle a alguien.
+                out.push(Line::Info(format!("[interno] ejecuta «{command}» dentro del ejecutor confinado")));
             }
             Change::PackageInstall { package, dry_run, .. } => {
                 let sim = if *dry_run { " [simulación]" } else { "" };

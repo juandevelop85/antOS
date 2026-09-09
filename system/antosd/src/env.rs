@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Supported declarative development environment profiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -211,33 +211,70 @@ impl EnvEngine {
         let mut results = Vec::new();
         for pkg in config.packages {
             let binary = pkg.split('@').next().unwrap_or(&pkg).trim();
-            let check_cmd = format!("which {binary} 2>/dev/null");
-            let output = std::process::Command::new("sh")
-                .arg("-c")
-                .arg(&check_cmd)
-                .output();
 
-            match output {
-                Ok(out) if out.status.success() => {
-                    let path_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                    results.push(ToolchainStatus {
-                        name: binary.to_string(),
-                        available: true,
-                        path: Some(path_str),
-                    });
-                }
-                _ => {
-                    results.push(ToolchainStatus {
-                        name: binary.to_string(),
-                        available: false,
-                        path: None,
-                    });
-                }
+            // T31.4: no shell involved at all — `binary` comes straight from
+            // the project's own environment profile (`.antos/env.toml` or
+            // `devbox.json`), which travels with a cloned repository. A
+            // package declared as `foo; curl … | sh` must, at worst, be
+            // reported as "not found"; it must never reach an interpreter.
+            if !is_valid_binary_name(binary) {
+                results.push(ToolchainStatus {
+                    name: binary.to_string(),
+                    available: false,
+                    path: None,
+                });
+                continue;
+            }
+
+            match find_in_path(binary) {
+                Some(found) => results.push(ToolchainStatus {
+                    name: binary.to_string(),
+                    available: true,
+                    path: Some(found.display().to_string()),
+                }),
+                None => results.push(ToolchainStatus {
+                    name: binary.to_string(),
+                    available: false,
+                    path: None,
+                }),
             }
         }
 
         Ok(results)
     }
+}
+
+/// Characters allowed in a toolchain/package binary name (T31.4): plain
+/// identifiers only. This is defense in depth on top of `find_in_path`
+/// already never invoking a shell — it just means a malformed name is
+/// rejected up front, with a clear reason, instead of silently failing to
+/// resolve to any file on `PATH`.
+fn is_valid_binary_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
+}
+
+/// Searches `PATH` directly for an executable named `binary`, with no shell
+/// involved (T31.4) — replaces the previous `sh -c "which <binary>"`, which
+/// interpolated a value straight from the project's environment profile
+/// into a shell command line.
+fn find_in_path(binary: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    std::env::split_paths(&path_var)
+        .map(|dir| dir.join(binary))
+        .find(|candidate| is_executable(candidate))
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path)
+        .map(|m| m.is_file() && (m.permissions().mode() & 0o111 != 0))
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    path.is_file()
 }
 
 /// Generates a valid Nix flake content for the given profile.
@@ -311,6 +348,57 @@ mod tests {
         assert!(cfg.packages.contains(&"cargo".to_string()));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    // ---------------------------------------------------------------- T31.4
+
+    #[test]
+    fn test_check_toolchains_rejects_shell_metacharacters_in_package_name() {
+        let temp_dir = std::env::temp_dir().join(format!("antos-env-injection-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(temp_dir.join(".antos")).expect("create tempdir");
+
+        let probe = std::env::temp_dir().join(format!("antos-injection-probe-{}", std::process::id()));
+        let _ = std::fs::remove_file(&probe);
+
+        let config = ProjectEnvConfig {
+            profile: "base".to_string(),
+            packages: vec![format!("foo; touch {}", probe.display())],
+            env_vars: BTreeMap::new(),
+        };
+        let toml_str = toml::to_string_pretty(&config).expect("serialize config");
+        std::fs::write(temp_dir.join(".antos/env.toml"), toml_str).expect("write env.toml");
+
+        let results = EnvEngine::check_toolchains(&temp_dir).expect("check toolchains must not error");
+        assert_eq!(results.len(), 1);
+        assert!(!results[0].available, "a malicious package name must resolve to \"not found\", not execute");
+        assert!(!probe.exists(), "a malicious package name must never reach a shell");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_file(&probe);
+    }
+
+    #[test]
+    fn test_is_valid_binary_name() {
+        assert!(is_valid_binary_name("cargo"));
+        assert!(is_valid_binary_name("rust-analyzer"));
+        assert!(is_valid_binary_name("node_modules.bin"));
+        assert!(is_valid_binary_name("g++"));
+
+        assert!(!is_valid_binary_name("foo; touch /tmp/antos-injection-probe"));
+        assert!(!is_valid_binary_name("foo | sh"));
+        assert!(!is_valid_binary_name("$(whoami)"));
+        assert!(!is_valid_binary_name("foo`whoami`"));
+        assert!(!is_valid_binary_name("foo && rm -rf /"));
+        assert!(!is_valid_binary_name(""));
+    }
+
+    #[test]
+    fn test_find_in_path_locates_a_real_binary_without_a_shell() {
+        // `sh` is guaranteed present on both supported hosts (macOS, Linux)
+        // — exactly the kind of binary this must find without invoking one.
+        assert!(find_in_path("sh").is_some());
+        assert!(find_in_path("antos-definitely-not-a-real-binary-t31-4").is_none());
     }
 
     #[test]
