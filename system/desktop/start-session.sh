@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # antOS Desktop · Wayland Session Launcher
-# Ticket: T13.0
+# Ticket: T13.0 (uso sobre un Linux no-NixOS / desarrollo).
+#
+# En NixOS, el escritorio se activa de forma declarativa con
+# `services.antos.desktop.enable = true` (system/nixos/desktop.nix, T30.1),
+# que reutiliza los MISMOS rc.xml / autostart / environment de este
+# directorio. Este guion sigue siendo la vía para lanzar la sesión sobre
+# cualquier Linux con `labwc` en el PATH.
+#
 # Sets up user environment, populates configuration and starts the Wayland compositor.
 set -euo pipefail
 

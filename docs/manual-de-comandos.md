@@ -174,10 +174,47 @@ El script ejecuta automáticamente:
 Construye una imagen de máquina virtual con NixOS y antOS completamente integrado como demonio de sistema `systemd`:
 
 ```bash
-# Construir la imagen y arrancar la VM en QEMU
+# Construir la imagen y arrancar la VM en QEMU (headless, consola serie)
 ./system/arrancar-vm.sh
 ```
 * Para salir de la consola serial de QEMU presiona: `Ctrl-A` y luego `X`.
+
+#### Escritorio antOS Linux (Wayland + `antos-barra`) — T30.1
+
+El módulo `services.antos.desktop` (`system/nixos/desktop.nix`) describe la
+sesión gráfica completa de forma declarativa: compositor **Labwc** +
+**`antos-barra`** (GTK4 layer-shell) + terminal + **Neovim** + Git + autologin
+Wayland por `greetd`. Reutiliza los mismos `rc.xml` / `autostart` /
+`environment` de `system/desktop/` (T13.0).
+
+```nix
+# system/nixos/configuracion.nix
+services.antos.enable = true;
+services.antos.desktop.enable = true;   # ← una línea activa el escritorio
+```
+
+Opciones (`services.antos.desktop.*`): `compositor` (por defecto `pkgs.labwc`),
+`autologinUser` (`antos`), `terminal` (`pkgs.foot`), `editor` (`pkgs.neovim`),
+`barra` (`pkgs.antos-barra`).
+
+```bash
+# Evaluar la configuración con el escritorio activado (sin construir la imagen)
+nix eval .#nixosConfigurations.antos-desktop.config.system.build.toplevel.drvPath
+
+# Construir el paquete de la barra por separado
+nix build .#antos-barra          # -> result/bin/antos-barra
+```
+
+> La **imagen gráfica de VM/ISO** que arranca directa a este escritorio
+> (`virtio-gpu` + Mesa) es el ticket **T30.2**. Este método deja el módulo y el
+> paquete listos; hoy `./system/arrancar-vm.sh` sigue siendo headless.
+
+Sobre un Linux **no-NixOS** (desarrollo), la sesión se lanza con el guion
+equivalente, que instala la misma configuración de Labwc:
+
+```bash
+system/desktop/start-session.sh          # requiere `labwc` en el PATH
+```
 
 ---
 

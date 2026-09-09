@@ -13,11 +13,18 @@
       sistemas = [ "aarch64-linux" "x86_64-linux" ];
       paraCada = f: nixpkgs.lib.genAttrs sistemas (s: f nixpkgs.legacyPackages.${s});
 
+      # El overlay con los paquetes propios de antOS.
+      overlayAntos = final: _prev: {
+        antosd = final.callPackage ./system/nixos/paquete.nix { };
+        antos-barra = final.callPackage ./system/nixos/barra.nix { };
+      };
+
       # Lo común a todas las variantes de la máquina.
       base = [
         ./system/nixos/configuracion.nix
         self.nixosModules.default
-        { nixpkgs.overlays = [ (final: prev: { antosd = final.callPackage ./system/nixos/paquete.nix { }; }) ]; }
+        self.nixosModules.desktop
+        { nixpkgs.overlays = [ overlayAntos ]; }
       ];
 
       maquina = extra: nixpkgs.lib.nixosSystem {
@@ -29,6 +36,7 @@
       packages = paraCada (pkgs: {
         default = pkgs.callPackage ./system/nixos/paquete.nix { };
         antosd = pkgs.callPackage ./system/nixos/paquete.nix { };
+        antos-barra = pkgs.callPackage ./system/nixos/barra.nix { };
       });
 
       # El entorno para compilar la barra de intención.
@@ -44,6 +52,7 @@
       });
 
       nixosModules.default = import ./system/nixos/modulo.nix;
+      nixosModules.desktop = import ./system/nixos/desktop.nix;
 
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior
@@ -52,5 +61,13 @@
 
       # La misma máquina, arrancable en QEMU.
       nixosConfigurations.antos-vm = maquina [ ./system/nixos/vm.nix ];
+
+      # La máquina con el escritorio antOS Linux activado (T30.1). La imagen
+      # gráfica de VM/ISO es T30.2; aquí sirve para evaluar el camino
+      # `services.antos.desktop.enable = true`.
+      nixosConfigurations.antos-desktop = maquina [
+        ./system/nixos/arranque.nix
+        { services.antos.desktop.enable = true; }
+      ];
     };
 }

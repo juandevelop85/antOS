@@ -177,6 +177,13 @@ gestor de aplicaciones gráficas.
 > El demonio `antosd` y el CLI `antos` (`system/`) son comunes: corren en el host
 > hoy y en la imagen de antOS Linux. El compositor bare-metal y `antos-barra`
 > **nunca** comparten proceso ni máquina.
+>
+> **Escritorio antOS Linux declarativo (T30.1):** `system/nixos/barra.nix`
+> empaqueta `antos-barra` con Nix y `system/nixos/desktop.nix` añade el módulo
+> `services.antos.desktop` — Labwc + `antos-barra` + terminal + Neovim + Git +
+> autologin Wayland (`greetd`), reutilizando los `rc.xml`/`autostart`/
+> `environment` de `system/desktop/` (T13.0). Activarlo es
+> `services.antos.desktop.enable = true` en el `configuration.nix`.
 
 ```mermaid
 graph TD

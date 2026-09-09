@@ -14,6 +14,11 @@
 
   services.antos.enable = true;
 
+  # El escritorio antOS Linux (Wayland + antos-barra + Neovim/Git). Descomenta
+  # para arrancar directo a la sesión gráfica. La imagen gráfica de VM/ISO es
+  # la Fase 30 (T30.2); el módulo y sus opciones están en `desktop.nix`.
+  # services.antos.desktop.enable = true;
+
   # La consola en el puerto serie: es lo que permite ver el arranque entero
   # sin ventana gráfica, igual que hacemos con el kernel de la Vía B.
   boot.kernelParams = [ "console=ttyAMA0,115200" ];
