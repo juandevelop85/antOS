@@ -427,6 +427,7 @@ fn test_ebpf_serialization() {
     let status = EbpfStatus {
         available: true,
         lsm_enabled: true,
+        backend: EbpfBackend::Simulated,
         active_probes: vec![
             "bprm_check_security".into(),
             "file_open".into(),
@@ -494,6 +495,7 @@ fn test_profiler_serialization() {
         exit_code: 0,
         hotspots: vec![hotspot],
         suggestions: vec![suggestion],
+        metrics_are_real: true,
     };
 
     let req = Request::RunProfiler {
@@ -597,6 +599,7 @@ fn test_collab_and_dap_serialization() {
             value: "42".into(),
             type_name: "usize".into(),
         }],
+        simulated: true,
     };
 
     let ev_dap = Event::DapSessionStatus(dap_status);
@@ -1755,6 +1758,7 @@ fn test_submodule_namespaces_and_roundtrips() {
         current_line: Some(10),
         call_stack: vec!["main".into()],
         variables: vec![],
+        simulated: true,
     };
     let json_dap = serde_json::to_string(&dap).expect("dap serde");
     let des_dap: DapSessionStatus = serde_json::from_str(&json_dap).expect("dap deser");

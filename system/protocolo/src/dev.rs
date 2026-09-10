@@ -75,7 +75,9 @@ pub struct CollabSessionStatus {
     pub active_ticket_id: Option<String>,
 }
 
-/// Breakpoint in an isolated DAP debugging session.
+/// Breakpoint declared in a [`DapSessionStatus`] session. `verified` is
+/// always `true` today — see that struct's doc comment (T31.14): there is
+/// no real debug adapter behind it to reject an invalid line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapBreakpoint {
     pub id: usize,
@@ -84,7 +86,9 @@ pub struct DapBreakpoint {
     pub verified: bool,
 }
 
-/// Inspected variable during debugging.
+/// A variable shown in a [`DapSessionStatus`] session. Today these come from
+/// a small fixed sample list (T31.14), never from inspecting a real
+/// process's memory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapVariable {
     pub name: String,
@@ -92,7 +96,15 @@ pub struct DapVariable {
     pub type_name: String,
 }
 
-/// Status of a sandbox-isolated DAP debugging session.
+/// Status of a Debug Adapter Protocol (DAP) session (T31.14).
+///
+/// `simulated` is always `true` today: `antosd` implements no Debug Adapter
+/// Protocol client and spawns no debugger (`gdb`/`lldb`/anything else)
+/// against `target_command`. `call_stack` and `variables` come from a fixed
+/// sample list baked into [`crate`]'s `DapServer::new` — not from the
+/// process named in `target_command`, which is never even started. Treat
+/// this as a UI mock of what a real DAP integration would show, not as
+/// telemetry from a real debugging session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DapSessionStatus {
     pub session_id: String,
@@ -102,6 +114,12 @@ pub struct DapSessionStatus {
     pub current_line: Option<usize>,
     pub call_stack: Vec<String>,
     pub variables: Vec<DapVariable>,
+    #[serde(default = "default_dap_simulated")]
+    pub simulated: bool,
+}
+
+fn default_dap_simulated() -> bool {
+    true
 }
 
 // ----------------------------------------------------------- local ci & git hooks (T20.3)

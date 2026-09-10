@@ -116,15 +116,45 @@ pub struct EbpfSecurityEvent {
     pub violation_reason: Option<String>,
 }
 
+/// Backend real que produce los [`EbpfSecurityEvent`] del ring buffer
+/// (T31.14). El panel de telemetría del sentinela existe y funciona hoy en
+/// `Simulated`: el daemon nunca ha cargado un programa eBPF, así que
+/// mostrarlo sin distinción de `LinuxBpf` (todavía no implementado en
+/// ningún lugar del árbol) haría pasar auditoría de espacio de usuario por
+/// vigilancia real del kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EbpfBackend {
+    /// Ring buffer en memoria del proceso `antosd`, alimentado solo por
+    /// llamadas explícitas (`record_event`/`simulate_violation`); ningún
+    /// hook del kernel está cargado.
+    Simulated,
+    /// Programa eBPF real adjunto vía LSM. No implementado todavía.
+    LinuxBpf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EbpfStatus {
     pub available: bool,
+    /// Si el *kernel* del host anuncia el LSM `bpf` en
+    /// `/sys/kernel/security/lsm`. Es una propiedad de la plataforma, no una
+    /// prueba de que este módulo esté usándolo — con el `backend` de hoy
+    /// (`Simulated`) es cierto incluso aunque `antosd` nunca cargue un
+    /// programa BPF. Ver `backend` para lo que de verdad produce los
+    /// eventos.
     pub lsm_enabled: bool,
+    /// Backend que produce los eventos del ring buffer (T31.14).
+    #[serde(default = "default_ebpf_backend")]
+    pub backend: EbpfBackend,
     pub active_probes: Vec<String>,
     pub total_events_captured: usize,
     pub total_violations_blocked: usize,
     pub ring_buffer_capacity: usize,
     pub ring_buffer_utilization: usize,
+}
+
+fn default_ebpf_backend() -> EbpfBackend {
+    EbpfBackend::Simulated
 }
 
 // --------------------------------------------- continuous runtime profiler (T11.2)
@@ -138,6 +168,16 @@ pub enum ProfileSuggestionKind {
     ConcurrencyOptimization,
 }
 
+/// Un supuesto punto caliente de una ejecución perfilada (T31.14).
+///
+/// **Siempre heurístico, nunca muestreado.** `name`,
+/// `percentage_cpu`/`percentage_memory` y `calls_or_samples` los elige
+/// `ProfilerEngine::synthesize_hotspots` por coincidencia de subcadena en el
+/// comando (`"test"`, `"build"`/`"check"`, u otro) — una tabla fija de tres
+/// o cuatro entradas por caso, la misma siempre para el mismo tipo de
+/// comando. No hay ningún muestreador de pila, `perf`, ni instrumentación
+/// real detrás; los números no varían con la duración, CPU o memoria de la
+/// ejecución real que sí mide [`ProfileReport`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfileHotspot {
     pub name: String,
@@ -155,6 +195,16 @@ pub struct ProfileSuggestion {
     pub target_symbol_or_path: Option<String>,
 }
 
+/// Reporte de una ejecución perfilada (T31.14).
+///
+/// `duration_ms`, `cpu_user_ms`, `cpu_sys_ms`, `peak_memory_bytes` y
+/// `page_faults` son reales cuando `metrics_are_real` es `true`: se leen de
+/// `getrusage(2)` para el proceso hijo realmente lanzado. Si esa lectura
+/// falla (plataforma sin `libc::getrusage`, o la llamada devuelve error),
+/// `metrics_are_real` queda en `false` y esos cinco campos son un cálculo
+/// aproximado a partir solo de `duration_ms` — no una medición. `hotspots`
+/// es siempre heurístico, con independencia de `metrics_are_real`: ver
+/// [`ProfileHotspot`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProfileReport {
     pub id: String,
@@ -167,6 +217,17 @@ pub struct ProfileReport {
     pub exit_code: i32,
     pub hotspots: Vec<ProfileHotspot>,
     pub suggestions: Vec<ProfileSuggestion>,
+    /// Si las cinco métricas de arriba vienen de `getrusage(2)` real (`true`)
+    /// o de una estimación de respaldo cuando esa lectura falló (`false`).
+    #[serde(default = "default_profile_metrics_are_real")]
+    pub metrics_are_real: bool,
+}
+
+fn default_profile_metrics_are_real() -> bool {
+    // Los reportes persistidos antes de T31.14 no tenían este campo; el
+    // comportamiento de esa época siempre intentaba `getrusage` primero,
+    // así que asumir `true` para datos antiguos es la lectura más fiel.
+    true
 }
 
 // ------------------------------------------------ Desktop Session (T13.0)

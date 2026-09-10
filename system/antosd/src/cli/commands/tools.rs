@@ -1999,6 +1999,19 @@ pub fn cmd_notify(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // --------------------------------------------------------------------- mesh
 
+/// Etiqueta honesta del backend de eventos del sentinela eBPF (T31.14): el
+/// panel de `antos ebpf` es hoy un ring buffer de espacio de usuario, nunca
+/// vigilancia real del kernel — ver la cabecera de `crate::ebpf`.
+fn ebpf_backend_badge(backend: antos_protocol::EbpfBackend) -> String {
+    match backend {
+        antos_protocol::EbpfBackend::Simulated => paint(
+            "○ SIMULADO (ring buffer en espacio de usuario, sin BPF real)",
+            YELLOW,
+        ),
+        antos_protocol::EbpfBackend::LinuxBpf => paint("● KERNEL LSM ACTIVO (BPF real)", GREEN),
+    }
+}
+
 pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
     let engine = crate::ebpf::EbpfSentinelEngine::global();
     let sub = args.first().map(String::as_str);
@@ -2015,12 +2028,18 @@ pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&ctx.workspace.display().to_string(), DIM)
             );
 
-            let lsm_badge = if status.lsm_enabled {
-                paint("● KERNEL LSM ACTIVO (BPF Enforcing)", GREEN)
-            } else {
-                paint("○ EMULACIÓN ESPACIO DE USUARIO (Auditoría activa)", YELLOW)
-            };
-            println!("  Estado del soporte eBPF: {}", lsm_badge);
+            println!(
+                "  Backend de eventos:      {}",
+                ebpf_backend_badge(status.backend)
+            );
+            println!(
+                "  LSM `bpf` en el kernel:  {}",
+                if status.lsm_enabled {
+                    paint("disponible en el host (no usado por este backend)", DIM)
+                } else {
+                    paint("no anunciado por el host", DIM)
+                }
+            );
             println!("  Sondas activas ({}):", status.active_probes.len());
             for probe in status.active_probes {
                 println!("    • {}", paint(&probe, CYAN));
@@ -2164,12 +2183,10 @@ pub fn cmd_ebpf(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&ctx.workspace.display().to_string(), DIM)
             );
 
-            let lsm_badge = if status.lsm_enabled {
-                paint("● KERNEL LSM ACTIVO", GREEN)
-            } else {
-                paint("○ EMULACIÓN ESPACIO USUARIO", YELLOW)
-            };
-            println!("  Soporte:            {}", lsm_badge);
+            println!(
+                "  Backend:            {}",
+                ebpf_backend_badge(status.backend)
+            );
             println!("  Sondas activas:     {}", status.active_probes.len());
             println!(
                 "  Eventos capturados: {}",
@@ -2232,6 +2249,14 @@ pub fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
 
             println!("\n{}", paint("Resultado del Perfilado:", BOLD));
             println!("  Estado del comando:       {}", status_badge);
+            if !report.metrics_are_real {
+                println!(
+                    "  {} `getrusage` falló en este host: las métricas de abajo son una \
+                     estimación de respaldo a partir de la duración, no una medición real \
+                     (T31.14).",
+                    paint("⚠", YELLOW)
+                );
+            }
             println!(
                 "  Duración de Wall-Clock:   {} ms",
                 paint(&report.duration_ms.to_string(), BOLD)
@@ -2249,7 +2274,10 @@ pub fn cmd_profile(ctx: &Ctx, args: &[String]) -> Result<()> {
             if !report.hotspots.is_empty() {
                 println!(
                     "{}",
-                    paint("  Puntos Calientes de Ejecución (Hotspots):", BOLD)
+                    paint(
+                        "  Puntos Calientes Estimados (heurística por tipo de comando, no muestreo real):",
+                        BOLD
+                    )
                 );
                 for h in report.hotspots {
                     println!(

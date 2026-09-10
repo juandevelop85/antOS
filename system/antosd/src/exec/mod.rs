@@ -2346,12 +2346,16 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             Change::EbpfStatus { .. } => {
                 let status = crate::ebpf::EbpfSentinelEngine::global().status()?;
                 let mut lines = Vec::new();
-                let lsm_badge = if status.lsm_enabled {
-                    "Kernel LSM (Hardware/BPF Activo)"
-                } else {
-                    "Emulación Espacio de Usuario (Ring Buffer Activo)"
+                // T31.14: el backend real es lo que decide si hay vigilancia
+                // de kernel de verdad; `lsm_enabled` solo dice si el host la
+                // ofrecería si algún backend la usara (ver crate::ebpf).
+                let backend_badge = match status.backend {
+                    antos_protocol::EbpfBackend::LinuxBpf => "Kernel LSM (BPF real activo)",
+                    antos_protocol::EbpfBackend::Simulated => {
+                        "Simulado (ring buffer en espacio de usuario, sin BPF real)"
+                    }
                 };
-                lines.push(format!("antOS eBPF LSM Sentinel: {}", lsm_badge));
+                lines.push(format!("antOS eBPF LSM Sentinel: {}", backend_badge));
                 lines.push(format!(
                     "  • Sondas activas ({}): {}",
                     status.active_probes.len(),
@@ -2534,8 +2538,10 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let mut dap = crate::collab::DapServer::new("dap-exec".into(), command.clone());
                 let bp = dap.add_breakpoint("src/main.rs", 1);
                 let mut lines = Vec::new();
+                // T31.14: no hay ningún depurador adjunto de verdad — `command`
+                // ni siquiera se ejecuta, ver DapServer/DapSessionStatus.
                 lines.push(format!(
-                    "antOS Isolated DAP Debugger · Sesión adjunta a: «{command}»"
+                    "antOS DAP Debugger (SIMULADO, no ejecuta «{command}»)"
                 ));
                 lines.push(format!("  • Estado:                {}", dap.state));
                 lines.push(format!(

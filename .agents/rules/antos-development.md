@@ -26,6 +26,26 @@ trigger: always_on
     aplicar la regla.
   - Cero `unwrap()` o `expect()` en rutas de ejecución de IPC o demonio; utilizar siempre propagación de errores (`?`) o manejo explícito.
   - Documentar structs y mensajes públicos expuestos a través del protocolo IPC.
+  - **Honestidad de las cabeceras de módulo (T31.14):** una cabecera `//!`
+    describe el comportamiento *actual* del fichero, nunca lo aspiracional.
+    Lo aspiracional va en el ticket que lo pide, no en el comentario del
+    módulo que todavía no lo hace. Antes de escribir o dejar sin tocar una
+    frase como «cifrado», «aislado por el kernel», «tiempo real», «zero
+    overhead» o «vigilancia del kernel» en una cabecera, comprobar contra el
+    código de ese fichero (o el que invoca) que la afirmación se sostiene —
+    no basta con que sea cierta *en el ticket que lo originó*. Si una parte
+    del módulo es real y otra es una maqueta o una simulación (ejemplo real:
+    `crate::ebpf`, cuyo panel de telemetría es un `VecDeque` en memoria sin
+    ningún programa eBPF cargado; `crate::collab::DapServer`, que no lanza
+    ningún depurador ni ejecuta el comando que recibe), la cabecera lleva una
+    sección `## Estado de implementación` que distingue ambas partes, y el
+    tipo de datos que sale por IPC/CLI lleva un campo explícito
+    (`backend: Simulated | LinuxBpf`, `simulated: bool`,
+    `metrics_are_real: bool` — el nombre da igual, la explicitud no) para que
+    ningún consumidor pueda confundir la simulación con la garantía real. Las
+    cabeceras de `sandbox/landlock.rs` y `sandbox/seatbelt.rs` son el
+    ejemplo a seguir: documentan con precisión qué confina cada plataforma y
+    qué no cubre, sin inflar ninguna garantía.
   - **`sh -c` / `bash -c` (T31.4):** solo se usa cuando el intérprete de comandos
     es la funcionalidad que se pide (p. ej. `antos vm exec`, una etapa de CI
     declarada por el usuario) — nunca para tareas que no lo necesitan (buscar

@@ -1,8 +1,39 @@
 //! antOS Continuous Runtime CPU & Memory Profiler (T11.2).
 //!
-//! Measures process CPU time, memory high-water mark (RSS), page faults,
-//! detects algorithmic bottlenecks, and produces automated optimization
-//! suggestions for Coder and QA agents.
+//! ## Estado de implementación (T31.14)
+//!
+//! Este módulo mezcla medición real con datos fabricados, y ninguno de los
+//! dos se etiquetaba como tal hasta ahora:
+//!
+//! - **Medición real, cuando funciona.** [`ProfilerEngine::run_and_profile`]
+//!   lanza de verdad el comando (`std::process::Command::spawn`) y compara
+//!   `getrusage(2)` antes/después para obtener `duration_ms`,
+//!   `cpu_user_ms`, `cpu_sys_ms`, `peak_memory_bytes` (RSS) y
+//!   `page_faults` — soporta Linux y macOS (la unidad de `ru_maxrss`
+//!   difiere entre plataformas y se normaliza). Usa `RUSAGE_CHILDREN`, así
+//!   que si el propio `antosd` tiene otros hijos concurrentes en vuelo, sus
+//!   usos se mezclan en la diferencia — una limitación conocida, no
+//!   documentada hasta ahora.
+//! - **Si `getrusage` falla, se rellena con un cálculo, no una medición**:
+//!   75 % de la duración como tiempo de usuario, 15 % como tiempo de
+//!   sistema, 32 MB de memoria fija y 120 fallos de página fijos, sin
+//!   relación con el proceso real. [`antos_protocol::ProfileReport::metrics_are_real`]
+//!   distingue ambos casos explícitamente.
+//! - **`hotspots`: siempre fabricado, nunca muestreado.**
+//!   [`ProfilerEngine::synthesize_hotspots`] no perfila nada — elige entre
+//!   tres tablas fijas de nombres y porcentajes según si el comando
+//!   contiene `"test"`, `"build"`/`"check"`, o ninguno de los dos. Los
+//!   parámetros de duración/CPU/memoria real que recibe se ignoran (de ahí
+//!   el prefijo `_` en su firma). Ver [`antos_protocol::ProfileHotspot`].
+//! - **`suggestions`: heurísticas legítimas sobre los números reales.**
+//!   [`ProfilerEngine::generate_suggestions`] sí usa `peak_memory_bytes` y
+//!   la proporción `cpu_sys_ms`/`cpu_user_ms` reales para decidir qué
+//!   sugerir; el `potential_impact` de cada sugerencia es una estimación
+//!   heurística declarada como tal en su propio texto, no una medición.
+//!
+//! Implementar perfilado de pila real (muestreo con `perf`/`dtrace`, o un
+//! agente de instrumentación) para sustituir `synthesize_hotspots` es un
+//! ticket propio de infraestructura.
 
 use crate::util::lock_or_recover;
 use antos_protocol::{ProfileHotspot, ProfileReport, ProfileSuggestion, ProfileSuggestionKind};
@@ -103,6 +134,7 @@ impl ProfilerEngine {
         // Sample resource usage after execution
         let rusage_after = Self::get_children_rusage();
 
+        let metrics_are_real = matches!((rusage_before, rusage_after), (Some(_), Some(_)));
         let (cpu_user_ms, cpu_sys_ms, peak_memory_bytes, page_faults) =
             match (rusage_before, rusage_after) {
                 (Some(before), Some(after)) => {
@@ -174,6 +206,7 @@ impl ProfilerEngine {
             exit_code: output.status.code().unwrap_or(-1),
             hotspots,
             suggestions,
+            metrics_are_real,
         };
 
         self.save_report(workspace, report.clone());
@@ -430,6 +463,24 @@ mod tests {
         let loaded = engine.load_reports(&ws);
         assert!(!loaded.is_empty());
         assert_eq!(loaded[0].id, report.id);
+
+        engine.reset(&ws);
+    }
+
+    #[test]
+    fn test_profiler_reports_real_getrusage_metrics_on_this_platform() {
+        // T31.14: en Linux y macOS —las dos plataformas soportadas—
+        // `getrusage(2)` para un hijo real siempre debería tener éxito; si
+        // esta prueba empieza a fallar, es señal de una regresión real en
+        // `get_children_rusage`, no solo un detalle de documentación.
+        let engine = ProfilerEngine::global();
+        let ws = std::env::current_dir().unwrap();
+        engine.reset(&ws);
+
+        let report = engine
+            .run_and_profile(&ws, "echo antOS_metrics_are_real_test")
+            .expect("profile echo");
+        assert!(report.metrics_are_real);
 
         engine.reset(&ws);
     }

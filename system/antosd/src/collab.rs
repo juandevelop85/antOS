@@ -1,7 +1,32 @@
-//! antOS Collaborative Real-Time Human-Agent Co-Editing & Isolated DAP Debugger (T12.2).
+//! antOS Collaborative Real-Time Human-Agent Co-Editing & DAP Debugger (T12.2).
 //!
-//! Provides conflict-free concurrent editing (CRDT), agent cursor and ghost-text
-//! projection, and an isolated Debug Adapter Protocol (DAP) supervisor for sandbox processes.
+//! ## Estado de implementación (T31.14)
+//!
+//! Este módulo cubre dos cosas muy distintas en cuanto a qué tan real es su
+//! implementación:
+//!
+//! - **CRDT ([`CrdtDocument`]): real.** Es un RGA (*Replicated Growable
+//!   Array*) propio con desempate determinista por `(client, seq)` para
+//!   inserciones concurrentes — no una fachada. [`CollabSession`] lo envuelve
+//!   con cursores de colaborador y proyección de *ghost text*.
+//! - **DAP ([`DapServer`]): simulado por completo, no un depurador.**
+//!   `DapServer::new` nunca lanza el `command` que recibe ni ningún
+//!   depurador (`gdb`, `lldb`, o cualquier cliente real del Debug Adapter
+//!   Protocol) — el `command` se guarda pero no se ejecuta. La pila de
+//!   llamadas y las variables que devuelve son una lista fija de ejemplo
+//!   (`"main() at src/main.rs:1"`, una variable `is_sandboxed: "true"`
+//!   literal…), idéntica sin importar qué comando se le pase.
+//!   `add_breakpoint` marca `verified: true` siempre, porque no hay ningún
+//!   depurador real que pudiera rechazar la línea. `DapSessionStatus`
+//!   expone esto sin ambigüedad vía su campo `simulated` (siempre `true`
+//!   hoy). Tratar esto como una maqueta de interfaz de lo que mostraría una
+//!   integración DAP real, nunca como telemetría de un proceso depurado de
+//!   verdad — y mucho menos como algo aislado en un sandbox, que no lo está
+//!   porque no hay ningún proceso al que aislar.
+//!
+//! Implementar un cliente DAP real (lanzar el depurador, hablar el
+//! protocolo, adjuntarlo al proceso vía `sandbox::run`) es un ticket propio
+//! de infraestructura, no una corrección puntual de esta auditoría.
 
 use crate::util::lock_or_recover;
 use antos_protocol::{
@@ -599,6 +624,9 @@ impl DapServer {
             current_line: self.current_line,
             call_stack: self.call_stack.clone(),
             variables: self.variables.clone(),
+            // T31.14: siempre `true` — `DapServer` no lanza ningún depurador
+            // real ni el proceso de `command` (ver doc del struct).
+            simulated: true,
         }
     }
 }
@@ -710,5 +738,18 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn test_dap_status_is_honestly_marked_as_simulated() {
+        // T31.14: no hay ningún backend de depurador real detrás de
+        // `DapServer` — `to_status().simulated` debe seguir siendo `true`
+        // sin importar el comando, para que ningún consumidor (CLI, IPC,
+        // barra) pueda confundir esta maqueta con una sesión de depuración
+        // real.
+        let dap = DapServer::new("dap-honesty".into(), "rm -rf /".into());
+        let status = dap.to_status();
+        assert!(status.simulated);
+        assert_eq!(status.target_command, "rm -rf /");
     }
 }

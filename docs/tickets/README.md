@@ -148,7 +148,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ✅ Completado |
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ✅ Completado |
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ✅ Completado |
-| **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ⏳ Pendiente |
+| **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ✅ Completado |
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ⏳ Pendiente |
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ⏳ Pendiente |
 
@@ -256,12 +256,42 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   diferidos y documentados en el propio ticket: el resto de los 43
   subcomandos del CLI, la extracción de más lógica no-GTK de la barra, y
   el trabajo de medición de cobertura, que el propio ticket ya marcaba
-  como opcional), alineación de las cabeceras de módulo con lo realmente
-  implementado, y descomposición de los ficheros que han vuelto a superar
+  como opcional) y alineación de las cabeceras de módulo con lo realmente
+  implementado (**✅ T31.14 resuelto**: `ebpf.rs` reescrito para admitir
+  que su panel de telemetría es un `VecDeque` en memoria sin ningún
+  programa eBPF cargado —cero dependencia de `libbpf`/`aya`, el único
+  productor de eventos es `simulate_violation`—, nuevo
+  `EbpfStatus::backend: Simulated | LinuxBpf` que el CLI muestra sin
+  ambigüedad en vez del anterior «KERNEL LSM ACTIVO (BPF Enforcing)»
+  incondicional; `collab.rs` separado en su CRDT real —un RGA propio con
+  desempate determinista, no una fachada— y su `DapServer`, que resultó
+  ser una maqueta completa: no lanza el comando que recibe ni ningún
+  depurador, la pila de llamadas y las variables son una lista fija de
+  ejemplo, `add_breakpoint` marca `verified: true` siempre porque no hay
+  nada que pudiera rechazarlo — nuevo `DapSessionStatus::simulated: bool`
+  y aviso explícito en `antos debug`; `profiler.rs` documentado con la
+  misma distinción: `duration_ms`/`cpu_*_ms`/`peak_memory_bytes`/
+  `page_faults` son reales vía `getrusage(2)` cuando funciona —nuevo
+  `ProfileReport::metrics_are_real`, en vez de la estimación de respaldo
+  silenciosa que antes se servía sin distinguir—, mientras que
+  `hotspots` resultó ser una tabla fija elegida por subcadena del
+  comando (`"test"`/`"build"`/nada), nunca muestreo real, documentado
+  así en `ProfileHotspot`; nueva regla en `antos-development.md` fijando
+  que una cabecera describe el comportamiento actual, nunca lo
+  aspiracional, con un campo explícito de backend/simulación cuando
+  ambos coexisten en el mismo módulo. `mesh.rs`/`vm.rs` ya habían
+  recibido esta misma corrección en T31.5/T31.4 respectivamente;
+  `sandbox/seatbelt.rs` y `sandbox/landlock.rs` sirvieron de referencia,
+  tal como los cita el propio ticket, de cómo se ve una cabecera
+  honesta desde el principio. El resto de las ~90 cabeceras de módulo del
+  árbol no se re-auditó una por una en esta pasada más allá de un barrido
+  heurístico por vocabulario de riesgo —«cifrado», «aislado», «kernel»,
+  «tiempo real»— que no encontró más casos tan flagrantes como los de
+  arriba), y descomposición de los ficheros que han vuelto a superar
   las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
-~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ **→ T31.16**, y el resto según
-convenga. T31.16 conviene abordarlo pronto: sin tests de kernel ejecutables,
-las correcciones de T31.3 no tienen forma de verificarse.
+~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ **→ T31.16**, y el resto
+según convenga. T31.16 conviene abordarlo pronto: sin tests de kernel
+ejecutables, las correcciones de T31.3 no tienen forma de verificarse.

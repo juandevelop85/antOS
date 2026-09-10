@@ -437,7 +437,7 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             }
             Change::DapAttach { command, .. } => {
                 out.push(Line::Info(format!(
-                    "conecta una sesión de depuración supervisada DAP al comando «{command}»"
+                    "muestra una sesión DAP simulada para «{command}» (no lo ejecuta ni adjunta un depurador real — T31.14)"
                 )));
             }
             Change::DesktopSession { action, .. } => {

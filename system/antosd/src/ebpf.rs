@@ -1,13 +1,39 @@
 //! antOS eBPF LSM Sentinel and Syscall Supervisor (T11.1).
 //!
-//! Provides kernel-level security telemetry and sandbox evasion detection using
-//! eBPF LSM probes (`bprm_check_security`, `file_open`, `socket_connect`) and
-//! high-throughput in-memory ring buffer tracing with zero latency overhead (<1%).
+//! ## Estado de implementación (T31.14)
+//!
+//! Este módulo es un panel de auditoría **simulado**, no un supervisor
+//! eBPF real. Ningún código aquí (ni en el resto del árbol: no hay
+//! dependencia de `libbpf`, `aya`, ni ninguna llamada al syscall `bpf(2)`)
+//! carga un programa LSM. Lo que existe es:
+//!
+//! - Un `VecDeque<EbpfSecurityEvent>` en memoria, protegido por un `Mutex`
+//!   ([`EBPF_STATE`]), con persistencia a `.antos/ebpf_audit.json`.
+//! - [`EbpfSentinelEngine::record_event`], que cualquier llamador puede
+//!   invocar directamente para añadir un evento — no hay ningún hook del
+//!   kernel detrás disparándolo.
+//! - [`EbpfSentinelEngine::simulate_violation`], usado por `antos ebpf
+//!   simulate` y por la petición IPC `SimulateEbpfViolation`, que fabrica un
+//!   evento de ejemplo (nombre de proceso y motivo son texto fijo elegido
+//!   por el `hook`, no observados de ningún proceso real).
+//! - [`EbpfSentinelEngine::is_lsm_supported`], que solo comprueba si el
+//!   *kernel* del host anuncia el LSM `bpf` en
+//!   `/sys/kernel/security/lsm` — una propiedad de la plataforma, cierta en
+//!   la mayoría de distros Linux modernas, que no implica que este módulo
+//!   esté usándolo.
+//!
+//! [`EbpfStatus::backend`] refleja esto explícitamente
+//! (`EbpfBackend::Simulated` hoy) para que ni el CLI ni la barra puedan
+//! confundir este panel con vigilancia real del kernel. Implementar un
+//! backend `LinuxBpf` de verdad —adjuntar sondas a
+//! `bprm_check_security`/`file_open`/`socket_connect` vía `aya` o
+//! `libbpf-rs`— es un ticket propio de infraestructura, no una corrección
+//! puntual de esta auditoría.
 
 use crate::util::lock_or_recover;
 use antos_protocol::{
-    EbpfHookKind, EbpfSecurityAction, EbpfSecurityEvent, EbpfStatus, NotificationAction,
-    NotificationItem, NotificationKind,
+    EbpfBackend, EbpfHookKind, EbpfSecurityAction, EbpfSecurityEvent, EbpfStatus,
+    NotificationAction, NotificationItem, NotificationKind,
 };
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -99,7 +125,9 @@ impl EbpfSentinelEngine {
         }
     }
 
-    /// Checks if host kernel supports eBPF LSM directly.
+    /// Checks whether the *host kernel* advertises the `bpf` LSM. This says
+    /// nothing about whether this module is using it — see the module-level
+    /// doc comment: the backend today is always [`EbpfBackend::Simulated`].
     pub fn is_lsm_supported() -> bool {
         #[cfg(target_os = "linux")]
         {
@@ -132,6 +160,9 @@ impl EbpfSentinelEngine {
         Ok(EbpfStatus {
             available: true,
             lsm_enabled,
+            // T31.14: siempre `Simulated` — ningún backend `LinuxBpf` está
+            // implementado en el árbol todavía (ver doc del módulo).
+            backend: EbpfBackend::Simulated,
             active_probes: Self::active_probes(),
             total_events_captured: state.total_events_captured,
             total_violations_blocked: state.total_violations_blocked,
@@ -300,6 +331,18 @@ mod tests {
         assert!(status.available);
         assert!(!status.active_probes.is_empty());
         assert_eq!(status.ring_buffer_capacity, RING_BUFFER_CAPACITY);
+    }
+
+    #[test]
+    fn test_ebpf_status_reports_the_simulated_backend_honestly() {
+        // T31.14: no hay backend `LinuxBpf` implementado en el árbol, así
+        // que `status()` nunca debe reportar otra cosa que `Simulated` —
+        // sea cual sea el LSM que anuncie el kernel del host que ejecuta el
+        // test (`lsm_enabled` es independiente de esto).
+        let _guard = TEST_LOCK.lock().unwrap();
+        let engine = EbpfSentinelEngine::global();
+        let status = engine.status().expect("status");
+        assert_eq!(status.backend, EbpfBackend::Simulated);
     }
 
     #[test]

@@ -301,16 +301,26 @@ pub fn cmd_debug(_ctx: &Ctx, args: &[String]) -> Result<()> {
     };
 
     println!(
-        "\n{} Conectando adaptador de depuración DAP para: {}",
+        "\n{} Maqueta de sesión DAP para: {} {}",
         paint("antOS DAP Debugger ·", BOLD),
-        paint(&command, YELLOW)
+        paint(&command, YELLOW),
+        paint(
+            "(SIMULADO: no se ejecuta el comando ni se adjunta ningún depurador — T31.14)",
+            YELLOW
+        )
     );
     let mut dap = crate::collab::DapServer::new("dap-cli".into(), command.clone());
     let bp = dap.add_breakpoint("src/main.rs", 1);
 
-    println!("\n{}", paint("Sesión de Depuración Supervisada:", BOLD));
+    println!(
+        "\n{}",
+        paint(
+            "Sesión de Depuración Simulada (pila y variables son datos de ejemplo fijos):",
+            BOLD
+        )
+    );
     println!("  ID de Sesión:          {}", paint(&dap.session_id, CYAN));
-    println!("  Comando en sandbox:    {}", paint(&dap.command, BOLD));
+    println!("  Comando (no ejecutado):{}", paint(&dap.command, BOLD));
     println!("  Estado:                {}", paint(&dap.state, GREEN));
     println!(
         "  Punto de interrupción: {}:{} (verificado: {})\n",
