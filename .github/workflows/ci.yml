@@ -396,6 +396,9 @@ jobs:
   # find gtk4 or gtk4-layer-shell on Homebrew), so this runs only here, on
   # the Linux runner that already installs those headers for the desktop
   # smoke job.
+  # T31.13 adds a `cargo test` step below: `main.rs` gained a handful of
+  # unit tests for the logic that doesn't touch GTK. Kept in this same job
+  # (not a new one) since it needs the identical GTK4 toolchain to compile.
   clippy-barra:
     name: "Lint · clippy (system/barra)"
     runs-on: ubuntu-latest
@@ -426,3 +429,11 @@ jobs:
 
       - name: Clippy (system/barra)
         run: cargo clippy --manifest-path system/barra/Cargo.toml -- -D warnings
+
+      # T31.13: the pure, non-GTK logic in `main.rs` (event/state formatting
+      # helpers like `truncate_str`, `level_css_class`) now has unit tests.
+      # They still live in the same binary crate as the GTK4 UI code, so
+      # `cargo test` here still needs to *compile* the whole crate (headers
+      # installed above) even though the tests themselves never touch GTK.
+      - name: Test (system/barra)
+        run: cargo test --manifest-path system/barra/Cargo.toml

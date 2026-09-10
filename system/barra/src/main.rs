@@ -1491,3 +1491,38 @@ fn get_default_catalog_apps() -> Vec<LauncherAppItem> {
         ),
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    //! Pruebas de la lógica pura de `antos-barra` que no depende de GTK4
+    //! (T31.13). No se pudieron compilar ni ejecutar en esta máquina de
+    //! desarrollo (macOS, sin `gtk4-layer-shell` — ver T31.10): quedan a la
+    //! espera de verificación en el runner de CI de Linux.
+    use super::*;
+
+    #[test]
+    fn test_truncate_str_keeps_short_strings_unchanged() {
+        assert_eq!(truncate_str("antOS", 10), "antOS");
+    }
+
+    #[test]
+    fn test_truncate_str_cuts_long_strings_and_appends_an_ellipsis() {
+        let truncated = truncate_str("abcdefghij", 5);
+        assert_eq!(truncated, "abcd…");
+        assert_eq!(truncated.chars().count(), 5);
+    }
+
+    #[test]
+    fn test_truncate_str_replaces_newlines_before_measuring_length() {
+        // Un salto de línea se sustituye por «⏎» antes de contar caracteres,
+        // así una entrada multilínea no revienta el layout de una sola fila.
+        assert_eq!(truncate_str("a\nb", 10), "a⏎b");
+    }
+
+    #[test]
+    fn test_level_css_class_maps_every_tier_to_its_css_class() {
+        assert_eq!(level_css_class(Tier::Auto), "auto");
+        assert_eq!(level_css_class(Tier::Confirm), "confirm");
+        assert_eq!(level_css_class(Tier::Grant), "grant");
+    }
+}

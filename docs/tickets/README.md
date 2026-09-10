@@ -147,7 +147,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ✅ Completado |
 | **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ✅ Completado |
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ✅ Completado |
-| **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ⏳ Pendiente |
+| **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ✅ Completado |
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ⏳ Pendiente |
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ⏳ Pendiente |
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ⏳ Pendiente |
@@ -241,12 +241,27 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   usuario siguen en español, y nuevo guion
   `.agents/scripts/check-spanish-identifiers.py` con su propio job de CI,
   verificado en vivo para que falle ante un identificador nuevo en
-  español), cobertura de tests de la capa CLI y de la barra, alineación de
-  las cabeceras de módulo con lo realmente implementado, y descomposición
-  de los ficheros que han vuelto a superar las 1500 líneas.
+  español) y cobertura de tests de la capa CLI y de la barra (**✅ T31.13
+  resuelto parcialmente**: analizador de argumentos extraído a funciones
+  puras y probado en los seis puntos de entrada con mayor riesgo —indexado
+  manual `args[i]`/`i + 1 < args.len()` citado por el propio ticket, los 15
+  sitios de `system.rs` (`cmd_bootloader`, `cmd_vm`, `cmd_autopilot`,
+  `cmd_web`) más un ejemplo de `tools.rs` (`cmd_quota`)—, 22 tests nuevos;
+  `is_granted` de `grants.rs` separado en un núcleo con el reloj inyectado
+  y 10 tests de sus rutas de decisión; `sandbox/mod.rs` con 10 tests de
+  `Policy::from_blast`/`with_grants`; 4 tests de la lógica pura de
+  `antos-barra` (`truncate_str`, `level_css_class`) añadidos sin poder
+  compilarse en esta máquina —sin GTK4 en macOS—, con un paso de `cargo
+  test` añadido al job de CI de Linux para verificarlos ahí; quedan
+  diferidos y documentados en el propio ticket: el resto de los 43
+  subcomandos del CLI, la extracción de más lógica no-GTK de la barra, y
+  el trabajo de medición de cobertura, que el propio ticket ya marcaba
+  como opcional), alineación de las cabeceras de módulo con lo realmente
+  implementado, y descomposición de los ficheros que han vuelto a superar
+  las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
-~~T31.11~~ → ~~T31.12~~ **→ T31.16**, y el resto según convenga. T31.16
-conviene abordarlo pronto: sin tests de kernel ejecutables, las
-correcciones de T31.3 no tienen forma de verificarse.
+~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ **→ T31.16**, y el resto según
+convenga. T31.16 conviene abordarlo pronto: sin tests de kernel ejecutables,
+las correcciones de T31.3 no tienen forma de verificarse.

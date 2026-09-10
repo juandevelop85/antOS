@@ -854,20 +854,100 @@ pub fn cmd_usb(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ---------------------------------------------------- bootloader & uefi (T15.3)
 
+/// Argumentos de `antos bootloader probe` (T31.13).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BootloaderProbeArgs {
+    pub esp_path: String,
+}
+
+/// Analiza los argumentos de `antos bootloader probe [--esp <ruta>]`, sin
+/// efectos secundarios, para poder probar el análisis por separado de la
+/// sonda real de sistemas operativos (T31.13).
+fn parse_bootloader_probe_args(args: &[String]) -> BootloaderProbeArgs {
+    let mut esp_path = "/boot/efi".to_string();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--esp" && i + 1 < args.len() {
+            esp_path = args[i + 1].clone();
+            i += 1;
+        }
+        i += 1;
+    }
+    BootloaderProbeArgs { esp_path }
+}
+
+/// Argumentos de `antos bootloader install` (T31.13).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BootloaderInstallArgs {
+    pub esp_path: String,
+    pub target_device: String,
+    pub efi_partition: u32,
+    pub timeout_seconds: u32,
+    pub apply: bool,
+}
+
+/// Analiza los argumentos de `antos bootloader install`. Los valores
+/// numéricos que no se pueden interpretar (`--partition abc`) se ignoran en
+/// silencio y conservan su valor por defecto — comportamiento preexistente
+/// que esta extracción no cambia, solo hace comprobable (T31.13).
+fn parse_bootloader_install_args(args: &[String]) -> BootloaderInstallArgs {
+    let mut esp_path = "/boot/efi".to_string();
+    let mut target_device = "/dev/nvme0n1".to_string();
+    let mut efi_partition = 1u32;
+    let mut timeout_seconds = 5u32;
+    let mut apply = false;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--esp" => {
+                if i + 1 < args.len() {
+                    esp_path = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--target" | "-t" => {
+                if i + 1 < args.len() {
+                    target_device = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--partition" | "-p" => {
+                if i + 1 < args.len() {
+                    if let Ok(num) = args[i + 1].parse::<u32>() {
+                        efi_partition = num;
+                    }
+                    i += 1;
+                }
+            }
+            "--timeout" => {
+                if i + 1 < args.len() {
+                    if let Ok(num) = args[i + 1].parse::<u32>() {
+                        timeout_seconds = num;
+                    }
+                    i += 1;
+                }
+            }
+            "--apply" => apply = true,
+            _ => {}
+        }
+        i += 1;
+    }
+    BootloaderInstallArgs {
+        esp_path,
+        target_device,
+        efi_partition,
+        timeout_seconds,
+        apply,
+    }
+}
+
 pub fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("help");
 
     match sub {
         "probe" | "detect" | "os" => {
-            let mut esp_path = "/boot/efi".to_string();
-            let mut i = 1;
-            while i < args.len() {
-                if args[i] == "--esp" && i + 1 < args.len() {
-                    esp_path = args[i + 1].clone();
-                    i += 1;
-                }
-                i += 1;
-            }
+            let BootloaderProbeArgs { esp_path } = parse_bootloader_probe_args(args);
 
             println!(
                 "\n{} Sondeando sistemas operativos en «{}»:",
@@ -900,48 +980,14 @@ pub fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         }
         "install" | "deploy" => {
-            let mut esp_path = "/boot/efi".to_string();
-            let mut target_device = "/dev/nvme0n1".to_string();
-            let mut efi_partition = 1u32;
-            let mut timeout_seconds = 5u32;
-            let mut dry_run = true;
-
-            let mut i = 1;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--esp" => {
-                        if i + 1 < args.len() {
-                            esp_path = args[i + 1].clone();
-                            i += 1;
-                        }
-                    }
-                    "--target" | "-t" => {
-                        if i + 1 < args.len() {
-                            target_device = args[i + 1].clone();
-                            i += 1;
-                        }
-                    }
-                    "--partition" | "-p" => {
-                        if i + 1 < args.len() {
-                            if let Ok(num) = args[i + 1].parse::<u32>() {
-                                efi_partition = num;
-                            }
-                            i += 1;
-                        }
-                    }
-                    "--timeout" => {
-                        if i + 1 < args.len() {
-                            if let Ok(num) = args[i + 1].parse::<u32>() {
-                                timeout_seconds = num;
-                            }
-                            i += 1;
-                        }
-                    }
-                    "--apply" => dry_run = false,
-                    _ => {}
-                }
-                i += 1;
-            }
+            let BootloaderInstallArgs {
+                esp_path,
+                target_device,
+                efi_partition,
+                timeout_seconds,
+                apply,
+            } = parse_bootloader_install_args(args);
+            let dry_run = !apply;
 
             let esp = std::path::PathBuf::from(if dry_run {
                 ctx.workspace
@@ -1020,48 +1066,81 @@ pub fn cmd_bootloader(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ----------------------------------------------------------------- microvms
 
+/// Argumentos de `antos vm spawn` (T31.13). `vm_id` queda en `None` cuando
+/// no se especifica «--id»: el identificador por defecto depende del reloj
+/// (marca de tiempo), así que se resuelve fuera de esta función pura para
+/// que el análisis en sí sea determinista y comprobable.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct VmSpawnArgs {
+    pub vm_id: Option<String>,
+    pub vcpu_count: u8,
+    pub memory_mb: u32,
+    pub kernel_image: String,
+    pub command: Option<String>,
+}
+
+/// Analiza los argumentos de `antos vm spawn|start|run` (T31.13).
+fn parse_vm_spawn_args(args: &[String]) -> VmSpawnArgs {
+    let mut vm_id = None;
+    let mut vcpu_count = 2u8;
+    let mut memory_mb = 512u32;
+    let mut kernel_image = "/boot/antos-vmlinuz".to_string();
+    let mut command = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--id" if i + 1 < args.len() => {
+                vm_id = Some(args[i + 1].clone());
+                i += 1;
+            }
+            "--cpus" | "-c" if i + 1 < args.len() => {
+                if let Ok(c) = args[i + 1].parse::<u8>() {
+                    vcpu_count = c;
+                }
+                i += 1;
+            }
+            "--memory" | "-m" if i + 1 < args.len() => {
+                if let Ok(m) = args[i + 1].parse::<u32>() {
+                    memory_mb = m;
+                }
+                i += 1;
+            }
+            "--kernel" | "-k" if i + 1 < args.len() => {
+                kernel_image = args[i + 1].clone();
+                i += 1;
+            }
+            "--cmd" if i + 1 < args.len() => {
+                command = Some(args[i + 1].clone());
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    VmSpawnArgs {
+        vm_id,
+        vcpu_count,
+        memory_mb,
+        kernel_image,
+        command,
+    }
+}
+
 pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
 
     match sub {
         "spawn" | "start" | "run" => {
-            let mut vm_id = format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
-            let mut vcpu_count = 2u8;
-            let mut memory_mb = 512u32;
-            let mut kernel_image = "/boot/antos-vmlinuz".to_string();
-            let mut command = None;
-
-            let mut i = 1;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--id" if i + 1 < args.len() => {
-                        vm_id = args[i + 1].clone();
-                        i += 1;
-                    }
-                    "--cpus" | "-c" if i + 1 < args.len() => {
-                        if let Ok(c) = args[i + 1].parse::<u8>() {
-                            vcpu_count = c;
-                        }
-                        i += 1;
-                    }
-                    "--memory" | "-m" if i + 1 < args.len() => {
-                        if let Ok(m) = args[i + 1].parse::<u32>() {
-                            memory_mb = m;
-                        }
-                        i += 1;
-                    }
-                    "--kernel" | "-k" if i + 1 < args.len() => {
-                        kernel_image = args[i + 1].clone();
-                        i += 1;
-                    }
-                    "--cmd" if i + 1 < args.len() => {
-                        command = Some(args[i + 1].clone());
-                        i += 1;
-                    }
-                    _ => {}
-                }
-                i += 1;
-            }
+            let VmSpawnArgs {
+                vm_id,
+                vcpu_count,
+                memory_mb,
+                kernel_image,
+                command,
+            } = parse_vm_spawn_args(args);
+            let vm_id = vm_id
+                .unwrap_or_else(|| format!("vm-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
 
             println!(
                 "\n{} Instanciando microVM con aislamiento por hipervisor...",
@@ -1201,27 +1280,46 @@ pub fn cmd_vm(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ----------------------------------------------------------- antpkg (T16.2)
 
+/// Argumentos de `antos autopilot start` (T31.13).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AutopilotStartArgs {
+    pub interval: u64,
+    pub auto_merge: bool,
+}
+
+/// Analiza los argumentos de `antos autopilot start` (T31.13).
+fn parse_autopilot_start_args(args: &[String]) -> AutopilotStartArgs {
+    let mut interval = 5u64;
+    let mut auto_merge = false;
+    let mut i = 1;
+    while i < args.len() {
+        if (args[i] == "--interval" || args[i] == "-i") && i + 1 < args.len() {
+            if let Ok(v) = args[i + 1].parse::<u64>() {
+                interval = v;
+            }
+            i += 2;
+        } else if args[i] == "--auto-merge" || args[i] == "-m" {
+            auto_merge = true;
+            i += 1;
+        } else {
+            i += 1;
+        }
+    }
+    AutopilotStartArgs {
+        interval,
+        auto_merge,
+    }
+}
+
 pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
 
     match sub {
         "start" => {
-            let mut interval = 5u64;
-            let mut auto_merge = false;
-            let mut i = 1;
-            while i < args.len() {
-                if (args[i] == "--interval" || args[i] == "-i") && i + 1 < args.len() {
-                    if let Ok(v) = args[i + 1].parse::<u64>() {
-                        interval = v;
-                    }
-                    i += 2;
-                } else if args[i] == "--auto-merge" || args[i] == "-m" {
-                    auto_merge = true;
-                    i += 1;
-                } else {
-                    i += 1;
-                }
-            }
+            let AutopilotStartArgs {
+                interval,
+                auto_merge,
+            } = parse_autopilot_start_args(args);
 
             let config = antos_protocol::AutopilotConfig {
                 enabled: true,
@@ -1426,27 +1524,68 @@ pub fn cmd_autopilot(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ----------------------------------------------------- web console (T16.4)
 
+/// Argumentos de `antos web start` (T31.13).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WebStartArgs {
+    pub bind: String,
+    pub port: u16,
+}
+
+/// Analiza los argumentos de `antos web start` (T31.13).
+fn parse_web_start_args(args: &[String]) -> WebStartArgs {
+    let mut bind = "127.0.0.1".to_string();
+    let mut port = 8088u16;
+    let mut i = 1;
+    while i < args.len() {
+        if (args[i] == "--bind" || args[i] == "-b") && i + 1 < args.len() {
+            bind = args[i + 1].clone();
+            i += 2;
+        } else if (args[i] == "--port" || args[i] == "-p") && i + 1 < args.len() {
+            if let Ok(p) = args[i + 1].parse::<u16>() {
+                port = p;
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    WebStartArgs { bind, port }
+}
+
+/// Argumentos de `antos web token` (T31.13).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WebTokenArgs {
+    pub label: Option<String>,
+    pub ttl: Option<u64>,
+}
+
+/// Analiza los argumentos de `antos web token` (T31.13).
+fn parse_web_token_args(args: &[String]) -> WebTokenArgs {
+    let mut label = None;
+    let mut ttl = None;
+    let mut i = 1;
+    while i < args.len() {
+        if (args[i] == "--label" || args[i] == "-l") && i + 1 < args.len() {
+            label = Some(args[i + 1].clone());
+            i += 2;
+        } else if (args[i] == "--ttl" || args[i] == "-t") && i + 1 < args.len() {
+            if let Ok(v) = args[i + 1].parse::<u64>() {
+                ttl = Some(v);
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    WebTokenArgs { label, ttl }
+}
+
 pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
 
     match sub {
         "start" => {
-            let mut bind = "127.0.0.1".to_string();
-            let mut port = 8088u16;
-            let mut i = 1;
-            while i < args.len() {
-                if (args[i] == "--bind" || args[i] == "-b") && i + 1 < args.len() {
-                    bind = args[i + 1].clone();
-                    i += 2;
-                } else if (args[i] == "--port" || args[i] == "-p") && i + 1 < args.len() {
-                    if let Ok(p) = args[i + 1].parse::<u16>() {
-                        port = p;
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
+            let WebStartArgs { bind, port } = parse_web_start_args(args);
 
             let config = antos_protocol::WebConsoleConfig {
                 bind_addr: bind.clone(),
@@ -1493,22 +1632,7 @@ pub fn cmd_web(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
 
         "token" => {
-            let mut label = None;
-            let mut ttl = None;
-            let mut i = 1;
-            while i < args.len() {
-                if (args[i] == "--label" || args[i] == "-l") && i + 1 < args.len() {
-                    label = Some(args[i + 1].clone());
-                    i += 2;
-                } else if (args[i] == "--ttl" || args[i] == "-t") && i + 1 < args.len() {
-                    if let Ok(v) = args[i + 1].parse::<u64>() {
-                        ttl = Some(v);
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
+            let WebTokenArgs { label, ttl } = parse_web_token_args(args);
 
             println!(
                 "\n{} Generando token de autenticación...",
@@ -1721,3 +1845,221 @@ pub fn cmd_desktop(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // -------------------------------------------------------------------- barra
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn args_of(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    // -- antos bootloader probe ------------------------------------------
+
+    #[test]
+    fn test_parse_bootloader_probe_args_reads_the_esp_flag() {
+        let args = args_of(&["probe", "--esp", "/mnt/esp"]);
+        let parsed = parse_bootloader_probe_args(&args);
+        assert_eq!(parsed.esp_path, "/mnt/esp");
+    }
+
+    #[test]
+    fn test_parse_bootloader_probe_args_defaults_when_no_flag_is_given() {
+        let args = args_of(&["probe"]);
+        let parsed = parse_bootloader_probe_args(&args);
+        assert_eq!(parsed.esp_path, "/boot/efi");
+    }
+
+    #[test]
+    fn test_parse_bootloader_probe_args_ignores_a_trailing_flag_with_no_value() {
+        // Ejercita el límite exacto `i + 1 < args.len()`: «--esp» como último
+        // argumento no debe leer fuera de rango ni entrar en pánico.
+        let args = args_of(&["probe", "--esp"]);
+        let parsed = parse_bootloader_probe_args(&args);
+        assert_eq!(parsed.esp_path, "/boot/efi");
+    }
+
+    // -- antos bootloader install -----------------------------------------
+
+    #[test]
+    fn test_parse_bootloader_install_args_reads_every_flag() {
+        let args = args_of(&[
+            "install",
+            "--esp",
+            "/mnt/esp",
+            "--target",
+            "/dev/sda",
+            "--partition",
+            "2",
+            "--timeout",
+            "10",
+            "--apply",
+        ]);
+        let parsed = parse_bootloader_install_args(&args);
+        assert_eq!(
+            parsed,
+            BootloaderInstallArgs {
+                esp_path: "/mnt/esp".into(),
+                target_device: "/dev/sda".into(),
+                efi_partition: 2,
+                timeout_seconds: 10,
+                apply: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_bootloader_install_args_keeps_defaults_on_unparseable_numbers() {
+        // «--partition abc» no es un u32 válido: el valor por defecto se
+        // conserva en silencio, comportamiento preexistente que esta prueba
+        // fija (T31.13).
+        let args = args_of(&["install", "--partition", "abc", "--timeout", "nope"]);
+        let parsed = parse_bootloader_install_args(&args);
+        assert_eq!(parsed.efi_partition, 1);
+        assert_eq!(parsed.timeout_seconds, 5);
+        assert!(!parsed.apply);
+    }
+
+    #[test]
+    fn test_parse_bootloader_install_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["install", "--target"]);
+        let parsed = parse_bootloader_install_args(&args);
+        assert_eq!(parsed.target_device, "/dev/nvme0n1");
+    }
+
+    // -- antos vm spawn -----------------------------------------------------
+
+    #[test]
+    fn test_parse_vm_spawn_args_reads_every_flag() {
+        let args = args_of(&[
+            "spawn",
+            "--id",
+            "vm-test",
+            "--cpus",
+            "4",
+            "--memory",
+            "1024",
+            "--kernel",
+            "/boot/other-vmlinuz",
+            "--cmd",
+            "echo hi",
+        ]);
+        let parsed = parse_vm_spawn_args(&args);
+        assert_eq!(
+            parsed,
+            VmSpawnArgs {
+                vm_id: Some("vm-test".into()),
+                vcpu_count: 4,
+                memory_mb: 1024,
+                kernel_image: "/boot/other-vmlinuz".into(),
+                command: Some("echo hi".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_vm_spawn_args_keeps_defaults_on_an_unparseable_cpu_count() {
+        // «--cpus abc» no es un u8 válido: se conserva el valor por defecto
+        // en vez de entrar en pánico o de propagar un error (T31.13).
+        let args = args_of(&["spawn", "--cpus", "abc"]);
+        let parsed = parse_vm_spawn_args(&args);
+        assert_eq!(parsed.vcpu_count, 2);
+        assert_eq!(parsed.vm_id, None);
+    }
+
+    #[test]
+    fn test_parse_vm_spawn_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["spawn", "--memory"]);
+        let parsed = parse_vm_spawn_args(&args);
+        assert_eq!(parsed.memory_mb, 512);
+    }
+
+    // -- antos autopilot start -----------------------------------------------
+
+    #[test]
+    fn test_parse_autopilot_start_args_reads_both_flags() {
+        let args = args_of(&["start", "--interval", "30", "--auto-merge"]);
+        let parsed = parse_autopilot_start_args(&args);
+        assert_eq!(
+            parsed,
+            AutopilotStartArgs {
+                interval: 30,
+                auto_merge: true,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_autopilot_start_args_keeps_default_interval_on_garbage_input() {
+        let args = args_of(&["start", "--interval", "not-a-number"]);
+        let parsed = parse_autopilot_start_args(&args);
+        assert_eq!(parsed.interval, 5);
+        assert!(!parsed.auto_merge);
+    }
+
+    #[test]
+    fn test_parse_autopilot_start_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["start", "--interval"]);
+        let parsed = parse_autopilot_start_args(&args);
+        assert_eq!(parsed.interval, 5);
+    }
+
+    // -- antos web start / token ---------------------------------------------
+
+    #[test]
+    fn test_parse_web_start_args_reads_bind_and_port() {
+        let args = args_of(&["start", "--bind", "0.0.0.0", "--port", "9090"]);
+        let parsed = parse_web_start_args(&args);
+        assert_eq!(
+            parsed,
+            WebStartArgs {
+                bind: "0.0.0.0".into(),
+                port: 9090,
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_web_start_args_keeps_default_port_on_an_out_of_range_value() {
+        // 99999 no cabe en un u16: se conserva el puerto por defecto.
+        let args = args_of(&["start", "--port", "99999"]);
+        let parsed = parse_web_start_args(&args);
+        assert_eq!(parsed.port, 8088);
+    }
+
+    #[test]
+    fn test_parse_web_start_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["start", "--bind"]);
+        let parsed = parse_web_start_args(&args);
+        assert_eq!(parsed.bind, "127.0.0.1");
+    }
+
+    #[test]
+    fn test_parse_web_token_args_reads_label_and_ttl() {
+        let args = args_of(&["token", "--label", "laptop", "--ttl", "3600"]);
+        let parsed = parse_web_token_args(&args);
+        assert_eq!(
+            parsed,
+            WebTokenArgs {
+                label: Some("laptop".into()),
+                ttl: Some(3600),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_web_token_args_keeps_ttl_none_on_an_unparseable_value() {
+        let args = args_of(&["token", "--ttl", "forever"]);
+        let parsed = parse_web_token_args(&args);
+        assert_eq!(parsed.ttl, None);
+    }
+
+    #[test]
+    fn test_parse_web_token_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["token", "--label"]);
+        let parsed = parse_web_token_args(&args);
+        assert_eq!(parsed.label, None);
+    }
+}

@@ -1127,43 +1127,82 @@ pub fn cmd_env(ctx: &Ctx, args: &[String]) -> Result<()> {
 
 // ------------------------------------------------------------------ quota
 
+/// Sobrescrituras analizadas de `antos quota set [--timeout N] [--memory N]
+/// [--cpu N] [--pids N]`. Un campo en `None` significa «no se especificó»,
+/// así que `apply_to` solo toca los campos de la cuota que el usuario pidió
+/// cambiar; el resto conserva el valor previamente cargado (T31.13).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct QuotaSetArgs {
+    pub timeout_secs: Option<u64>,
+    pub max_memory_mb: Option<u64>,
+    pub cpu_quota_percent: Option<u32>,
+    pub max_pids: Option<u32>,
+}
+
+impl QuotaSetArgs {
+    /// Aplica las sobrescrituras presentes sobre una cuota existente.
+    fn apply_to(&self, q: &mut crate::sandbox::quota::ResourceQuota) {
+        if let Some(v) = self.timeout_secs {
+            q.timeout_secs = v;
+        }
+        if let Some(v) = self.max_memory_mb {
+            q.max_memory_mb = v;
+        }
+        if let Some(v) = self.cpu_quota_percent {
+            q.cpu_quota_percent = v;
+        }
+        if let Some(v) = self.max_pids {
+            q.max_pids = v;
+        }
+    }
+}
+
+/// Analiza los argumentos de `antos quota set`. Un valor no numérico
+/// (`--cpu abc`) se ignora en silencio, igual que antes de esta extracción
+/// (T31.13).
+fn parse_quota_set_args(args: &[String]) -> QuotaSetArgs {
+    let mut parsed = QuotaSetArgs::default();
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--timeout" | "-t" => {
+                if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
+                    parsed.timeout_secs = Some(val);
+                    i += 1;
+                }
+            }
+            "--memory" | "-m" => {
+                if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
+                    parsed.max_memory_mb = Some(val);
+                    i += 1;
+                }
+            }
+            "--cpu" | "-c" => {
+                if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
+                    parsed.cpu_quota_percent = Some(val);
+                    i += 1;
+                }
+            }
+            "--pids" | "-p" => {
+                if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
+                    parsed.max_pids = Some(val);
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    parsed
+}
+
 pub fn cmd_quota(ctx: &Ctx, args: &[String]) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
 
     match sub {
         "set" => {
             let mut q = crate::sandbox::quota::load_quota(&ctx.workspace)?;
-            let mut i = 1;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--timeout" | "-t" => {
-                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
-                            q.timeout_secs = val;
-                            i += 1;
-                        }
-                    }
-                    "--memory" | "-m" => {
-                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u64>().ok()) {
-                            q.max_memory_mb = val;
-                            i += 1;
-                        }
-                    }
-                    "--cpu" | "-c" => {
-                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
-                            q.cpu_quota_percent = val;
-                            i += 1;
-                        }
-                    }
-                    "--pids" | "-p" => {
-                        if let Some(val) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) {
-                            q.max_pids = val;
-                            i += 1;
-                        }
-                    }
-                    _ => {}
-                }
-                i += 1;
-            }
+            parse_quota_set_args(args).apply_to(&mut q);
 
             crate::sandbox::quota::save_quota(&ctx.workspace, &q)?;
             println!(
@@ -3446,3 +3485,80 @@ pub fn cmd_qa(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // -------------------------------------------------------- disk & partitioning (T15.1)
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    fn args_of(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    // -- antos quota set ------------------------------------------------
+
+    #[test]
+    fn test_parse_quota_set_args_reads_every_flag() {
+        let args = args_of(&[
+            "set",
+            "--timeout",
+            "120",
+            "--memory",
+            "2048",
+            "--cpu",
+            "80",
+            "--pids",
+            "64",
+        ]);
+        let parsed = parse_quota_set_args(&args);
+        assert_eq!(
+            parsed,
+            QuotaSetArgs {
+                timeout_secs: Some(120),
+                max_memory_mb: Some(2048),
+                cpu_quota_percent: Some(80),
+                max_pids: Some(64),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_quota_set_args_leaves_unparseable_values_unset() {
+        // «--cpu abc» no es un u32 válido: el campo queda en `None`, no se
+        // aplica ninguna sobrescritura para él (T31.13).
+        let args = args_of(&["set", "--cpu", "abc", "--pids", "nope"]);
+        let parsed = parse_quota_set_args(&args);
+        assert_eq!(parsed.cpu_quota_percent, None);
+        assert_eq!(parsed.max_pids, None);
+    }
+
+    #[test]
+    fn test_parse_quota_set_args_ignores_a_trailing_flag_with_no_value() {
+        let args = args_of(&["set", "--timeout"]);
+        let parsed = parse_quota_set_args(&args);
+        assert_eq!(parsed.timeout_secs, None);
+    }
+
+    #[test]
+    fn test_quota_set_args_apply_to_only_touches_specified_fields() {
+        let mut q = crate::sandbox::quota::ResourceQuota {
+            timeout_secs: 30,
+            max_memory_mb: 512,
+            cpu_quota_percent: 50,
+            max_pids: 32,
+        };
+        let overrides = QuotaSetArgs {
+            timeout_secs: Some(90),
+            max_memory_mb: None,
+            cpu_quota_percent: None,
+            max_pids: Some(16),
+        };
+        overrides.apply_to(&mut q);
+
+        assert_eq!(q.timeout_secs, 90);
+        assert_eq!(q.max_memory_mb, 512); // sin cambios: no se pidió
+        assert_eq!(q.cpu_quota_percent, 50); // sin cambios: no se pidió
+        assert_eq!(q.max_pids, 16);
+    }
+}

@@ -295,3 +295,147 @@ pub fn probe_network_from_inside() -> Result<()> {
     println!("{}", if reachable { "conectado" } else { "bloqueado" });
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+    use crate::grants::Grants;
+    use std::collections::BTreeSet;
+
+    fn blast_with(writes: &[&str], reads: &[&str], dirs: &[&str], network: &[&str]) -> Blast {
+        Blast {
+            writes: writes.iter().map(PathBuf::from).collect::<BTreeSet<_>>(),
+            reads: reads.iter().map(PathBuf::from).collect::<BTreeSet<_>>(),
+            dirs: dirs.iter().map(PathBuf::from).collect::<BTreeSet<_>>(),
+            network: network
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<BTreeSet<_>>(),
+            ..Blast::default()
+        }
+    }
+
+    #[test]
+    fn test_policy_from_blast_maps_writes_reads_and_dirs() {
+        let blast = blast_with(&["/ws/a.txt"], &["/ws/b.txt"], &["/ws/a.txt"], &[]);
+        let policy = Policy::from_blast(&blast);
+
+        assert_eq!(policy.writes, vec![PathBuf::from("/ws/a.txt")]);
+        assert_eq!(policy.reads, vec![PathBuf::from("/ws/b.txt")]);
+        assert_eq!(policy.dirs, vec![PathBuf::from("/ws/a.txt")]);
+    }
+
+    #[test]
+    fn test_policy_from_blast_network_true_when_blast_declares_a_host() {
+        let blast = blast_with(&[], &[], &[], &["api.anthropic.com"]);
+        let policy = Policy::from_blast(&blast);
+        assert!(policy.network);
+    }
+
+    #[test]
+    fn test_policy_from_blast_network_false_when_blast_has_no_hosts() {
+        let blast = blast_with(&[], &[], &[], &[]);
+        let policy = Policy::from_blast(&blast);
+        assert!(!policy.network);
+    }
+
+    #[test]
+    fn test_policy_from_blast_starts_with_no_allowed_secrets_or_quota() {
+        let blast = blast_with(&["/ws/a.txt"], &[], &[], &[]);
+        let policy = Policy::from_blast(&blast);
+        assert!(policy.allowed_secrets.is_empty());
+        assert!(policy.quota.is_none());
+    }
+
+    #[test]
+    fn test_with_grants_adds_workspace_env_when_secret_env_is_granted() {
+        let mut grants = Grants::default();
+        grants.grant("secret.env", 5);
+        let workspace = PathBuf::from("/ws");
+
+        let policy = Policy::default().with_grants(&grants, &workspace);
+
+        assert!(policy.allowed_secrets.contains(&workspace.join(".env")));
+    }
+
+    #[test]
+    fn test_with_grants_adds_workspace_env_when_the_broader_secret_read_is_granted() {
+        // `secret.read` es el grant "todo lo sensible", no solo `.env`.
+        let mut grants = Grants::default();
+        grants.grant("secret.read", 5);
+        let workspace = PathBuf::from("/ws");
+
+        let policy = Policy::default().with_grants(&grants, &workspace);
+
+        assert!(policy.allowed_secrets.contains(&workspace.join(".env")));
+    }
+
+    #[test]
+    fn test_with_grants_adds_nothing_when_no_relevant_grant_is_active() {
+        let grants = Grants::default();
+        let workspace = PathBuf::from("/ws");
+
+        let policy = Policy::default().with_grants(&grants, &workspace);
+
+        assert!(policy.allowed_secrets.is_empty());
+    }
+
+    #[test]
+    fn test_with_grants_ignores_an_unrelated_grant() {
+        let mut grants = Grants::default();
+        grants.grant("fs.delete", 5);
+        let workspace = PathBuf::from("/ws");
+
+        let policy = Policy::default().with_grants(&grants, &workspace);
+
+        assert!(policy.allowed_secrets.is_empty());
+    }
+
+    #[test]
+    fn test_with_grants_ignores_an_expired_grant() {
+        let mut grants = Grants::default();
+        // Caducidad ya pasada, insertada directamente para no depender del reloj.
+        grants.until.insert("secret.env".into(), 1);
+        let workspace = PathBuf::from("/ws");
+
+        let policy = Policy::default().with_grants(&grants, &workspace);
+
+        assert!(policy.allowed_secrets.is_empty());
+    }
+
+    #[test]
+    fn test_sin_secretos_removes_anthropic_credentials_from_the_command_env() {
+        let mut cmd = Command::new("true");
+        cmd.env("ANTHROPIC_API_KEY", "sk-test");
+        cmd.env("ANTHROPIC_AUTH_TOKEN", "tok-test");
+        cmd.env("ANTHROPIC_API_KEY_FILE", "/tmp/key");
+        cmd.env("SOMETHING_UNRELATED", "keep-me");
+
+        sin_secretos(&mut cmd);
+
+        let envs: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        // `Command::env_remove` records an explicit removal (`None`), it
+        // does not just leave the variable absent from the override map —
+        // that is what actually stops the child from inheriting it even if
+        // the parent process has it set.
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("ANTHROPIC_API_KEY")),
+            Some(&None)
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("ANTHROPIC_AUTH_TOKEN")),
+            Some(&None)
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("ANTHROPIC_API_KEY_FILE")),
+            Some(&None)
+        );
+        assert_eq!(
+            envs.get(std::ffi::OsStr::new("SOMETHING_UNRELATED"))
+                .and_then(|v| *v),
+            Some(std::ffi::OsStr::new("keep-me"))
+        );
+    }
+}
