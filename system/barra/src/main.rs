@@ -437,51 +437,87 @@ fn build_ui(app: &Application) {
     }
 }
 
+/// Ejecuta `work` en un hilo de trabajo —solo I/O de socket, su resultado debe
+/// ser `Send`— y aplica `apply` en el hilo principal de GTK con ese resultado.
+///
+/// Los objetos de `gtk4` y los `Rc` que toca `apply` nunca salen del hilo
+/// principal: solo cruza el valor `T: Send`. Es el mismo patrón que
+/// `dispatch_intent` / `listen_events` (un hilo que solo hace I/O y `send`, y un
+/// `timeout_add_local` que consume el `Receiver` y toca la interfaz),
+/// generalizado para un único resultado. Sondear cada 50 ms es más que
+/// suficiente para una respuesta de socket local y evita quemar el bucle
+/// principal.
+fn run_offthread<T, W, A>(work: W, apply: A)
+where
+    T: Send + 'static,
+    W: FnOnce() -> T + Send + 'static,
+    A: Fn(T) + 'static,
+{
+    let (sender, receiver) = channel::<T>();
+    std::thread::spawn(move || {
+        let _ = sender.send(work());
+    });
+    gtk4::glib::timeout_add_local(std::time::Duration::from_millis(50), move || match receiver
+        .try_recv()
+    {
+        Ok(value) => {
+            apply(value);
+            gtk4::glib::ControlFlow::Break
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => gtk4::glib::ControlFlow::Continue,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => gtk4::glib::ControlFlow::Break,
+    });
+}
+
+/// Resultado de `query_git_status_async`, despachado en el hilo principal.
+enum GitBadgeUpdate {
+    Offline,
+    Status(GitRepoStatus),
+    Fallback,
+}
+
 /// Asynchronously queries the active repository Git status.
 fn query_git_status_async(git_badge: Label) {
-    std::thread::spawn(move || {
-        let path = socket_path();
-        let Ok(mut stream) = UnixStream::connect(&path) else {
-            gtk4::glib::idle_add_local(move || {
-                git_badge.set_text("● offline");
-                git_badge.add_css_class("offline");
-                gtk4::glib::ControlFlow::Break
-            });
-            return;
-        };
+    run_offthread(
+        || -> GitBadgeUpdate {
+            let path = socket_path();
+            let Ok(mut stream) = UnixStream::connect(&path) else {
+                return GitBadgeUpdate::Offline;
+            };
 
-        let current_dir = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| ".".into());
+            let current_dir = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| ".".into());
 
-        let req = Request::QueryGitStatus {
-            workspace_path: current_dir,
-        };
+            let req = Request::QueryGitStatus {
+                workspace_path: current_dir,
+            };
 
-        if let Ok(json) = serde_json::to_string(&req) {
-            let _ = writeln!(stream, "{json}");
-            let _ = stream.flush();
+            if let Ok(json) = serde_json::to_string(&req) {
+                let _ = writeln!(stream, "{json}");
+                let _ = stream.flush();
 
-            let mut reader = BufReader::new(stream);
-            let mut line = String::new();
-            if reader.read_line(&mut line).is_ok() {
-                if let Ok(event) = serde_json::from_str::<Event>(line.trim()) {
-                    if let Event::GitStatus(status) = event {
-                        gtk4::glib::idle_add_local(move || {
-                            update_git_badge(&git_badge, &status);
-                            gtk4::glib::ControlFlow::Break
-                        });
-                        return;
+                let mut reader = BufReader::new(stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_ok() {
+                    if let Ok(Event::GitStatus(status)) = serde_json::from_str::<Event>(line.trim())
+                    {
+                        return GitBadgeUpdate::Status(status);
                     }
                 }
             }
-        }
 
-        gtk4::glib::idle_add_local(move || {
-            git_badge.set_text("🌿 antOS");
-            gtk4::glib::ControlFlow::Break
-        });
-    });
+            GitBadgeUpdate::Fallback
+        },
+        move |update| match update {
+            GitBadgeUpdate::Offline => {
+                git_badge.set_text("● offline");
+                git_badge.add_css_class("offline");
+            }
+            GitBadgeUpdate::Status(status) => update_git_badge(&git_badge, &status),
+            GitBadgeUpdate::Fallback => git_badge.set_text("🌿 antOS"),
+        },
+    );
 }
 
 fn update_git_badge(badge: &Label, status: &GitRepoStatus) {
@@ -503,35 +539,31 @@ fn query_telemetry_async(
     pair_badge: Label,
     mesh_badge: Label,
 ) {
-    std::thread::spawn(move || {
-        let path = socket_path();
-        let Ok(mut stream) = UnixStream::connect(&path) else {
-            return;
-        };
+    run_offthread(
+        || -> Option<antos_protocol::BarraTelemetry> {
+            let path = socket_path();
+            let mut stream = UnixStream::connect(&path).ok()?;
 
-        let req = Request::QueryBarraTelemetry;
-        if let Ok(json) = serde_json::to_string(&req) {
-            let _ = writeln!(stream, "{json}");
-            let _ = stream.flush();
+            let req = Request::QueryBarraTelemetry;
+            let json = serde_json::to_string(&req).ok()?;
+            writeln!(stream, "{json}").ok()?;
+            stream.flush().ok()?;
 
             let mut reader = BufReader::new(stream);
             let mut line = String::new();
-            if reader.read_line(&mut line).is_ok() {
-                if let Ok(Event::BarraTelemetryStatus(t)) =
-                    serde_json::from_str::<Event>(line.trim())
-                {
-                    let eb = ebpf_badge.clone();
-                    let pb = profiler_badge.clone();
-                    let prb = pair_badge.clone();
-                    let mb = mesh_badge.clone();
-                    gtk4::glib::idle_add_local(move || {
-                        update_telemetry_badges(&eb, &pb, &prb, &mb, &t);
-                        gtk4::glib::ControlFlow::Break
-                    });
-                }
+            reader.read_line(&mut line).ok()?;
+
+            match serde_json::from_str::<Event>(line.trim()) {
+                Ok(Event::BarraTelemetryStatus(t)) => Some(t),
+                _ => None,
             }
-        }
-    });
+        },
+        move |telemetry| {
+            if let Some(t) = telemetry {
+                update_telemetry_badges(&ebpf_badge, &profiler_badge, &pair_badge, &mesh_badge, &t);
+            }
+        },
+    );
 }
 
 fn update_telemetry_badges(
@@ -595,53 +627,59 @@ fn load_kanban_board_async(
         "radio",
     ));
 
-    std::thread::spawn(move || {
-        let path = socket_path();
-        let current_dir = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| ".".into());
+    run_offthread(
+        || -> (Vec<TicketSummary>, Vec<FlowTask>) {
+            let path = socket_path();
+            let current_dir = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| ".".into());
 
-        let mut tickets = Vec::new();
-        let mut flows = Vec::new();
+            let mut tickets = Vec::new();
+            let mut flows = Vec::new();
 
-        if let Ok(mut stream) = UnixStream::connect(&path) {
-            // 1. Fetch tickets
-            let req_tickets = Request::ListTickets {
-                workspace_path: current_dir.clone(),
-            };
-            if let Ok(json) = serde_json::to_string(&req_tickets) {
-                let _ = writeln!(stream, "{json}");
-                let _ = stream.flush();
+            if let Ok(mut stream) = UnixStream::connect(&path) {
+                // 1. Fetch tickets
+                let req_tickets = Request::ListTickets {
+                    workspace_path: current_dir.clone(),
+                };
+                if let Ok(json) = serde_json::to_string(&req_tickets) {
+                    let _ = writeln!(stream, "{json}");
+                    let _ = stream.flush();
 
-                let mut reader = BufReader::new(&stream);
-                let mut line = String::new();
-                if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Event::TicketList(list)) = serde_json::from_str::<Event>(line.trim())
-                    {
-                        tickets = list;
+                    let mut reader = BufReader::new(&stream);
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_ok() {
+                        if let Ok(Event::TicketList(list)) =
+                            serde_json::from_str::<Event>(line.trim())
+                        {
+                            tickets = list;
+                        }
+                    }
+                }
+
+                // 2. Fetch flows
+                let req_flows = Request::ListFlows {
+                    workspace_path: current_dir,
+                };
+                if let Ok(json) = serde_json::to_string(&req_flows) {
+                    let _ = writeln!(stream, "{json}");
+                    let _ = stream.flush();
+
+                    let mut reader = BufReader::new(&stream);
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_ok() {
+                        if let Ok(Event::FlowList(list)) =
+                            serde_json::from_str::<Event>(line.trim())
+                        {
+                            flows = list;
+                        }
                     }
                 }
             }
 
-            // 2. Fetch flows
-            let req_flows = Request::ListFlows {
-                workspace_path: current_dir,
-            };
-            if let Ok(json) = serde_json::to_string(&req_flows) {
-                let _ = writeln!(stream, "{json}");
-                let _ = stream.flush();
-
-                let mut reader = BufReader::new(&stream);
-                let mut line = String::new();
-                if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Event::FlowList(list)) = serde_json::from_str::<Event>(line.trim()) {
-                        flows = list;
-                    }
-                }
-            }
-        }
-
-        gtk4::glib::idle_add_local(move || {
+            (tickets, flows)
+        },
+        move |(tickets, flows)| {
             empty_box(&content);
             render_kanban_view(
                 &content,
@@ -650,9 +688,8 @@ fn load_kanban_board_async(
                 input.clone(),
                 stream_writer.clone(),
             );
-            gtk4::glib::ControlFlow::Break
-        });
-    });
+        },
+    );
 }
 
 /// Renders the 4-column visual Kanban board and active agent monitor.
@@ -1304,109 +1341,109 @@ fn create_app_icon_widget(app: &LauncherAppItem) -> GtkBox {
 
 /// Dispatches the launch request to the daemon with automatic workspace context injection.
 fn launch_desktop_application_async(app: LauncherAppItem, window: ApplicationWindow) {
-    std::thread::spawn(move || {
-        let workspace = std::env::var("ANTOS_WORKSPACE").unwrap_or_else(|_| {
-            std::env::current_dir()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|| ".".to_string())
-        });
+    run_offthread(
+        move || {
+            let workspace = std::env::var("ANTOS_WORKSPACE").unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| ".".to_string())
+            });
 
-        let args = inject_workspace_args(&app, &workspace, &[]);
+            let args = inject_workspace_args(&app, &workspace, &[]);
 
-        let path = socket_path();
-        if let Ok(mut stream) = UnixStream::connect(&path) {
-            let req = Request::LaunchApp {
-                id: app.id.clone(),
-                workspace: Some(workspace.clone()),
-                args: args.clone(),
-            };
+            let path = socket_path();
+            if let Ok(mut stream) = UnixStream::connect(&path) {
+                let req = Request::LaunchApp {
+                    id: app.id.clone(),
+                    workspace: Some(workspace.clone()),
+                    args: args.clone(),
+                };
 
-            if let Ok(json) = serde_json::to_string(&req) {
-                let _ = writeln!(stream, "{json}");
-                let _ = stream.flush();
+                if let Ok(json) = serde_json::to_string(&req) {
+                    let _ = writeln!(stream, "{json}");
+                    let _ = stream.flush();
+                }
+            } else {
+                // Local fallback spawn if daemon socket is unreachable
+                let wayland_display =
+                    std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
+                let first_token = app.exec.split_whitespace().next().unwrap_or(&app.id);
+                let mut cmd = std::process::Command::new(first_token);
+                for a in &args {
+                    cmd.arg(a);
+                }
+                cmd.env("WAYLAND_DISPLAY", wayland_display);
+                cmd.env("XDG_CURRENT_DESKTOP", "antOS");
+                cmd.env("ANTOS_WORKSPACE", &workspace);
+                let _ = cmd.spawn();
             }
-        } else {
-            // Local fallback spawn if daemon socket is unreachable
-            let wayland_display =
-                std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-0".to_string());
-            let first_token = app.exec.split_whitespace().next().unwrap_or(&app.id);
-            let mut cmd = std::process::Command::new(first_token);
-            for a in &args {
-                cmd.arg(a);
-            }
-            cmd.env("WAYLAND_DISPLAY", wayland_display);
-            cmd.env("XDG_CURRENT_DESKTOP", "antOS");
-            cmd.env("ANTOS_WORKSPACE", &workspace);
-            let _ = cmd.spawn();
-        }
-
-        gtk4::glib::idle_add_local(move || {
-            window.close();
-            gtk4::glib::ControlFlow::Break
-        });
-    });
+        },
+        move |()| window.close(),
+    );
 }
 
 /// Loads installed applications from antpkg and Flatpak via the antOS daemon.
 fn load_installed_apps_async(installed_apps: Rc<RefCell<Vec<LauncherAppItem>>>) {
-    std::thread::spawn(move || {
-        let path = socket_path();
-        let mut apps = Vec::new();
+    run_offthread(
+        || -> Vec<LauncherAppItem> {
+            let path = socket_path();
+            let mut apps = Vec::new();
 
-        if let Ok(mut stream) = UnixStream::connect(&path) {
-            // 1. Query antpkg desktop apps
-            let req = Request::ListDesktopApps;
-            if let Ok(json) = serde_json::to_string(&req) {
-                let _ = writeln!(stream, "{json}");
-                let _ = stream.flush();
+            if let Ok(mut stream) = UnixStream::connect(&path) {
+                // 1. Query antpkg desktop apps
+                let req = Request::ListDesktopApps;
+                if let Ok(json) = serde_json::to_string(&req) {
+                    let _ = writeln!(stream, "{json}");
+                    let _ = stream.flush();
 
-                let mut reader = BufReader::new(&stream);
-                let mut line = String::new();
-                if reader.read_line(&mut line).is_ok() {
-                    if let Ok(Event::DesktopAppList(list)) =
-                        serde_json::from_str::<Event>(line.trim())
-                    {
-                        for item in list {
-                            apps.push(LauncherAppItem::from_desktop_summary(&item));
+                    let mut reader = BufReader::new(&stream);
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_ok() {
+                        if let Ok(Event::DesktopAppList(list)) =
+                            serde_json::from_str::<Event>(line.trim())
+                        {
+                            for item in list {
+                                apps.push(LauncherAppItem::from_desktop_summary(&item));
+                            }
                         }
                     }
                 }
-            }
 
-            // 2. Query general apps (Flatpak / Host)
-            if let Ok(mut stream2) = UnixStream::connect(&path) {
-                let req_apps = Request::ListApps { source: None };
-                if let Ok(json) = serde_json::to_string(&req_apps) {
-                    let _ = writeln!(stream2, "{json}");
-                    let _ = stream2.flush();
+                // 2. Query general apps (Flatpak / Host)
+                if let Ok(mut stream2) = UnixStream::connect(&path) {
+                    let req_apps = Request::ListApps { source: None };
+                    if let Ok(json) = serde_json::to_string(&req_apps) {
+                        let _ = writeln!(stream2, "{json}");
+                        let _ = stream2.flush();
 
-                    let mut reader2 = BufReader::new(&stream2);
-                    let mut line2 = String::new();
-                    if reader2.read_line(&mut line2).is_ok() {
-                        if let Ok(Event::AppList(list)) =
-                            serde_json::from_str::<Event>(line2.trim())
-                        {
-                            for item in list {
-                                if !apps.iter().any(|a| a.id == item.id) {
-                                    apps.push(LauncherAppItem::from_desktop_app(&item));
+                        let mut reader2 = BufReader::new(&stream2);
+                        let mut line2 = String::new();
+                        if reader2.read_line(&mut line2).is_ok() {
+                            if let Ok(Event::AppList(list)) =
+                                serde_json::from_str::<Event>(line2.trim())
+                            {
+                                for item in list {
+                                    if !apps.iter().any(|a| a.id == item.id) {
+                                        apps.push(LauncherAppItem::from_desktop_app(&item));
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // If daemon returned no apps (e.g. initial run or offline), provide curated defaults
-        if apps.is_empty() {
-            apps = get_default_catalog_apps();
-        }
+            // If daemon returned no apps (e.g. initial run or offline), provide curated defaults
+            if apps.is_empty() {
+                apps = get_default_catalog_apps();
+            }
 
-        gtk4::glib::idle_add_local(move || {
+            apps
+        },
+        move |apps| {
             *installed_apps.borrow_mut() = apps;
-            gtk4::glib::ControlFlow::Break
-        });
-    });
+        },
+    );
 }
 
 /// Fallback catalog apps for demo and offline execution.

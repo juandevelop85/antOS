@@ -151,6 +151,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ✅ Completado |
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ✅ Completado |
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ✅ Completado |
+| **Fase 31** | [T31.17](T31.17-la-vm-de-antos-nixos-no-se-construye.md) | La VM de antOS NixOS No Se Construye: Dos Roturas Latentes en el Camino Nix | ✅ Completado |
 
 ---
 
@@ -322,10 +323,33 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   la alineación de 8 bytes que el asignador de lista enlazada exige,
   corregido con `#[repr(align(16))]`; ningún test quedó en `#[ignore]`).
 
-Con T31.16 se completan los dieciséis tickets de la Fase 31.
+Con T31.16 se completan los dieciséis tickets originales de la Fase 31.
+
+- **La VM de antOS NixOS no se construía (T31.17).** Verificar la VM gráfica de
+  antOS Linux (T30.2) destapó **dos roturas latentes**, ambas en el camino de
+  compilación de Nix, que **ninguna prueba de CI recorre** — la CI solo
+  compila el workspace del anfitrión con `cargo` sobre el árbol entero
+  (**✅ T31.17 resuelto**):
+  1. **`antos-barra` no enlazaba:** cinco funciones movían widgets de `gtk4`
+     (`Label`, `Box`, `ApplicationWindow`) y punteros `Rc<RefCell<…>>` dentro
+     de closures pasados a `std::thread::spawn`, que exige `Send`. Helper
+     `run_offthread(work, apply)` —el hilo solo hace I/O de socket y devuelve
+     datos `Send`; un `timeout_add_local` en el hilo principal consume el
+     `Receiver` y toca la interfaz, el mismo patrón que
+     `dispatch_intent`/`listen_events`— más el arreglo de un `E0593`. 9
+     errores procedentes de T4.1, T13.1 y T25.4. Los trabajos de CI
+     `antos-linux-desktop` y `clippy-barra` llevaban en rojo desde entonces
+     sin bloquear cierres; los tests de barra de T31.13 se ejecutan por
+     primera vez.
+  2. **El paquete `antosd` no compilaba:** `system/nixos/package.nix` pasó en
+     T31.12 a un `fileset` explícito de `src` que dejó fuera `recipes/` y
+     `system/desktop/rc.xml`, justo lo que `antosd` embebe con `include_str!`
+     (12 `error: couldn't read …`). Añadidos al conjunto. Vivo desde T31.12;
+     invisible porque no hay job que construya por Nix — queda anotado como
+     ticket propio.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
 ~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~ →
-~~T31.16~~. Fase 31 completa; los candidatos siguientes son los tickets de
-Fase 30 (T30.1–T30.5) que el catálogo aún marca `🔄 En Progreso`.
+~~T31.16~~ → ~~T31.17~~. Fase 31 completa; los candidatos siguientes son los
+tickets de Fase 30 (T30.1–T30.5) que el catálogo aún marca `🔄 En Progreso`.
