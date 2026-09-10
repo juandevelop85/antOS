@@ -136,6 +136,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | 🔄 En Progreso |
 | **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso |
 | **Fase 30** | [T30.6](T30.6-escritorio-tradicional-opcional-sobre-labwc.md) | Escritorio Tradicional Opcional sobre Labwc (panel, lanzador, fondo, notificaciones) | ✅ Completado |
+| **Fase 30** | [T30.7](T30.7-arranque-acelerado-de-la-vm-grafica-en-macos-hvf.md) | Arranque Acelerado de la VM Gráfica en macOS (HVF) | ✅ Completado |
 | **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ✅ Completado |
 | **Fase 31** | [T31.2](T31.2-ciclo-de-vida-y-limites-de-recursos-del-servidor-de-consola-web.md) | Ciclo de Vida y Límites de Recursos del Servidor de Consola Web | ✅ Completado |
 | **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ✅ Completado |
@@ -373,6 +374,17 @@ Con T31.16 se completan los dieciséis tickets originales de la Fase 31.
   `cache.nixos.org` sirve prehecho casi todo, así que descarga mucho y compila
   poco. Habría fallado ante T31.17 y ante un `fileset` de `package.nix`
   incompleto. `.#iso` queda para un job *nightly*).
+
+Además, en Fase 30: **escritorio tradicional sobre Labwc (T30.6)** —opción
+`services.antos.desktop.panel` con `waybar`/`fuzzel`/`swaybg`/`mako` y menú de
+clic derecho, sin dejar de ser una sesión `wlroots` ligera; el propio arranque
+destapó que labwc no se sostiene bajo TCG (`libseat`/`logind` timeout) y que un
+reinicio de `greetd` apilaba clientes, corregido con un `autostart`
+idempotente— y **arranque acelerado en macOS (T30.7)**:
+`system/arrancar-vm-macos.sh` construye la ISO en vivo en el contenedor y la
+arranca con `qemu -accel hvf` **en el host**, donde el invitado AArch64 va casi
+a velocidad nativa y la sesión Wayland arranca en segundos. Verificado: la ISO
+arranca por HVF hasta consola con `antos-doctor` pasando y el demonio corriendo.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →

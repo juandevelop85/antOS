@@ -2,6 +2,18 @@
 
 Esta guía proporciona instrucciones detalladas, actualizadas y verificadas paso a paso para compilar, generar imágenes de disco arrancables e ISOs de **antOS**, y ejecutarlas con éxito en los hipervisores y emuladores gráficos más comunes (**UTM 4.x** en macOS y **VirtualBox 7.x**), así como en **QEMU** directo desde la terminal.
 
+> 🚀 **Vía corta para el escritorio antOS Linux en macOS (T30.7).**
+> `system/arrancar-vm-macos.sh` construye la ISO en vivo en un contenedor
+> (sin Nix en macOS) y la arranca en **QEMU sobre el host con `-accel hvf`**:
+> el invitado AArch64 va casi a velocidad nativa y la sesión Wayland
+> (Labwc + `antos-barra` + panel) arranca en segundos. Es lo contrario de
+> `system/arrancar-vm.sh --grafica`, que corre QEMU **dentro** del contenedor
+> sin aceleración (TCG) y ahí el escritorio no se sostiene. Uso:
+> `system/arrancar-vm-macos.sh` (gráfico), `--build-only` (solo la ISO en
+> `target/antos-linux-aarch64.iso`), `--headless` (serie), `--rebuild`.
+> En **UTM**: importa esa misma ISO, Display `virtio-gpu-pci`, entrada USB,
+> ≥ 3 GiB de RAM — UTM usa HVF solo para invitados ARM64.
+
 ---
 
 ## 📑 Tabla de Contenidos
