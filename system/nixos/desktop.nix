@@ -238,8 +238,8 @@ in
 
       fileManager = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.xfce.thunar;
-        defaultText = lib.literalExpression "pkgs.xfce.thunar";
+        default = pkgs.thunar;
+        defaultText = lib.literalExpression "pkgs.thunar";
         description = "Gestor de archivos gráfico.";
       };
 

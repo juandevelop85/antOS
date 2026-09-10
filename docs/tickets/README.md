@@ -154,6 +154,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ✅ Completado |
 | **Fase 31** | [T31.17](T31.17-la-vm-de-antos-nixos-no-se-construye.md) | La VM de antOS NixOS No Se Construye: Dos Roturas Latentes en el Camino Nix | ✅ Completado |
 | **Fase 31** | [T31.18](T31.18-el-modulo-nixos-de-antos-no-arranca-el-demonio.md) | El Módulo NixOS de antOS No Arranca el Demonio | ✅ Completado |
+| **Fase 31** | [T31.19](T31.19-la-ci-no-construye-por-nix.md) | La CI No Construye por Nix | ✅ Completado |
 
 ---
 
@@ -363,9 +364,18 @@ Con T31.16 se completan los dieciséis tickets originales de la Fase 31.
   de ese usuario. Headless con `user = "root"`: sin cambios. Verificado en la
   VM: `antos.service active (running)`, socket `srw------- antos`).
 
+- **La CI no construía por Nix (T31.19).** El hueco que dejó pasar T31.17 y
+  T31.18: `ci.yml` compilaba el workspace del anfitrión con `cargo` y el árbol
+  entero, pero ningún job hacía `nix build` del paquete `antosd`, de
+  `antos-barra` ni del sistema NixOS (**✅ T31.19 resuelto**: nuevo job
+  `nix-build` que hace `nix flake check` y `nix build` de `.#antosd`,
+  `.#antos-barra` y el `toplevel` de `antos-vm` y `antos-desktop-vm`;
+  `cache.nixos.org` sirve prehecho casi todo, así que descarga mucho y compila
+  poco. Habría fallado ante T31.17 y ante un `fileset` de `package.nix`
+  incompleto. `.#iso` queda para un job *nightly*).
+
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
 ~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~ →
-~~T31.16~~ → ~~T31.17~~ → ~~T31.18~~. Fase 31 completa; los candidatos
-siguientes son los tickets de Fase 30 (T30.1–T30.5) que el catálogo aún marca
-`🔄 En Progreso`.
+~~T31.16~~ → ~~T31.17~~ → ~~T31.18~~ → ~~T31.19~~. Fase 31 completa; los
+candidatos siguientes son los tickets de Fase 30 (T30.1–T30.6).

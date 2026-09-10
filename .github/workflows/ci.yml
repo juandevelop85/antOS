@@ -490,3 +490,43 @@ jobs:
       # installed above) even though the tests themselves never touch GTK.
       - name: Test (system/barra)
         run: cargo test --manifest-path system/barra/Cargo.toml
+
+  # ──────────────────────────────────────────────── Nix · build del flake
+  # T31.19: la CI compilaba el workspace del anfitrión con `cargo` y el árbol
+  # entero disponible, pero NADA construía por Nix. Por eso T31.17 (barra que
+  # no enlazaba, `fileset` de `package.nix` sin `recipes/`) y T31.18 pasaron
+  # sin que la CI dijera nada. `cache.nixos.org` sirve prehecho casi todo, así
+  # que este job descarga mucho pero compila poco (solo las derivaciones
+  # propias de antOS).
+  nix-build:
+    name: "Nix · build del flake"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar disco del runner
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup || true
+          df -h /
+
+      - name: Instalar Nix (nix-command + flakes)
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: nix flake check (evaluación)
+        run: nix flake check --no-build --show-trace
+
+      - name: Build · antosd
+        run: nix build .#antosd --print-build-logs
+
+      - name: Build · antos-barra
+        run: nix build .#antos-barra --print-build-logs
+
+      - name: Build · sistema NixOS headless (antos-vm)
+        run: nix build .#nixosConfigurations.antos-vm.config.system.build.toplevel --print-build-logs
+
+      - name: Build · sistema con escritorio (antos-desktop-vm)
+        run: nix build .#nixosConfigurations.antos-desktop-vm.config.system.build.toplevel --print-build-logs
