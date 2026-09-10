@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
 # antOS Desktop · Wayland Session Autostart
 # Launched automatically by the compositor on session start.
+#
+# Idempotente (T30.6): si el compositor reinicia la sesión —greetd hace justo
+# eso cuando el compositor sale, y bajo emulación el primer arranque en frío
+# puede tardar de más y provocarlo—, este guion no debe dejar dos
+# `antos-barra` (ni dos de nada) apilados. De ahí el `pgrep -f` antes de cada
+# lanzamiento.
 set -euo pipefail
 
-# 1. Ensure antOS daemon is running
-if ! pgrep -x "antosd" >/dev/null 2>&1; then
-    if command -v antosd >/dev/null 2>&1; then
-        antosd >/dev/null 2>&1 &
-    elif [ -x "./target/debug/antosd" ]; then
-        ./target/debug/antosd >/dev/null 2>&1 &
-    fi
+# 1. Ensure antOS daemon is running.
+#    En NixOS el demonio es un servicio systemd (T31.18) y esta rama no hace
+#    nada; en un Linux de desarrollo con el binario en el PATH, lo levanta.
+if command -v antosd >/dev/null 2>&1; then
+    pgrep -x antosd >/dev/null 2>&1 || antosd >/dev/null 2>&1 &
+elif [ -x "./target/debug/antosd" ]; then
+    pgrep -f "target/debug/antosd" >/dev/null 2>&1 || ./target/debug/antosd >/dev/null 2>&1 &
 fi
 
-# 2. Launch antOS Desktop Bar (GTK4 Layer-Shell)
+# 2. Launch antOS Desktop Bar (GTK4 Layer-Shell).
 if command -v antos-barra >/dev/null 2>&1; then
-    antos-barra >/dev/null 2>&1 &
+    pgrep -f antos-barra >/dev/null 2>&1 || antos-barra >/dev/null 2>&1 &
 elif [ -x "./system/barra/target/debug/antos-barra" ]; then
-    ./system/barra/target/debug/antos-barra >/dev/null 2>&1 &
+    pgrep -f antos-barra >/dev/null 2>&1 || ./system/barra/target/debug/antos-barra >/dev/null 2>&1 &
 fi

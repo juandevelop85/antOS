@@ -58,14 +58,21 @@ let
   panelAutostart = ''
 
     # ── Escritorio tradicional (T30.6) ──
-    ${pkgs.swaybg}/bin/swaybg ${
+    # `_a` lanza en segundo plano solo si no hay ya una instancia: la sesión
+    # de greetd se reinicia cuando el compositor sale (y el primer arranque en
+    # frío bajo emulación puede provocarlo), y sin esta guarda quedarían dos
+    # de cada cliente apilados. El `sleep` da margen a que el compositor tenga
+    # el socket Wayland listo antes de conectar el panel.
+    _a() { p="$1"; shift; if ! pgrep -f "$p" >/dev/null 2>&1; then "$@" >/dev/null 2>&1 & fi; }
+    sleep 1
+    _a 'swaybg' ${pkgs.swaybg}/bin/swaybg ${
       if cfg.panel.wallpaper != null
-      then ''-i "${cfg.panel.wallpaper}"''
-      else "-c 1a1b26"
-    } -m fill >/dev/null 2>&1 &
-    ${lib.getExe cfg.panel.package} -c /etc/antos/desktop/waybar/config -s /etc/antos/desktop/waybar/style.css >/dev/null 2>&1 &
-    ${pkgs.mako}/bin/mako >/dev/null 2>&1 &
-    ${pkgs.swayidle}/bin/swayidle -w timeout 600 '${pkgs.swaylock}/bin/swaylock -f' >/dev/null 2>&1 &
+      then ''-i "${cfg.panel.wallpaper}" -m fill''
+      else "-c '#1a1b26'"
+    }
+    _a 'waybar -c /etc/antos' ${lib.getExe cfg.panel.package} -c /etc/antos/desktop/waybar/config -s /etc/antos/desktop/waybar/style.css
+    _a 'bin/mako' ${pkgs.mako}/bin/mako
+    _a 'swayidle' ${pkgs.swayidle}/bin/swayidle -w timeout 600 '${pkgs.swaylock}/bin/swaylock -f'
   '';
 
   sessionAutostart = pkgs.writeShellScript "antos-autostart"
