@@ -107,6 +107,11 @@ in
     # El escritorio implica el demonio.
     services.antos.enable = lib.mkDefault true;
 
+    # El socket IPC se crea `0600` (T31.8): para que `antos-barra` pueda
+    # hablar con el demonio, este tiene que correr como el mismo usuario que
+    # la sesión Wayland (T31.18).
+    services.antos.user = lib.mkDefault cfg.autologinUser;
+
     environment.systemPackages = [
       cfg.compositor
       cfg.barra

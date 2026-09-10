@@ -152,6 +152,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ✅ Completado |
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ✅ Completado |
 | **Fase 31** | [T31.17](T31.17-la-vm-de-antos-nixos-no-se-construye.md) | La VM de antOS NixOS No Se Construye: Dos Roturas Latentes en el Camino Nix | ✅ Completado |
+| **Fase 31** | [T31.18](T31.18-el-modulo-nixos-de-antos-no-arranca-el-demonio.md) | El Módulo NixOS de antOS No Arranca el Demonio | ✅ Completado |
 
 ---
 
@@ -348,8 +349,22 @@ Con T31.16 se completan los dieciséis tickets originales de la Fase 31.
      invisible porque no hay job que construya por Nix — queda anotado como
      ticket propio.
 
+- **El módulo NixOS no arrancaba el demonio (T31.18).** Con la VM ya
+  construyéndose y arrancando al escritorio (T31.17), `antos-barra` mostraba
+  `no hay demonio antOS en /var/lib/antos/estado/antos.sock: Permission
+  denied`. `system/nixos/module.nix` solo definía el `oneshot` `antos-doctor`;
+  **no había ningún `systemd.services.antos`** que ejecutara `antos demonio`
+  (el que hace `ipc::serve`), y el directorio de estado era `0700 root` frente
+  a un `antos-barra` que corre como el usuario de autologin (**✅ T31.18
+  resuelto**: nuevo servicio `antos` con opción `services.antos.user` —el
+  socket es `0600` por T31.8, así que el demonio corre como el usuario de la
+  sesión Wayland, que `desktop.nix` fija solo; `workspace`/`state` pasan a ser
+  de ese usuario. Headless con `user = "root"`: sin cambios. Verificado en la
+  VM: `antos.service active (running)`, socket `srw------- antos`).
+
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
 ~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~ →
-~~T31.16~~ → ~~T31.17~~. Fase 31 completa; los candidatos siguientes son los
-tickets de Fase 30 (T30.1–T30.5) que el catálogo aún marca `🔄 En Progreso`.
+~~T31.16~~ → ~~T31.17~~ → ~~T31.18~~. Fase 31 completa; los candidatos
+siguientes son los tickets de Fase 30 (T30.1–T30.5) que el catálogo aún marca
+`🔄 En Progreso`.

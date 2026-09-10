@@ -25,6 +25,19 @@ in
       default = "/var/lib/antos/estado";
       description = "Instantáneas, bitácora y concesiones.";
     };
+
+    user = lib.mkOption {
+      type = lib.types.str;
+      default = "root";
+      description = ''
+        Usuario bajo el que corre el demonio (`antos demonio`). El socket IPC
+        se crea `0600` a propósito (T31.8), así que este es el único usuario
+        que puede hablarle: con el escritorio activado
+        (`services.antos.desktop`) tiene que ser el mismo usuario de la sesión
+        Wayland — ese módulo lo ajusta solo. `root` es lo correcto para un uso
+        headless.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -48,9 +61,13 @@ in
       SYSO_SYSTEM_CONFIG = "/etc/nixos";
     };
 
+    # `workspace` y `state` son propiedad de `cfg.user`: el demonio corre como
+    # ese usuario y necesita crear el socket dentro de `state` y escribir
+    # instantáneas/bitácora. Con `user = "root"` (headless) esto es idéntico a
+    # como estaba.
     systemd.tmpfiles.rules = [
-      "d ${cfg.workspace} 0755 root root -"
-      "d ${cfg.state} 0700 root root -"
+      "d ${cfg.workspace} 0755 ${cfg.user} root -"
+      "d ${cfg.state} 0700 ${cfg.user} root -"
     ];
 
     # antOS comprueba su propio recinto al arrancar, antes de que nadie pueda
@@ -66,6 +83,27 @@ in
         ExecStart = "${lib.getExe cfg.package} doctor";
         StandardOutput = "journal+console";
         StandardError = "journal+console";
+      };
+    };
+
+    # El demonio de intenciones: es quien hace `ipc::serve` y crea el socket
+    # (`antos demonio`). Sin este servicio, `services.antos.enable` monta las
+    # rutas y el `doctor` pero nada escucha en `${cfg.state}/antos.sock`, y
+    # `antos-barra` no tiene con quién hablar (T31.18).
+    systemd.services.antos = {
+      description = "antOS · demonio de intenciones (IPC)";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "antos-doctor.service" "systemd-tmpfiles-setup.service" "local-fs.target" ];
+      wants = [ "antos-doctor.service" ];
+      environment = config.environment.variables;
+      serviceConfig = {
+        Type = "simple";
+        User = cfg.user;
+        ExecStart = "${lib.getExe cfg.package} demonio";
+        Restart = "on-failure";
+        RestartSec = 2;
+        StandardOutput = "journal";
+        StandardError = "journal";
       };
     };
   };
