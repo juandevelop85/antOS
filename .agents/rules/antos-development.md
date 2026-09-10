@@ -10,6 +10,18 @@ trigger: always_on
   - `system/antosd` (`antosd`): Demonio del sistema operativo encargado de servicios de fondo, despacho IPC, sandbox y coordinación de capacidades.
   - `system/capabilities`: Módulos de capacidades tipadas (Git semántico, Worktrees, puertos, nix services, secretos).
   - `kernel`: Crate `no_std` para bare metal. No mezclar dependencias de `std` con el kernel.
+- **Tamaño de fichero (T31.15):** 800 líneas es la señal para revisar si un
+  fichero `.rs` debería partirse por submódulo temático — no una
+  prohibición dura, una guía. 1500 líneas en `system/` es el límite que no
+  se cruza: si una extracción va a superarlo, se parte en el mismo cambio,
+  no se posterga. Partir un fichero grande sigue el patrón ya usado en
+  `cli/commands/` (un directorio con `mod.rs` + un fichero por familia de
+  subcomando, cada uno con `pub use <submódulo>::*;` para que las rutas
+  públicas no cambien) o el de `planner/local/` (`mod.rs` + `tests.rs`
+  separado vía `#[cfg(test)] mod tests;`). Una extracción de este tipo es
+  movimiento de código, nunca cambio de comportamiento: va en su propio
+  commit, sin mezclar lógica nueva, y `cargo test --workspace` debe pasar
+  con el mismo número de tests antes y después.
 - **Calidad y Robustez:**
   - **Nomenclatura en Inglés:** Todos los identificadores (funciones, variables, structs, enums, métodos, traits y módulos) deben escribirse exclusivamente en inglés (ej. `FlowEngine`, `start_task`, `diagnose_ports`).
   - **Comentarios y documentación en español (T31.12):** la regla de arriba es
