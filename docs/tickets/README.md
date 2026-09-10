@@ -149,7 +149,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ✅ Completado |
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ✅ Completado |
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ✅ Completado |
-| **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ⏳ Pendiente |
+| **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ✅ Completado |
 | **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ⏳ Pendiente |
 
 ---
@@ -287,11 +287,30 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   árbol no se re-auditó una por una en esta pasada más allá de un barrido
   heurístico por vocabulario de riesgo —«cifrado», «aislado», «kernel»,
   «tiempo real»— que no encontró más casos tan flagrantes como los de
-  arriba), y descomposición de los ficheros que han vuelto a superar
-  las 1500 líneas.
+  arriba), y descomposición de los ficheros que han vuelto a superar las
+  1500 líneas (**✅ T31.15 resuelto parcialmente**: siete commits de
+  movimiento puro de código —sin tocar ningún `match` de despacho de una
+  sola función gigante, así que ninguno cambia comportamiento observable,
+  verificado con el mismo número de tests, 434, antes y después de cada
+  uno— resuelven `cli/commands/tools.rs` (3592 líneas → 11 ficheros de
+  <800), `cli/commands/system.rs` (2065 → 7 ficheros), `pkg.rs` (1963 →
+  `pkg/{recipes,desktop,lifecycle,tests}.rs`), `protocolo/src/tests.rs`
+  (2211 → 4 bloques, no estaba en la tabla del ticket pero creció por
+  encima del umbral igual) y la extracción de tests de `planner/local.rs`
+  (2858 → `local/mod.rs` 1837 + `local/tests.rs`); `exec/mod.rs` (3699 →
+  3047) y `ipc.rs` (2607 → `ipc/mod.rs` 2417 + `ipc/transport.rs`, este
+  último separando transporte de despacho como pedía el propio ticket)
+  quedan con sus dos funciones únicas y enormes de despacho
+  (`changes_for`/`apply`, `handle_connection`/`remote_intent`)
+  deliberadamente sin partir —reescribir cada brazo de esos `match` es un
+  trabajo de riesgo comparable a un ticket propio, no movimiento
+  mecánico—, y `planner/local/mod.rs` (1837) y `barra/main.rs` (1528, sin
+  poder compilarse en esta máquina) quedan igual de intactos; umbral de
+  800/1500 líneas documentado en `antos-development.md`).
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
-~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ **→ T31.16**, y el resto
-según convenga. T31.16 conviene abordarlo pronto: sin tests de kernel
-ejecutables, las correcciones de T31.3 no tienen forma de verificarse.
+~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~
+**→ T31.16**, y el resto según convenga. T31.16 conviene abordarlo pronto:
+sin tests de kernel ejecutables, las correcciones de T31.3 no tienen
+forma de verificarse.
