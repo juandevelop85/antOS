@@ -35,13 +35,15 @@ Esta guía proporciona instrucciones detalladas, actualizadas y verificadas paso
 > 🧭 **Esta guía cubre el kernel _bare-metal_ (`no_std`) de antOS** (Método 6 del
 > manual). El **escritorio antOS Linux** (Fase 30) es otra cosa: una **ISO de
 > NixOS** (`nix build .#iso` → `antos-linux-*.iso`) que arranca a la sesión
-> Wayland con `antos-barra`. Se emula como **cualquier ISO de Linux**: en
-> QEMU/UTM/VirtualBox, Display **`virtio-gpu-pci`** (o `virtio-vga-gl`), entrada
-> **USB** (`usb-tablet`), ≥ 3 GiB de RAM, aceleración si hay `/dev/kvm`. No
-> necesita puerto serie ni las advertencias de abajo. Para probar rápido:
-> `./system/arrancar-vm.sh --grafica` (VNC en `localhost:5901`). El **checklist
-> de verificación** del escritorio (barra anclada, atajos, IPC en vivo, captura
-> `grim`) y el *smoke* headless (`system/desktop/smoke.sh`) están en
+> Wayland con `antos-barra` + `waybar`. Se emula como **cualquier ISO de
+> Linux**: Display **`virtio-gpu-pci`**, entrada **USB** (`usb-tablet`), ≥ 3 GiB
+> de RAM, y **aceleración por hardware** (HVF en macOS, `/dev/kvm` en Linux) —
+> sin ella la sesión Wayland no se sostiene (T30.6: `libseat`/`logind` timeout,
+> `greetd` en bucle). En macOS: `./system/arrancar-vm-macos.sh` (construye la
+> ISO y la arranca con `qemu -accel hvf` en el host), o importa esa ISO en UTM.
+> `./system/arrancar-vm.sh --grafica` (VNC en `localhost:5901`) corre QEMU
+> dentro del contenedor sin aceleración: solo para un vistazo. El **checklist**
+> del escritorio y el *smoke* headless (`system/desktop/smoke.sh`) están en
 > `docs/manual-de-comandos.md` (Método 5 · T30.4).
 
 ## 1. Arquitectura Gráfica vs Serie (Comprender la Salida de Pantalla)
@@ -569,6 +571,29 @@ qemu-system-x86_64 -m 256M \
 ./run.sh --test-input --kbd usb            # x86_64
 system/run-arm.sh --test-input --gic 3     # AArch64
 ```
+
+### E. antOS Linux (ISO NixOS) con HVF en macOS — Método 5
+
+Esto **no** es el kernel bare-metal: es la ISO en vivo de NixOS + escritorio
+antOS. Lo automatiza `./system/arrancar-vm-macos.sh`; el comando equivalente a
+mano, tras `./system/arrancar-vm-macos.sh --build-only`:
+
+```bash
+# almacén de variables EFI escribible (64 MiB, una vez):
+dd if=/dev/zero of=target/edk2-aarch64-vars.fd bs=1m count=64
+
+qemu-system-aarch64 -accel hvf -cpu host -M virt -smp 4 -m 4096 \
+  -drive if=pflash,format=raw,readonly=on,file=/opt/homebrew/share/qemu/edk2-aarch64-code.fd \
+  -drive if=pflash,format=raw,file=target/edk2-aarch64-vars.fd \
+  -drive file=target/antos-linux-aarch64.iso,format=raw,if=virtio,media=cdrom \
+  -device virtio-net-pci,netdev=net0 -netdev user,id=net0 \
+  -device virtio-gpu-pci -display cocoa,show-cursor=on \
+  -device qemu-xhci -device usb-kbd -device usb-tablet
+```
+
+`-accel hvf` es lo que hace usable el escritorio: sin aceleración `labwc` no
+aguanta (T30.6). Para depurar el arranque por serie, sustituye el bloque de
+GPU/USB por `-nographic` (equivale a `arrancar-vm-macos.sh --headless`).
 
 ## 7. Matriz de Periféricos: Qué Funciona Dónde (T28.10)
 

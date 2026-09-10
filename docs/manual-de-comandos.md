@@ -171,13 +171,49 @@ El script ejecuta automáticamente:
 
 ### Método 5: Máquina Virtual antOS NixOS Completa en QEMU
 
-Construye una imagen de máquina virtual con NixOS y antOS completamente integrado como demonio de sistema `systemd`:
+Una imagen de NixOS con antOS integrado como demonio de sistema `systemd`
+(`antos.service`, T31.18), su `antos-doctor` de arranque y —opcionalmente— la
+sesión gráfica Wayland completa. **Tres formas de arrancarla:**
+
+| Quieres… | Comando | Cómo |
+| :--- | :--- | :--- |
+| **El escritorio, en macOS, usable** | `./system/arrancar-vm-macos.sh` | Construye la ISO en vivo en un contenedor y arranca **QEMU en el host con `-accel hvf`**. El invitado AArch64 va casi a velocidad nativa y la sesión Wayland arranca en segundos. **Recomendado en Apple Silicon** (T30.7). |
+| **Ver el arranque por consola** (CI, depurar) | `./system/arrancar-vm.sh` | VM headless, consola serie, construida y ejecutada **dentro** del contenedor. Rápida de iterar. Salir de QEMU: `Ctrl-A` y luego `X`. |
+| **El escritorio sin salir del contenedor** | `./system/arrancar-vm.sh --grafica` | VM gráfica por **VNC en `localhost:5901`**. QEMU corre dentro del contenedor **sin KVM → TCG**: lento y, para la sesión Wayland, **inestable** (aviso abajo). Vale para un vistazo. |
+
+> ⚠️ **`--grafica` bajo TCG no sostiene la sesión gráfica (T30.6).** Sin
+> aceleración por hardware, `labwc` sale por *timeout* del *ping* de
+> `libseat`→`logind` (D-Bus) y por una carrera con el KMS de `virtio-gpu`;
+> `greetd` lo reinicia en bucle y los clientes (`antos-barra`, `waybar`) se
+> apilan. El `autostart` de la sesión es idempotente (`pgrep -f`) para que el
+> bucle no duplique nada, pero el arreglo real es **HVF/KVM**: usa
+> `arrancar-vm-macos.sh` en macOS, o `./system/arrancar-vm.sh` (headless) en un
+> Linux con `/dev/kvm`.
+
+#### `arrancar-vm-macos.sh` — arranque acelerado en macOS (T30.7)
 
 ```bash
-# Construir la imagen y arrancar la VM en QEMU (headless, consola serie)
-./system/arrancar-vm.sh
+./system/arrancar-vm-macos.sh                # construye la ISO si falta y abre la ventana cocoa (HVF)
+./system/arrancar-vm-macos.sh --build-only   # solo construye y copia -> target/antos-linux-aarch64.iso
+./system/arrancar-vm-macos.sh --headless     # serie a stdio, sin ventana (CI / depuración)
+./system/arrancar-vm-macos.sh --rebuild      # fuerza reconstruir la ISO
 ```
-* Para salir de la consola serial de QEMU presiona: `Ctrl-A` y luego `X`.
+
+Requiere macOS con `qemu` (`brew install qemu`) y `podman`. Construye
+`.#iso` en el contenedor `nixos/nix` (la primera vez descarga el cierre
+entero; la ISO pesa ~2.4 GB), la copia a `target/`, y arranca
+`qemu-system-aarch64` **en el host** con `-accel hvf -cpu host -M virt`,
+firmware UEFI EDK2 (el `edk2-aarch64-code.fd` de la propia instalación de
+QEMU; las variables se crean en `target/edk2-aarch64-vars.fd`),
+`virtio-gpu-pci` + `-display cocoa` y entrada USB (`usb-tablet` = puntero
+absoluto). Ruta de arranque verificada: UEFI → GRUB → kernel NixOS →
+`antos-doctor` pasa (Landlock, cgroups-v2, eBPF-LSM) → `antos.service`
+arranca → sesión gráfica. Se niega con un mensaje claro fuera de macOS o si
+falta `qemu`/firmware.
+
+Para **UTM**: importa esa misma ISO (`target/antos-linux-aarch64.iso`),
+Display `virtio-gpu-pci`, entrada USB, ≥ 3 GiB de RAM — UTM usa HVF
+automáticamente para invitados AArch64.
 
 #### Escritorio antOS Linux (Wayland + `antos-barra`) — T30.1
 
@@ -219,24 +255,23 @@ Tres variantes de máquina (flake):
 | Salida | Qué es | Comando |
 | :--- | :--- | :--- |
 | `nixosConfigurations.antos-vm` | VM headless (serie), para CI | `./system/arrancar-vm.sh` |
-| `nixosConfigurations.antos-desktop-vm` | VM **gráfica**: arranca directa al escritorio antOS (`virtio-gpu` + `usb-tablet`, 3 GiB) | `./system/arrancar-vm.sh --grafica` |
-| `packages.<arch>.iso` / `nixosConfigurations.antos-iso` | **ISO instalable de antOS Linux** (`installation-cd-graphical-base` + `services.antos.desktop`) | `nix build .#iso` → `result/iso/antos-linux-*.iso` |
+| `nixosConfigurations.antos-desktop-vm` | VM **gráfica**: arranca directa al escritorio antOS (`virtio-gpu` + `usb-tablet`, 3 GiB). Por VNC en el contenedor (TCG) o con HVF si se usa `system.build.vm` en un host con aceleración | `./system/arrancar-vm.sh --grafica` |
+| `packages.<arch>.iso` / `nixosConfigurations.antos-iso` | **ISO en vivo de antOS Linux** (`installation-cd-graphical-base` + `services.antos.desktop`). Es la que arranca `arrancar-vm-macos.sh` por HVF, y la que se importa en UTM/VirtualBox | `nix build .#iso` → `result/iso/antos-linux-*.iso` |
 
 ```bash
-# VM gráfica (construye en contenedor, arranca con VNC en localhost:5901)
+# macOS, escritorio usable: construye la ISO y la arranca con HVF en el host
+./system/arrancar-vm-macos.sh
+
+# Vistazo rápido sin salir del contenedor (VNC en localhost:5901, lento bajo TCG)
 ./system/arrancar-vm.sh --grafica
 
-# ISO instalable de antOS Linux (Método 5) — NO es el Live del kernel
-# bare-metal de `antos usb build` (Método 6).
+# Solo la ISO en vivo (NO es el Live del kernel bare-metal de `antos usb build`, Método 6)
 nix build .#iso
 ```
 
-> ⚠️ Bajo emulación (sin `/dev/kvm`) el arranque gráfico es **lento**. Para una
-> ventana nativa en macOS, construye la imagen de disco en el contenedor y
-> ejecuta QEMU en el host con `-device virtio-gpu-pci -display cocoa
-> -device qemu-xhci -device usb-tablet`. En **UTM / VirtualBox**: importa la
-> ISO como unidad, Display = `virtio-gpu-pci`, Input = USB. Resultado esperado:
-> el escritorio antOS con la barra `antos-barra` anclada arriba.
+> ℹ️ Para el porqué de HVF vs. TCG y el bucle de `greetd`, ver el aviso al
+> principio del Método 5 y el hallazgo de T30.6. Resultado esperado del
+> escritorio: `antos-barra` anclada arriba, `waybar` abajo (panel de T30.6).
 
 #### Herramientas de desarrollo incluidas — T30.3
 
@@ -259,6 +294,26 @@ antos lsp config # genera la config del LSP para nvim/vscode/helix/emacs
 antpkg install <paquete>       # o `antos app install <flatpak>`
 ```
 
+#### Panel de escritorio tradicional — T30.6
+
+`services.antos.desktop.panel` (por defecto **`enable = true`**) añade a la
+sesión Labwc, sin dejar de ser `wlroots` ligero:
+
+| Pieza | Herramienta | Nota |
+| :--- | :--- | :--- |
+| Panel inferior | `waybar` | menú (`≡ Aplicaciones` → `fuzzel`), reloj, CPU/RAM/red, bandeja |
+| Lanzador | `fuzzel` | `Super+P`; escanea los `.desktop` del sistema |
+| Fondo | `swaybg` | color sólido, o `panel.wallpaper = ./ruta.png` |
+| Notificaciones | `mako` | |
+| Bloqueo / idle | `swaylock` + `swayidle` | `Super+L`; auto-bloqueo a los 600 s |
+| Archivos | `thunar` | entrada del menú de clic derecho |
+
+Opciones: `panel.{enable,package,launcher,fileManager,wallpaper}`. Menú de
+clic derecho en `/etc/antos/desktop/labwc/menu.xml`. Atajos nuevos en
+`rc.xml`: `Super+P` (lanzador), `Super+L` (bloquear), `Print` (captura a
+`~/Pictures`). `panel.enable = false` devuelve la sesión mínima de solo
+`antos-barra`.
+
 #### Verificación del escritorio — T30.4
 
 **Smoke automatizado** (`system/desktop/smoke.sh`, *job* `antos-linux-desktop`
@@ -279,18 +334,21 @@ ANTOS_BARRA_BIN=system/barra/target/release/antos-barra \
 despacha y emite el flujo de `Event` (`Start` → terminal) y que responde a
 `QueryGitStatus` (la insignia de git de la barra).
 
-**Checklist manual** en la VM gráfica de T30.2:
+**Checklist manual** en la VM gráfica — hazla sobre `arrancar-vm-macos.sh`
+(HVF) o un Linux con `/dev/kvm`; bajo TCG (`--grafica` en contenedor) la
+sesión no se sostiene el tiempo suficiente (T30.6):
 
 | # | Comprobación | Esperado |
 | :- | :--- | :--- |
-| 1 | La sesión arranca por `greetd` sin login manual | Escritorio antOS visible; `systemctl status greetd` activo |
-| 2 | `systemctl status antos-doctor` | `active (exited)` sin fallos de recinto |
-| 3 | `pgrep -a antos-barra` | La barra corre; anclada arriba por `wlr-layer-shell` |
-| 4 | `Super+Space` | La barra toma foco de teclado (modo *on-demand*) |
-| 5 | Escribir una intención + `Enter` | El panel refleja el estado de `antFlow` en vivo (evento `FlowTransition`) |
-| 6 | `Super+A` / `Super+Return` / `Super+W` / `Super+Q` | Panel de agentes / terminal / `antos dev` / cerrar ventana |
-| 7 | `grim ~/shot.png` | PNG no vacío del escritorio |
-| 8 | `nvim` sobre un proyecto del workspace | `:LspInfo` muestra `antos_lsp` adjuntado; diagnósticos/hover |
+| 1 | La sesión arranca por `greetd` sin login manual | Escritorio antOS visible; `systemctl status greetd` activo, sin reinicios |
+| 2 | `systemctl status antos-doctor` y `systemctl status antos` | `antos-doctor` `active (exited)` sin fallos de recinto; `antos` `active (running)` |
+| 3 | `pgrep -a antos-barra` / `pgrep -a waybar` | Una sola instancia de cada; `antos-barra` anclada arriba, `waybar` abajo (T30.6) |
+| 4 | La barra ya no muestra «no hay demonio antOS …» | Insignias de git y telemetría con estado real (T31.18) |
+| 5 | `Super+Space` | La barra toma foco de teclado (modo *on-demand*) |
+| 6 | Escribir una intención + `Enter` | El panel refleja el estado de `antFlow` en vivo (evento `FlowTransition`) |
+| 7 | `Super+A` / `Super+Return` / `Super+W` / `Super+Q` / `Super+P` | Panel de agentes / terminal / `antos dev` / cerrar ventana / lanzador `fuzzel` |
+| 8 | `grim ~/shot.png` | PNG no vacío del escritorio |
+| 9 | `nvim` sobre un proyecto del workspace | `:LspInfo` muestra `antos_lsp` adjuntado; diagnósticos/hover |
 
 ---
 
