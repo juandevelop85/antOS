@@ -263,27 +263,27 @@ pub fn uptime_seconds() -> u64 {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn reload_interval_divides_frequency_by_tick_rate() {
         assert_eq!(reload_interval(62_500_000, 100), 625_000);
         assert_eq!(reload_interval(24_000_000, 100), 240_000);
         assert_eq!(reload_interval(1_000, 100), 10);
     }
 
-    #[test]
+    #[test_case]
     fn reload_interval_never_returns_zero() {
         assert_eq!(reload_interval(0, 100), 1);
         assert_eq!(reload_interval(50, 100), 1); // freq < tick rate
         assert_eq!(reload_interval(100, 0), 1);
     }
 
-    #[test]
+    #[test_case]
     fn source_selection_prefers_virtual_only_when_it_ticks() {
         assert_eq!(select_source(true), TimerSource::Virtual);
         assert_eq!(select_source(false), TimerSource::Physical);
     }
 
-    #[test]
+    #[test_case]
     fn timer_irq_predicate_matches_both_ppis() {
         assert!(is_timer_irq(TIMER_IRQ_VIRTUAL));
         assert!(is_timer_irq(TIMER_IRQ_PHYSICAL));

@@ -258,7 +258,7 @@ pub unsafe fn init_ramfb(mmio_base: u64, width: usize, height: usize) -> Option<
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn ramfb_cfg_is_big_endian_28_bytes() {
         let b = encode_ramfb_cfg(0x4200_1000, RAMFB_FORMAT_XRGB8888, 0, 1024, 768, 4096);
         assert_eq!(b.len(), 28);
@@ -284,7 +284,7 @@ mod tests {
         e
     }
 
-    #[test]
+    #[test_case]
     fn parses_a_file_directory_entry() {
         let e = dir_entry(28, 0x0028, "etc/ramfb");
         let f = parse_fw_cfg_file(&e).expect("entry");
@@ -294,7 +294,7 @@ mod tests {
         assert!(parse_fw_cfg_file(&[0u8; 10]).is_none());
     }
 
-    #[test]
+    #[test_case]
     fn finds_ramfb_selector_in_a_directory_blob() {
         let mut blob = alloc::vec::Vec::new();
         blob.extend_from_slice(&3u32.to_be_bytes());

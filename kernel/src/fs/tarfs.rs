@@ -327,21 +327,21 @@ fn parse_octal(bytes: &[u8]) -> usize {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn test_parse_octal_saturates_on_overflow_instead_of_wrapping() {
         // Far more digits than fit in a u64/usize.
         let overflow = b"77777777777777777777777";
         assert_eq!(parse_octal(overflow), usize::MAX);
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_octal_normal_values_still_correct() {
         assert_eq!(parse_octal(b"0000644\0"), 0o644);
         assert_eq!(parse_octal(b"0000000\0"), 0);
         assert_eq!(parse_octal(b"0001000\0"), 0o1000);
     }
 
-    #[test]
+    #[test_case]
     fn test_normalize_path_never_escapes_the_root() {
         assert_eq!(normalize_path("../../etc/passwd"), "/etc/passwd");
         assert_eq!(
@@ -352,21 +352,21 @@ mod tests {
         assert_eq!(normalize_path("a/../.."), "/");
     }
 
-    #[test]
+    #[test_case]
     fn test_normalize_path_resolves_dot_and_dotdot_components() {
         assert_eq!(normalize_path("a/./b/../c"), "/a/c");
         assert_eq!(normalize_path("./foo/bar"), "/foo/bar");
         assert_eq!(normalize_path("/foo/bar/"), "/foo/bar");
     }
 
-    #[test]
+    #[test_case]
     fn test_normalize_path_base_cases_unchanged() {
         assert_eq!(normalize_path("/"), "/");
         assert_eq!(normalize_path(""), "/");
         assert_eq!(normalize_path("foo"), "/foo");
     }
 
-    #[test]
+    #[test_case]
     fn test_read_file_memory_backing_rejects_offset_size_overflow() {
         let data: &'static [u8] = &[0u8; 16];
         let fs = TarFs {

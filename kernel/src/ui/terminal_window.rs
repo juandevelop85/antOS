@@ -301,7 +301,7 @@ impl TerminalWindow {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn test_terminal_window_write_and_scroll() {
         let mut term = TerminalWindow::new(0, 0, 800, 600);
         let initial_lines = term.lines.len();
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(term.scroll_offset(), prev_scroll);
     }
 
-    #[test]
+    #[test_case]
     fn test_terminal_window_ansi_colors() {
         let mut term = TerminalWindow::new(0, 0, 800, 600);
         term.write_str("\x1b[1;32mverde\x1b[0m normal\n");
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(term.input_text(), "");
     }
 
-    #[test]
+    #[test_case]
     fn test_terminal_window_submit_and_focus() {
         let mut term = TerminalWindow::new(0, 0, 800, 600);
         term.set_focused(false);

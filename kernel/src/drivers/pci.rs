@@ -597,7 +597,7 @@ pub fn find_storage_controllers() -> Vec<PciDevice> {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn ecam_offset_layout() {
         // bus in bits 27:20, slot in 19:15, func in 14:12, reg in 11:0.
         assert_eq!(ecam_offset(0, 0, 0, 0), 0);
@@ -605,21 +605,30 @@ mod tests {
         assert_eq!(ecam_offset(0, 3, 0, 0), 3 << 15);
         assert_eq!(ecam_offset(0, 0, 5, 0), 5 << 12);
         assert_eq!(ecam_offset(0, 0, 0, 0x3C), 0x3C);
-        assert_eq!(ecam_offset(0, 0, 0, 0x1FFF) & 0xFFF, 0xFFF); // reg masked to 12 bits
+        // T31.16: este test nunca había compilado (era `#[test]` sin arnés
+        // no_std) hasta ahora. `offset` es `u8` — igual que en todos los
+        // demás lectores/escritores de config-space de este fichero, que
+        // solo alcanzan el espacio PCI heredado de 256 bytes, no la
+        // extensión ECAM de 4 KiB — así que `0x1FFF` (13 bits) nunca cupo
+        // en el argumento: era un literal imposible, no una aserción real
+        // sobre el enmascarado. Con `offset: u8`, `& 0xFFF` es sencillamente
+        // un no-op (0..=0xFF siempre cabe en 0xFFF); el máximo que de verdad
+        // se puede pasar es 0xFF, y eso es lo que se comprueba.
+        assert_eq!(ecam_offset(0, 0, 0, 0xFF) & 0xFFF, 0xFF);
         assert_eq!(
             ecam_offset(2, 6, 1, 0x10),
             (2 << 20) | (6 << 15) | (1 << 12) | 0x10
         );
     }
 
-    #[test]
+    #[test_case]
     fn decode_bar_io_and_empty() {
         assert_eq!(decode_bar(0, 0), (PciBar::None, false));
         assert_eq!(decode_bar(0xFFFF_FFFF, 0), (PciBar::None, false));
         assert_eq!(decode_bar(0xC001, 0), (PciBar::Io { port: 0xC000 }, false));
     }
 
-    #[test]
+    #[test_case]
     fn decode_bar_memory32() {
         // 32-bit, non-prefetchable, base 0x1000_0000
         let (bar, two) = decode_bar(0x1000_0000, 0);
@@ -642,7 +651,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn decode_bar_memory64_consumes_two_slots() {
         // type bits 2:1 == 0b10 -> 64-bit. lo = 0x8000_0004, hi = 0x0000_0001
         let (bar, two) = decode_bar(0x8000_0004, 0x0000_0001);
@@ -656,7 +665,7 @@ mod tests {
         assert!(two);
     }
 
-    #[test]
+    #[test_case]
     fn decode_bar_unprogrammed_memory_is_none() {
         // The BAR type nibble is hardwired, so an unassigned 64-bit MMIO BAR
         // still reads as 0x0000_0004 (type 0b10) with all address bits zero —
@@ -670,7 +679,7 @@ mod tests {
         // and bit 0 == 0 means memory, so 0x0 is the only unassigned encoding).
     }
 
-    #[test]
+    #[test_case]
     fn bridge_secondary_bus_extraction() {
         // config 0x18: [primary | secondary | subordinate | latency]
         // secondary bus is byte 1.

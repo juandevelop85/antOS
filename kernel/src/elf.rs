@@ -534,7 +534,7 @@ mod tests {
         image[at..at + core::mem::size_of::<ProgramHeader>()].copy_from_slice(to_bytes(ph));
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_elf_rejects_program_header_offset_near_u64_max() {
         let ph_size = core::mem::size_of::<ProgramHeader>() as u16;
         let header = base_header(u64::MAX - 4, ph_size, 1);
@@ -546,7 +546,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_elf_rejects_program_header_count_times_size_overflow() {
         // program_header_count and program_header_size are both u16, so their
         // product can't overflow usize on any platform this kernel targets —
@@ -563,7 +563,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_elf_rejects_segment_offset_near_u64_max() {
         let ph_size = core::mem::size_of::<ProgramHeader>() as u16;
         let header = base_header(core::mem::size_of::<Header>() as u64, ph_size, 1);
@@ -587,7 +587,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_elf_rejects_file_size_larger_than_memory_size() {
         let ph_size = core::mem::size_of::<ProgramHeader>() as u16;
         let header = base_header(core::mem::size_of::<Header>() as u64, ph_size, 1);
@@ -614,7 +614,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn test_parse_elf_still_accepts_a_well_formed_image() {
         let ph_size = core::mem::size_of::<ProgramHeader>() as u16;
         let header = base_header(core::mem::size_of::<Header>() as u64, ph_size, 1);
@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[cfg(target_arch = "aarch64")]
-    #[test]
+    #[test_case]
     fn test_dcache_line_size_is_a_plausible_power_of_two() {
         // Real hardware and QEMU's CTR_EL0 emulation both report a DminLine
         // field that yields a small power-of-two line size (16-256 bytes);

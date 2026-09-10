@@ -103,7 +103,7 @@ impl UsbHidMouse {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn test_vbox_tablet_8byte_report() {
         let mut mouse = UsbHidMouse::new();
         mouse.is_absolute = true;
@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(events2[1], InputEvent::MouseAbsolute { x: 0, y: 0 });
     }
 
-    #[test]
+    #[test_case]
     fn test_relative_mouse_report() {
         let mut mouse = UsbHidMouse::new();
         mouse.is_absolute = false;

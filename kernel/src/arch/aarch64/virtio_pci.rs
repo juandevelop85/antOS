@@ -183,7 +183,7 @@ mod tests {
         ]
     }
 
-    #[test]
+    #[test_case]
     fn parses_common_cfg_capability() {
         let raw = cap_dwords(0x50, 16, VIRTIO_PCI_CAP_COMMON_CFG, 4, 0x0000, 0x1000, 0);
         let cap = parse_virtio_pci_cap(&raw).expect("valid cap");
@@ -194,7 +194,7 @@ mod tests {
         assert_eq!(cap.notify_off_multiplier, None);
     }
 
-    #[test]
+    #[test_case]
     fn parses_notify_capability_with_multiplier() {
         let raw = cap_dwords(0x60, 20, VIRTIO_PCI_CAP_NOTIFY_CFG, 4, 0x3000, 0x1000, 4);
         let cap = parse_virtio_pci_cap(&raw).expect("valid cap");
@@ -203,7 +203,7 @@ mod tests {
         assert_eq!(cap.notify_off_multiplier, Some(4));
     }
 
-    #[test]
+    #[test_case]
     fn rejects_non_vendor_capability_and_short_input() {
         // cap_vndr = 0x05 (MSI) instead of 0x09.
         let mut raw = cap_dwords(0, 8, 0, 0, 0, 0, 0);
@@ -212,7 +212,7 @@ mod tests {
         assert!(parse_virtio_pci_cap(&[0x09]).is_none());
     }
 
-    #[test]
+    #[test_case]
     fn regions_completeness_requires_the_three_essential_windows() {
         let mut r = VirtioPciRegions::default();
         assert!(!r.is_complete());

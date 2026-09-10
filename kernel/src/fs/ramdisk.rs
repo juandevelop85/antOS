@@ -83,7 +83,7 @@ pub fn init_live_rootfs(slice: &'static [u8]) -> Result<Ramdisk, FsError> {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn test_ramdisk_validation_and_ustar() {
         let mut mock_tar = [0u8; 1024];
         assert!(!Ramdisk::is_valid_archive(&mock_tar));

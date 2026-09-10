@@ -740,7 +740,7 @@ mod tests {
         ]
     }
 
-    #[test]
+    #[test_case]
     fn tablet_x_y_are_16bit_absolute_at_bit_32_and_48() {
         let fields = parse_report_descriptor(&tablet_descriptor());
         let xy = fields
@@ -762,7 +762,7 @@ mod tests {
         assert_eq!(xy.bit_offset + xy.bit_size, 48);
     }
 
-    #[test]
+    #[test_case]
     fn tablet_decodes_absolute_position_and_buttons() {
         let mut dev = HidDevice::from_descriptor(&tablet_descriptor());
         assert_eq!(dev.role, HidRole::Mouse);
@@ -778,7 +778,7 @@ mod tests {
         }));
     }
 
-    #[test]
+    #[test_case]
     fn tablet_rescales_when_logical_max_is_not_0x7fff() {
         // logical_max 4095 -> raw 4095 maps to 32767.
         assert_eq!(normalize_abs(4095, 4095), 32767);
@@ -787,7 +787,7 @@ mod tests {
         assert_eq!(normalize_abs(1234, 32767), 1234);
     }
 
-    #[test]
+    #[test_case]
     fn application_usage_survives_the_collection_that_clears_it() {
         // 05 01 09 06 a1 01 ... -> Generic Desktop / Keyboard.
         assert_eq!(
@@ -802,13 +802,13 @@ mod tests {
         assert_eq!(application_collection_usage(&[]), None);
     }
 
-    #[test]
+    #[test_case]
     fn keyboard_role_comes_from_the_application_usage_even_without_boot_protocol() {
         let dev = HidDevice::from_descriptor(&boot_keyboard_descriptor());
         assert_eq!(dev.role, HidRole::Keyboard);
     }
 
-    #[test]
+    #[test_case]
     fn boot_keyboard_descriptor_parses_modifiers_and_key_array() {
         let fields = parse_report_descriptor(&boot_keyboard_descriptor());
         let mods = &fields[0];
@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(keys.report_count, 6);
     }
 
-    #[test]
+    #[test_case]
     fn non_boot_keyboard_emits_press_and_release_with_modifiers() {
         let mut dev = HidDevice::from_descriptor(&boot_keyboard_descriptor());
         assert_eq!(dev.role, HidRole::Keyboard);
@@ -846,7 +846,7 @@ mod tests {
         assert!(ev.contains(&InputEvent::KeyRelease(KeyCode::KeyA)));
     }
 
-    #[test]
+    #[test_case]
     fn report_id_prefix_shifts_the_payload() {
         // Two report IDs: ID 1 = 8 relative button bits + 8-bit X; ID 2 unused.
         let desc = alloc::vec![
@@ -870,7 +870,7 @@ mod tests {
         assert!(dev.decode(&[0x02, 0xFF, 0xFF]).is_empty());
     }
 
-    #[test]
+    #[test_case]
     fn extract_and_sign_extend_helpers() {
         // bits 4..12 of 0xAB 0xCD = 0b1101_1010 -> 0xDA
         let data = [0xAB, 0xCD];
@@ -881,7 +881,7 @@ mod tests {
         assert_eq!(sign_extend(0x1FF, 9), -1);
     }
 
-    #[test]
+    #[test_case]
     fn push_pop_restores_global_state() {
         let desc = alloc::vec![
             0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, //

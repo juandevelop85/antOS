@@ -259,6 +259,59 @@ jobs:
       - name: Clippy (user workspace, x86_64 bare-metal)
         run: cargo clippy --manifest-path user/Cargo.toml --target x86_64-unknown-none -- -D warnings
 
+  # ──────────────────────────────────────────────── Kernel · tests (T31.16)
+  # No hay crate `test` para *-unknown-none (depende de `std`), así que
+  # `cargo test` normal nunca compilaba — 98 `#[test_case]` (antes
+  # `#[test]`, sin arnés) escritos y nunca ejecutados. `kernel/src/
+  # test_framework.rs` implementa el arnés canónico de un kernel Rust
+  # (`custom_test_frameworks` + `test_runner` + `reexport_test_harness_main`)
+  # y cada arquitectura arranca en su emulador real de QEMU en vez de
+  # simularlo: `kernel/run-tests-x86_64.sh` empaqueta una imagen BIOS con el
+  # `builder` del workspace (igual que `run.sh`); `kernel/run-tests-
+  # aarch64.sh` arranca el ELF crudo vía `-M virt -kernel` (igual que
+  # `system/run-arm.sh`). Ambos vigilan la salida serie con el mismo arnés
+  # Python de T28.10 (`system/qemu-smoke.py`) buscando `KERNEL_TEST_RESULT:
+  # PASS`; un test que entra en pánico (`panic = "abort"`, sin arnés que lo
+  # capture y siga con el siguiente) hace que el kernel imprima
+  # `KERNEL_TEST_RESULT: FAIL` en su lugar, y ese banner nunca coincide con
+  # `PASS`, así que el trabajo falla igual de claro.
+  kernel-tests:
+    name: "Kernel · tests (${{ matrix.arch }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64,  target: x86_64-unknown-none,  script: kernel/run-tests-x86_64.sh }
+          - { arch: aarch64, target: aarch64-unknown-none, script: kernel/run-tests-aarch64.sh }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src, llvm-tools
+          targets: ${{ matrix.target }}
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-system-arm
+
+      - name: Cache kernel build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            kernel/target
+            target
+          key: kernel-tests-${{ matrix.arch }}-${{ hashFiles('kernel/Cargo.lock') }}
+          restore-keys: kernel-tests-${{ matrix.arch }}-
+
+      - name: Run kernel tests in QEMU
+        run: ${{ matrix.script }}
+
   # ──────────────────────────────────── Nomenclatura · identificadores en inglés
   # T31.12: heurística que busca lexemas españoles en declaraciones (`fn`,
   # `let`, `struct`, `enum`, `const`, `static`, `mod`) — nunca dentro de

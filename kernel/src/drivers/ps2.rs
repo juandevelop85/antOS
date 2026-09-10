@@ -292,7 +292,7 @@ mod tests {
         Ps2MouseDecoder::new(p)
     }
 
-    #[test]
+    #[test_case]
     fn standard_three_byte_move_and_buttons() {
         let mut d = decoder(MouseProtocol::Standard);
         // header: sync bit + left button; dx=+5, dy=+3 (screen: up -> -3).
@@ -311,7 +311,7 @@ mod tests {
         assert!(ev.contains(&InputEvent::MouseMove { dx: -6, dy: 0 }));
     }
 
-    #[test]
+    #[test_case]
     fn overflow_bits_suppress_motion() {
         let mut d = decoder(MouseProtocol::Standard);
         d.feed(0x08 | 0x40 | 0x80); // both overflow bits
@@ -320,7 +320,7 @@ mod tests {
         assert!(!ev.iter().any(|e| matches!(e, InputEvent::MouseMove { .. })));
     }
 
-    #[test]
+    #[test_case]
     fn wheel_protocol_decodes_four_bytes_and_scroll() {
         let mut d = decoder(MouseProtocol::Wheel);
         // header sync only, no motion, wheel = -1 (0x0F -> -1) -> scroll +1.
@@ -350,7 +350,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn five_button_protocol_reports_buttons_four_and_five() {
         let mut d = decoder(MouseProtocol::WheelFiveButtons);
         // p[3] bit 4 set -> button 4 pressed.
@@ -368,7 +368,7 @@ mod tests {
         assert!(ev.contains(&InputEvent::MouseButtonPress(MouseButton::Other(5))));
     }
 
-    #[test]
+    #[test_case]
     fn desync_byte_is_dropped_until_a_valid_header() {
         let mut d = decoder(MouseProtocol::Standard);
         // A stray byte without bit 3 is ignored.
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(ev, alloc::vec![InputEvent::MouseMove { dx: 2, dy: 0 }]);
     }
 
-    #[test]
+    #[test_case]
     fn protocol_from_device_id() {
         assert_eq!(MouseProtocol::from_device_id(0), MouseProtocol::Standard);
         assert_eq!(MouseProtocol::from_device_id(3), MouseProtocol::Wheel);

@@ -215,7 +215,7 @@ mod tests {
         h
     }
 
-    #[test]
+    #[test_case]
     fn parses_mcfg_ecam_allocations() {
         let mut t = acpi_header(b"MCFG", 44 + 32).to_vec();
         t.extend_from_slice(&[0u8; 8]); // reserved
@@ -237,13 +237,13 @@ mod tests {
         assert_eq!(allocs[1].end_bus, 0x0F);
     }
 
-    #[test]
+    #[test_case]
     fn rejects_mcfg_with_wrong_signature() {
         let t = acpi_header(b"FACP", 44).to_vec();
         assert!(parse_mcfg(&t).is_empty());
     }
 
-    #[test]
+    #[test_case]
     fn parses_madt_gicv3_layout() {
         let mut records = Vec::new();
         // GICC (type 0x0B), length 80, base at offset 40.
@@ -277,7 +277,7 @@ mod tests {
         assert!(gic.is_v3());
     }
 
-    #[test]
+    #[test_case]
     fn parses_madt_gicv2_without_redistributor() {
         let mut gicd = alloc::vec![0u8; 24];
         gicd[0] = 0x0C;

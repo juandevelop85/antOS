@@ -155,7 +155,7 @@ mod tests {
         [9, 0x29, 4, 0xAC, 0x00, 50, 100, 0x00, 0xFF]
     }
 
-    #[test]
+    #[test_case]
     fn parses_hub_descriptor_head() {
         let d = HubDescriptor::from_bytes(&sample_hub_descriptor()).expect("valid descriptor");
         assert_eq!(d.num_ports, 4);
@@ -166,14 +166,14 @@ mod tests {
         assert!(d.is_compound());
     }
 
-    #[test]
+    #[test_case]
     fn rejects_wrong_descriptor_type_or_short_buffer() {
         assert!(HubDescriptor::from_bytes(&[]).is_none());
         assert!(HubDescriptor::from_bytes(&[9, 0x02, 4, 0, 0, 0, 0]).is_none());
         assert!(HubDescriptor::from_bytes(&[3, 0x29, 4]).is_none());
     }
 
-    #[test]
+    #[test_case]
     fn power_on_delay_has_a_floor() {
         let d = HubDescriptor {
             num_ports: 2,
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(d.power_on_delay_ms(), 10);
     }
 
-    #[test]
+    #[test_case]
     fn route_string_packs_four_bits_per_tier() {
         assert_eq!(route_string(&[]), 0);
         assert_eq!(route_string(&[3]), 0x3);
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(route_string(&[1, 2, 3, 4, 5]), 0x5_4321);
     }
 
-    #[test]
+    #[test_case]
     fn route_string_clamps_depth_and_width() {
         // Sixth tier is dropped.
         assert_eq!(route_string(&[1, 1, 1, 1, 1, 1]), 0x1_1111);
@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(route_string(&[20]), 0xF);
     }
 
-    #[test]
+    #[test_case]
     fn route_string_append_extends_parent_path() {
         let parent = route_string(&[3, 5]); // 0x53, hub sits at tier 2
         let child = route_string_append(parent, 2, 7);
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(route_string_append(parent, MAX_HUB_TIERS, 4), parent);
     }
 
-    #[test]
+    #[test_case]
     fn route_depth_counts_encoded_tiers() {
         assert_eq!(route_depth(0), 0);
         assert_eq!(route_depth(route_string(&[3])), 1);
@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(child, route_string(&[3, 5, 7]));
     }
 
-    #[test]
+    #[test_case]
     fn speed_decodes_from_port_status_bits() {
         use crate::drivers::usb::xhci::registers::portsc;
         assert_eq!(

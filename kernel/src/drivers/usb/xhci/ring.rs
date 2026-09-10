@@ -280,7 +280,7 @@ impl Default for EventRing {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn test_trb_type_and_cycle() {
         let trb = Trb::make_enable_slot(true);
         assert_eq!(trb.trb_type(), TRB_TYPE_ENABLE_SLOT);
@@ -291,7 +291,7 @@ mod tests {
         assert_eq!(link.parameter, 0x1000_0000);
     }
 
-    #[test]
+    #[test_case]
     fn test_command_ring_push() {
         let mut ring = CommandRing::new();
         ring.init_link(0x2000);

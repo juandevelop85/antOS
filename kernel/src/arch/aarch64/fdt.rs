@@ -308,7 +308,7 @@ mod tests {
     const VIRT_GICV2: &[u8] = include_bytes!("testdata/qemu-virt-gicv2.dtb");
     const VIRT_GICV3: &[u8] = include_bytes!("testdata/qemu-virt-gicv3.dtb");
 
-    #[test]
+    #[test_case]
     fn parses_pl011_reg_and_irq_from_real_blob() {
         let fdt = Fdt::from_slice(VIRT_GICV2).expect("valid fdt");
         let pl011 = fdt
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(pl011.interrupt_intids(), alloc::vec![33]);
     }
 
-    #[test]
+    #[test_case]
     fn parses_highmem_ecam_base_and_bus_range() {
         let fdt = Fdt::from_slice(VIRT_GICV2).unwrap();
         let pcie = fdt
@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(be32(bus_range, 4), Some(0xFF));
     }
 
-    #[test]
+    #[test_case]
     fn distinguishes_gicv2_and_gicv3_layouts() {
         let v2 = Fdt::from_slice(VIRT_GICV2).unwrap();
         let g2 = v2
@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(g3.reg_at(1), Some((0x080a_0000, 0x00f6_0000)));
     }
 
-    #[test]
+    #[test_case]
     fn timer_ppis_resolve_to_intid_27_and_30() {
         let fdt = Fdt::from_slice(VIRT_GICV2).unwrap();
         let timer = fdt.find_by_name("timer").expect("timer node");
@@ -376,7 +376,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn finds_fw_cfg_and_first_virtio_mmio() {
         let fdt = Fdt::from_slice(VIRT_GICV2).unwrap();
         let fw = fdt
@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(virtio[0].interrupt_intids(), alloc::vec![48]);
     }
 
-    #[test]
+    #[test_case]
     fn rejects_non_fdt_input() {
         assert!(Fdt::from_slice(&[0u8; 8]).is_none());
         assert!(Fdt::from_slice(b"not a device tree at all").is_none());

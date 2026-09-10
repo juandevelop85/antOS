@@ -172,7 +172,7 @@ impl<'a> ContextView<'a> {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn slot_context_route_string_and_hub_bits_compose() {
         let mut dwords = [0u32; 8];
         let mut slot = SlotContext::new(&mut dwords);
@@ -190,7 +190,7 @@ mod tests {
         assert_eq!((dwords[1] >> 24) & 0xFF, 7, "number of ports set");
     }
 
-    #[test]
+    #[test_case]
     fn slot_context_tt_info_packs_dword2() {
         let mut dwords = [0u32; 8];
         let mut slot = SlotContext::new(&mut dwords);

@@ -150,7 +150,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ✅ Completado |
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ✅ Completado |
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ✅ Completado |
-| **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ⏳ Pendiente |
+| **Fase 31** | [T31.16](T31.16-los-tests-del-kernel-no-se-compilan-ni-se-ejecutan.md) | Los 86 Tests del Kernel No Se Compilan ni Se Ejecutan | ✅ Completado |
 
 ---
 
@@ -306,11 +306,26 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   trabajo de riesgo comparable a un ticket propio, no movimiento
   mecánico—, y `planner/local/mod.rs` (1837) y `barra/main.rs` (1528, sin
   poder compilarse en esta máquina) quedan igual de intactos; umbral de
-  800/1500 líneas documentado en `antos-development.md`).
+  800/1500 líneas documentado en `antos-development.md`) y los 86 tests
+  del kernel que nunca se habían ejecutado (**✅ T31.16 resuelto**: el
+  hallazgo del propio arranque —`#[test]` sigue exigiendo el crate `test`
+  incluso con `custom_test_frameworks` activo; hacen falta
+  `#[test_case]`— explica por qué los tres atributos por sí solos no
+  bastaban; los 98 tests que había para entonces (86 a la fecha del
+  ticket) se renombraron mecánicamente y corren de verdad en QEMU vía
+  `kernel/run-tests-{x86_64,aarch64}.sh`, nuevo job `kernel-tests` en CI
+  para ambas arquitecturas, `peripheral-smoke` intacto; de los tres
+  fallos reales que aparecieron al ejecutarlos por primera vez, dos eran
+  aserciones desincronizadas de una corrección de escalado de puntero ya
+  hecha y documentada en el propio código, y uno era un bug genuino de
+  producción — el heap de AArch64 (`static mut [u8; N]`) no garantizaba
+  la alineación de 8 bytes que el asignador de lista enlazada exige,
+  corregido con `#[repr(align(16))]`; ningún test quedó en `#[ignore]`).
+
+Con T31.16 se completan los dieciséis tickets de la Fase 31.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
-~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~
-**→ T31.16**, y el resto según convenga. T31.16 conviene abordarlo pronto:
-sin tests de kernel ejecutables, las correcciones de T31.3 no tienen
-forma de verificarse.
+~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~ →
+~~T31.16~~. Fase 31 completa; los candidatos siguientes son los tickets de
+Fase 30 (T30.1–T30.5) que el catálogo aún marca `🔄 En Progreso`.

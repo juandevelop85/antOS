@@ -7,6 +7,13 @@
 #![no_std]
 #![no_main]
 #![cfg_attr(target_arch = "x86_64", feature(abi_x86_interrupt))]
+// T31.16: no hay crate `test` para *-unknown-none (depende de `std`), así
+// que el arnés de `#[test]` sale por `custom_test_frameworks` en vez del
+// arnés por defecto. Los tres atributos son inertes fuera de `cargo test`
+// — ver `test_framework` para el porqué de cada uno.
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::test_framework::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 
 // El crate `alloc` trae Box, Vec, String y compañía. No forma parte de core,
 // pero tampoco necesita sistema operativo: solo un #[global_allocator].
@@ -32,6 +39,8 @@ mod sync;
 pub mod syscall;
 #[allow(dead_code)]
 mod task;
+#[cfg(test)]
+mod test_framework;
 pub mod ui;
 
 // Built by `build.rs` for whichever architecture the kernel itself targets
@@ -57,6 +66,7 @@ use bootloader_api::entry_point;
 use bootloader_api::info::{MemoryRegionKind, MemoryRegions};
 #[cfg(target_arch = "x86_64")]
 use bootloader_api::BootInfo;
+#[cfg(not(test))]
 use core::fmt::Write;
 use core::panic::PanicInfo;
 #[cfg(target_arch = "x86_64")]
@@ -70,9 +80,24 @@ use task::Task;
 #[cfg(target_arch = "aarch64")]
 const AARCH64_HEAP_SIZE: usize = 8 * 1024 * 1024;
 
+// T31.16: `[u8; N]` por sí solo solo garantiza alineación de 1 byte — nada
+// impide al enlazador colocarlo en cualquier dirección. El asignador de
+// lista enlazada exige que el inicio del heap ya venga alineado a
+// `align_of::<ListNode>()` (8 bytes, por el campo `next: Option<&mut
+// ListNode>`); en x86_64 eso lo da gratis `memory::init_heap` (páginas de
+// 4 KiB), pero aquí no había ninguna garantía — y en la práctica el
+// enlazador colocó `AARCH64_HEAP` en una dirección con resto 1 módulo 8,
+// disparando el `debug_assert_eq!` de `add_free_region` en el primer
+// `allocator::init` (hallazgo de T31.16, nunca se había podido ejecutar
+// este camino en un test hasta ahora). `#[repr(align(16))]` fuerza una
+// alineación de sobra.
+#[cfg(target_arch = "aarch64")]
+#[repr(align(16))]
+struct AlignedAarch64Heap([u8; AARCH64_HEAP_SIZE]);
+
 #[cfg(target_arch = "aarch64")]
 #[link_section = ".bss.heap"]
-static mut AARCH64_HEAP: [u8; AARCH64_HEAP_SIZE] = [0; AARCH64_HEAP_SIZE];
+static mut AARCH64_HEAP: AlignedAarch64Heap = AlignedAarch64Heap([0; AARCH64_HEAP_SIZE]);
 
 // Under `--features limine` (T27.1), `arch::x86_64::limine_boot::_start`
 // becomes the linked entry point instead — Limine's boot protocol is a
@@ -96,6 +121,8 @@ entry_point!(kernel_main, config = &CONFIG);
 /// runs; see `mmu::init_ttbr0_under_limine`'s docs for why the other one
 /// would crash here.
 #[cfg(target_arch = "aarch64")]
+// T31.16: mismo motivo que en `kernel_main` — ver ese comentario.
+#[cfg_attr(test, allow(unreachable_code))]
 pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     #[cfg(feature = "limine")]
     let mut limine_fb_active = false;
@@ -189,10 +216,19 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
     // Inicializar asignador dinámico de memoria sobre RAM mapeada por la MMU
     unsafe {
         allocator::init(
-            core::ptr::addr_of_mut!(AARCH64_HEAP) as usize,
+            core::ptr::addr_of_mut!(AARCH64_HEAP.0) as usize,
             AARCH64_HEAP_SIZE,
         );
     }
+
+    // T31.16: mismo motivo que en `kernel_main` (x86_64) — ver ese
+    // comentario. El asignador es todo lo que los tests necesitan.
+    #[cfg(test)]
+    {
+        test_main();
+        halt_loop();
+    }
+
     let boxed = Box::new(42u64);
     let mut numbers = Vec::new();
     for i in 1..=5 {
@@ -724,6 +760,9 @@ pub fn kmain_arm64(dtb_ptr: u64, booted_via_limine: bool) -> ! {
 }
 
 #[cfg(target_arch = "x86_64")]
+// T31.16: en modo test, todo lo que sigue al bloque `#[cfg(test)]` de más
+// abajo es alcanzable solo en el build normal — `halt_loop()` no vuelve.
+#[cfg_attr(test, allow(unreachable_code))]
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     serial::SERIAL.lock().init();
 
@@ -794,6 +833,18 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { allocator::init(memory::HEAP_START as usize, memory::HEAP_SIZE) };
     println!("  allocator    {}", allocator::name());
     println!("  frames       {} handed out", frames.frames_handed_out());
+
+    // T31.16: en modo test, el asignador es todo lo que los 98 `#[test]`
+    // necesitan (son lógica pura sobre bytes — parsers, decodificadores,
+    // aceleración de puntero — ninguno toca hardware real de disco, USB o
+    // gráficos). El resto de este arranque —demos, controladores, el
+    // bucle principal— no se ejecuta nunca en un binario de test: se
+    // sustituye entero por «correr los tests y parar».
+    #[cfg(test)]
+    {
+        test_main();
+        halt_loop();
+    }
 
     heap_demo();
     reuse_test();
@@ -1310,6 +1361,32 @@ fn panic(info: &PanicInfo) -> ! {
             let _ = writeln!(console, "\x1b[1;31m╚══════════════════════════════\x1b[0m");
         }
     }
+
+    halt_loop()
+}
+
+/// Manejador de panics en modo test (T31.16): idéntico en espíritu al de
+/// arriba, pero con `KERNEL_TEST_RESULT: FAIL` bien visible en el mensaje
+/// — el arnés en QEMU (`ci.yml`/scripts locales) vigila la salida serie
+/// buscando ese literal exacto, no solo la ausencia de `PASS`, para poder
+/// distinguir "un test entró en pánico" de "QEMU se colgó por otra razón".
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    use crate::arch::traits::ArchInterrupts;
+    crate::arch::current::Interrupts::disable();
+
+    println!();
+    println!("KERNEL_TEST_RESULT: FAIL - panic en un test");
+    if let Some(location) = info.location() {
+        println!(
+            "  en {}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
+        );
+    }
+    println!("  {}", info.message());
 
     halt_loop()
 }

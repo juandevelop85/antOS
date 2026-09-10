@@ -1025,7 +1025,7 @@ mod evdev_tests {
 
     const SCREEN: (u32, u32) = (1280, 720);
 
-    #[test]
+    #[test_case]
     fn abs_axis_info_scales_and_clamps() {
         let info = AbsAxisInfo { min: 0, max: 32767 };
         assert_eq!(info.to_screen(0, 1280), 0);
@@ -1036,7 +1036,7 @@ mod evdev_tests {
         assert_eq!(info.to_screen(100, 0), 0); // zero screen dimension
     }
 
-    #[test]
+    #[test_case]
     fn abs_axis_info_honours_nonzero_min() {
         let info = AbsAxisInfo {
             min: 100,
@@ -1047,7 +1047,7 @@ mod evdev_tests {
         assert_eq!(info.to_screen(612, 1025), 512);
     }
 
-    #[test]
+    #[test_case]
     fn key_and_button_transitions() {
         assert_eq!(
             decode_key_or_button(BTN_LEFT, 1),
@@ -1077,7 +1077,7 @@ mod evdev_tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn accumulator_coalesces_relative_motion_on_syn() {
         let mut acc = EvdevAccumulator::new();
         assert!(acc.feed(EV_REL, REL_X, 5i32 as u32, SCREEN).is_none());
@@ -1095,8 +1095,15 @@ mod evdev_tests {
         assert!(out2.is_empty());
     }
 
-    #[test]
+    #[test_case]
     fn accumulator_emits_single_absolute_per_packet() {
+        // T31.16: este test nunca había compilado (era `#[test]` sin arnés
+        // no_std) hasta ahora, y quedó desincronizado con el comentario que
+        // hay justo encima de `feed`: `MouseAbsolute` lleva el rango
+        // canónico 0..=32767, nunca píxeles de pantalla — escalar aquí
+        // TAMBIÉN duplicaba el escalado que ya hace `Cursor::move_abs`. La
+        // aserción original esperaba `x: 1279` (el resultado de escalar dos
+        // veces); la corrección es esperar el valor canónico sin escalar.
         let mut acc = EvdevAccumulator::new();
         acc.abs_x_info = AbsAxisInfo { min: 0, max: 32767 };
         acc.abs_y_info = AbsAxisInfo { min: 0, max: 32767 };
@@ -1108,12 +1115,18 @@ mod evdev_tests {
             .expect("syn flushes");
         assert_eq!(
             out,
-            alloc::vec![InputEvent::MouseAbsolute { x: 1279, y: 0 }]
+            alloc::vec![InputEvent::MouseAbsolute { x: 32767, y: 0 }]
         );
     }
 
-    #[test]
+    #[test_case]
     fn accumulator_reuses_last_axis_when_packet_updates_only_one() {
+        // T31.16: mismo motivo que el test de arriba — `feed` ya no escala
+        // al tamaño de pantalla que se le pasa (de ahí que estas llamadas
+        // usen `(1001, 1001)`, un valor que la implementación actual ignora
+        // por completo), sino al rango canónico 0..=32767. Los valores
+        // esperados son `AbsAxisInfo { min: 0, max: 1000 }.to_screen(raw,
+        // 32768)` para cada `raw` fed abajo.
         let mut acc = EvdevAccumulator::new();
         acc.abs_x_info = AbsAxisInfo { min: 0, max: 1000 };
         acc.abs_y_info = AbsAxisInfo { min: 0, max: 1000 };
@@ -1123,7 +1136,7 @@ mod evdev_tests {
         let first = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
         assert_eq!(
             first,
-            alloc::vec![InputEvent::MouseAbsolute { x: 500, y: 200 }]
+            alloc::vec![InputEvent::MouseAbsolute { x: 16383, y: 6553 }]
         );
 
         // Second packet only reports a new X; Y must carry over.
@@ -1131,11 +1144,11 @@ mod evdev_tests {
         let second = acc.feed(EV_SYN, SYN_REPORT, 0, (1001, 1001)).unwrap();
         assert_eq!(
             second,
-            alloc::vec![InputEvent::MouseAbsolute { x: 750, y: 200 }]
+            alloc::vec![InputEvent::MouseAbsolute { x: 24575, y: 6553 }]
         );
     }
 
-    #[test]
+    #[test_case]
     fn accumulator_orders_keys_then_motion_then_scroll() {
         let mut acc = EvdevAccumulator::new();
         acc.feed(EV_KEY, BTN_LEFT, 1, SCREEN);
@@ -1156,13 +1169,13 @@ mod evdev_tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn led_event_encoding() {
         assert_eq!(encode_led_event(LED_CAPSL, true), (EV_LED, LED_CAPSL, 1));
         assert_eq!(encode_led_event(LED_NUML, false), (EV_LED, LED_NUML, 0));
     }
 
-    #[test]
+    #[test_case]
     fn config_parsing_updates_input_settings() {
         apply_config(
             "# comment\nkeyboard_layout = es\npointer_sensitivity=175\nrepeat_delay_ms=300\nrepeat_rate_hz=25\nunknown=1\n",
@@ -1176,7 +1189,7 @@ mod evdev_tests {
         apply_config("keyboard_layout=us\npointer_sensitivity=100\n");
     }
 
-    #[test]
+    #[test_case]
     fn led_bitmap_tracks_lock_latches() {
         let mut m = Modifiers::empty();
         m.caps_lock = true;

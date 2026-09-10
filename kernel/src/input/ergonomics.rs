@@ -467,7 +467,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[test_case]
     fn us_layout_is_unchanged() {
         let l = KeyboardLayout::Us;
         assert_eq!(
@@ -508,7 +508,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn es_layout_special_glyphs() {
         let l = KeyboardLayout::Es;
         // ñ / Ñ on the US semicolon key
@@ -540,7 +540,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn es_layout_altgr_third_level() {
         let l = KeyboardLayout::Es;
         assert_eq!(
@@ -565,7 +565,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn es_dead_acute_composes_vowels() {
         let l = KeyboardLayout::Es;
         let dead = resolve_key(l, KeyCode::Apostrophe, false, false, false);
@@ -578,7 +578,7 @@ mod tests {
         assert_eq!(dead_key_glyph(DeadKey::Acute), '´');
     }
 
-    #[test]
+    #[test_case]
     fn layout_name_round_trips() {
         assert_eq!(KeyboardLayout::from_name("ES"), Some(KeyboardLayout::Es));
         assert_eq!(KeyboardLayout::from_name(" us "), Some(KeyboardLayout::Us));
@@ -588,7 +588,7 @@ mod tests {
 
     // ── LEDs ──────────────────────────────────────────────────────────────
 
-    #[test]
+    #[test_case]
     fn led_bitmap_packs_hid_bits() {
         assert_eq!(led_bitmap(false, false, false), 0);
         assert_eq!(led_bitmap(true, false, false), 0b001);
@@ -598,7 +598,7 @@ mod tests {
 
     // ── auto-repeat ───────────────────────────────────────────────────────
 
-    #[test]
+    #[test_case]
     fn auto_repeat_waits_delay_then_repeats_at_rate() {
         let mut ar = AutoRepeat::new(50, 3);
         ar.on_press(KeyCode::KeyA, 1000);
@@ -613,7 +613,7 @@ mod tests {
         assert_eq!(ar.tick(1100), Some(KeyCode::KeyA));
     }
 
-    #[test]
+    #[test_case]
     fn auto_repeat_stops_on_matching_release_only() {
         let mut ar = AutoRepeat::new(50, 3);
         ar.on_press(KeyCode::KeyA, 0);
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(ar.held_key(), None);
     }
 
-    #[test]
+    #[test_case]
     fn auto_repeat_newest_key_wins() {
         let mut ar = AutoRepeat::new(50, 3);
         ar.on_press(KeyCode::KeyA, 0);
@@ -637,7 +637,7 @@ mod tests {
 
     // ── pointer acceleration ──────────────────────────────────────────────
 
-    #[test]
+    #[test_case]
     fn accel_identity_below_threshold_with_unit_gain() {
         let p = PointerAccel {
             sensitivity_pct: 100,
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(p.apply(6), 6);
     }
 
-    #[test]
+    #[test_case]
     fn accel_amplifies_large_deltas() {
         let p = PointerAccel {
             sensitivity_pct: 100,
@@ -662,7 +662,7 @@ mod tests {
         assert_eq!(p.apply(-10), -30);
     }
 
-    #[test]
+    #[test_case]
     fn accel_sensitivity_scales_and_never_zeroes_motion() {
         let slow = PointerAccel {
             sensitivity_pct: 50,

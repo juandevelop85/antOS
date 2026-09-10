@@ -420,7 +420,7 @@ pub fn enable_peripheral_irqs() {
 mod tests {
     use super::*;
 
-    #[test]
+    #[test_case]
     fn detects_v3_from_compatible_list() {
         assert_eq!(gic_version_from_compatible(b"arm,gic-v3\0"), GicVersion::V3);
         assert_eq!(
@@ -429,7 +429,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn detects_v2_variants_and_defaults() {
         assert_eq!(
             gic_version_from_compatible(b"arm,cortex-a15-gic\0"),
@@ -446,7 +446,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[test_case]
     fn spurious_intids_are_recognised() {
         assert!(is_spurious(1023));
         assert!(is_spurious(1020));
