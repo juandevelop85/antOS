@@ -532,30 +532,30 @@ pub enum Change {
 /// describir el resultado. Que lo que ves sea lo que pasa es la propiedad
 /// que sostiene todo lo demás.
 #[derive(Default)]
-pub struct Pendiente {
-    escrituras: BTreeMap<PathBuf, String>,
-    borrados: std::collections::BTreeSet<PathBuf>,
+pub struct PendingChanges {
+    writes: BTreeMap<PathBuf, String>,
+    deletes: std::collections::BTreeSet<PathBuf>,
 }
 
-impl Pendiente {
+impl PendingChanges {
     /// El contenido que tendrá el fichero cuando llegue este paso.
     /// `None` significa «pregúntale al disco».
-    pub fn leer(&self, path: &Path) -> Option<String> {
-        if self.borrados.contains(path) {
+    pub fn read(&self, path: &Path) -> Option<String> {
+        if self.deletes.contains(path) {
             return Some(String::new());
         }
-        self.escrituras.get(path).cloned()
+        self.writes.get(path).cloned()
     }
 
-    pub fn aplicar(&mut self, change: &Change) {
+    pub fn apply(&mut self, change: &Change) {
         match change {
             Change::Write { path, content } => {
-                self.borrados.remove(path);
-                self.escrituras.insert(path.clone(), content.clone());
+                self.deletes.remove(path);
+                self.writes.insert(path.clone(), content.clone());
             }
             Change::Delete { path } => {
-                self.escrituras.remove(path);
-                self.borrados.insert(path.clone());
+                self.writes.remove(path);
+                self.deletes.insert(path.clone());
             }
             Change::Mkdir { .. }
             | Change::Read { .. }
@@ -669,9 +669,9 @@ impl Pendiente {
 }
 
 /// Lee un fichero teniendo en cuenta lo que el plan ya ha decidido.
-fn leer_con_pendiente(path: &Path, pendiente: &Pendiente) -> String {
-    pendiente
-        .leer(path)
+fn read_with_pending(path: &Path, pending: &PendingChanges) -> String {
+    pending
+        .read(path)
         .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default())
 }
 
@@ -679,10 +679,10 @@ pub fn changes_for(
     step: &Step,
     cap: &Capability,
     ctx: &Ctx,
-    pendiente: &Pendiente,
+    pending: &PendingChanges,
 ) -> Result<Vec<Change>> {
     let a = &step.args;
-    if let Some(c) = fs::changes_for(cap.name.as_str(), a, ctx, pendiente)? {
+    if let Some(c) = fs::changes_for(cap.name.as_str(), a, ctx, pending)? {
         return Ok(c);
     }
     if let Some(c) = git::changes_for(cap.name.as_str(), a, ctx)? {
@@ -975,7 +975,7 @@ pub fn changes_for(
             let ticket_id = a.get("ticket_id").cloned().unwrap_or_else(|| "T1.1".into());
             let role_str = a.get("role").map(String::as_str).unwrap_or("coder");
             let role = match role_str {
-                "arquitecto" | "architect" => antos_protocol::AgentRole::Arquitecto,
+                "arquitecto" | "architect" => antos_protocol::AgentRole::Architect,
                 "qa" | "tester" => antos_protocol::AgentRole::QA,
                 "auditor" => antos_protocol::AgentRole::Auditor,
                 _ => antos_protocol::AgentRole::Coder,
@@ -1802,12 +1802,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 workspace,
             } => {
                 let st = match status.to_lowercase().as_str() {
-                    "completado" | "done" | "hecho" => antos_protocol::TicketStatus::Completado,
+                    "completado" | "done" | "hecho" => antos_protocol::TicketStatus::Completed,
                     "progreso" | "en_progreso" | "in_progress" => {
-                        antos_protocol::TicketStatus::EnProgreso
+                        antos_protocol::TicketStatus::InProgress
                     }
-                    "revision" | "revisión" | "review" => antos_protocol::TicketStatus::EnRevision,
-                    _ => antos_protocol::TicketStatus::Pendiente,
+                    "revision" | "revisión" | "review" => antos_protocol::TicketStatus::InReview,
+                    _ => antos_protocol::TicketStatus::Pending,
                 };
                 let engine = crate::spec::SpecEngine::global();
                 engine.update_ticket_status(workspace, ticket_id, st)?;
@@ -3484,7 +3484,7 @@ mod tests {
     fn test_scaffold_emits_project_git_init() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = crate::capability::Catalog::load(&ctx.caps_dir).expect("catalog");
-        let pendiente = Pendiente::default();
+        let pending = PendingChanges::default();
 
         let mut args = BTreeMap::new();
         args.insert("name".into(), "auth-service".into());
@@ -3496,7 +3496,7 @@ mod tests {
         let cap = catalog
             .get("project.scaffold")
             .expect("cap project.scaffold");
-        let changes = changes_for(&step, cap, &ctx, &pendiente).expect("changes");
+        let changes = changes_for(&step, cap, &ctx, &pending).expect("changes");
 
         let has_git_init = changes
             .iter()
@@ -3509,17 +3509,17 @@ mod tests {
 
     #[test]
     fn un_paso_ve_lo_que_decidio_el_anterior() {
-        let mut pendiente = Pendiente::default();
+        let mut pending = PendingChanges::default();
         let ruta = PathBuf::from("/ws/paquetes.toml");
 
-        assert_eq!(pendiente.leer(&ruta), None, "de partida, manda el disco");
+        assert_eq!(pending.read(&ruta), None, "de partida, manda el disco");
 
-        pendiente.aplicar(&Change::Write {
+        pending.apply(&Change::Write {
             path: ruta.clone(),
             content: "express".into(),
         });
         assert_eq!(
-            pendiente.leer(&ruta).as_deref(),
+            pending.read(&ruta).as_deref(),
             Some("express"),
             "el paso siguiente debe ver lo que este escribió, no el disco"
         );
@@ -3527,28 +3527,28 @@ mod tests {
 
     #[test]
     fn escribir_despues_de_borrar_parte_de_cero() {
-        let mut pendiente = Pendiente::default();
+        let mut pending = PendingChanges::default();
         let ruta = PathBuf::from("/ws/notas.txt");
 
-        pendiente.aplicar(&Change::Delete { path: ruta.clone() });
+        pending.apply(&Change::Delete { path: ruta.clone() });
         assert_eq!(
-            pendiente.leer(&ruta).as_deref(),
+            pending.read(&ruta).as_deref(),
             Some(""),
             "un fichero borrado por un paso anterior está vacío, no como en el disco"
         );
 
-        pendiente.aplicar(&Change::Write {
+        pending.apply(&Change::Write {
             path: ruta.clone(),
             content: "nuevo".into(),
         });
-        assert_eq!(pendiente.leer(&ruta).as_deref(), Some("nuevo"));
+        assert_eq!(pending.read(&ruta).as_deref(), Some("nuevo"));
     }
 
     #[test]
     fn test_changes_for_capacidades_git() {
         let ctx = Ctx::discover().expect("ctx");
         let catalog = crate::capability::Catalog::load(&ctx.caps_dir).expect("catalog");
-        let pendiente = Pendiente::default();
+        let pending = PendingChanges::default();
 
         // 1. git.status
         let step_status = Step {
@@ -3557,7 +3557,7 @@ mod tests {
         };
         let cap_status = catalog.get("git.status").expect("cap git.status");
         let changes_status =
-            changes_for(&step_status, cap_status, &ctx, &pendiente).expect("changes");
+            changes_for(&step_status, cap_status, &ctx, &pending).expect("changes");
         assert_eq!(changes_status.len(), 1);
         match &changes_status[0] {
             Change::GitStatus { repo_root } => assert_eq!(repo_root, &ctx.workspace),
@@ -3577,7 +3577,7 @@ mod tests {
             .get("git.commit_semantic")
             .expect("cap git.commit_semantic");
         let changes_commit =
-            changes_for(&step_commit, cap_commit, &ctx, &pendiente).expect("changes");
+            changes_for(&step_commit, cap_commit, &ctx, &pending).expect("changes");
         assert_eq!(changes_commit.len(), 1);
         match &changes_commit[0] {
             Change::GitCommit { commit_msg, .. } => {
@@ -3598,7 +3598,7 @@ mod tests {
             .get("git.smart_branch")
             .expect("cap git.smart_branch");
         let changes_branch =
-            changes_for(&step_branch, cap_branch, &ctx, &pendiente).expect("changes");
+            changes_for(&step_branch, cap_branch, &ctx, &pending).expect("changes");
         assert_eq!(changes_branch.len(), 1);
         match &changes_branch[0] {
             Change::GitBranch { branch_name, .. } => {
@@ -3618,7 +3618,7 @@ mod tests {
             .get("git.worktree_create")
             .expect("cap git.worktree_create");
         let changes_wt_create =
-            changes_for(&step_wt_create, cap_wt_create, &ctx, &pendiente).expect("changes");
+            changes_for(&step_wt_create, cap_wt_create, &ctx, &pending).expect("changes");
         assert_eq!(changes_wt_create.len(), 1);
         match &changes_wt_create[0] {
             Change::GitWorktreeCreate {
@@ -3643,7 +3643,7 @@ mod tests {
             .get("git.worktree_cleanup")
             .expect("cap git.worktree_cleanup");
         let changes_wt_clean =
-            changes_for(&step_wt_clean, cap_wt_clean, &ctx, &pendiente).expect("changes");
+            changes_for(&step_wt_clean, cap_wt_clean, &ctx, &pending).expect("changes");
         assert_eq!(changes_wt_clean.len(), 1);
         match &changes_wt_clean[0] {
             Change::GitWorktreeCleanup { target_path, .. } => {
@@ -3663,7 +3663,7 @@ mod tests {
             .get("diag.port_status")
             .expect("cap diag.port_status");
         let changes_port_st =
-            changes_for(&step_port_st, cap_port_st, &ctx, &pendiente).expect("changes");
+            changes_for(&step_port_st, cap_port_st, &ctx, &pending).expect("changes");
         assert_eq!(changes_port_st.len(), 1);
         match &changes_port_st[0] {
             Change::PortStatus { port } => assert_eq!(*port, Some(3000)),
@@ -3680,7 +3680,7 @@ mod tests {
         };
         let cap_port_kill = catalog.get("diag.port_kill").expect("cap diag.port_kill");
         let changes_port_kill =
-            changes_for(&step_port_kill, cap_port_kill, &ctx, &pendiente).expect("changes");
+            changes_for(&step_port_kill, cap_port_kill, &ctx, &pending).expect("changes");
         assert_eq!(changes_port_kill.len(), 1);
         match &changes_port_kill[0] {
             Change::PortKill { port, force } => {

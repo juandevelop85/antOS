@@ -34,6 +34,6 @@
 
   # KMS de `virtio-gpu` en el arranque para que el compositor tenga DRM.
   boot.initrd.availableKernelModules = [ "virtio_gpu" ];
-  # La consola serie de `configuracion.nix` se conserva; se añade la de vídeo.
+  # La consola serie de `configuration.nix` se conserva; se añade la de vídeo.
   boot.kernelParams = lib.mkAfter [ "console=tty0" ];
 }

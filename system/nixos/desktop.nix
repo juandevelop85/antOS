@@ -1,6 +1,6 @@
 # El escritorio antOS Linux, definido como un valor.
 #
-# `services.antos.enable` (en `modulo.nix`) monta el demonio. Este módulo
+# `services.antos.enable` (en `module.nix`) monta el demonio. Este módulo
 # añade `services.antos.desktop`: la sesión gráfica completa —compositor
 # Labwc + `antos-barra` + variables XDG + autologin Wayland— descrita de
 # forma declarativa. Activarla es una línea del `configuration.nix`.

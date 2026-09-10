@@ -153,10 +153,10 @@ impl Catalog {
                     }
                 }
                 "branch" | "git_ref" => {
-                    let valido =
+                    let is_valid =
                         |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/');
                     if value.is_empty()
-                        || !value.chars().all(valido)
+                        || !value.chars().all(is_valid)
                         || value.starts_with('/')
                         || value.ends_with('/')
                         || value.contains("..")
@@ -173,10 +173,10 @@ impl Catalog {
                 // aparte de `slug` a propósito — `slug` lo usan parámetros que
                 // acaban dentro de una RUTA, y ahí una barra sería otra cosa.
                 "package" => {
-                    let valido = |c: char| {
+                    let is_valid = |c: char| {
                         c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '@' | '/' | '+')
                     };
-                    if value.is_empty() || !value.chars().all(valido) {
+                    if value.is_empty() || !value.chars().all(is_valid) {
                         bail!(
                             "{}: «{name}» no es un nombre de paquete válido: «{value}»",
                             cap.name

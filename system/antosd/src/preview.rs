@@ -12,7 +12,7 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
     // El diff de un paso se compara con lo que dejó el paso anterior, no con
     // el disco de partida. Si no, tres escrituras al mismo fichero se
     // mostrarían las tres como si partieran de cero.
-    let mut pendiente = crate::exec::Pendiente::default();
+    let mut pending = crate::exec::PendingChanges::default();
 
     for change in changes {
         match change {
@@ -35,7 +35,7 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 out.push(Line::Del(format!("  {}", ctx.display(path))));
             }
             Change::Write { path, content } => {
-                let ya_previsto = pendiente.leer(path);
+                let ya_previsto = pending.read(path);
                 let existia = ya_previsto.is_some() || path.exists();
                 let old = ya_previsto
                     .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default());
@@ -810,7 +810,7 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                 )));
             }
         }
-        pendiente.aplicar(change);
+        pending.apply(change);
     }
     out
 }

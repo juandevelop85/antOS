@@ -641,7 +641,7 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  Motor seleccionado:  {}", paint(planner.name(), GREEN));
             let start = std::time::Instant::now();
             match planner.plan(prompt, &catalog) {
-                Ok(propuesta) => {
+                Ok(proposal) => {
                     let elapsed = start.elapsed();
                     println!(
                         "  Latencia de respuesta: {} ms",
@@ -649,9 +649,9 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                     );
                     println!(
                         "  Pasos generados:       {}",
-                        paint(&propuesta.steps.len().to_string(), BOLD)
+                        paint(&proposal.steps.len().to_string(), BOLD)
                     );
-                    for (idx, step) in propuesta.steps.iter().enumerate() {
+                    for (idx, step) in proposal.steps.iter().enumerate() {
                         println!(
                             "    {}. Capacidad: {} ({:?})",
                             idx + 1,
@@ -659,7 +659,7 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                             step.args
                         );
                     }
-                    if let Some(ref note) = propuesta.nota {
+                    if let Some(ref note) = proposal.note {
                         println!("  Nota del modelo:       {}", paint(note, DIM));
                     }
                     println!(

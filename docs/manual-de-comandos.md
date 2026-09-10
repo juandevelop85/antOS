@@ -188,7 +188,7 @@ Wayland por `greetd`. Reutiliza los mismos `rc.xml` / `autostart` /
 `environment` de `system/desktop/` (T13.0).
 
 ```nix
-# system/nixos/configuracion.nix
+# system/nixos/configuration.nix
 services.antos.enable = true;
 services.antos.desktop.enable = true;   # ← una línea activa el escritorio
 ```

@@ -93,7 +93,7 @@ impl GitAnalyzer {
         })
     }
 
-    /// Obtiene el estado del repositorio para una ruta dada, utilizando la caché si es válida.
+    /// Obtiene el status del repositorio para una path dada, utilizando la caché si es válida.
     pub fn get_status(&self, workspace_path: &Path) -> Result<Option<GitRepoStatus>> {
         let Some((repo_root, git_dir)) = find_git_root(workspace_path) else {
             return Ok(None);
@@ -198,54 +198,54 @@ pub fn find_git_root_with_ceiling(
     None
 }
 
-fn get_mtime(ruta: &Path) -> Option<SystemTime> {
-    fs::metadata(ruta).and_then(|m| m.modified()).ok()
+fn get_mtime(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
 /// Inspecciona un repositorio de forma optimizada.
 fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
-    // 1. Obtener HEAD y rama desde el sistema de archivos
-    let (rama, head_commit) = leer_head(git_dir);
+    // 1. Obtener HEAD y branch desde el sistema de archivos
+    let (branch, head_commit) = read_head(git_dir);
 
-    // 2. Obtener upstream y commits delante/detrás
-    let (delante, detras) = calcular_delante_detras(repo_root);
+    // 2. Obtener upstream y commits ahead/detrás
+    let (ahead, behind) = calculate_ahead_behind(repo_root);
 
-    // 3. Obtener estado de archivos y conteo de líneas
-    let (modificados, staged, sin_seguimiento) = get_files_and_diffs(repo_root)?;
+    // 3. Obtener status de archivos y conteo de líneas
+    let (modified, staged, untracked) = get_files_and_diffs(repo_root)?;
 
-    let clean = modificados.is_empty() && staged.is_empty() && sin_seguimiento.is_empty();
+    let clean = modified.is_empty() && staged.is_empty() && untracked.is_empty();
 
     Ok(GitRepoStatus {
-        branch: rama,
+        branch,
         head_commit,
-        ahead: delante,
-        behind: detras,
-        modified: modificados,
+        ahead,
+        behind,
+        modified,
         staged,
-        untracked: sin_seguimiento,
+        untracked,
         clean,
     })
 }
 
-/// Lee `.git/HEAD` para resolver la rama actual y el commit actual.
-fn leer_head(git_dir: &Path) -> (Option<String>, Option<String>) {
+/// Lee `.git/HEAD` para resolver la branch actual y el commit actual.
+fn read_head(git_dir: &Path) -> (Option<String>, Option<String>) {
     let head_file = git_dir.join("HEAD");
-    let Ok(contenido) = fs::read_to_string(head_file) else {
+    let Ok(content) = fs::read_to_string(head_file) else {
         return (None, None);
     };
 
-    let linea = contenido.trim();
-    if let Some(resto) = linea.strip_prefix("ref: refs/heads/") {
-        let nombre_rama = resto.to_string();
-        // Intentar leer el hash del commit desde refs/heads/<rama>
-        let ref_path = git_dir.join("refs").join("heads").join(&nombre_rama);
+    let line = content.trim();
+    if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
+        let branch_name = rest.to_string();
+        // Intentar leer el hash del commit desde refs/heads/<branch>
+        let ref_path = git_dir.join("refs").join("heads").join(&branch_name);
         let commit = fs::read_to_string(ref_path)
             .ok()
             .map(|s| s.trim().chars().take(8).collect::<String>());
-        (Some(nombre_rama), commit)
-    } else if !linea.is_empty() {
+        (Some(branch_name), commit)
+    } else if !line.is_empty() {
         // HEAD desacoplado
-        let commit = linea.chars().take(8).collect::<String>();
+        let commit = line.chars().take(8).collect::<String>();
         (None, Some(commit))
     } else {
         (None, None)
@@ -254,7 +254,7 @@ fn leer_head(git_dir: &Path) -> (Option<String>, Option<String>) {
 
 /// Calculates ahead/behind commits against the upstream using `git rev-list`.
 /// Injects `GIT_CEILING_DIRECTORIES` so Git cannot escape the workspace boundary.
-fn calcular_delante_detras(repo_root: &Path) -> (usize, usize) {
+fn calculate_ahead_behind(repo_root: &Path) -> (usize, usize) {
     let antos_root = detect_antos_root();
     let output = git_cmd_with_ceiling(antos_root.as_deref())
         .arg("-C")
@@ -286,9 +286,9 @@ fn get_files_and_diffs(
     Vec<GitFileDiffSummary>,
     Vec<String>,
 )> {
-    let mut modificados = Vec::new();
+    let mut modified = Vec::new();
     let mut staged = Vec::new();
-    let mut sin_seguimiento = Vec::new();
+    let mut untracked = Vec::new();
 
     let antos_root = detect_antos_root();
 
@@ -301,7 +301,7 @@ fn get_files_and_diffs(
         .output()
     {
         if out.status.success() {
-            parsear_numstat(&String::from_utf8_lossy(&out.stdout), &mut stats_staged);
+            parse_numstat(&String::from_utf8_lossy(&out.stdout), &mut stats_staged);
         }
     }
 
@@ -314,7 +314,7 @@ fn get_files_and_diffs(
         .output()
     {
         if out.status.success() {
-            parsear_numstat(&String::from_utf8_lossy(&out.stdout), &mut stats_unstaged);
+            parse_numstat(&String::from_utf8_lossy(&out.stdout), &mut stats_unstaged);
         }
     }
 
@@ -327,32 +327,32 @@ fn get_files_and_diffs(
         .context("failed to execute git status")?;
 
     if !output.status.success() {
-        return Ok((modificados, staged, sin_seguimiento));
+        return Ok((modified, staged, untracked));
     }
 
-    let texto = String::from_utf8_lossy(&output.stdout);
-    for linea in texto.lines() {
-        if linea.len() < 3 {
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        if line.len() < 3 {
             continue;
         }
 
-        let index_stat = linea.as_bytes()[0] as char;
-        let work_stat = linea.as_bytes()[1] as char;
-        let ruta_raw = linea[3..].trim();
-        let ruta = ruta_raw
+        let index_stat = line.as_bytes()[0] as char;
+        let work_stat = line.as_bytes()[1] as char;
+        let path_raw = line[3..].trim();
+        let path = path_raw
             .split(" -> ")
             .last()
-            .unwrap_or(ruta_raw)
+            .unwrap_or(path_raw)
             .to_string();
 
         if index_stat == '?' && work_stat == '?' {
-            sin_seguimiento.push(ruta);
+            untracked.push(path);
             continue;
         }
 
         // Staged
         if index_stat != ' ' && index_stat != '?' {
-            let estado = match index_stat {
+            let status = match index_stat {
                 'M' => GitFileStatus::Modified,
                 'A' => GitFileStatus::Created,
                 'D' => GitFileStatus::Deleted,
@@ -361,18 +361,18 @@ fn get_files_and_diffs(
                 'U' => GitFileStatus::Conflicted,
                 _ => GitFileStatus::Modified,
             };
-            let (add, del) = stats_staged.get(&ruta).copied().unwrap_or((0, 0));
+            let (add, del) = stats_staged.get(&path).copied().unwrap_or((0, 0));
             staged.push(GitFileDiffSummary {
-                path: ruta.clone(),
+                path: path.clone(),
                 added_lines: add,
                 deleted_lines: del,
-                status: estado,
+                status,
             });
         }
 
         // Unstaged / Modificados en workspace
         if work_stat != ' ' && work_stat != '?' {
-            let estado = match work_stat {
+            let status = match work_stat {
                 'M' => GitFileStatus::Modified,
                 'A' => GitFileStatus::Created,
                 'D' => GitFileStatus::Deleted,
@@ -381,27 +381,27 @@ fn get_files_and_diffs(
                 'U' => GitFileStatus::Conflicted,
                 _ => GitFileStatus::Modified,
             };
-            let (add, del) = stats_unstaged.get(&ruta).copied().unwrap_or((0, 0));
-            modificados.push(GitFileDiffSummary {
-                path: ruta,
+            let (add, del) = stats_unstaged.get(&path).copied().unwrap_or((0, 0));
+            modified.push(GitFileDiffSummary {
+                path,
                 added_lines: add,
                 deleted_lines: del,
-                status: estado,
+                status,
             });
         }
     }
 
-    Ok((modificados, staged, sin_seguimiento))
+    Ok((modified, staged, untracked))
 }
 
-fn parsear_numstat(salida: &str, destino: &mut HashMap<String, (usize, usize)>) {
-    for linea in salida.lines() {
-        let partes: Vec<&str> = linea.split('\t').collect();
-        if partes.len() >= 3 {
-            let add = partes[0].parse::<usize>().unwrap_or(0);
-            let del = partes[1].parse::<usize>().unwrap_or(0);
-            let ruta = partes[2].to_string();
-            destino.insert(ruta, (add, del));
+fn parse_numstat(output_text: &str, target: &mut HashMap<String, (usize, usize)>) {
+    for line in output_text.lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 3 {
+            let add = parts[0].parse::<usize>().unwrap_or(0);
+            let del = parts[1].parse::<usize>().unwrap_or(0);
+            let path = parts[2].to_string();
+            target.insert(path, (add, del));
         }
     }
 }

@@ -136,7 +136,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::GitStatus { repo_root } => {
             if let Some(status) = crate::git::GitAnalyzer::global().consultar_estado(repo_root)? {
-                let lineas = [
+                let lines = [
                     format!(
                         "rama: {}",
                         status.branch.unwrap_or_else(|| "HEAD desacoplado".into())
@@ -146,7 +146,7 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                     format!("staged: {}", status.staged.len()),
                     format!("sin seguimiento: {}", status.untracked.len()),
                 ];
-                Ok(Some(lineas.join("\n")))
+                Ok(Some(lines.join("\n")))
             } else {
                 Ok(Some("no es un repositorio Git".into()))
             }
@@ -183,10 +183,10 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                     bail!("git commit falló: {err}\n{out_str}");
                 }
             } else {
-                let resultado = String::from_utf8_lossy(&commit_out.stdout)
+                let result = String::from_utf8_lossy(&commit_out.stdout)
                     .trim()
                     .to_string();
-                Ok(Some(format!("commit creado: {resultado}")))
+                Ok(Some(format!("commit creado: {result}")))
             }
         }
         Change::GitBranch {

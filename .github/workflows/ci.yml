@@ -259,6 +259,23 @@ jobs:
       - name: Clippy (user workspace, x86_64 bare-metal)
         run: cargo clippy --manifest-path user/Cargo.toml --target x86_64-unknown-none -- -D warnings
 
+  # ──────────────────────────────────── Nomenclatura · identificadores en inglés
+  # T31.12: heurística que busca lexemas españoles en declaraciones (`fn`,
+  # `let`, `struct`, `enum`, `const`, `static`, `mod`) — nunca dentro de
+  # comentarios, strings ni de un `mod tests { ... }` (los nombres de test
+  # siguen una convención propia y aparte, ya extendida por todo el árbol).
+  # No es un lint perfecto: un cognado inglés/español nuevo puede dar un
+  # falso positivo, así que un fallo aquí pide revisar el hallazgo, no
+  # asumir que está mal — ver el docstring del propio script.
+  check-english-identifiers:
+    name: "Nomenclatura · identificadores en inglés"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for Spanish identifiers in declarations
+        run: python3 .agents/scripts/check-spanish-identifiers.py system/ kernel/ builder/ user/
+
   # ──────────────────────────────────────────────── Builder validation
   builder-tests:
     name: "Builder · GPT/EFI image tests"

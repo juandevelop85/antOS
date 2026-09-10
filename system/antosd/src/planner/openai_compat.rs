@@ -6,7 +6,7 @@
 //! Includes built-in presets and adapters for free cloud tiers (OpenRouter Free, Groq Cloud Free,
 //! Google Gemini API Free) and local independent engines (OpenCode, llama.cpp server, LocalAI, vLLM).
 
-use super::{Planner, Propuesta};
+use super::{Planner, Proposal};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{bail, Context, Result};
@@ -281,7 +281,7 @@ impl Planner for OpenAiCompatPlanner {
         "openai_compat"
     }
 
-    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Propuesta> {
+    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Proposal> {
         let url = format!("{}/chat/completions", self.endpoint);
 
         let system_prompt = format!(
@@ -350,7 +350,7 @@ impl Planner for OpenAiCompatPlanner {
 /// Supports:
 /// 1. Formal `tool_calls` in `choices[0].message.tool_calls` (both stringified JSON and Value objects).
 /// 2. Embedded markdown code block JSON fallback in `choices[0].message.content`.
-pub fn parse_openai_chat_response(v: &Value) -> Result<Propuesta> {
+pub fn parse_openai_chat_response(v: &Value) -> Result<Proposal> {
     let choice = v["choices"]
         .as_array()
         .and_then(|c| c.first())
@@ -441,14 +441,14 @@ pub fn parse_openai_chat_response(v: &Value) -> Result<Propuesta> {
         bail!("no se pudo planificar con las capacidades disponibles.\n{said}");
     }
 
-    Ok(Propuesta {
+    Ok(Proposal {
         steps,
-        nota: (!said.is_empty()).then_some(said),
+        note: (!said.is_empty()).then_some(said),
     })
 }
 
 /// Fallback parser when model outputs markdown code fence JSON instead of structured tool call.
-fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
+fn try_parse_json_from_text(text: &str) -> Option<Proposal> {
     let json_str = if let Some(start) = text.find("```json") {
         let rest = &text[start + 7..];
         let end = rest.find("```").unwrap_or(rest.len());
@@ -486,7 +486,7 @@ fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
     if steps.is_empty() {
         None
     } else {
-        Some(Propuesta { steps, nota: note })
+        Some(Proposal { steps, note })
     }
 }
 
@@ -640,7 +640,7 @@ mod tests {
             propuesta.steps[0].args.get("name").map(String::as_str),
             Some("api-service")
         );
-        assert_eq!(propuesta.nota.as_deref(), Some("Creando nuevo proyecto"));
+        assert_eq!(propuesta.note.as_deref(), Some("Creando nuevo proyecto"));
     }
 
     #[test]
@@ -678,7 +678,7 @@ mod tests {
             propuesta.steps[0].args.get("port").map(String::as_str),
             Some("8080")
         );
-        assert_eq!(propuesta.nota.as_deref(), Some("Diagnóstico de red"));
+        assert_eq!(propuesta.note.as_deref(), Some("Diagnóstico de red"));
     }
 
     #[test]
@@ -702,7 +702,7 @@ mod tests {
             propuesta.steps[0].args.get("name").map(String::as_str),
             Some("feature-auth")
         );
-        assert_eq!(propuesta.nota.as_deref(), Some("Creando rama feature"));
+        assert_eq!(propuesta.note.as_deref(), Some("Creando rama feature"));
     }
 
     #[test]

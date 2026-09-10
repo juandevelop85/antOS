@@ -51,10 +51,7 @@ pub enum AgentRole {
     VisualQA,
 }
 
-#[allow(non_upper_case_globals)]
 impl AgentRole {
-    pub const Arquitecto: Self = Self::Architect;
-
     pub fn name(&self) -> &'static str {
         match self {
             AgentRole::Architect => "Architect",
@@ -65,7 +62,9 @@ impl AgentRole {
         }
     }
 
-    pub fn nombre(&self) -> &'static str {
+    /// Spanish display name, for CLI output — the project's UI text stays in
+    /// Spanish by design; only the identifier is English (T31.12).
+    pub fn name_es(&self) -> &'static str {
         match self {
             AgentRole::Architect => "Arquitecto",
             AgentRole::Coder => "Coder",
@@ -142,16 +141,7 @@ pub enum FlowState {
     Failed,
 }
 
-#[allow(non_upper_case_globals)]
 impl FlowState {
-    pub const Pendiente: Self = Self::Pending;
-    pub const Planificando: Self = Self::Planning;
-    pub const Implementando: Self = Self::Implementing;
-    pub const VerificandoTests: Self = Self::Testing;
-    pub const RevisionAuditor: Self = Self::Reviewing;
-    pub const ListoParaAprobacion: Self = Self::ReadyForApproval;
-    pub const Fusionado: Self = Self::Merged;
-    pub const Fallido: Self = Self::Failed;
     pub fn label(&self) -> &'static str {
         match self {
             FlowState::Pending => "Pending",

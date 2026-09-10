@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 pub fn cmd_intent(ctx: &Ctx, catalog: &Catalog, intent: &str, opts: &Opts) -> Result<()> {
     let force_local =
         crate::util::env_with_legacy_fallback("ANTOS_SIN_DEMONIO", "SYSO_SIN_DEMONIO").is_some();
-    if !force_local && crate::ipc::hay_demonio(ctx) {
-        return crate::ipc::intencion_remota(
+    if !force_local && crate::ipc::daemon_is_running(ctx) {
+        return crate::ipc::remote_intent(
             &crate::ipc::socket_path(ctx),
             intent,
             opts.planner.as_deref(),

@@ -42,7 +42,7 @@ impl FlowEngine {
                 ticket_opt = spec_engine.get_ticket(&cur, &ticket_upper)?;
             }
         }
-        let detalle_ticket = ticket_opt.ok_or_else(|| {
+        let ticket_detail = ticket_opt.ok_or_else(|| {
             anyhow::anyhow!("no se encontró la especificación del ticket «{ticket_upper}»")
         })?;
 
@@ -84,8 +84,8 @@ impl FlowEngine {
             role: Some(AgentRole::Architect),
             detail: format!(
                 "Arquitecto [{arch_model}] analizando especificación: «{}» ({} criterios de aceptación)",
-                detalle_ticket.title,
-                detalle_ticket.acceptance_criteria.len()
+                ticket_detail.title,
+                ticket_detail.acceptance_criteria.len()
             ),
             model: Some(arch_model),
         });
@@ -116,17 +116,17 @@ impl FlowEngine {
         })?;
 
         let timestamp = now_secs();
-        let anterior = task.state;
+        let previous = task.state;
         let model_opt = model.map(String::from);
 
-        match anterior {
+        match previous {
             FlowState::Planning => {
                 // Arquitecto terminó -> pasa a Coder
                 task.state = FlowState::Implementing;
                 task.current_role = Some(AgentRole::Coder);
                 task.history.push(FlowTransition {
                     timestamp_seconds: timestamp,
-                    old_state: anterior,
+                    old_state: previous,
                     new_state: task.state,
                     role: task.current_role,
                     detail: if detalle.is_empty() {
@@ -143,7 +143,7 @@ impl FlowEngine {
                 task.current_role = Some(AgentRole::QA);
                 task.history.push(FlowTransition {
                     timestamp_seconds: timestamp,
-                    old_state: anterior,
+                    old_state: previous,
                     new_state: task.state,
                     role: task.current_role,
                     detail: if detalle.is_empty() {
@@ -161,7 +161,7 @@ impl FlowEngine {
                     task.current_role = Some(AgentRole::Auditor);
                     task.history.push(FlowTransition {
                         timestamp_seconds: timestamp,
-                        old_state: anterior,
+                        old_state: previous,
                         new_state: task.state,
                         role: task.current_role,
                         detail: if detalle.is_empty() {
@@ -178,7 +178,7 @@ impl FlowEngine {
                     task.current_role = Some(AgentRole::Coder);
                     task.history.push(FlowTransition {
                         timestamp_seconds: timestamp,
-                        old_state: anterior,
+                        old_state: previous,
                         new_state: task.state,
                         role: task.current_role,
                         detail: format!(
@@ -193,7 +193,7 @@ impl FlowEngine {
                     task.current_role = None;
                     task.history.push(FlowTransition {
                         timestamp_seconds: timestamp,
-                        old_state: anterior,
+                        old_state: previous,
                         new_state: FlowState::Failed,
                         role: None,
                         detail: format!(
@@ -212,7 +212,7 @@ impl FlowEngine {
                     Some("Diff verificado sin violaciones de radio de impacto.".into());
                 task.history.push(FlowTransition {
                     timestamp_seconds: timestamp,
-                    old_state: anterior,
+                    old_state: previous,
                     new_state: task.state,
                     role: None,
                     detail: if detalle.is_empty() {
@@ -252,17 +252,6 @@ impl FlowEngine {
         self.advance_phase_with_model(ticket_id, detalle, test_exitoso, None)
     }
 
-    /// Alias compatible con modelo.
-    pub fn avanzar_fase_con_modelo(
-        &self,
-        ticket_id: &str,
-        detalle: &str,
-        test_exitoso: bool,
-        model: Option<&str>,
-    ) -> Result<FlowTask> {
-        self.advance_phase_with_model(ticket_id, detalle, test_exitoso, model)
-    }
-
     /// Aprueba o rechaza la tarea en su etapa final de revisión.
     pub fn approve_task(&self, ticket_id: &str, decision: bool) -> Result<FlowTask> {
         let ticket_upper = ticket_id.to_uppercase();
@@ -276,13 +265,13 @@ impl FlowEngine {
         })?;
 
         let timestamp = now_secs();
-        let anterior = task.state;
+        let previous = task.state;
 
         if decision {
             task.state = FlowState::Merged;
             task.history.push(FlowTransition {
                 timestamp_seconds: timestamp,
-                old_state: anterior,
+                old_state: previous,
                 new_state: FlowState::Merged,
                 role: None,
                 detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal."
@@ -293,7 +282,7 @@ impl FlowEngine {
             task.state = FlowState::Failed;
             task.history.push(FlowTransition {
                 timestamp_seconds: timestamp,
-                old_state: anterior,
+                old_state: previous,
                 new_state: FlowState::Failed,
                 role: None,
                 detail: "Rechazado por el desarrollador. Worktree descartado.".into(),
@@ -500,13 +489,13 @@ pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
 
         match out {
             Ok(o) => {
-                let exito = o.status.success();
-                let salida = format!(
+                let success = o.status.success();
+                let output = format!(
                     "{}\n{}",
                     String::from_utf8_lossy(&o.stdout),
                     String::from_utf8_lossy(&o.stderr)
                 );
-                Ok((exito, salida.trim().to_string()))
+                Ok((success, output.trim().to_string()))
             }
             Err(e) => Ok((false, format!("error executing cargo test: {e:#}"))),
         }
@@ -518,13 +507,13 @@ pub fn run_worktree_tests(worktree: &Path) -> Result<(bool, String)> {
 
         match out {
             Ok(o) => {
-                let exito = o.status.success();
-                let salida = format!(
+                let success = o.status.success();
+                let output = format!(
                     "{}\n{}",
                     String::from_utf8_lossy(&o.stdout),
                     String::from_utf8_lossy(&o.stderr)
                 );
-                Ok((exito, salida.trim().to_string()))
+                Ok((success, output.trim().to_string()))
             }
             Err(e) => Ok((false, format!("error executing npm test: {e:#}"))),
         }
@@ -576,10 +565,6 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn ahora_segundos() -> u64 {
-    now_secs()
-}
-
 /// Persists a flow task to disk in JSON format so status and panel can read it.
 pub fn save_task_to_disk(state_dir: &Path, task: &FlowTask) {
     let dir = state_dir.join("flows");
@@ -601,7 +586,7 @@ mod tests {
     #[test]
     fn test_roles_and_system_prompts() {
         let roles = [
-            AgentRole::Arquitecto,
+            AgentRole::Architect,
             AgentRole::Coder,
             AgentRole::QA,
             AgentRole::Auditor,

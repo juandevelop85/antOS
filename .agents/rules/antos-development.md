@@ -12,6 +12,18 @@ trigger: always_on
   - `kernel`: Crate `no_std` para bare metal. No mezclar dependencias de `std` con el kernel.
 - **Calidad y Robustez:**
   - **Nomenclatura en Inglés:** Todos los identificadores (funciones, variables, structs, enums, métodos, traits y módulos) deben escribirse exclusivamente en inglés (ej. `FlowEngine`, `start_task`, `diagnose_ports`).
+  - **Comentarios y documentación en español (T31.12):** la regla de arriba es
+    sobre *identificadores*, no sobre prosa. Los comentarios, los doc-comments
+    (`///`, `//!`) y el texto que el sistema le muestra al usuario (mensajes
+    de error, salida de CLI, contenido de tickets) siguen en español,
+    deliberadamente — es una de las señas de identidad del repositorio: el
+    código explica *por qué* está hecho cada cosa en el idioma en el que se
+    piensa el proyecto. Un método puede llamarse `name_es()` y devolver
+    `"Arquitecto"`: el identificador va en inglés, el contenido que produce
+    no tiene por qué. Ningún futuro ticket de nomenclatura debe traducir
+    comentarios o strings de cara al usuario creyendo que así completa este
+    tipo de trabajo — eso sería deshacer una decisión de proyecto, no
+    aplicar la regla.
   - Cero `unwrap()` o `expect()` en rutas de ejecución de IPC o demonio; utilizar siempre propagación de errores (`?`) o manejo explícito.
   - Documentar structs y mensajes públicos expuestos a través del protocolo IPC.
   - **`sh -c` / `bash -c` (T31.4):** solo se usa cuando el intérprete de comandos

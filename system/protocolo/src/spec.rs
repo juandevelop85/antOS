@@ -22,13 +22,7 @@ pub enum TicketStatus {
     Completed,
 }
 
-#[allow(non_upper_case_globals)]
 impl TicketStatus {
-    pub const Pendiente: Self = Self::Pending;
-    pub const EnProgreso: Self = Self::InProgress;
-    pub const EnRevision: Self = Self::InReview;
-    pub const Completado: Self = Self::Completed;
-
     pub fn label(&self) -> &'static str {
         match self {
             TicketStatus::Pending => "Pending",

@@ -22,7 +22,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             paint("antOS · Roles de Agentes Especializados (antFlow)", BOLD)
         );
         let roles = [
-            antos_protocol::AgentRole::Arquitecto,
+            antos_protocol::AgentRole::Architect,
             antos_protocol::AgentRole::Coder,
             antos_protocol::AgentRole::QA,
             antos_protocol::AgentRole::Auditor,
@@ -190,7 +190,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             for t in &task.history {
                 let rol_fmt = t
                     .role
-                    .map(|r| format!(" [{}]", r.nombre()))
+                    .map(|r| format!(" [{}]", r.name_es()))
                     .unwrap_or_default();
                 let model_fmt = t
                     .model
@@ -233,7 +233,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     println!("  Estado:     {}", task.state.label());
                     println!(
                         "  Rol Activo: {}",
-                        task.current_role.map(|r| r.nombre()).unwrap_or("Ninguno")
+                        task.current_role.map(|r| r.name_es()).unwrap_or("Ninguno")
                     );
                     if let Some(wt) = &task.worktree_path {
                         println!("  Worktree:   {}", paint(wt, DIM));
@@ -362,62 +362,62 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
     println!();
 
     // Columnas Kanban
-    let pendientes: Vec<_> = tickets
+    let pending: Vec<_> = tickets
         .iter()
         .filter(|t| t.status == antos_protocol::TicketStatus::Pending)
         .collect();
-    let en_progreso: Vec<_> = tickets
+    let in_progress: Vec<_> = tickets
         .iter()
         .filter(|t| t.status == antos_protocol::TicketStatus::InProgress)
         .collect();
-    let en_revision: Vec<_> = tickets
+    let in_review: Vec<_> = tickets
         .iter()
         .filter(|t| t.status == antos_protocol::TicketStatus::InReview)
         .collect();
-    let completados: Vec<_> = tickets
+    let completed: Vec<_> = tickets
         .iter()
         .filter(|t| t.status == antos_protocol::TicketStatus::Completed)
         .collect();
 
     println!("  {}", paint("● TABLERO DE TICKETS (docs/tickets/)", BOLD));
     println!("  ┌────────────────────────┬────────────────────────┬────────────────────────┬────────────────────────┐");
-    let hdr_backlog = format!("⏳ BACKLOG ({})", pendientes.len());
-    let hdr_progreso = format!("🔄 EN CURSO ({})", en_progreso.len());
-    let hdr_revision = format!("🔍 REVISIÓN ({})", en_revision.len());
-    let hdr_hecho = format!("✅ HECHO ({})", completados.len());
+    let header_backlog = format!("⏳ BACKLOG ({})", pending.len());
+    let header_in_progress = format!("🔄 EN CURSO ({})", in_progress.len());
+    let header_in_review = format!("🔍 REVISIÓN ({})", in_review.len());
+    let header_done = format!("✅ HECHO ({})", completed.len());
     println!(
         "  │ {:<22} │ {:<22} │ {:<22} │ {:<22} │",
-        paint(&hdr_backlog, BOLD),
-        paint(&hdr_progreso, BOLD),
-        paint(&hdr_revision, BOLD),
-        paint(&hdr_hecho, BOLD)
+        paint(&header_backlog, BOLD),
+        paint(&header_in_progress, BOLD),
+        paint(&header_in_review, BOLD),
+        paint(&header_done, BOLD)
     );
     println!("  ├────────────────────────┼────────────────────────┼────────────────────────┼────────────────────────┤");
 
-    let max_filas = [
-        pendientes.len(),
-        en_progreso.len(),
-        en_revision.len(),
-        completados.len(),
+    let max_rows = [
+        pending.len(),
+        in_progress.len(),
+        in_review.len(),
+        completed.len(),
     ]
     .into_iter()
     .max()
     .unwrap_or(0);
 
-    for i in 0..max_filas {
-        let col1 = pendientes
+    for i in 0..max_rows {
+        let col1 = pending
             .get(i)
             .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
-        let col2 = en_progreso
+        let col2 = in_progress
             .get(i)
             .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
-        let col3 = en_revision
+        let col3 = in_review
             .get(i)
             .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
-        let col4 = completados
+        let col4 = completed
             .get(i)
             .map(|t| format!("{} {}", t.id, ellipsis(&t.title, 14)))
             .unwrap_or_default();
@@ -469,7 +469,7 @@ pub fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
             println!("  • Tarea ID:   {}", paint(&task.task_id, BOLD));
             println!("  • Ticket:     {}", paint(&task.ticket_id, YELLOW));
-            println!("  • Rol:        {}", paint(task.role.nombre(), BOLD));
+            println!("  • Rol:        {}", paint(task.role.name_es(), BOLD));
             println!("  • Nodo:       {}", paint(&task.assigned_node_id, GREEN));
             println!("  • Rama:       {}", paint(&task.worktree_branch, DIM));
             if let Some(m) = task.target_model {

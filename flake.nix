@@ -15,7 +15,7 @@
 
       # El overlay con los paquetes propios de antOS.
       overlayAntos = final: _prev: {
-        antosd = final.callPackage ./system/nixos/paquete.nix { };
+        antosd = final.callPackage ./system/nixos/package.nix { };
         antos-barra = final.callPackage ./system/nixos/barra.nix { };
       };
 
@@ -28,7 +28,7 @@
       ];
 
       # Lo común a las variantes que SÍ son "la máquina antOS".
-      base = [ ./system/nixos/configuracion.nix ] ++ nucleo;
+      base = [ ./system/nixos/configuration.nix ] ++ nucleo;
 
       maquina = extra: maquinaPara "aarch64-linux" extra;
       maquinaPara = system: extra: nixpkgs.lib.nixosSystem {
@@ -36,7 +36,7 @@
         modules = base ++ extra;
       };
 
-      # La ISO parte de `nucleo` (sin `configuracion.nix`): el perfil del
+      # La ISO parte de `nucleo` (sin `configuration.nix`): el perfil del
       # instalador aporta arranque, particiones y autologin propios.
       isoPara = system: nixpkgs.lib.nixosSystem {
         inherit system;
@@ -45,8 +45,8 @@
     in
     {
       packages = paraCada (pkgs: {
-        default = pkgs.callPackage ./system/nixos/paquete.nix { };
-        antosd = pkgs.callPackage ./system/nixos/paquete.nix { };
+        default = pkgs.callPackage ./system/nixos/package.nix { };
+        antosd = pkgs.callPackage ./system/nixos/package.nix { };
         antos-barra = pkgs.callPackage ./system/nixos/barra.nix { };
 
         # ISO instalable de antOS Linux (Método 5), por arquitectura.
@@ -65,13 +65,13 @@
         };
       });
 
-      nixosModules.default = import ./system/nixos/modulo.nix;
+      nixosModules.default = import ./system/nixos/module.nix;
       nixosModules.desktop = import ./system/nixos/desktop.nix;
 
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior
       # en vez de reconstruir a mano lo que había.
-      nixosConfigurations.antos = maquina [ ./system/nixos/arranque.nix ];
+      nixosConfigurations.antos = maquina [ ./system/nixos/boot.nix ];
 
       # La misma máquina, arrancable en QEMU.
       nixosConfigurations.antos-vm = maquina [ ./system/nixos/vm.nix ];
@@ -79,7 +79,7 @@
       # La máquina con el escritorio antOS Linux activado (T30.1). Sirve para
       # evaluar el camino `services.antos.desktop.enable = true` en hardware.
       nixosConfigurations.antos-desktop = maquina [
-        ./system/nixos/arranque.nix
+        ./system/nixos/boot.nix
         { services.antos.desktop.enable = true; }
       ];
 

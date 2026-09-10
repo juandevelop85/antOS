@@ -19,7 +19,7 @@ struct SpecCacheEntry {
     dir_mtime: Option<SystemTime>,
     readme_mtime: Option<SystemTime>,
     tickets: Vec<TicketSummary>,
-    detalles: HashMap<String, (Option<SystemTime>, TicketDetail)>,
+    details: HashMap<String, (Option<SystemTime>, TicketDetail)>,
 }
 
 /// Motor de especificaciones con caché en memoria e invalidación por mtime.
@@ -27,19 +27,19 @@ pub struct SpecEngine {
     cache: Mutex<HashMap<PathBuf, SpecCacheEntry>>,
 }
 
-static INSTANCIA: OnceLock<SpecEngine> = OnceLock::new();
+static INSTANCE: OnceLock<SpecEngine> = OnceLock::new();
 
 impl SpecEngine {
     pub fn global() -> &'static SpecEngine {
-        INSTANCIA.get_or_init(|| SpecEngine {
+        INSTANCE.get_or_init(|| SpecEngine {
             cache: Mutex::new(HashMap::new()),
         })
     }
 
     /// Lista todos los tickets disponibles en el espacio de trabajo.
     pub fn list_tickets(&self, workspace_path: &Path) -> Result<Vec<TicketSummary>> {
-        let dir_tickets = find_tickets_dir(workspace_path);
-        let Some(dir) = dir_tickets else {
+        let tickets_dir = find_tickets_dir(workspace_path);
+        let Some(dir) = tickets_dir else {
             return Ok(Vec::new());
         };
 
@@ -57,7 +57,7 @@ impl SpecEngine {
         }
 
         // Reindexar tickets
-        let (tickets, estados_map) = index_tickets_directory(&dir)?;
+        let (tickets, statuses_map) = index_tickets_directory(&dir)?;
 
         // Actualizar caché
         if let Ok(mut guard) = self.cache.lock() {
@@ -65,14 +65,14 @@ impl SpecEngine {
                 dir_mtime,
                 readme_mtime,
                 tickets: Vec::new(),
-                detalles: HashMap::new(),
+                details: HashMap::new(),
             });
             entry.dir_mtime = dir_mtime;
             entry.readme_mtime = readme_mtime;
             entry.tickets = tickets.clone();
 
             // Limpiar detalles obsoletos que ya no existan
-            entry.detalles.retain(|k, _| estados_map.contains_key(k));
+            entry.details.retain(|k, _| statuses_map.contains_key(k));
         }
 
         Ok(tickets)
@@ -84,69 +84,69 @@ impl SpecEngine {
         workspace_path: &Path,
         ticket_id: &str,
     ) -> Result<Option<TicketDetail>> {
-        let dir_tickets = find_tickets_dir(workspace_path);
-        let Some(dir) = dir_tickets else {
+        let tickets_dir = find_tickets_dir(workspace_path);
+        let Some(dir) = tickets_dir else {
             return Ok(None);
         };
 
         // Asegurar que la lista de tickets esté indexada
         let _ = self.list_tickets(workspace_path)?;
 
-        let id_normalizado = ticket_id.trim().to_uppercase();
+        let normalized_id = ticket_id.trim().to_uppercase();
 
         // Buscar archivo correspondiente al ticket
-        let mut ruta_archivo = None;
-        let mut estado_ticket = TicketStatus::Pendiente;
+        let mut file_path = None;
+        let mut ticket_status = TicketStatus::Pending;
 
         if let Ok(guard) = self.cache.lock() {
             if let Some(entry) = guard.get(&dir) {
                 if let Some(t) = entry
                     .tickets
                     .iter()
-                    .find(|t| t.id.to_uppercase() == id_normalizado)
+                    .find(|t| t.id.to_uppercase() == normalized_id)
                 {
-                    ruta_archivo = Some(PathBuf::from(&t.file_path));
-                    estado_ticket = t.status;
+                    file_path = Some(PathBuf::from(&t.file_path));
+                    ticket_status = t.status;
                 }
             }
         }
 
-        let Some(ruta) = ruta_archivo else {
+        let Some(path) = file_path else {
             return Ok(None);
         };
 
-        let ruta_completa = if ruta.is_absolute() {
-            ruta
+        let full_path = if path.is_absolute() {
+            path
         } else {
-            workspace_path.join(ruta)
+            workspace_path.join(path)
         };
 
-        let file_mtime = fs::metadata(&ruta_completa).and_then(|m| m.modified()).ok();
+        let file_mtime = fs::metadata(&full_path).and_then(|m| m.modified()).ok();
 
         // Comprobar caché de detalle
         if let Ok(guard) = self.cache.lock() {
             if let Some(entry) = guard.get(&dir) {
-                if let Some((cached_mtime, detalle)) = entry.detalles.get(&id_normalizado) {
+                if let Some((cached_mtime, detail)) = entry.details.get(&normalized_id) {
                     if *cached_mtime == file_mtime {
-                        return Ok(Some(detalle.clone()));
+                        return Ok(Some(detail.clone()));
                     }
                 }
             }
         }
 
         // Parsear detalle del archivo
-        let detalle = parsear_archivo_ticket(&ruta_completa, Some(estado_ticket))?;
+        let detail = parse_ticket_file(&full_path, Some(ticket_status))?;
 
         // Guardar en caché
         if let Ok(mut guard) = self.cache.lock() {
             if let Some(entry) = guard.get_mut(&dir) {
                 entry
-                    .detalles
-                    .insert(id_normalizado, (file_mtime, detalle.clone()));
+                    .details
+                    .insert(normalized_id, (file_mtime, detail.clone()));
             }
         }
 
-        Ok(Some(detalle))
+        Ok(Some(detail))
     }
 
     /// Crea un nuevo ticket técnico en el espacio de trabajo activo.
@@ -223,10 +223,10 @@ impl SpecEngine {
         let id_upper = ticket_id.trim().to_uppercase();
 
         let status_label = match new_status {
-            TicketStatus::Completado => "✅ Completado",
-            TicketStatus::EnProgreso => "🔄 En progreso",
-            TicketStatus::EnRevision => "🔍 En revisión",
-            TicketStatus::Pendiente => "⏳ Pendiente",
+            TicketStatus::Completed => "✅ Completado",
+            TicketStatus::InProgress => "🔄 En progreso",
+            TicketStatus::InReview => "🔍 En revisión",
+            TicketStatus::Pending => "⏳ Pendiente",
         };
 
         // 1. Actualizar el fichero individual del ticket
@@ -284,9 +284,8 @@ impl SpecEngine {
     }
 }
 
-pub fn slugify(texto: &str) -> String {
-    texto
-        .to_lowercase()
+pub fn slugify(text: &str) -> String {
+    text.to_lowercase()
         .chars()
         .map(|c| if c.is_alphanumeric() { c } else { '-' })
         .collect::<String>()
@@ -322,10 +321,8 @@ pub fn default_ceiling_for(workspace_path: &Path) -> Option<PathBuf> {
 ///
 /// `ceiling` is the exclusive upper bound: if traversal reaches this directory
 /// without having found a tickets directory, the function returns `None`.
-pub fn find_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
-    let mut actual = inicio
-        .canonicalize()
-        .unwrap_or_else(|_| inicio.to_path_buf());
+pub fn find_tickets_dir_with_ceiling(start: &Path, ceiling: Option<&Path>) -> Option<PathBuf> {
+    let mut current = start.canonicalize().unwrap_or_else(|_| start.to_path_buf());
     let ceiling_canon = ceiling
         .and_then(|c| c.canonicalize().ok())
         .or_else(|| ceiling.map(|c| c.to_path_buf()));
@@ -333,25 +330,25 @@ pub fn find_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> O
     loop {
         // Stop if we have reached (or passed) the ceiling directory.
         if let Some(ref ceil) = ceiling_canon {
-            if actual == *ceil {
+            if current == *ceil {
                 break;
             }
         }
 
-        let candidatos = [
-            actual.join("docs").join("tickets"),
-            actual.join("specs"),
-            actual.join(".tickets"),
-            actual.join(".antos").join("tickets"),
+        let candidates = [
+            current.join("docs").join("tickets"),
+            current.join("specs"),
+            current.join(".tickets"),
+            current.join(".antos").join("tickets"),
         ];
 
-        for c in candidatos {
+        for c in candidates {
             if c.is_dir() {
                 return Some(c);
             }
         }
 
-        if !actual.pop() {
+        if !current.pop() {
             break;
         }
     }
@@ -359,20 +356,20 @@ pub fn find_tickets_dir_with_ceiling(inicio: &Path, ceiling: Option<&Path>) -> O
     None
 }
 
-/// Finds an existing tickets directory within the ceiling, or creates `<inicio>/docs/tickets/`
+/// Finds an existing tickets directory within the ceiling, or creates `<start>/docs/tickets/`
 /// with an initial project-scoped `README.md`.
 pub fn find_or_create_tickets_dir_with_ceiling(
-    inicio: &Path,
+    start: &Path,
     ceiling: Option<&Path>,
 ) -> Result<PathBuf> {
-    if let Some(d) = find_tickets_dir_with_ceiling(inicio, ceiling) {
+    if let Some(d) = find_tickets_dir_with_ceiling(start, ceiling) {
         return Ok(d);
     }
-    let default_dir = inicio.join("docs").join("tickets");
+    let default_dir = start.join("docs").join("tickets");
     fs::create_dir_all(&default_dir)?;
     let readme = default_dir.join("README.md");
     if !readme.exists() {
-        let proj_name = inicio
+        let proj_name = start
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Proyecto".to_string());
@@ -388,34 +385,34 @@ pub fn find_or_create_tickets_dir_with_ceiling(
 }
 
 /// Encuentra o crea el directorio de tickets (`docs/tickets/`).
-pub fn find_or_create_tickets_dir(inicio: &Path) -> Result<PathBuf> {
-    let ceiling = default_ceiling_for(inicio);
-    find_or_create_tickets_dir_with_ceiling(inicio, ceiling.as_deref())
+pub fn find_or_create_tickets_dir(start: &Path) -> Result<PathBuf> {
+    let ceiling = default_ceiling_for(start);
+    find_or_create_tickets_dir_with_ceiling(start, ceiling.as_deref())
 }
 
 /// Encuentra el directorio de tickets (`docs/tickets/`, `specs/`, o `.tickets/`)
 /// aplicando el techo de contención por defecto.
-pub fn find_tickets_dir(inicio: &Path) -> Option<PathBuf> {
-    let ceiling = default_ceiling_for(inicio);
-    find_tickets_dir_with_ceiling(inicio, ceiling.as_deref())
+pub fn find_tickets_dir(start: &Path) -> Option<PathBuf> {
+    let ceiling = default_ceiling_for(start);
+    find_tickets_dir_with_ceiling(start, ceiling.as_deref())
 }
 
 /// Encuentra el directorio de tickets ascendiendo sin ningún techo de contención.
-pub fn find_tickets_dir_unbounded(inicio: &Path) -> Option<PathBuf> {
-    find_tickets_dir_with_ceiling(inicio, None)
+pub fn find_tickets_dir_unbounded(start: &Path) -> Option<PathBuf> {
+    find_tickets_dir_with_ceiling(start, None)
 }
 
 /// Indexa el directorio de tickets leyendo `README.md` (si existe) y los ficheros individuales.
 fn index_tickets_directory(
     dir: &Path,
 ) -> Result<(Vec<TicketSummary>, HashMap<String, TicketStatus>)> {
-    let mut estados_map = HashMap::new();
+    let mut statuses_map = HashMap::new();
 
     // 1. Parsear README.md si existe para extraer estados consolidados de la tabla
     let readme_path = dir.join("README.md");
     if readme_path.is_file() {
-        if let Ok(contenido) = fs::read_to_string(&readme_path) {
-            parsear_estados_readme(&contenido, &mut estados_map);
+        if let Ok(content) = fs::read_to_string(&readme_path) {
+            parse_readme_statuses(&content, &mut statuses_map);
         }
     }
 
@@ -424,46 +421,46 @@ fn index_tickets_directory(
     let entries =
         fs::read_dir(dir).with_context(|| format!("leyendo directorio {}", dir.display()))?;
 
-    let mut archivos_tickets: Vec<PathBuf> = Vec::new();
+    let mut ticket_files: Vec<PathBuf> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_file() {
-            if let Some(nombre) = path.file_name().and_then(|n| n.to_str()) {
-                if nombre.starts_with('T') && nombre.ends_with(".md") && nombre != "README.md" {
-                    archivos_tickets.push(path);
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with('T') && name.ends_with(".md") && name != "README.md" {
+                    ticket_files.push(path);
                 }
             }
         }
     }
 
     // Ordenar tickets alfabéticamente/por ID
-    archivos_tickets.sort();
+    ticket_files.sort();
 
-    for path in archivos_tickets {
-        if let Ok(contenido) = fs::read_to_string(&path) {
-            if let Some(summary) = parsear_summary_ticket(&path, &contenido, &estados_map) {
-                estados_map.insert(summary.id.clone(), summary.status);
+    for path in ticket_files {
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Some(summary) = parse_ticket_summary(&path, &content, &statuses_map) {
+                statuses_map.insert(summary.id.clone(), summary.status);
                 summaries.push(summary);
             }
         }
     }
 
-    Ok((summaries, estados_map))
+    Ok((summaries, statuses_map))
 }
 
 /// Extrae estados de tickets desde la tabla de `docs/tickets/README.md`.
-fn parsear_estados_readme(contenido: &str, destino: &mut HashMap<String, TicketStatus>) {
-    for linea in contenido.lines() {
-        let l = linea.trim();
+fn parse_readme_statuses(content: &str, target: &mut HashMap<String, TicketStatus>) {
+    for line in content.lines() {
+        let l = line.trim();
         if !l.starts_with('|') || l.contains("---") || l.contains("Fase") && l.contains("Título") {
             continue;
         }
 
-        let celdas: Vec<&str> = l.split('|').map(|s| s.trim()).collect();
+        let cells: Vec<&str> = l.split('|').map(|s| s.trim()).collect();
         // Celdas esperadas: ["", "Fase X", "[T1.1](...)", "Título...", "Estado", ""]
-        if celdas.len() >= 5 {
-            let id_raw = celdas[2];
-            let estado_raw = celdas[4];
+        if cells.len() >= 5 {
+            let id_raw = cells[2];
+            let status_raw = cells[4];
 
             // Extraer ID de formato `[T1.1](...)` o `T1.1`
             let id = if let Some(start) = id_raw.find('[') {
@@ -476,128 +473,128 @@ fn parsear_estados_readme(contenido: &str, destino: &mut HashMap<String, TicketS
                 id_raw
             };
 
-            let estado = parsear_estado_str(estado_raw);
+            let status = parse_status_str(status_raw);
             if !id.is_empty() {
-                destino.insert(id.trim().to_uppercase(), estado);
+                target.insert(id.trim().to_uppercase(), status);
             }
         }
     }
 }
 
-fn parsear_estado_str(texto: &str) -> TicketStatus {
-    let t = texto.to_lowercase();
+fn parse_status_str(text: &str) -> TicketStatus {
+    let t = text.to_lowercase();
     if t.contains("completado") || t.contains("done") || t.contains("✅") {
-        TicketStatus::Completado
+        TicketStatus::Completed
     } else if t.contains("progreso") || t.contains("in progress") || t.contains("🔄") {
-        TicketStatus::EnProgreso
+        TicketStatus::InProgress
     } else if t.contains("revisión") || t.contains("review") || t.contains("🔍") {
-        TicketStatus::EnRevision
+        TicketStatus::InReview
     } else {
-        TicketStatus::Pendiente
+        TicketStatus::Pending
     }
 }
 
 /// Parsea el resumen de un archivo de ticket individual.
-fn parsear_summary_ticket(
-    ruta: &Path,
-    contenido: &str,
-    estados_map: &HashMap<String, TicketStatus>,
+fn parse_ticket_summary(
+    path: &Path,
+    content: &str,
+    statuses_map: &HashMap<String, TicketStatus>,
 ) -> Option<TicketSummary> {
-    let file_name = ruta.file_name()?.to_str()?;
-    let id_extraido = extract_id_from_name_or_content(file_name, contenido)?;
+    let file_name = path.file_name()?.to_str()?;
+    let extracted_id = extract_id_from_name_or_content(file_name, content)?;
 
-    let mut titulo = file_name.trim_end_matches(".md").to_string();
-    let fase = deducir_fase(&id_extraido);
+    let mut title = file_name.trim_end_matches(".md").to_string();
+    let phase = infer_phase(&extracted_id);
 
-    for linea in contenido.lines() {
-        let l = linea.trim();
+    for line in content.lines() {
+        let l = line.trim();
         if l.starts_with('#') {
             // Ejemplo: `# T1.3 · Indexador y Parser Nativo...`
-            let encabezado = l.trim_start_matches('#').trim();
-            if let Some((_id_part, tit_part)) = encabezado.split_once('·') {
-                titulo = tit_part.trim().to_string();
-            } else if let Some((_id_part, tit_part)) = encabezado.split_once('-') {
-                titulo = tit_part.trim().to_string();
+            let header = l.trim_start_matches('#').trim();
+            if let Some((_id_part, title_part)) = header.split_once('·') {
+                title = title_part.trim().to_string();
+            } else if let Some((_id_part, title_part)) = header.split_once('-') {
+                title = title_part.trim().to_string();
             } else {
-                titulo = encabezado.to_string();
+                title = header.to_string();
             }
             break;
         }
     }
 
-    let estado = estados_map
-        .get(&id_extraido.to_uppercase())
+    let status = statuses_map
+        .get(&extracted_id.to_uppercase())
         .copied()
-        .unwrap_or(TicketStatus::Pendiente);
+        .unwrap_or(TicketStatus::Pending);
 
     Some(TicketSummary {
-        id: id_extraido,
-        phase: fase,
-        title: titulo,
-        status: estado,
-        file_path: ruta.display().to_string(),
+        id: extracted_id,
+        phase,
+        title,
+        status,
+        file_path: path.display().to_string(),
     })
 }
 
 /// Parsea el detalle completo de un archivo Markdown de ticket.
-pub fn parsear_archivo_ticket(
-    ruta: &Path,
-    estado_override: Option<TicketStatus>,
+pub fn parse_ticket_file(
+    path: &Path,
+    status_override: Option<TicketStatus>,
 ) -> Result<TicketDetail> {
-    let contenido = fs::read_to_string(ruta)
-        .with_context(|| format!("no se pudo leer el archivo de ticket {}", ruta.display()))?;
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("no se pudo leer el archivo de ticket {}", path.display()))?;
 
-    let file_name = ruta
+    let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("ticket.md");
-    let id = extract_id_from_name_or_content(file_name, &contenido)
-        .unwrap_or_else(|| "T0.0".to_string());
+    let id =
+        extract_id_from_name_or_content(file_name, &content).unwrap_or_else(|| "T0.0".to_string());
 
-    let fase = deducir_fase(&id);
-    let mut titulo = file_name.trim_end_matches(".md").to_string();
-    let mut descripcion = String::new();
-    let mut alcance_tecnico = Vec::new();
-    let mut criterios_aceptacion = Vec::new();
+    let phase = infer_phase(&id);
+    let mut title = file_name.trim_end_matches(".md").to_string();
+    let mut description = String::new();
+    let mut technical_scope = Vec::new();
+    let mut acceptance_criteria = Vec::new();
 
-    let mut seccion_actual = "";
+    let mut current_section = "";
 
-    for linea in contenido.lines() {
-        let l = linea.trim();
+    for line in content.lines() {
+        let l = line.trim();
 
-        if let Some(resto) = l.strip_prefix("# ") {
-            let encabezado = resto.trim();
-            if let Some((_, tit)) = encabezado.split_once('·') {
-                titulo = tit.trim().to_string();
-            } else if let Some((_, tit)) = encabezado.split_once('-') {
-                titulo = tit.trim().to_string();
+        if let Some(rest) = l.strip_prefix("# ") {
+            let header = rest.trim();
+            if let Some((_, title_part)) = header.split_once('·') {
+                title = title_part.trim().to_string();
+            } else if let Some((_, title_part)) = header.split_once('-') {
+                title = title_part.trim().to_string();
             } else {
-                titulo = encabezado.to_string();
+                title = header.to_string();
             }
             continue;
         }
 
-        if let Some(resto) = l.strip_prefix("## ") {
-            let sec_nombre = resto.to_lowercase();
-            if sec_nombre.contains("descrip") {
-                seccion_actual = "descripcion";
-            } else if sec_nombre.contains("alcance") || sec_nombre.contains("técnico") {
-                seccion_actual = "alcance";
-            } else if sec_nombre.contains("criterio") || sec_nombre.contains("aceptación") {
-                seccion_actual = "criterios";
+        if let Some(rest) = l.strip_prefix("## ") {
+            let section_name = rest.to_lowercase();
+            if section_name.contains("descrip") {
+                current_section = "descripcion";
+            } else if section_name.contains("alcance") || section_name.contains("técnico") {
+                current_section = "alcance";
+            } else if section_name.contains("criterio") || section_name.contains("aceptación") {
+                current_section = "criterios";
             } else {
-                seccion_actual = "";
+                current_section = "";
             }
             continue;
         }
 
-        match seccion_actual {
+        match current_section {
             "descripcion" => {
                 if !l.is_empty() {
-                    if !descripcion.is_empty() {
-                        descripcion.push(' ');
+                    if !description.is_empty() {
+                        description.push(' ');
                     }
-                    descripcion.push_str(l);
+                    description.push_str(l);
                 }
             }
             "alcance" => {
@@ -608,9 +605,9 @@ pub fn parsear_archivo_ticket(
                     || l.starts_with("3.")
                     || l.starts_with("4.")
                 {
-                    let limpio = limpiar_item_markdown(l);
-                    if !limpio.is_empty() {
-                        alcance_tecnico.push(limpio);
+                    let clean = clean_markdown_item(l);
+                    if !clean.is_empty() {
+                        technical_scope.push(clean);
                     }
                 }
             }
@@ -621,54 +618,54 @@ pub fn parsear_archivo_ticket(
                     || l.starts_with("2.")
                     || l.starts_with("3.") =>
             {
-                let limpio = limpiar_item_markdown(l);
-                if !limpio.is_empty() {
-                    criterios_aceptacion.push(limpio);
+                let clean = clean_markdown_item(l);
+                if !clean.is_empty() {
+                    acceptance_criteria.push(clean);
                 }
             }
             _ => {}
         }
     }
 
-    let estado = estado_override.unwrap_or(TicketStatus::Pendiente);
+    let status = status_override.unwrap_or(TicketStatus::Pending);
 
     Ok(TicketDetail {
         id,
-        phase: fase,
-        title: titulo,
-        status: estado,
-        file_path: ruta.display().to_string(),
-        description: descripcion,
-        technical_scope: alcance_tecnico,
-        acceptance_criteria: criterios_aceptacion,
+        phase,
+        title,
+        status,
+        file_path: path.display().to_string(),
+        description,
+        technical_scope,
+        acceptance_criteria,
     })
 }
 
-fn limpiar_item_markdown(linea: &str) -> String {
-    let sin_prefijo = linea
+fn clean_markdown_item(line: &str) -> String {
+    let without_prefix = line
         .trim_start_matches(|c: char| {
             c.is_numeric() || c == '.' || c == '*' || c == '-' || c.is_whitespace()
         })
         .trim();
-    sin_prefijo.replace("**", "").trim().to_string()
+    without_prefix.replace("**", "").trim().to_string()
 }
 
-fn extract_id_from_name_or_content(file_name: &str, _contenido: &str) -> Option<String> {
+fn extract_id_from_name_or_content(file_name: &str, _content: &str) -> Option<String> {
     // Buscar patrón tipo T0.1, T1.3, T2.2 al inicio del nombre del archivo
     if file_name.starts_with('T') {
-        let partes: Vec<&str> = file_name.split('-').collect();
-        if !partes.is_empty() && partes[0].contains('.') {
-            return Some(partes[0].to_string());
+        let parts: Vec<&str> = file_name.split('-').collect();
+        if !parts.is_empty() && parts[0].contains('.') {
+            return Some(parts[0].to_string());
         }
     }
     None
 }
 
-fn deducir_fase(id: &str) -> String {
+fn infer_phase(id: &str) -> String {
     // Si ID es T1.3 -> "Fase 1", T0.1 -> "Fase 0"
-    if let Some(resto) = id.strip_prefix('T') {
-        if let Some((fase_num, _)) = resto.split_once('.') {
-            return format!("Fase {}", fase_num);
+    if let Some(rest) = id.strip_prefix('T') {
+        if let Some((phase_num, _)) = rest.split_once('.') {
+            return format!("Fase {}", phase_num);
         }
     }
     "General".to_string()
@@ -739,16 +736,16 @@ mod tests {
     fn test_get_ticket_detail_t13() {
         let cwd = std::env::current_dir().expect("cwd");
         let engine = SpecEngine::global();
-        let detalle = engine
+        let detail = engine
             .get_ticket(&cwd, "T1.3")
             .expect("obtener ticket")
             .expect("detalle T1.3");
 
-        assert_eq!(detalle.id, "T1.3");
-        assert_eq!(detalle.phase, "Fase 1");
-        assert!(!detalle.description.is_empty());
-        assert!(!detalle.technical_scope.is_empty());
-        assert!(!detalle.acceptance_criteria.is_empty());
+        assert_eq!(detail.id, "T1.3");
+        assert_eq!(detail.phase, "Fase 1");
+        assert!(!detail.description.is_empty());
+        assert!(!detail.technical_scope.is_empty());
+        assert!(!detail.acceptance_criteria.is_empty());
     }
 
     #[test]
@@ -785,11 +782,11 @@ mod tests {
         engine
             .update_ticket_status(&ws, "T99.1", TicketStatus::Completed)
             .expect("update");
-        let detalle = engine
+        let detail = engine
             .get_ticket(&ws, "T99.1")
             .expect("get")
             .expect("exists");
-        assert_eq!(detalle.status, TicketStatus::Completed);
+        assert_eq!(detail.status, TicketStatus::Completed);
 
         let _ = fs::remove_dir_all(&ws);
     }

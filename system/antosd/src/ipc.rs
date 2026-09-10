@@ -26,7 +26,7 @@
 //!
 //! ## Una conexión cada vez, a propósito (T31.8)
 //!
-//! `servir` no atiende conexiones en paralelo. No es una limitación que
+//! `serve` no atiende conexiones en paralelo. No es una limitación que
 //! quede por resolver: dos intenciones mutando el mismo espacio de trabajo
 //! a la vez producirían diffs que ya no describen el resultado — el mismo
 //! fallo que se evitó calculando los pasos en orden dentro de una sola
@@ -194,7 +194,7 @@ fn bind_socket(path: &Path) -> Result<UnixListener> {
 }
 
 /// Recognizes the specific I/O error a timed-out read or write produces, so
-/// `servir` can log an abandoned connection distinctly (T31.8) instead of a
+/// `serve` can log an abandoned connection distinctly (T31.8) instead of a
 /// generic "session ended with error".
 fn is_idle_timeout(err: &anyhow::Error) -> bool {
     err.downcast_ref::<std::io::Error>()
@@ -207,7 +207,7 @@ fn is_idle_timeout(err: &anyhow::Error) -> bool {
         .unwrap_or(false)
 }
 
-pub fn servir(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
+pub fn serve(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
     let path = socket_path(ctx);
     // Un socket huérfano de una ejecución anterior impediría escuchar.
     let _ = std::fs::remove_file(&path);
@@ -1366,7 +1366,7 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
 
 // -------------------------------------------------------------- lado cliente
 
-pub fn hay_demonio(ctx: &Ctx) -> bool {
+pub fn daemon_is_running(ctx: &Ctx) -> bool {
     let path = socket_path(ctx);
     path.exists() && UnixStream::connect(&path).is_ok()
 }
@@ -1375,7 +1375,7 @@ pub fn hay_demonio(ctx: &Ctx) -> bool {
 ///
 /// Note that rendering uses the SAME `Terminal` as local mode:
 /// there is no second way to show a plan, so they cannot diverge.
-pub fn intencion_remota(
+pub fn remote_intent(
     socket: &Path,
     text: &str,
     planner: Option<&str>,
@@ -2510,7 +2510,7 @@ mod tests {
         // connection from the ticket. A short timeout stands in for the
         // real `IPC_READ_TIMEOUT` so this test is fast and deterministic;
         // the mechanism under test is the same `set_read_timeout` call
-        // `servir` makes in production.
+        // `serve` makes in production.
         let (server_a, client_a) = UnixStream::pair().unwrap();
         server_a
             .set_read_timeout(Some(Duration::from_millis(200)))
@@ -2529,7 +2529,7 @@ mod tests {
         );
         drop(client_a); // kept alive until here on purpose, so the read above genuinely times out rather than seeing an immediate EOF.
 
-        // Connection B: served right after, exactly as `servir`'s serial
+        // Connection B: served right after, exactly as `serve`'s serial
         // accept loop would do once connection A releases control — must
         // not have been starved by A's idleness.
         let (server_b, mut client_b) = UnixStream::pair().unwrap();

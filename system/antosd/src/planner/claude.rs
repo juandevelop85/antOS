@@ -7,7 +7,7 @@
 //! entre capacidades declaradas y rellena parámetros tipados — y aun así su
 //! salida vuelve a validarse contra el catálogo antes de usarse.
 
-use super::{Planner, Propuesta};
+use super::{Planner, Proposal};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{anyhow, bail, Context, Result};
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 
 const URL: &str = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL: &str = "claude-opus-5";
-pub const CLAVE_ENV: &str = "ANTHROPIC_API_KEY";
+pub const API_KEY_ENV_VAR: &str = "ANTHROPIC_API_KEY";
 const PLAN_TOOL: &str = "emitir_plan";
 
 pub struct ClaudePlanner {
@@ -27,7 +27,7 @@ pub struct ClaudePlanner {
 
 impl ClaudePlanner {
     pub fn from_env() -> Result<Self> {
-        let api_key = leer_clave()?;
+        let api_key = read_key()?;
         let model = crate::util::env_with_legacy_fallback("ANTOS_MODEL", "SYSO_MODEL")
             .and_then(|v| v.into_string().ok())
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
@@ -36,7 +36,7 @@ impl ClaudePlanner {
 }
 
 /// Dónde vive la clave por defecto.
-fn ruta_clave() -> PathBuf {
+fn key_path() -> PathBuf {
     let base = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
@@ -56,31 +56,31 @@ fn ruta_clave() -> PathBuf {
 /// este programa lanza varios: whisper, ffmpeg, y sobre todo el ejecutor
 /// confinado — que es precisamente el componente que el diseño entero trata
 /// como no fiable. Un fichero que solo lee el broker no viaja a ninguna parte.
-fn leer_clave() -> Result<String> {
-    let ruta = match std::env::var_os("ANTHROPIC_API_KEY_FILE") {
+fn read_key() -> Result<String> {
+    let path = match std::env::var_os("ANTHROPIC_API_KEY_FILE") {
         Some(p) => PathBuf::from(p),
-        None => ruta_clave(),
+        None => key_path(),
     };
 
-    if ruta.exists() {
-        let clave = std::fs::read_to_string(&ruta)
-            .with_context(|| format!("no pude leer {}", ruta.display()))?;
-        avisar_si_es_legible_por_otros(&ruta);
-        let clave = clave.trim().to_string();
-        if !clave.is_empty() {
-            return Ok(clave);
+    if path.exists() {
+        let key = std::fs::read_to_string(&path)
+            .with_context(|| format!("no pude leer {}", path.display()))?;
+        warn_if_readable_by_others(&path);
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Ok(key);
         }
     }
 
     // El entorno sigue funcionando por comodidad, pero se avisa.
-    if let Ok(clave) = std::env::var(CLAVE_ENV) {
-        if !clave.trim().is_empty() {
+    if let Ok(key) = std::env::var(API_KEY_ENV_VAR) {
+        if !key.trim().is_empty() {
             eprintln!(
-                "aviso: usando {CLAVE_ENV} del entorno. Todo proceso hijo la hereda; \n\
+                "aviso: usando {API_KEY_ENV_VAR} del entorno. Todo proceso hijo la hereda; \n\
                  es preferible {}",
-                ruta_clave().display()
+                key_path().display()
             );
-            return Ok(clave.trim().to_string());
+            return Ok(key.trim().to_string());
         }
     }
 
@@ -92,21 +92,21 @@ fn leer_clave() -> Result<String> {
          \n  chmod 600 {}\n\
          \nO usa el planificador local, que no necesita clave:\n\
          \n  antos --planificador local \"…\"",
-        ruta.display(),
-        ruta.display(),
-        ruta.display()
+        path.display(),
+        path.display(),
+        path.display()
     )
 }
 
-fn avisar_si_es_legible_por_otros(ruta: &std::path::Path) {
+fn warn_if_readable_by_others(path: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
-    if let Ok(meta) = std::fs::metadata(ruta) {
-        let modo = meta.permissions().mode() & 0o077;
-        if modo != 0 {
+    if let Ok(meta) = std::fs::metadata(path) {
+        let mode = meta.permissions().mode() & 0o077;
+        if mode != 0 {
             eprintln!(
                 "aviso: {} es legible por otros usuarios. Arréglalo con:\n  chmod 600 {}",
-                ruta.display(),
-                ruta.display()
+                path.display(),
+                path.display()
             );
         }
     }
@@ -117,12 +117,12 @@ impl Planner for ClaudePlanner {
         "claude"
     }
 
-    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Propuesta> {
+    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Proposal> {
         let body = json!({
             "model": self.model,
             "max_tokens": 16000,
-            "system": format!("{SYSTEM}\n\nCapacidades disponibles:\n\n{}", catalogo_como_texto(catalog)),
-            "tools": [herramienta_plan(catalog)],
+            "system": format!("{SYSTEM}\n\nCapacidades disponibles:\n\n{}", catalog_as_text(catalog)),
+            "tools": [plan_tool_schema(catalog)],
             // tool_choice queda en automático a propósito: si la intención no
             // se puede expresar con las capacidades disponibles, el modelo
             // tiene que poder decirlo en vez de verse forzado a inventarse
@@ -174,14 +174,17 @@ impl Planner for ClaudePlanner {
         for block in blocks {
             match block["type"].as_str() {
                 Some("tool_use") if block["name"] == PLAN_TOOL => {
-                    let entrada = &block["input"];
-                    if let Some(nota) = entrada["nota"].as_str() {
-                        said.push_str(nota);
+                    let input = &block["input"];
+                    if let Some(note) = input["nota"].as_str() {
+                        said.push_str(note);
                     }
-                    for paso in entrada["pasos"].as_array().into_iter().flatten() {
-                        let capability = paso["capacidad"].as_str().unwrap_or_default().to_string();
+                    for step_val in input["pasos"].as_array().into_iter().flatten() {
+                        let capability = step_val["capacidad"]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_string();
                         let mut args = BTreeMap::new();
-                        if let Some(obj) = paso["argumentos"].as_object() {
+                        if let Some(obj) = step_val["argumentos"].as_object() {
                             for (k, val) in obj {
                                 // Los valores no-string se serializan tal cual:
                                 // la validación del catálogo decidirá si valen.
@@ -208,9 +211,9 @@ impl Planner for ClaudePlanner {
             bail!("no se pudo planificar con las capacidades disponibles.\n{said}");
         }
 
-        Ok(Propuesta {
+        Ok(Proposal {
             steps,
-            nota: (!said.is_empty()).then_some(said),
+            note: (!said.is_empty()).then_some(said),
         })
     }
 }
@@ -242,8 +245,8 @@ llames a ninguna: explica en texto qué falta.
 /// Pedir «devuélveme un plan» en vez de «llama a las capacidades» alinea la
 /// petición con lo que la arquitectura decía desde el principio, y de paso
 /// hace imposible el plan a medias.
-fn herramienta_plan(catalog: &Catalog) -> Value {
-    let nombres: Vec<&str> = catalog.caps.keys().map(String::as_str).collect();
+fn plan_tool_schema(catalog: &Catalog) -> Value {
+    let names: Vec<&str> = catalog.caps.keys().map(String::as_str).collect();
 
     json!({
         "name": PLAN_TOOL,
@@ -261,7 +264,7 @@ fn herramienta_plan(catalog: &Catalog) -> Value {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "capacidad": { "type": "string", "enum": nombres },
+                            "capacidad": { "type": "string", "enum": names },
                             "argumentos": {
                                 "type": "object",
                                 "description": "Los parámetros de esa capacidad. Todos los valores son cadenas.",
@@ -279,23 +282,23 @@ fn herramienta_plan(catalog: &Catalog) -> Value {
 
 /// El catálogo, para que el modelo sepa qué puede pedir. Sale de los
 /// manifiestos: no hay una segunda descripción que mantener sincronizada.
-fn catalogo_como_texto(catalog: &Catalog) -> String {
-    let mut texto = String::new();
+fn catalog_as_text(catalog: &Catalog) -> String {
+    let mut text = String::new();
     for cap in catalog.caps.values() {
-        texto.push_str(&format!("- {}: {}\n", cap.name, cap.summary));
-        for (nombre, spec) in &cap.params {
-            let opcional = if spec.optional || spec.default.is_some() {
+        text.push_str(&format!("- {}: {}\n", cap.name, cap.summary));
+        for (name, spec) in &cap.params {
+            let optional_marker = if spec.optional || spec.default.is_some() {
                 " (opcional)"
             } else {
                 ""
             };
-            let tipo = if spec.of.is_empty() {
+            let type_str = if spec.of.is_empty() {
                 spec.kind.clone()
             } else {
                 format!("uno de [{}]", spec.of.join(", "))
             };
-            texto.push_str(&format!("    {nombre}: {tipo}{opcional}\n"));
+            text.push_str(&format!("    {name}: {type_str}{optional_marker}\n"));
         }
     }
-    texto
+    text
 }

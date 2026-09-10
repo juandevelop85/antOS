@@ -65,35 +65,35 @@ pub fn changes_for(
 pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::PortStatus { port } => {
-            let puertos = crate::net::diagnose_ports(*port)?;
-            if puertos.is_empty() {
+            let ports = crate::net::diagnose_ports(*port)?;
+            if ports.is_empty() {
                 if let Some(p) = port {
                     Ok(Some(format!("puerto {p} está libre")))
                 } else {
-                    Ok(Some("no hay puertos de desarrollo en escucha".into()))
+                    Ok(Some("no hay ports de desarrollo en escucha".into()))
                 }
             } else {
-                let mut lineas = Vec::new();
-                for p in puertos {
+                let mut lines = Vec::new();
+                for p in ports {
                     let dir_info = p
                         .working_dir
                         .as_deref()
                         .map(|d| format!(" (en {d})"))
                         .unwrap_or_default();
-                    lineas.push(format!(
+                    lines.push(format!(
                         "puerto {:<5} | PID {:<6} | {:<15} | {}{dir_info}",
                         p.port, p.pid, p.process_name, p.command
                     ));
                 }
-                Ok(Some(lineas.join("\n")))
+                Ok(Some(lines.join("\n")))
             }
         }
         Change::PortKill { port, force } => {
-            let eliminados = crate::net::kill_port(*port, *force)?;
-            if eliminados.is_empty() {
+            let removed = crate::net::kill_port(*port, *force)?;
+            if removed.is_empty() {
                 Ok(Some(format!("puerto {port} ya estaba libre")))
             } else {
-                let pids: Vec<String> = eliminados
+                let pids: Vec<String> = removed
                     .iter()
                     .map(|p| format!("PID {} ({})", p.pid, p.process_name))
                     .collect();

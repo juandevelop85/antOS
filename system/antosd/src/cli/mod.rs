@@ -32,7 +32,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
 
     match rest[0].as_str() {
         "caps" => commands::system::cmd_caps(catalog, ctx),
-        "demonio" => ipc::servir(ctx, catalog),
+        "demonio" => ipc::serve(ctx, catalog),
         "doctor" => commands::system::cmd_doctor(ctx),
         "runtime" => commands::system::cmd_runtime_info(ctx, &rest[1..]),
         "escucha" => commands::run::cmd_listen(ctx, catalog, &rest[1..], &opts),

@@ -29,7 +29,7 @@ pub fn intent_session(
 
     // 02 · planning — the only stage where a model participates
     let model_proposal = planner_ref.plan(text, catalog)?;
-    if let Some(note) = &model_proposal.nota {
+    if let Some(note) = &model_proposal.note {
         handler.on_note(note)?;
     }
 
@@ -61,11 +61,11 @@ pub fn intent_session(
     // Changes are computed IN ORDER, and each step sees what the previous
     // ones have already decided.
     let mut changes = Vec::new();
-    let mut pendiente = exec::Pendiente::default();
+    let mut pending = exec::PendingChanges::default();
     for step in &plan.steps {
-        let del_paso = exec::changes_for(step, catalog.get(&step.capability)?, ctx, &pendiente)?;
+        let del_paso = exec::changes_for(step, catalog.get(&step.capability)?, ctx, &pending)?;
         for cambio in &del_paso {
-            pendiente.aplicar(cambio);
+            pending.apply(cambio);
         }
         changes.extend(del_paso);
     }

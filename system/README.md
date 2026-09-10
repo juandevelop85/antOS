@@ -78,7 +78,7 @@ target/debug/antos "declara htop en el sistema"
 ```
 
 El diff es de una línea en [`system/nixos/antos-paquetes.nix`](nixos/antos-paquetes.nix),
-que `configuracion.nix` importa. Aplicarlo sigue siendo tuyo y explícito:
+que `configuration.nix` importa. Aplicarlo sigue siendo tuyo y explícito:
 `sudo nixos-rebuild switch`.
 
 ## Voz

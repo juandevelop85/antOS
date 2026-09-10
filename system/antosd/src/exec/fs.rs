@@ -1,6 +1,6 @@
 //! Filesystem operations, project scaffolding, declarations, and syntax guard interception.
 
-use super::{Change, Pendiente};
+use super::{Change, PendingChanges};
 use crate::ctx::Ctx;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ pub fn changes_for(
     cap: &str,
     a: &BTreeMap<String, String>,
     ctx: &Ctx,
-    pendiente: &Pendiente,
+    pending: &PendingChanges,
 ) -> Result<Option<Vec<Change>>> {
     match cap {
         "fs.read" => Ok(Some(vec![Change::Read {
@@ -59,7 +59,7 @@ pub fn changes_for(
             // todavía llamado `syso.packages.toml` de antes del renombrado
             // se migra a `antos.packages.toml` exactamente una vez.
             let _ = crate::util::migrate_legacy_path(&proj.join("syso.packages.toml"), &path);
-            let previo = leer_con_pendiente(&path, pendiente);
+            let previo = read_with_pending(&path, pending);
             Ok(Some(vec![Change::Write {
                 content: declare_package(&previo, &a["package"], &a["version"])?,
                 path,
@@ -74,7 +74,7 @@ pub fn changes_for(
                 &ctx.system_config.join("syso-paquetes.nix"),
                 &path,
             );
-            let previo = leer_con_pendiente(&path, pendiente);
+            let previo = read_with_pending(&path, pending);
             Ok(Some(vec![Change::Write {
                 content: declare_system_package(&previo, &a["package"])?,
                 path,
@@ -143,9 +143,9 @@ pub fn abs(ctx: &Ctx, raw: &str) -> PathBuf {
     }
 }
 
-fn leer_con_pendiente(path: &Path, pendiente: &Pendiente) -> String {
-    pendiente
-        .leer(path)
+fn read_with_pending(path: &Path, pending: &PendingChanges) -> String {
+    pending
+        .read(path)
         .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default())
 }
 
@@ -447,17 +447,17 @@ mod tests {
 
     #[test]
     fn un_paso_ve_lo_que_decidio_el_anterior() {
-        let mut pendiente = Pendiente::default();
+        let mut pending = PendingChanges::default();
         let ruta = PathBuf::from("/ws/paquetes.toml");
 
-        assert_eq!(pendiente.leer(&ruta), None, "de partida, manda el disco");
+        assert_eq!(pending.read(&ruta), None, "de partida, manda el disco");
 
-        pendiente.aplicar(&Change::Write {
+        pending.apply(&Change::Write {
             path: ruta.clone(),
             content: "express".into(),
         });
         assert_eq!(
-            pendiente.leer(&ruta).as_deref(),
+            pending.read(&ruta).as_deref(),
             Some("express"),
             "el paso siguiente debe ver lo que este escribió, no el disco"
         );
@@ -465,20 +465,20 @@ mod tests {
 
     #[test]
     fn escribir_despues_de_borrar_parte_de_cero() {
-        let mut pendiente = Pendiente::default();
+        let mut pending = PendingChanges::default();
         let ruta = PathBuf::from("/ws/notas.txt");
 
-        pendiente.aplicar(&Change::Delete { path: ruta.clone() });
+        pending.apply(&Change::Delete { path: ruta.clone() });
         assert_eq!(
-            pendiente.leer(&ruta).as_deref(),
+            pending.read(&ruta).as_deref(),
             Some(""),
             "un fichero borrado por un paso anterior está vacío, no como en el disco"
         );
 
-        pendiente.aplicar(&Change::Write {
+        pending.apply(&Change::Write {
             path: ruta.clone(),
             content: "nuevo".into(),
         });
-        assert_eq!(pendiente.leer(&ruta).as_deref(), Some("nuevo"));
+        assert_eq!(pending.read(&ruta).as_deref(), Some("nuevo"));
     }
 }

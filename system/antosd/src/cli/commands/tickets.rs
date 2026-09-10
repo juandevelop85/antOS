@@ -59,7 +59,7 @@ fn render_project_tickets(
 
     let mut completados = 0;
     for t in &tickets {
-        if t.status == antos_protocolo::TicketStatus::Completado {
+        if t.status == antos_protocolo::TicketStatus::Completed {
             completados += 1;
         }
         println!(
@@ -184,12 +184,12 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                 )
             })?;
             let st = match status_raw.to_lowercase().as_str() {
-                "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completado,
+                "completado" | "done" | "hecho" => antos_protocolo::TicketStatus::Completed,
                 "progreso" | "en_progreso" | "in_progress" => {
-                    antos_protocolo::TicketStatus::EnProgreso
+                    antos_protocolo::TicketStatus::InProgress
                 }
-                "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::EnRevision,
-                _ => antos_protocolo::TicketStatus::Pendiente,
+                "revision" | "revisión" | "review" => antos_protocolo::TicketStatus::InReview,
+                _ => antos_protocolo::TicketStatus::Pending,
             };
             engine.update_ticket_status(&default_target_ws, id, st)?;
             let scope_name = default_target_ws
@@ -215,8 +215,8 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
                     .unwrap_or(false);
 
             if is_ticket_id {
-                let detalle = engine.get_ticket(&default_target_ws, arg)?;
-                match detalle {
+                let detail = engine.get_ticket(&default_target_ws, arg)?;
+                match detail {
                     Some(t) => {
                         println!(
                             "\n{} {}  {}",
@@ -315,7 +315,7 @@ pub fn cmd_tickets(ctx: &Ctx, args: &[String]) -> Result<()> {
             } else {
                 let comp = p_tickets
                     .iter()
-                    .filter(|t| t.status == antos_protocolo::TicketStatus::Completado)
+                    .filter(|t| t.status == antos_protocolo::TicketStatus::Completed)
                     .count();
                 let pend = p_tickets.len() - comp;
                 println!(

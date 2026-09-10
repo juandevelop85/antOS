@@ -20,18 +20,18 @@ use anyhow::Result;
 /// La nota importa. Un modelo que propone un plan parcial suele explicar por
 /// qué —«primero hay que crear el proyecto»—, y tirar ese texto convierte una
 /// limitación explicada en un plan misteriosamente incompleto.
-pub struct Propuesta {
+pub struct Proposal {
     pub steps: Vec<Step>,
-    pub nota: Option<String>,
+    pub note: Option<String>,
 }
 
-impl Propuesta {
-    pub fn solo(steps: Vec<Step>) -> Self {
-        Propuesta { steps, nota: None }
+impl Proposal {
+    pub fn only_steps(steps: Vec<Step>) -> Self {
+        Proposal { steps, note: None }
     }
 }
 
 pub trait Planner {
     fn name(&self) -> &'static str;
-    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Propuesta>;
+    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Proposal>;
 }

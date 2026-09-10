@@ -6,7 +6,7 @@
 //! aislamiento y el deshacer solo funcionan cuando el modelo acierta, no
 //! funcionan.
 
-use super::{Planner, Propuesta};
+use super::{Planner, Proposal};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{bail, Result};
@@ -19,7 +19,7 @@ impl Planner for LocalPlanner {
         "local"
     }
 
-    fn plan(&self, intent: &str, _catalog: &Catalog) -> Result<Propuesta> {
+    fn plan(&self, intent: &str, _catalog: &Catalog) -> Result<Proposal> {
         let lower = intent.to_lowercase();
         // El punto se conserva porque forma parte de nombres de fichero
         // (`main.rs`), pero un punto FINAL es puntuación de frase. Sin
@@ -46,7 +46,7 @@ impl Planner for LocalPlanner {
             };
             let name = after(&words, &["llamado", "llamada", "nombre"])
                 .unwrap_or_else(|| words.last().cloned().unwrap_or_default());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "project.scaffold",
                 &[("language", language), ("name", &name)],
             )]));
@@ -62,7 +62,7 @@ impl Planner for LocalPlanner {
         {
             let package = after(&words, &["declara", "instala", "añade", "paquete"])
                 .ok_or_else(|| anyhow::anyhow!("no veo qué paquete quieres declarar"))?;
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "system.declare",
                 &[("package", &package)],
             )]));
@@ -77,7 +77,7 @@ impl Planner for LocalPlanner {
             let project = after(&words, &["proyecto"])
                 .ok_or_else(|| anyhow::anyhow!("no veo en qué proyecto declararlo"))?;
             let version = after(&words, &["version", "versión", "v"]).unwrap_or_else(|| "*".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "pkg.declare",
                 &[
                     ("project", &project),
@@ -89,7 +89,10 @@ impl Planner for LocalPlanner {
 
         if lower.contains("borra") || lower.contains("elimin") {
             let path = words.last().cloned().unwrap_or_default();
-            return Ok(Propuesta::solo(vec![step("fs.delete", &[("path", &path)])]));
+            return Ok(Proposal::only_steps(vec![step(
+                "fs.delete",
+                &[("path", &path)],
+            )]));
         }
 
         if (lower.contains("lee") || lower.contains("muestra") || lower.contains("enseña"))
@@ -153,7 +156,10 @@ impl Planner for LocalPlanner {
             && !lower.contains("mermaid")
         {
             let path = words.last().cloned().unwrap_or_default();
-            return Ok(Propuesta::solo(vec![step("fs.read", &[("path", &path)])]));
+            return Ok(Proposal::only_steps(vec![step(
+                "fs.read",
+                &[("path", &path)],
+            )]));
         }
 
         if lower.contains("escribe") {
@@ -164,7 +170,7 @@ impl Planner for LocalPlanner {
                 .map(|(_, c)| c.trim().to_string())
                 .unwrap_or_default();
 
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "fs.write",
                 &[("path", &path), ("content", &content)],
             )]));
@@ -221,13 +227,16 @@ impl Planner for LocalPlanner {
                 params.push(("scope", s));
             }
 
-            return Ok(Propuesta::solo(vec![step("git.commit_semantic", &params)]));
+            return Ok(Proposal::only_steps(vec![step(
+                "git.commit_semantic",
+                &params,
+            )]));
         }
 
         if (lower.contains("rama") && !lower.contains("diagrama")) || lower.contains("branch") {
             let name = after(&words, &["rama", "branch", "llamada", "nombre"])
                 .unwrap_or_else(|| words.last().cloned().unwrap_or_else(|| "feature".into()));
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "git.smart_branch",
                 &[("name", &name)],
             )]));
@@ -236,7 +245,7 @@ impl Planner for LocalPlanner {
         if lower.contains("estado") && (lower.contains("git") || lower.contains("repo"))
             || lower == "git status"
         {
-            return Ok(Propuesta::solo(vec![step("git.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("git.status", &[])]));
         }
 
         if lower.contains("worktree") {
@@ -245,7 +254,7 @@ impl Planner for LocalPlanner {
                 .unwrap_or_else(|| "task".into());
 
             if lower.contains("limpia") || lower.contains("borra") || lower.contains("elimin") {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "git.worktree_cleanup",
                     &[("ticket_id", &ticket)],
                 )]));
@@ -253,13 +262,13 @@ impl Planner for LocalPlanner {
 
             if lower.contains("merge") || lower.contains("fusiona") || lower.contains("integra") {
                 let target = after(&words, &["en", "a", "hacia"]).unwrap_or_else(|| "main".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "git.worktree_merge",
                     &[("ticket_id", &ticket), ("target", &target)],
                 )]));
             }
 
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "git.worktree_create",
                 &[("ticket_id", &ticket)],
             )]));
@@ -296,7 +305,7 @@ impl Planner for LocalPlanner {
                 || lower.contains("down")
                 || lower.contains("parar")
             {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "env.service_down",
                     &[("service", svc)],
                 )]));
@@ -307,7 +316,7 @@ impl Planner for LocalPlanner {
                 || lower.contains("lista")
                 || lower.contains("info")
             {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "env.service_status",
                     &[("service", svc)],
                 )]));
@@ -326,7 +335,7 @@ impl Planner for LocalPlanner {
                 args.push(("port", p));
             }
 
-            return Ok(Propuesta::solo(vec![step("env.service_up", &args)]));
+            return Ok(Proposal::only_steps(vec![step("env.service_up", &args)]));
         }
 
         if (lower.contains("puerto") || (lower.contains("port") && !lower.contains("import")))
@@ -349,7 +358,7 @@ impl Planner for LocalPlanner {
             {
                 let port =
                     port_num.ok_or_else(|| anyhow::anyhow!("no veo qué puerto quieres liberar"))?;
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "diag.port_kill",
                     &[("port", &port)],
                 )]));
@@ -359,7 +368,10 @@ impl Planner for LocalPlanner {
             if let Some(ref p) = port_num {
                 params.push(("port", p.as_str()));
             }
-            return Ok(Propuesta::solo(vec![step("diag.port_status", &params)]));
+            return Ok(Proposal::only_steps(vec![step(
+                "diag.port_status",
+                &params,
+            )]));
         }
 
         // Intenciones de perfiles de entorno y flakes (T7.1)
@@ -385,7 +397,7 @@ impl Planner for LocalPlanner {
                         _ => None,
                     })
                     .unwrap_or("rust");
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "env.init",
                     &[("profile", prof)],
                 )]));
@@ -393,10 +405,10 @@ impl Planner for LocalPlanner {
 
             if lower.contains("sync") || lower.contains("sincroniza") || lower.contains("verifica")
             {
-                return Ok(Propuesta::solo(vec![step("env.sync", &[])]));
+                return Ok(Proposal::only_steps(vec![step("env.sync", &[])]));
             }
 
-            return Ok(Propuesta::solo(vec![step("env.profile_status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("env.profile_status", &[])]));
         }
 
         // Intenciones de cuotas y límites de recursos para sandboxes (T7.2)
@@ -444,10 +456,10 @@ impl Planner for LocalPlanner {
                 }
                 let arg_refs: Vec<(&str, &str)> =
                     args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-                return Ok(Propuesta::solo(vec![step("quota.set", &arg_refs)]));
+                return Ok(Proposal::only_steps(vec![step("quota.set", &arg_refs)]));
             }
 
-            return Ok(Propuesta::solo(vec![step("quota.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("quota.status", &[])]));
         }
 
         // Intenciones de visor de diffs y terminal interactiva (T8.1)
@@ -463,13 +475,13 @@ impl Planner for LocalPlanner {
             if let Some(ref t) = target {
                 params.push(("target", t.as_str()));
             }
-            return Ok(Propuesta::solo(vec![step("ui.diff_viewer", &params)]));
+            return Ok(Proposal::only_steps(vec![step("ui.diff_viewer", &params)]));
         }
 
         if (lower.contains("terminal") || lower.contains("consola") || lower.contains("vte"))
             && !lower.contains("web")
         {
-            return Ok(Propuesta::solo(vec![step("ui.terminal", &[])]));
+            return Ok(Proposal::only_steps(vec![step("ui.terminal", &[])]));
         }
 
         // Intenciones de bandeja de notificaciones y aprobaciones asíncronas (T8.2)
@@ -482,7 +494,7 @@ impl Planner for LocalPlanner {
                     .find(|w| w.starts_with("notif-"))
                     .cloned()
                     .unwrap_or_else(|| "notif-1".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "notify.action",
                     &[("id", &id), ("action", "approve")],
                 )]));
@@ -493,12 +505,12 @@ impl Planner for LocalPlanner {
                     .find(|w| w.starts_with("notif-"))
                     .cloned()
                     .unwrap_or_else(|| "notif-1".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "notify.action",
                     &[("id", &id), ("action", "reject")],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step("notify.list", &[])]));
+            return Ok(Proposal::only_steps(vec![step("notify.list", &[])]));
         }
 
         // Intenciones de red P2P y antMesh (T9.1)
@@ -521,7 +533,7 @@ impl Planner for LocalPlanner {
                     })
                     .cloned()
                     .unwrap_or_else(|| "127.0.0.1:9042".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "mesh.connect",
                     &[("address", &addr)],
                 )]));
@@ -531,9 +543,9 @@ impl Planner for LocalPlanner {
                 || lower.contains("empareja")
                 || lower.contains("invita")
             {
-                return Ok(Propuesta::solo(vec![step("mesh.pair", &[])]));
+                return Ok(Proposal::only_steps(vec![step("mesh.pair", &[])]));
             }
-            return Ok(Propuesta::solo(vec![step("mesh.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("mesh.status", &[])]));
         }
 
         // Intenciones de Swarm y despacho distribuido de agentes (T9.2)
@@ -572,9 +584,12 @@ impl Planner for LocalPlanner {
                 if let Some(ref n) = node_target {
                     args.push(("node", n.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("flow.dispatch_remote", &args)]));
+                return Ok(Proposal::only_steps(vec![step(
+                    "flow.dispatch_remote",
+                    &args,
+                )]));
             }
-            return Ok(Propuesta::solo(vec![step("flow.swarm_status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("flow.swarm_status", &[])]));
         }
 
         // Intenciones de Sistema de Ficheros Virtual Semántico /antfs (T10.1)
@@ -588,7 +603,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref m) = mnt {
                     args.push(("mount_point", m.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("vfs.unmount", &args)]));
+                return Ok(Proposal::only_steps(vec![step("vfs.unmount", &args)]));
             }
             if lower.contains("monta") || lower.contains("mount") {
                 let mnt = after(&words, &["en", "a", "ruta", "mount"]);
@@ -596,7 +611,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref m) = mnt {
                     args.push(("mount_point", m.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("vfs.mount", &args)]));
+                return Ok(Proposal::only_steps(vec![step("vfs.mount", &args)]));
             }
             if lower.contains("valida")
                 || lower.contains("validate")
@@ -605,14 +620,14 @@ impl Planner for LocalPlanner {
             {
                 let file = after(&words, &["archivo", "fichero", "de", "file", "valida"])
                     .unwrap_or_else(|| "src/main.rs".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "vfs.validate_write",
                     &[("file_path", &file)],
                 )]));
             }
             if lower.contains("guard") || lower.contains("interceptor") || lower.contains("guardia")
             {
-                return Ok(Propuesta::solo(vec![step("vfs.guard_status", &[])]));
+                return Ok(Proposal::only_steps(vec![step("vfs.guard_status", &[])]));
             }
             let path = words
                 .iter()
@@ -626,7 +641,7 @@ impl Planner for LocalPlanner {
             if let Some(ref p) = path {
                 args.push(("path", p.as_str()));
             }
-            return Ok(Propuesta::solo(vec![step("vfs.query", &args)]));
+            return Ok(Proposal::only_steps(vec![step("vfs.query", &args)]));
         }
 
         // Intenciones de Supervisor Kernel eBPF LSM (T11.1)
@@ -646,9 +661,9 @@ impl Planner for LocalPlanner {
                 if let Some(ref p) = pid {
                     args.push(("pid", p.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("ebpf.audit_log", &args)]));
+                return Ok(Proposal::only_steps(vec![step("ebpf.audit_log", &args)]));
             }
-            return Ok(Propuesta::solo(vec![step("ebpf.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("ebpf.status", &[])]));
         }
 
         // Intenciones de Profiler Continuo y Rendimiento (T11.2)
@@ -670,11 +685,11 @@ impl Planner for LocalPlanner {
                 || lower.contains("hotspot")
                 || lower.contains("cuello")
             {
-                return Ok(Propuesta::solo(vec![step("profile.analyze", &[])]));
+                return Ok(Proposal::only_steps(vec![step("profile.analyze", &[])]));
             }
             let cmd = after(&words, &["ejecuta", "run", "comando", "el", "con"])
                 .unwrap_or_else(|| "cargo test".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "profile.run",
                 &[("command", &cmd)],
             )]));
@@ -689,9 +704,12 @@ impl Planner for LocalPlanner {
             {
                 let mode = after(&words, &["sobre", "en", "modo", "mode"])
                     .unwrap_or_else(|| "stdio".into());
-                return Ok(Propuesta::solo(vec![step("lsp.start", &[("mode", &mode)])]));
+                return Ok(Proposal::only_steps(vec![step(
+                    "lsp.start",
+                    &[("mode", &mode)],
+                )]));
             }
-            return Ok(Propuesta::solo(vec![step("lsp.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("lsp.status", &[])]));
         }
 
         // Intenciones de Co-Edición Colaborativa CRDT (T12.2)
@@ -719,14 +737,14 @@ impl Planner for LocalPlanner {
             if let Some(ref t) = ticket {
                 args.push(("ticket", t.as_str()));
             }
-            return Ok(Propuesta::solo(vec![step("collab.session", &args)]));
+            return Ok(Proposal::only_steps(vec![step("collab.session", &args)]));
         }
 
         // Intenciones de Depuración Supervisada DAP (T12.2)
         if lower.contains("dap") || lower.contains("depura") || lower.contains("debugger") {
             let cmd = after(&words, &["comando", "el", "con", "a"])
                 .unwrap_or_else(|| "cargo test".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "dap.attach",
                 &[("command", &cmd)],
             )]));
@@ -746,7 +764,7 @@ impl Planner for LocalPlanner {
             } else {
                 intent.to_string()
             };
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "test.reproduce",
                 &[("error", &error_text)],
             )]));
@@ -769,7 +787,7 @@ impl Planner for LocalPlanner {
                 })
                 .cloned()
                 .unwrap_or_else(|| "src/lib.rs".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "test.gen",
                 &[("target", &target), ("suite_type", "unit")],
             )]));
@@ -783,7 +801,7 @@ impl Planner for LocalPlanner {
 
         if is_ci_intent {
             if lower.contains("estado") || lower.contains("status") || lower.contains("reporte") {
-                return Ok(Propuesta::solo(vec![step("ci.status", &[])]));
+                return Ok(Proposal::only_steps(vec![step("ci.status", &[])]));
             }
             let stage = if lower.contains("lint") {
                 Some("lint")
@@ -810,7 +828,7 @@ impl Planner for LocalPlanner {
                 args.push(("stage", st));
             }
             args.push(("fast", fast));
-            return Ok(Propuesta::solo(vec![step("ci.run", &args)]));
+            return Ok(Proposal::only_steps(vec![step("ci.run", &args)]));
         }
 
         // Intenciones de Git Hooks Inteligentes (T20.3)
@@ -832,7 +850,7 @@ impl Planner for LocalPlanner {
             } else {
                 "status"
             };
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "git.hook",
                 &[("action", action)],
             )]));
@@ -858,7 +876,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref l) = label {
                     args.push(("label", l.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("snapshot.create", &args)]));
+                return Ok(Proposal::only_steps(vec![step("snapshot.create", &args)]));
             } else if lower.contains("restaura")
                 || lower.contains("recupera")
                 || lower.contains("revert")
@@ -869,7 +887,7 @@ impl Planner for LocalPlanner {
                     &["a", "al", "snapshot", "instantanea", "instantánea"],
                 )
                 .unwrap_or_else(|| "latest".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "snapshot.restore",
                     &[("id", &id)],
                 )]));
@@ -879,12 +897,12 @@ impl Planner for LocalPlanner {
             {
                 let id = after(&words, &["snapshot", "instantanea", "instantánea"])
                     .unwrap_or_else(|| "latest".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "snapshot.delete",
                     &[("id", &id)],
                 )]));
             } else {
-                return Ok(Propuesta::solo(vec![step("snapshot.list", &[])]));
+                return Ok(Proposal::only_steps(vec![step("snapshot.list", &[])]));
             }
         }
 
@@ -898,7 +916,7 @@ impl Planner for LocalPlanner {
             {
                 let against = after(&words, &["contra", "con", "rama", "base"])
                     .unwrap_or_else(|| "master".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "bench.diff",
                     &[("against", &against)],
                 )]));
@@ -907,14 +925,14 @@ impl Planner for LocalPlanner {
                 || lower.contains("evolución")
                 || lower.contains("history")
             {
-                return Ok(Propuesta::solo(vec![step("bench.history", &[])]));
+                return Ok(Proposal::only_steps(vec![step("bench.history", &[])]));
             } else {
                 let target = after(&words, &["suite", "benchmark", "de", "en"]);
                 let mut args = Vec::new();
                 if let Some(ref t) = target {
                     args.push(("target", t.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("bench.run", &args)]));
+                return Ok(Proposal::only_steps(vec![step("bench.run", &args)]));
             }
         }
 
@@ -927,9 +945,12 @@ impl Planner for LocalPlanner {
             {
                 let id = after(&words, &["issue", "el", "#", "de", "numero", "número"])
                     .unwrap_or_else(|| "42".into());
-                return Ok(Propuesta::solo(vec![step("issue.import", &[("id", &id)])]));
+                return Ok(Proposal::only_steps(vec![step(
+                    "issue.import",
+                    &[("id", &id)],
+                )]));
             } else {
-                return Ok(Propuesta::solo(vec![step("issue.list", &[])]));
+                return Ok(Proposal::only_steps(vec![step("issue.list", &[])]));
             }
         }
 
@@ -949,7 +970,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref n) = num {
                     args.push(("number", n.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("pr.status", &args)]));
+                return Ok(Proposal::only_steps(vec![step("pr.status", &args)]));
             } else {
                 let draft = if lower.contains("draft") || lower.contains("borrador") {
                     "true"
@@ -961,7 +982,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref t) = title {
                     args.push(("title", t.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("pr.create", &args)]));
+                return Ok(Proposal::only_steps(vec![step("pr.create", &args)]));
             }
         }
 
@@ -983,7 +1004,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref t) = target {
                     args.push(("target", t.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("doc.check", &args)]));
+                return Ok(Proposal::only_steps(vec![step("doc.check", &args)]));
             } else if lower.contains("sync")
                 || lower.contains("sincroniza")
                 || lower.contains("actualiza")
@@ -994,7 +1015,7 @@ impl Planner for LocalPlanner {
                 if let Some(ref t) = target {
                     args.push(("target", t.as_str()));
                 }
-                return Ok(Propuesta::solo(vec![step("doc.sync", &args)]));
+                return Ok(Proposal::only_steps(vec![step("doc.sync", &args)]));
             } else if lower.contains("arch")
                 || lower.contains("diagrama")
                 || lower.contains("arquitectura")
@@ -1020,7 +1041,10 @@ impl Planner for LocalPlanner {
                 } else {
                     "full"
                 };
-                return Ok(Propuesta::solo(vec![step("doc.arch", &[("kind", kind)])]));
+                return Ok(Proposal::only_steps(vec![step(
+                    "doc.arch",
+                    &[("kind", kind)],
+                )]));
             }
         }
 
@@ -1036,7 +1060,7 @@ impl Planner for LocalPlanner {
             if let Some(ref p) = project {
                 args.push(("project", p.as_str()));
             }
-            return Ok(Propuesta::solo(vec![step("dev.workspace", &args)]));
+            return Ok(Proposal::only_steps(vec![step("dev.workspace", &args)]));
         }
 
         // Intenciones de Editor de Texto (Neovim por defecto)
@@ -1058,7 +1082,7 @@ impl Planner for LocalPlanner {
                 })
                 .cloned()
                 .unwrap_or_else(|| "src/main.rs".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "ui.terminal",
                 &[("command", &format!("nvim {file}"))],
             )]));
@@ -1072,15 +1096,15 @@ impl Planner for LocalPlanner {
             || lower.contains("hotkeys")
         {
             if lower.contains("atajo") || lower.contains("hotkey") || lower.contains("teclado") {
-                return Ok(Propuesta::solo(vec![step("desktop.keys", &[])]));
+                return Ok(Proposal::only_steps(vec![step("desktop.keys", &[])]));
             }
             if lower.contains("inicia") || lower.contains("arranca") || lower.contains("start") {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "desktop.session",
                     &[("action", "start")],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step("desktop.session", &[])]));
+            return Ok(Proposal::only_steps(vec![step("desktop.session", &[])]));
         }
 
         // Intenciones de Telemetría y Alertas de la Barra (T13.1)
@@ -1101,7 +1125,7 @@ impl Planner for LocalPlanner {
                 } else {
                     "false"
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "barra.notify",
                     &[
                         ("category", "alerta"),
@@ -1110,7 +1134,7 @@ impl Planner for LocalPlanner {
                     ],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step("barra.status", &[])]));
+            return Ok(Proposal::only_steps(vec![step("barra.status", &[])]));
         }
 
         // Intenciones de Pipeline de Arranque Bare Metal y QEMU (T13.2)
@@ -1130,7 +1154,7 @@ impl Planner for LocalPlanner {
                         || lower.contains("test"))))
         {
             if lower.contains("test") || lower.contains("prueba") {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "boot.pipeline",
                     &[("action", "test")],
                 )]));
@@ -1140,18 +1164,18 @@ impl Planner for LocalPlanner {
                 || lower.contains("construye")
                 || lower.contains("imagen")
             {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "boot.pipeline",
                     &[("action", "build")],
                 )]));
             }
             if lower.contains("qemu") || lower.contains("inicia") || lower.contains("arranca") {
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "boot.pipeline",
                     &[("action", "qemu")],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "boot.pipeline",
                 &[("action", "status")],
             )]));
@@ -1164,12 +1188,12 @@ impl Planner for LocalPlanner {
                 || lower.contains("instalados")
                 || lower.contains("instaladas")
             {
-                return Ok(Propuesta::solo(vec![step("plugin.list", &[])]));
+                return Ok(Proposal::only_steps(vec![step("plugin.list", &[])]));
             }
             if lower.contains("instala") || lower.contains("install") {
                 let path = after(&words, &["instala", "install", "plugin", "desde", "en"])
                     .unwrap_or_else(|| ".".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "plugin.install",
                     &[("path", &path)],
                 )]));
@@ -1178,12 +1202,12 @@ impl Planner for LocalPlanner {
                 let plugin = after(&words, &["ejecuta", "run", "plugin"]).unwrap_or_default();
                 let action =
                     after(&words, &["con", "accion", "acción"]).unwrap_or_else(|| "run".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "plugin.run",
                     &[("plugin", &plugin), ("action", &action)],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step("plugin.list", &[])]));
+            return Ok(Proposal::only_steps(vec![step("plugin.list", &[])]));
         }
 
         // Intenciones de Captura de Pantalla e Inspección Visual QA (T14.2)
@@ -1198,12 +1222,12 @@ impl Planner for LocalPlanner {
                 p_str = p.as_str();
                 args.push(("path", p_str));
             }
-            return Ok(Propuesta::solo(vec![step("ui.screenshot", &args)]));
+            return Ok(Proposal::only_steps(vec![step("ui.screenshot", &args)]));
         }
         if lower.contains("visual") || lower.contains("qa visual") {
             let target =
                 after(&words, &["de", "sobre", "en", "target"]).unwrap_or_else(|| "desktop".into());
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "ui.inspect_visual",
                 &[("target", &target)],
             )]));
@@ -1232,7 +1256,7 @@ impl Planner for LocalPlanner {
                 } else {
                     "false"
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "disk.partition",
                     &[("device", &dev), ("clean", clean)],
                 )]));
@@ -1244,12 +1268,12 @@ impl Planner for LocalPlanner {
             {
                 let dev = after(&words, &["disco", "dispositivo", "de", "en"])
                     .unwrap_or_else(|| "/dev/nvme0n1".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "disk.inspect",
                     &[("device", &dev)],
                 )]));
             }
-            return Ok(Propuesta::solo(vec![step("disk.list", &[])]));
+            return Ok(Proposal::only_steps(vec![step("disk.list", &[])]));
         }
 
         // Intenciones de Instalación y Despliegue de antOS (T15.2)
@@ -1287,7 +1311,7 @@ impl Planner for LocalPlanner {
             } else {
                 "true"
             };
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "install.deploy",
                 &[("target_device", &dev), ("clean", clean), ("dry_run", dry)],
             )]));
@@ -1320,7 +1344,7 @@ impl Planner for LocalPlanner {
                     esp_s = e.as_str();
                     args.push(("esp_path", esp_s));
                 }
-                return Ok(Propuesta::solo(vec![step("bootloader.probe", &args)]));
+                return Ok(Proposal::only_steps(vec![step("bootloader.probe", &args)]));
             }
 
             let dev = after(&words, &["disco", "dispositivo", "target", "sobre"])
@@ -1334,7 +1358,7 @@ impl Planner for LocalPlanner {
             } else {
                 "true"
             };
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "bootloader.install",
                 &[
                     ("target_device", &dev),
@@ -1365,7 +1389,7 @@ impl Planner for LocalPlanner {
                     after(&words, &["microvm", "vm"]).unwrap_or_else(|| "vm-default".into());
                 let cmd = after(&words, &["comando", "cmd", "exec", "ejecuta"])
                     .unwrap_or_else(|| "echo test".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "microvm.exec",
                     &[("vm_id", &vm_id), ("command", &cmd)],
                 )]));
@@ -1378,7 +1402,7 @@ impl Planner for LocalPlanner {
             {
                 let vm_id =
                     after(&words, &["microvm", "vm", "id"]).unwrap_or_else(|| "vm-default".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "microvm.destroy",
                     &[("vm_id", &vm_id)],
                 )]));
@@ -1390,7 +1414,7 @@ impl Planner for LocalPlanner {
                     .unwrap_or_else(|| "2".into());
                 let memory = before_or_after(&words, &["memoria", "ram", "mb"])
                     .unwrap_or_else(|| "512".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "microvm.spawn",
                     &[("vm_id", &vm_id), ("cpus", &cpus), ("memory", &memory)],
                 )]));
@@ -1419,7 +1443,7 @@ impl Planner for LocalPlanner {
                 || lower.contains("elimina")
             {
                 let pkg_name = extract_pkg();
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "pkg.remove",
                     &[("package", &pkg_name)],
                 )]));
@@ -1429,20 +1453,20 @@ impl Planner for LocalPlanner {
             {
                 let gen = after(&words, &["generacion", "generación", "generation", "gen"]);
                 if let Some(g) = gen {
-                    return Ok(Propuesta::solo(vec![step(
+                    return Ok(Proposal::only_steps(vec![step(
                         "pkg.rollback",
                         &[("generation", &g)],
                     )]));
                 } else {
-                    return Ok(Propuesta::solo(vec![step("pkg.rollback", &[])]));
+                    return Ok(Proposal::only_steps(vec![step("pkg.rollback", &[])]));
                 }
             } else if lower.contains("lista") || lower.contains("list") {
-                return Ok(Propuesta::solo(vec![step("pkg.list", &[])]));
+                return Ok(Proposal::only_steps(vec![step("pkg.list", &[])]));
             } else if lower.contains("verifica")
                 || lower.contains("verify")
                 || lower.contains("check")
             {
-                return Ok(Propuesta::solo(vec![step("pkg.verify", &[])]));
+                return Ok(Proposal::only_steps(vec![step("pkg.verify", &[])]));
             } else if lower.contains("instala")
                 || lower.contains("install")
                 || lower.contains("agrega")
@@ -1454,7 +1478,7 @@ impl Planner for LocalPlanner {
                 } else {
                     "false"
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "pkg.install",
                     &[("package", &pkg_name), ("dry_run", dry_run)],
                 )]));
@@ -1473,19 +1497,19 @@ impl Planner for LocalPlanner {
                 || lower.contains("para")
                 || lower.contains("cancela")
             {
-                return Ok(Propuesta::solo(vec![step("autopilot.stop", &[])]));
+                return Ok(Proposal::only_steps(vec![step("autopilot.stop", &[])]));
             } else if lower.contains("status")
                 || lower.contains("estado")
                 || lower.contains("metricas")
                 || lower.contains("métricas")
             {
-                return Ok(Propuesta::solo(vec![step("autopilot.status", &[])]));
+                return Ok(Proposal::only_steps(vec![step("autopilot.status", &[])]));
             } else if lower.contains("scan")
                 || lower.contains("escanea")
                 || lower.contains("revisa")
                 || lower.contains("busca fallos")
             {
-                return Ok(Propuesta::solo(vec![step("autopilot.scan", &[])]));
+                return Ok(Proposal::only_steps(vec![step("autopilot.scan", &[])]));
             } else if lower.contains("aprueba")
                 || lower.contains("approve")
                 || lower.contains("merge")
@@ -1516,14 +1540,14 @@ impl Planner for LocalPlanner {
                 } else {
                     "true"
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "autopilot.resolve",
                     &[("incident_id", &inc_id), ("approve", approve)],
                 )]));
             } else {
                 let interval = after(&words, &["intervalo", "interval", "cada", "every"])
                     .unwrap_or_else(|| "5".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "autopilot.start",
                     &[("interval", &interval)],
                 )]));
@@ -1537,7 +1561,7 @@ impl Planner for LocalPlanner {
                     .unwrap_or_else(|| "admin".into());
                 let ttl =
                     after(&words, &["ttl", "expira", "tiempo"]).unwrap_or_else(|| "86400".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "web.token",
                     &[("label", &label), ("ttl", &ttl)],
                 )]));
@@ -1547,13 +1571,13 @@ impl Planner for LocalPlanner {
                 || lower.contains("cierra")
                 || words.first().map(String::as_str) == Some("para")
             {
-                return Ok(Propuesta::solo(vec![step("web.stop", &[])]));
+                return Ok(Proposal::only_steps(vec![step("web.stop", &[])]));
             } else if lower.contains("status")
                 || lower.contains("estado")
                 || lower.contains("metricas")
                 || lower.contains("métricas")
             {
-                return Ok(Propuesta::solo(vec![step("web.status", &[])]));
+                return Ok(Proposal::only_steps(vec![step("web.status", &[])]));
             } else {
                 let port = after(&words, &["puerto", "port"])
                     .or_else(|| {
@@ -1565,7 +1589,7 @@ impl Planner for LocalPlanner {
                     .unwrap_or_else(|| "8088".into());
                 let bind =
                     after(&words, &["ip", "bind", "host"]).unwrap_or_else(|| "127.0.0.1".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "web.start",
                     &[("port", &port), ("bind", &bind)],
                 )]));
@@ -1591,7 +1615,7 @@ impl Planner for LocalPlanner {
                 } else {
                     format!("secret.{sec}")
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "secret.revoke",
                     &[("secret", &clean_sec)],
                 )]));
@@ -1605,7 +1629,7 @@ impl Planner for LocalPlanner {
                 } else {
                     format!("secret.{sec}")
                 };
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "secret.grant",
                     &[
                         ("secret", &clean_sec),
@@ -1620,13 +1644,13 @@ impl Planner for LocalPlanner {
                     .unwrap_or_else(|| "API_KEY".into());
                 let val =
                     after(&words, &["valor", "val", "con"]).unwrap_or_else(|| "dummy_val".into());
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "secret.set",
                     &[("key", &key), ("value", &val)],
                 )]));
             }
 
-            return Ok(Propuesta::solo(vec![step("secret.list", &[])]));
+            return Ok(Proposal::only_steps(vec![step("secret.list", &[])]));
         }
 
         // Intenciones de tickets y especificaciones
@@ -1673,7 +1697,7 @@ impl Planner for LocalPlanner {
                     "Fase Activa".to_string()
                 };
 
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "spec.create_ticket",
                     &[
                         ("ticket_id", &id_cand),
@@ -1710,13 +1734,13 @@ impl Planner for LocalPlanner {
                     "pendiente"
                 };
 
-                return Ok(Propuesta::solo(vec![step(
+                return Ok(Proposal::only_steps(vec![step(
                     "spec.update_ticket",
                     &[("ticket_id", &id_cand), ("status", status)],
                 )]));
             }
 
-            return Ok(Propuesta::solo(vec![step("spec.list_tickets", &[])]));
+            return Ok(Proposal::only_steps(vec![step("spec.list_tickets", &[])]));
         }
 
         // Intenciones de memoria semántica y grafo de contexto
@@ -1730,7 +1754,7 @@ impl Planner for LocalPlanner {
         {
             if lower.contains("indexa") || lower.contains("actualiza") || lower.contains("reindexa")
             {
-                return Ok(Propuesta::solo(vec![step("memory.index", &[])]));
+                return Ok(Proposal::only_steps(vec![step("memory.index", &[])]));
             }
             if lower.contains("grafo") {
                 let target = after(&words, &["para", "de", "sobre", "grafo"]);
@@ -1739,7 +1763,7 @@ impl Planner for LocalPlanner {
                 } else {
                     vec![]
                 };
-                return Ok(Propuesta::solo(vec![step("memory.graph", &args)]));
+                return Ok(Proposal::only_steps(vec![step("memory.graph", &args)]));
             }
             // Búsqueda semántica
             let query = if let Some(pos) = words
@@ -1750,7 +1774,7 @@ impl Planner for LocalPlanner {
             } else {
                 words.join(" ")
             };
-            return Ok(Propuesta::solo(vec![step(
+            return Ok(Proposal::only_steps(vec![step(
                 "memory.search",
                 &[("query", &query), ("limit", "5")],
             )]));

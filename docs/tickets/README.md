@@ -146,7 +146,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.9](T31.9-comprobacion-de-limites-del-interprete-wasm.md) | Comprobación de Límites del Intérprete WebAssembly | ✅ Completado |
 | **Fase 31** | [T31.10](T31.10-reparacion-de-la-ci-en-rojo-clippy-y-rustfmt.md) | Reparación de la CI en Rojo: Puertas de Clippy y rustfmt | ✅ Completado |
 | **Fase 31** | [T31.11](T31.11-retirada-de-la-capa-de-compatibilidad-syso.md) | Retirada de la Capa de Compatibilidad `syso` y de los Símbolos Deprecados | ✅ Completado |
-| **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ⏳ Pendiente |
+| **Fase 31** | [T31.12](T31.12-finalizacion-de-la-nomenclatura-en-ingles.md) | Finalización de la Estandarización de Nomenclatura en Inglés | ✅ Completado |
 | **Fase 31** | [T31.13](T31.13-cobertura-de-tests-de-la-capa-cli-y-de-antos-barra.md) | Cobertura de Tests de la Capa CLI y de `antos-barra` | ⏳ Pendiente |
 | **Fase 31** | [T31.14](T31.14-alineacion-de-la-documentacion-de-modulos-con-la-implementacion-real.md) | Alineación de la Documentación de Módulos con la Implementación Real | ⏳ Pendiente |
 | **Fase 31** | [T31.15](T31.15-descomposicion-de-modulos-de-gran-tamano.md) | Descomposición de Módulos de Gran Tamaño | ⏳ Pendiente |
@@ -230,13 +230,23 @@ arriba recogen lo encontrado, agrupados en tres bloques:
   capacidad —`pkg.declare.toml`/`system.declare.toml`— que declaraba
   `writes` contra los nombres de fichero viejos y habría hecho que el
   recinto denegara la escritura real), finalización de la nomenclatura en
-  inglés, cobertura de tests de la capa CLI y de la barra, alineación de
+  inglés (**✅ T31.12 resuelto**: patrón sistémico de `pub const
+  NombreEspañol: Self = Self::VarianteInglesa` encontrado y eliminado por
+  completo en `TicketStatus`/`FlowState`/`AgentRole` —invisible para
+  T31.11 al no llevar `#[deprecated]`—, `Pendiente`→`PendingChanges` y
+  `Propuesta`→`Proposal` renombrados con sus ~165 sitios de uso,
+  `spec.rs` reescrito íntegro como el ejemplo que el propio ticket citaba,
+  cuatro `.nix` de `system/nixos/` renombrados, nueva regla en
+  `antos-development.md` fijando que comentarios y texto de cara al
+  usuario siguen en español, y nuevo guion
+  `.agents/scripts/check-spanish-identifiers.py` con su propio job de CI,
+  verificado en vivo para que falle ante un identificador nuevo en
+  español), cobertura de tests de la capa CLI y de la barra, alineación de
   las cabeceras de módulo con lo realmente implementado, y descomposición
   de los ficheros que han vuelto a superar las 1500 líneas.
 
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
-~~T31.11~~ **→ T31.16 → T31.12**, y el resto según convenga. T31.16 conviene
-abordarlo pronto: sin tests de kernel ejecutables, las correcciones de T31.3
-no tienen forma de verificarse. T31.12 ya puede empezar — su dependencia
-declarada (T31.11) está resuelta.
+~~T31.11~~ → ~~T31.12~~ **→ T31.16**, y el resto según convenga. T31.16
+conviene abordarlo pronto: sin tests de kernel ejecutables, las
+correcciones de T31.3 no tienen forma de verificarse.

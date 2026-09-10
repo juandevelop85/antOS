@@ -3,7 +3,7 @@
 //! Connects via HTTP to a local Ollama instance (default http://127.0.0.1:11434).
 //! Translates user intents into capability invocations with zero cloud dependency.
 
-use super::{Planner, Propuesta};
+use super::{Planner, Proposal};
 use crate::capability::Catalog;
 use crate::plan::Step;
 use anyhow::{bail, Context, Result};
@@ -89,7 +89,7 @@ impl Planner for OllamaPlanner {
         "ollama"
     }
 
-    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Propuesta> {
+    fn plan(&self, intent: &str, catalog: &Catalog) -> Result<Proposal> {
         let url = format!("{}/api/chat", self.endpoint.trim_end_matches('/'));
 
         let system_prompt = format!(
@@ -142,7 +142,7 @@ impl Planner for OllamaPlanner {
 }
 
 /// Parses Ollama chat response checking both structured tool_calls and JSON text fallback.
-pub fn parse_ollama_chat_response(v: &Value) -> Result<Propuesta> {
+pub fn parse_ollama_chat_response(v: &Value) -> Result<Proposal> {
     let message = &v["message"];
     let mut steps = Vec::new();
     let mut said = String::new();
@@ -223,14 +223,14 @@ pub fn parse_ollama_chat_response(v: &Value) -> Result<Propuesta> {
         bail!("no se pudo planificar con las capacidades disponibles.\n{said}");
     }
 
-    Ok(Propuesta {
+    Ok(Proposal {
         steps,
-        nota: (!said.is_empty()).then_some(said),
+        note: (!said.is_empty()).then_some(said),
     })
 }
 
 /// Fallback parser if local model emitted raw JSON instead of formal tool calls.
-fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
+fn try_parse_json_from_text(text: &str) -> Option<Proposal> {
     let json_str = if let Some(start) = text.find("```json") {
         let rest = &text[start + 7..];
         let end = rest.find("```").unwrap_or(rest.len());
@@ -245,11 +245,11 @@ fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
     let mut steps = Vec::new();
     let note = v["nota"].as_str().map(String::from);
 
-    if let Some(pasos) = v["pasos"].as_array() {
-        for p in pasos {
-            let capability = p["capacidad"].as_str()?.to_string();
+    if let Some(raw_steps) = v["pasos"].as_array() {
+        for step_val in raw_steps {
+            let capability = step_val["capacidad"].as_str()?.to_string();
             let mut args = BTreeMap::new();
-            if let Some(obj) = p["argumentos"].as_object() {
+            if let Some(obj) = step_val["argumentos"].as_object() {
                 for (k, val) in obj {
                     let s = match val {
                         Value::String(st) => st.clone(),
@@ -265,7 +265,7 @@ fn try_parse_json_from_text(text: &str) -> Option<Propuesta> {
     if steps.is_empty() {
         None
     } else {
-        Some(Propuesta { steps, nota: note })
+        Some(Proposal { steps, note })
     }
 }
 
@@ -371,7 +371,7 @@ mod tests {
             propuesta.steps[0].args.get("name").map(String::as_str),
             Some("demo")
         );
-        assert_eq!(propuesta.nota.as_deref(), Some("creando proyecto demo"));
+        assert_eq!(propuesta.note.as_deref(), Some("creando proyecto demo"));
     }
 
     #[test]
