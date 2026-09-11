@@ -28,8 +28,10 @@ const COLLAPSED_HEIGHT: i32 = 40;
 /// Muestra u oculta la franja completa frente a la franja colapsada,
 /// ajustando capa de teclado y zona exclusiva a juego. Expandida, la barra
 /// retiene el foco de teclado solo mientras el usuario interactúa
-/// (`KeyboardMode::OnDemand`, no `Exclusive`) — así `is-active` refleja de
-/// verdad cuándo lo pierde y dispara el colapso automático.
+/// (`KeyboardMode::OnDemand`, no `Exclusive`) — el `EventControllerFocus`
+/// de la ventana dispara el colapso automático al soltarlo (ver el
+/// comentario junto a su cableado, más abajo, sobre por qué no se usa
+/// `is-active`).
 fn set_bar_expanded(
     window: &ApplicationWindow,
     collapsed_strip: &Button,
@@ -339,15 +341,25 @@ pub(crate) fn build_ui(app: &Application) {
         });
     }
 
-    // Perder el foco de teclado estando expandida → colapsar sola (T30.8)
+    // Perder el foco de teclado estando expandida → colapsar sola (T30.8).
+    //
+    // `is-active`/`connect_is_active_notify` (probado primero) resultó no
+    // fiable: refleja el estado "activated" de un `xdg_toplevel`, y una
+    // superficie `zwlr_layer_surface_v1` no tiene ese estado en el
+    // protocolo — no hay ningún evento que lo dispare, así que la barra se
+    // quedaba expandida indefinidamente. `EventControllerFocus` en cambio
+    // se basa en los eventos reales `wl_keyboard::enter`/`leave` de la
+    // superficie, que sí le llegan a un layer surface igual que a
+    // cualquier otro.
     {
         let window_ref = window.clone();
         let collapsed_ref = collapsed_strip.clone();
         let frame_ref = frame.clone();
         let input_ref = input.clone();
         let is_expanded_ref = is_expanded.clone();
-        window.connect_is_active_notify(move |w| {
-            if !w.is_active() && is_expanded_ref.get() {
+        let focus_controller = gtk4::EventControllerFocus::new();
+        focus_controller.connect_leave(move |_| {
+            if is_expanded_ref.get() {
                 set_bar_expanded(
                     &window_ref,
                     &collapsed_ref,
@@ -358,6 +370,7 @@ pub(crate) fn build_ui(app: &Application) {
                 );
             }
         });
+        window.add_controller(focus_controller);
     }
 
     // Query initial git status and system telemetry
