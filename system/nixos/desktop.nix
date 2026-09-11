@@ -79,11 +79,11 @@ let
     (builtins.readFile ../desktop/autostart
       + lib.optionalString cfg.panel.enable panelAutostart);
 
-  # Panel inferior: botón de menú (→ lanzador), reloj, CPU/RAM/red y bandeja.
+  # Panel superior: botón de menú (→ lanzador), reloj, CPU/RAM/red y bandeja.
   # Formatos de texto: sin dependencia de una fuente de iconos.
   waybarConfig = {
     layer = "top";
-    position = "bottom";
+    position = "top";
     height = 30;
     modules-left = [ "custom/menu" ];
     modules-center = [ "clock" ];
@@ -110,7 +110,10 @@ let
     window#waybar {
       background: rgba(20, 21, 28, 0.92);
       color: #c0caf5;
-      border-top: 1px solid #2a2e3f;
+      /* El borde va en el lado que da hacia el escritorio: con el panel
+         arriba, eso es el borde inferior (antes era border-top, cuando
+         el panel vivía abajo). */
+      border-bottom: 1px solid #2a2e3f;
     }
     #custom-menu, #clock, #cpu, #memory, #network, #tray { padding: 0 12px; }
     #custom-menu {
@@ -120,6 +123,22 @@ let
       font-weight: bold;
     }
     #clock { font-weight: bold; }
+  '';
+
+  # `fuzzel` sin configurar arranca con `lines=15`/`width=30` (defaults de
+  # fuzzel.ini) y centrado en pantalla: en un sistema NixOS con decenas de
+  # entradas `.desktop` (muchas del propio sistema, no solo apps de
+  # usuario — p. ej. el Manual de NixOS, que fuzzel no filtra por
+  # `XDG_CURRENT_DESKTOP` salvo que se le pida con `filter-desktop`) esa
+  # ventana se queda corta y hay que desplazarse para ver el resto. La
+  # agrandamos y la anclamos arriba, justo bajo el panel (ahora también
+  # arriba), en vez de dejarla centrada.
+  fuzzelConfig = ''
+    [main]
+    lines=25
+    width=50
+    anchor=top
+    y-margin=36
   '';
 
   labwcMenu = ''
@@ -394,6 +413,10 @@ in
     environment.etc."antos/desktop/waybar/config".text = builtins.toJSON waybarConfig;
     environment.etc."antos/desktop/waybar/style.css".text = waybarStyle;
     environment.etc."antos/desktop/labwc/menu.xml".text = labwcMenu;
+    # `/etc/xdg` es el valor por defecto de `XDG_CONFIG_DIRS` cuando la
+    # variable no está fijada (especificación XDG Base Directory) — no
+    # hace falta declararla en `sessionEnv` para que fuzzel la encuentre.
+    environment.etc."xdg/fuzzel/fuzzel.ini".text = fuzzelConfig;
   })
   ]);
 }
