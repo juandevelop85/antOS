@@ -17,6 +17,10 @@ antos-protocol = { path = "../protocolo" }
 serde_json = "1"
 gtk4 = "0.11"
 gtk4-layer-shell = "0.8"
+# Icono de bandeja de sistema (StatusNotifierItem) para antos-barra —
+# "blocking" + "async-io" en vez del "tokio" por defecto: no hace falta
+# arrastrar un runtime async completo solo para publicar un icono.
+ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
 
 # gtk4 es enorme y compilarlo con información de depuración se comió los
 # 1,9 GiB de la máquina de contenedores: rustc murió con SIGKILL. Sin

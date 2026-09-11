@@ -10,6 +10,7 @@ mod kanban;
 mod launcher;
 mod session;
 mod telemetry;
+mod tray;
 mod ui;
 mod widgets;
 

@@ -12,24 +12,6 @@ window.fondo {
   padding: 16px;
 }
 
-/* Franja colapsada (T30.8): estado de reposo de la barra, anclada arriba
-   con espacio reservado en el compositor — un click la expande. */
-button.barra-collapsed {
-  font-family: monospace;
-  font-size: 12px;
-  font-weight: bold;
-  padding: 6px 14px;
-  background: #18212B;
-  color: #85AEDF;
-  border: none;
-  border-radius: 0 0 8px 8px;
-}
-
-button.barra-collapsed:hover {
-  background: #222E3C;
-  color: #DEE6EE;
-}
-
 /* Header context bar */
 .header-bar {
   margin-bottom: 4px;

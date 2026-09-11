@@ -19,23 +19,16 @@ use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 
-/// Alto (px) de la franja colapsada que se reserva en el compositor
-/// (`set_exclusive_zone`) para que las demás ventanas no queden por debajo
-/// de `antos-barra` — la corrección real al solape de T30.8, más allá del
-/// colapso/expansión visual.
-const COLLAPSED_HEIGHT: i32 = 40;
-
-/// Muestra u oculta la franja completa frente a la franja colapsada,
-/// ajustando capa de teclado y zona exclusiva a juego. Expandida, la barra
-/// retiene el foco de teclado solo mientras el usuario interactúa
-/// (`KeyboardMode::OnDemand`, no `Exclusive`) — el `EventControllerFocus`
-/// de la ventana dispara el colapso automático al soltarlo (ver el
-/// comentario junto a su cableado, más abajo, sobre por qué no se usa
-/// `is-active`).
+/// Muestra u oculta la ventana entera (T30.8, seguimiento: reemplaza la
+/// franja colapsada por un icono real de bandeja SNI — ver `tray.rs` — así
+/// que, colapsada, la barra ya no dibuja nada propio, igual que la ventana
+/// de Claude en la barra de menú de macOS). Expandida, retiene el foco de
+/// teclado solo mientras el usuario interactúa (`KeyboardMode::OnDemand`,
+/// no `Exclusive`) — el `EventControllerFocus` de la ventana dispara el
+/// colapso automático al soltarlo (ver el comentario junto a su cableado,
+/// más abajo, sobre por qué no se usa `is-active`).
 fn set_bar_expanded(
     window: &ApplicationWindow,
-    collapsed_strip: &Button,
-    frame: &GtkBox,
     input: &Entry,
     is_expanded: &Rc<Cell<bool>>,
     expand: bool,
@@ -46,58 +39,47 @@ fn set_bar_expanded(
     is_expanded.set(expand);
     if expand {
         window.set_keyboard_mode(KeyboardMode::OnDemand);
-        // 0 (no `-1`): dejamos de reservar espacio propio, pero seguimos
-        // respetando la zona exclusiva de otros paneles (p. ej. `waybar` en
-        // T30.6) en vez de ignorarla — `-1` en el protocolo
-        // `wlr-layer-shell` es para superficies tipo fondo de pantalla que
-        // quieren extenderse por encima de todo sin que nadie las mueva,
-        // no lo que queremos para un desplegable transitorio.
-        window.set_exclusive_zone(0);
-        collapsed_strip.set_visible(false);
-        frame.set_visible(true);
+        window.present();
         input.grab_focus();
     } else {
         window.set_keyboard_mode(KeyboardMode::None);
-        window.set_exclusive_zone(COLLAPSED_HEIGHT);
-        frame.set_visible(false);
-        collapsed_strip.set_visible(true);
+        window.set_visible(false);
     }
 }
 
 /// Constructs the Wayland Layer Shell window and widgets.
 pub(crate) fn build_ui(app: &Application) {
+    // La barra arranca oculta (ver más abajo) y solo se muestra al activar
+    // el icono de bandeja — sin ninguna ventana visible, `GApplication`
+    // daría por terminada la activación y podría salir. `hold()` la
+    // mantiene viva mientras dure el proceso; el guardián se filtra a
+    // propósito (mismo motivo que el `Handle` de `tray::spawn`).
+    std::mem::forget(app.hold());
+
     let window = ApplicationWindow::builder()
         .application(app)
         .default_width(BAR_WIDTH)
         .build();
     window.add_css_class("fondo");
 
-    // Initialize as a Wayland Layer Shell surface. `Layer::Top` (no
-    // `Overlay`) más `set_exclusive_zone` reservan espacio real en el
-    // compositor cuando está colapsada, en vez de flotar por encima de
-    // todo (T30.8) — el arreglo de fondo a que la barra tapara otras apps.
+    // Initialize as a Wayland Layer Shell surface.
     window.init_layer_shell();
     window.set_layer(Layer::Top);
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_anchor(Edge::Top, true);
     window.set_margin(Edge::Top, 90);
-    window.set_exclusive_zone(COLLAPSED_HEIGHT);
-
-    let root = GtkBox::new(Orientation::Vertical, 0);
-    window.set_child(Some(&root));
-
-    // Franja colapsada (T30.8): siempre presente, arranca visible; un
-    // click expande la barra completa en el mismo anchor.
-    let collapsed_strip = Button::with_label("🐜 antOS");
-    collapsed_strip.add_css_class("barra-collapsed");
-    root.append(&collapsed_strip);
 
     let is_expanded: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
+    // Icono de bandeja SNI (T30.8, seguimiento): se publica ya, pero el
+    // canal se sondea más abajo, una vez existen `window`/`input` para
+    // cablear el toggle — ver `tray.rs`.
+    let (tray_tx, tray_rx) = std::sync::mpsc::channel::<()>();
+    crate::tray::spawn(tray_tx);
+
     let frame = GtkBox::new(Orientation::Vertical, 12);
     frame.add_css_class("marco");
-    frame.set_visible(false);
-    root.append(&frame);
+    window.set_child(Some(&frame));
 
     // Top status context bar (Git status + Planner selector + Dry run badge + Kanban toggle)
     let header_bar = GtkBox::new(Orientation::Horizontal, 8);
@@ -322,22 +304,19 @@ pub(crate) fn build_ui(app: &Application) {
         });
     }
 
-    // Click en la franja colapsada → expandir (T30.8)
+    // Click en el icono de bandeja → alterna expandir/colapsar (T30.8,
+    // seguimiento). `tray::spawn` manda por `tray_tx` desde su propio hilo
+    // (`Tray::activate`, disparado por el host SNI); aquí solo se sondea,
+    // mismo patrón que `session::run_offthread`.
     {
         let window_ref = window.clone();
-        let collapsed_ref = collapsed_strip.clone();
-        let frame_ref = frame.clone();
         let input_ref = input.clone();
         let is_expanded_ref = is_expanded.clone();
-        collapsed_strip.connect_clicked(move |_| {
-            set_bar_expanded(
-                &window_ref,
-                &collapsed_ref,
-                &frame_ref,
-                &input_ref,
-                &is_expanded_ref,
-                true,
-            );
+        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
+            while tray_rx.try_recv().is_ok() {
+                set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, !is_expanded_ref.get());
+            }
+            gtk4::glib::ControlFlow::Continue
         });
     }
 
@@ -353,21 +332,12 @@ pub(crate) fn build_ui(app: &Application) {
     // cualquier otro.
     {
         let window_ref = window.clone();
-        let collapsed_ref = collapsed_strip.clone();
-        let frame_ref = frame.clone();
         let input_ref = input.clone();
         let is_expanded_ref = is_expanded.clone();
         let focus_controller = gtk4::EventControllerFocus::new();
         focus_controller.connect_leave(move |_| {
             if is_expanded_ref.get() {
-                set_bar_expanded(
-                    &window_ref,
-                    &collapsed_ref,
-                    &frame_ref,
-                    &input_ref,
-                    &is_expanded_ref,
-                    false,
-                );
+                set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, false);
             }
         });
         window.add_controller(focus_controller);
@@ -460,22 +430,13 @@ pub(crate) fn build_ui(app: &Application) {
     // está expandida — ver "Efecto secundario conocido" en T30.8.
     let key_controller = gtk4::EventControllerKey::new();
     let window_ref = window.clone();
-    let collapsed_ref = collapsed_strip.clone();
-    let frame_ref = frame.clone();
     let content_ref = content.clone();
     let input_ref = input.clone();
     let writer_ref = stream_writer.clone();
     let is_expanded_ref = is_expanded.clone();
     key_controller.connect_key_pressed(move |_, key, _, modifier| {
         if key == gtk4::gdk::Key::Escape {
-            set_bar_expanded(
-                &window_ref,
-                &collapsed_ref,
-                &frame_ref,
-                &input_ref,
-                &is_expanded_ref,
-                false,
-            );
+            set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, false);
             return gtk4::glib::Propagation::Stop;
         }
         if (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A)
@@ -489,8 +450,10 @@ pub(crate) fn build_ui(app: &Application) {
     });
     window.add_controller(key_controller);
 
-    window.present();
-
+    // La barra arranca oculta (T30.8, seguimiento): sin `--panel`/
+    // `--intencion`, el único punto de entrada visible es el icono de
+    // bandeja — no hay `window.present()` incondicional aquí.
+    //
     // Check optional CLI arguments e.g. --panel or --intencion "..."
     let args: Vec<String> = std::env::args().collect();
     let initial_intent: Option<String> = args
@@ -500,14 +463,7 @@ pub(crate) fn build_ui(app: &Application) {
     let wants_panel = args.iter().any(|a| a == "--panel" || a == "--board");
 
     if wants_panel || initial_intent.is_some() {
-        set_bar_expanded(
-            &window,
-            &collapsed_strip,
-            &frame,
-            &input,
-            &is_expanded,
-            true,
-        );
+        set_bar_expanded(&window, &input, &is_expanded, true);
     }
     if wants_panel {
         load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone());
