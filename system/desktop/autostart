@@ -19,6 +19,15 @@ elif [ -x "./target/debug/antosd" ]; then
 fi
 
 # 2. Launch antOS Desktop Bar (GTK4 Layer-Shell).
+#    Margen antes de conectar el layer-shell: mismo motivo ya documentado
+#    para waybar/swaybg/mako en `panelAutostart` (T30.6, system/nixos/
+#    desktop.nix) — bajo emulación, el primer arranque en frío puede
+#    ganarle la carrera al compositor terminando de anunciar
+#    `zwlr_layer_shell_v1`. Sin este margen, `antos-barra` arrancaba,
+#    creaba la ventana y moría sin llegar a pintar ninguna superficie
+#    visible (visto en la VM: `pgrep -f antos-barra` no encontraba nada
+#    tras el arranque, pero lanzada a mano segundos después sí funcionaba).
+sleep 1
 if command -v antos-barra >/dev/null 2>&1; then
     pgrep -f antos-barra >/dev/null 2>&1 || antos-barra >/dev/null 2>&1 &
 elif [ -x "./system/barra/target/debug/antos-barra" ]; then
