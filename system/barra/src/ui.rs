@@ -15,9 +15,52 @@ use antos_protocol::{is_app_query, match_applications, LauncherAppItem};
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Button, Entry, Orientation};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
+
+/// Alto (px) de la franja colapsada que se reserva en el compositor
+/// (`set_exclusive_zone`) para que las demás ventanas no queden por debajo
+/// de `antos-barra` — la corrección real al solape de T30.8, más allá del
+/// colapso/expansión visual.
+const COLLAPSED_HEIGHT: i32 = 40;
+
+/// Muestra u oculta la franja completa frente a la franja colapsada,
+/// ajustando capa de teclado y zona exclusiva a juego. Expandida, la barra
+/// retiene el foco de teclado solo mientras el usuario interactúa
+/// (`KeyboardMode::OnDemand`, no `Exclusive`) — así `is-active` refleja de
+/// verdad cuándo lo pierde y dispara el colapso automático.
+fn set_bar_expanded(
+    window: &ApplicationWindow,
+    collapsed_strip: &Button,
+    frame: &GtkBox,
+    input: &Entry,
+    is_expanded: &Rc<Cell<bool>>,
+    expand: bool,
+) {
+    if is_expanded.get() == expand {
+        return;
+    }
+    is_expanded.set(expand);
+    if expand {
+        window.set_keyboard_mode(KeyboardMode::OnDemand);
+        // 0 (no `-1`): dejamos de reservar espacio propio, pero seguimos
+        // respetando la zona exclusiva de otros paneles (p. ej. `waybar` en
+        // T30.6) en vez de ignorarla — `-1` en el protocolo
+        // `wlr-layer-shell` es para superficies tipo fondo de pantalla que
+        // quieren extenderse por encima de todo sin que nadie las mueva,
+        // no lo que queremos para un desplegable transitorio.
+        window.set_exclusive_zone(0);
+        collapsed_strip.set_visible(false);
+        frame.set_visible(true);
+        input.grab_focus();
+    } else {
+        window.set_keyboard_mode(KeyboardMode::None);
+        window.set_exclusive_zone(COLLAPSED_HEIGHT);
+        frame.set_visible(false);
+        collapsed_strip.set_visible(true);
+    }
+}
 
 /// Constructs the Wayland Layer Shell window and widgets.
 pub(crate) fn build_ui(app: &Application) {
@@ -27,16 +70,32 @@ pub(crate) fn build_ui(app: &Application) {
         .build();
     window.add_css_class("fondo");
 
-    // Initialize as a Wayland Layer Shell surface
+    // Initialize as a Wayland Layer Shell surface. `Layer::Top` (no
+    // `Overlay`) más `set_exclusive_zone` reservan espacio real en el
+    // compositor cuando está colapsada, en vez de flotar por encima de
+    // todo (T30.8) — el arreglo de fondo a que la barra tapara otras apps.
     window.init_layer_shell();
-    window.set_layer(Layer::Overlay);
-    window.set_keyboard_mode(KeyboardMode::Exclusive);
+    window.set_layer(Layer::Top);
+    window.set_keyboard_mode(KeyboardMode::None);
     window.set_anchor(Edge::Top, true);
     window.set_margin(Edge::Top, 90);
+    window.set_exclusive_zone(COLLAPSED_HEIGHT);
+
+    let root = GtkBox::new(Orientation::Vertical, 0);
+    window.set_child(Some(&root));
+
+    // Franja colapsada (T30.8): siempre presente, arranca visible; un
+    // click expande la barra completa en el mismo anchor.
+    let collapsed_strip = Button::with_label("🐜 antOS");
+    collapsed_strip.add_css_class("barra-collapsed");
+    root.append(&collapsed_strip);
+
+    let is_expanded: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
     let frame = GtkBox::new(Orientation::Vertical, 12);
     frame.add_css_class("marco");
-    window.set_child(Some(&frame));
+    frame.set_visible(false);
+    root.append(&frame);
 
     // Top status context bar (Git status + Planner selector + Dry run badge + Kanban toggle)
     let header_bar = GtkBox::new(Orientation::Horizontal, 8);
@@ -261,6 +320,46 @@ pub(crate) fn build_ui(app: &Application) {
         });
     }
 
+    // Click en la franja colapsada → expandir (T30.8)
+    {
+        let window_ref = window.clone();
+        let collapsed_ref = collapsed_strip.clone();
+        let frame_ref = frame.clone();
+        let input_ref = input.clone();
+        let is_expanded_ref = is_expanded.clone();
+        collapsed_strip.connect_clicked(move |_| {
+            set_bar_expanded(
+                &window_ref,
+                &collapsed_ref,
+                &frame_ref,
+                &input_ref,
+                &is_expanded_ref,
+                true,
+            );
+        });
+    }
+
+    // Perder el foco de teclado estando expandida → colapsar sola (T30.8)
+    {
+        let window_ref = window.clone();
+        let collapsed_ref = collapsed_strip.clone();
+        let frame_ref = frame.clone();
+        let input_ref = input.clone();
+        let is_expanded_ref = is_expanded.clone();
+        window.connect_is_active_notify(move |w| {
+            if !w.is_active() && is_expanded_ref.get() {
+                set_bar_expanded(
+                    &window_ref,
+                    &collapsed_ref,
+                    &frame_ref,
+                    &input_ref,
+                    &is_expanded_ref,
+                    false,
+                );
+            }
+        });
+    }
+
     // Query initial git status and system telemetry
     query_git_status_async(git_badge.clone());
     query_telemetry_async(
@@ -341,15 +440,29 @@ pub(crate) fn build_ui(app: &Application) {
         });
     }
 
-    // Escape key closes window without confirming; Super+A opens panel
+    // Escape key collapses the bar instead of closing the window (T30.8):
+    // `system/desktop/autostart` no reinicia `antos-barra` si el proceso
+    // termina, así que cerrar la ventana aquí la mataba sin más. Super+A
+    // sigue abriendo el tablero, pero ahora solo llega mientras la barra
+    // está expandida — ver "Efecto secundario conocido" en T30.8.
     let key_controller = gtk4::EventControllerKey::new();
     let window_ref = window.clone();
+    let collapsed_ref = collapsed_strip.clone();
+    let frame_ref = frame.clone();
     let content_ref = content.clone();
     let input_ref = input.clone();
     let writer_ref = stream_writer.clone();
+    let is_expanded_ref = is_expanded.clone();
     key_controller.connect_key_pressed(move |_, key, _, modifier| {
         if key == gtk4::gdk::Key::Escape {
-            window_ref.close();
+            set_bar_expanded(
+                &window_ref,
+                &collapsed_ref,
+                &frame_ref,
+                &input_ref,
+                &is_expanded_ref,
+                false,
+            );
             return gtk4::glib::Propagation::Stop;
         }
         if (key == gtk4::gdk::Key::a || key == gtk4::gdk::Key::A)
@@ -367,17 +480,26 @@ pub(crate) fn build_ui(app: &Application) {
 
     // Check optional CLI arguments e.g. --panel or --intencion "..."
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--panel" || a == "--board") {
-        load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone());
-    } else {
-        let initial_intent: Option<String> = args
-            .iter()
-            .position(|a| a == "--intencion" || a == "--intent")
-            .and_then(|i| args.get(i + 1).cloned());
+    let initial_intent: Option<String> = args
+        .iter()
+        .position(|a| a == "--intencion" || a == "--intent")
+        .and_then(|i| args.get(i + 1).cloned());
+    let wants_panel = args.iter().any(|a| a == "--panel" || a == "--board");
 
-        if let Some(text) = initial_intent {
-            input.set_text(&text);
-            input.emit_activate();
-        }
+    if wants_panel || initial_intent.is_some() {
+        set_bar_expanded(
+            &window,
+            &collapsed_strip,
+            &frame,
+            &input,
+            &is_expanded,
+            true,
+        );
+    }
+    if wants_panel {
+        load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone());
+    } else if let Some(text) = initial_intent {
+        input.set_text(&text);
+        input.emit_activate();
     }
 }
