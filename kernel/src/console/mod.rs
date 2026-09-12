@@ -24,6 +24,8 @@ pub struct Console {
     bg_color: Color,
     bold: bool,
     ansi_parser: AnsiParser,
+    dirty_min_y: usize,
+    dirty_max_y: usize,
 }
 
 impl Console {
@@ -46,6 +48,44 @@ impl Console {
             bg_color: Color::BLACK,
             bold: false,
             ansi_parser: AnsiParser::new(),
+            dirty_min_y: usize::MAX,
+            dirty_max_y: 0,
+        }
+    }
+
+    /// Marks a vertical region `[y, y + height)` as modified.
+    #[inline]
+    pub fn mark_dirty(&mut self, y: usize, height: usize) {
+        if height == 0 {
+            return;
+        }
+        let end_y = y.saturating_add(height).min(self.framebuffer.height());
+        self.dirty_min_y = self.dirty_min_y.min(y);
+        self.dirty_max_y = self.dirty_max_y.max(end_y);
+    }
+
+    /// Returns the active dirty vertical region `(min_y, max_y)`, if any.
+    #[inline]
+    pub fn dirty_bounds(&self) -> Option<(usize, usize)> {
+        if self.dirty_min_y < self.dirty_max_y {
+            Some((self.dirty_min_y, self.dirty_max_y))
+        } else {
+            None
+        }
+    }
+
+    /// Flushes the dirty region to hardware on AArch64 (VirtIO GPU) and resets the dirty bounds.
+    pub fn flush_dirty(&mut self) {
+        if self.dirty_min_y < self.dirty_max_y {
+            #[cfg(target_arch = "aarch64")]
+            {
+                let flush_y = self.dirty_min_y;
+                let flush_h = self.dirty_max_y - self.dirty_min_y;
+                let width = self.framebuffer.width();
+                crate::arch::aarch64::virtio_gpu::flush_screen(0, flush_y, width, flush_h);
+            }
+            self.dirty_min_y = usize::MAX;
+            self.dirty_max_y = 0;
         }
     }
 
@@ -74,18 +114,27 @@ impl Console {
                 .draw_rect(0, top_y, self.framebuffer.width(), h, self.bg_color);
             self.cursor_col = 0;
             self.cursor_row = self.header_rows;
+            #[cfg(target_arch = "aarch64")]
+            crate::arch::aarch64::virtio_gpu::flush_screen(
+                0,
+                top_y,
+                self.framebuffer.width(),
+                h,
+            );
         } else {
             self.framebuffer.clear(self.bg_color);
             self.cursor_col = 0;
             self.cursor_row = 0;
+            #[cfg(target_arch = "aarch64")]
+            crate::arch::aarch64::virtio_gpu::flush_screen(
+                0,
+                0,
+                self.framebuffer.width(),
+                self.framebuffer.height(),
+            );
         }
-        #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(
-            0,
-            0,
-            self.framebuffer.width(),
-            self.framebuffer.height(),
-        );
+        self.dirty_min_y = usize::MAX;
+        self.dirty_max_y = 0;
     }
 
     /// Draws a styled antOS graphical header banner pinned at the top of the display.
@@ -130,25 +179,33 @@ impl Console {
 
         #[cfg(target_arch = "aarch64")]
         crate::arch::aarch64::virtio_gpu::flush_screen(0, 0, width, bar_height);
+        self.dirty_min_y = usize::MAX;
+        self.dirty_max_y = 0;
     }
 
     /// Advances the cursor to the next row, scrolling the framebuffer if needed.
     pub fn newline(&mut self) {
         if self.cursor_row + 1 < self.max_rows {
+            self.flush_dirty();
             self.cursor_row += 1;
         } else {
             let top_y = self.header_rows * font::FONT_HEIGHT;
             self.framebuffer
                 .scroll_up_region(top_y, font::FONT_HEIGHT, self.bg_color);
             self.cursor_row = self.max_rows.saturating_sub(1);
+            #[cfg(target_arch = "aarch64")]
+            {
+                let scroll_h = self.framebuffer.height().saturating_sub(top_y);
+                crate::arch::aarch64::virtio_gpu::flush_screen(
+                    0,
+                    top_y,
+                    self.framebuffer.width(),
+                    scroll_h,
+                );
+            }
+            self.dirty_min_y = usize::MAX;
+            self.dirty_max_y = 0;
         }
-        #[cfg(target_arch = "aarch64")]
-        crate::arch::aarch64::virtio_gpu::flush_screen(
-            0,
-            0,
-            self.framebuffer.width(),
-            self.framebuffer.height(),
-        );
     }
 
     /// Writes a single Unicode character, interpreting ANSI escape sequences.
@@ -181,6 +238,7 @@ impl Console {
                 let y = self.cursor_row * font::FONT_HEIGHT;
                 self.framebuffer
                     .draw_rect(start_x, y, width, font::FONT_HEIGHT, self.bg_color);
+                self.mark_dirty(y, font::FONT_HEIGHT);
             }
             AnsiAction::PrintChar(ch) => {
                 self.put_char(ch);
@@ -210,6 +268,7 @@ impl Console {
                     let y = self.cursor_row * font::FONT_HEIGHT;
                     self.framebuffer
                         .draw_char(x, y, ' ', self.fg_color, self.bg_color);
+                    self.mark_dirty(y, font::FONT_HEIGHT);
                 }
             }
             _ => {
@@ -226,6 +285,7 @@ impl Console {
                 let x = self.cursor_col * font::FONT_WIDTH;
                 let y = self.cursor_row * font::FONT_HEIGHT;
                 self.framebuffer.draw_char(x, y, ch, fg, self.bg_color);
+                self.mark_dirty(y, font::FONT_HEIGHT);
 
                 self.cursor_col += 1;
                 if self.cursor_col >= self.max_cols {
@@ -242,6 +302,7 @@ impl core::fmt::Write for Console {
         for c in s.chars() {
             self.write_char(c);
         }
+        self.flush_dirty();
         Ok(())
     }
 }
@@ -310,3 +371,47 @@ pub fn _print(args: core::fmt::Arguments) {
         let _ = console.write_fmt(args);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bootloader_api::info::PixelFormat;
+
+    #[test_case]
+    fn test_console_dirty_tracking_records_exact_bands() {
+        let mut buffer = [0u8; 128 * 128 * 4];
+        let fb = unsafe {
+            Framebuffer::new_raw(
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                128,
+                128,
+                128,
+                4,
+                PixelFormat::Bgr,
+            )
+        };
+        let mut console = Console::new(fb);
+
+        // Inicialmente el rango dirty debe estar vacío
+        assert_eq!(console.dirty_bounds(), None);
+
+        // Escribir un carácter en la fila 0 (y: 0..16)
+        console.put_char('X');
+        assert_eq!(console.dirty_bounds(), Some((0, 16)));
+
+        // Avanzar a la siguiente fila: newline sin scroll flushea la banda y avanza el cursor
+        console.newline();
+        assert_eq!(console.dirty_bounds(), None);
+        assert_eq!(console.cursor_row, 1);
+
+        // Escribir en la fila 1 (y: 16..32)
+        console.put_char('Y');
+        assert_eq!(console.dirty_bounds(), Some((16, 32)));
+
+        // flush_dirty debe limpiar el rango dirty
+        console.flush_dirty();
+        assert_eq!(console.dirty_bounds(), None);
+    }
+}
+

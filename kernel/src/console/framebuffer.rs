@@ -238,6 +238,30 @@ impl Framebuffer {
         }
     }
 
+    /// Converts a Color into a 32-bit pixel word according to the active pixel format.
+    #[inline]
+    pub fn color_to_u32(&self, color: Color) -> u32 {
+        match self.pixel_format {
+            PixelFormat::Bgr => {
+                (color.b as u32)
+                    | ((color.g as u32) << 8)
+                    | ((color.r as u32) << 16)
+                    | (0xFF << 24)
+            }
+            PixelFormat::Rgb => {
+                (color.r as u32)
+                    | ((color.g as u32) << 8)
+                    | ((color.b as u32) << 16)
+                    | (0xFF << 24)
+            }
+            PixelFormat::U8 => {
+                let gray = ((color.r as u16 + color.g as u16 + color.b as u16) / 3) as u8;
+                gray as u32
+            }
+            _ => 0,
+        }
+    }
+
     /// Fast blit of one ARGB8888 (`0xAARRGGBB`) scanline into the framebuffer at
     /// `(0, y)`, converting to the native pixel format. Bounds are checked once
     /// for the whole row instead of once per pixel, which is what makes a
@@ -299,14 +323,76 @@ impl Framebuffer {
         }
     }
 
-    /// Fills a rectangular region of pixels with a given color.
+    /// Fills a rectangular region of pixels with a given color using fast row-wise memory operations.
     pub fn draw_rect(&mut self, x: usize, y: usize, width: usize, height: usize, color: Color) {
         let max_x = (x + width).min(self.width);
         let max_y = (y + height).min(self.height);
 
-        for py in y..max_y {
-            for px in x..max_x {
-                self.put_pixel(px, py, color);
+        if x >= max_x || y >= max_y {
+            return;
+        }
+
+        let span_len = max_x - x;
+        let bpp = self.bytes_per_pixel;
+
+        if color == Color::BLACK {
+            // Relleno ultra-rápido de ceros (memset) por fila
+            let span_bytes = span_len * bpp;
+            for py in y..max_y {
+                let row_offset = (py * self.stride + x) * bpp;
+                if row_offset + span_bytes <= self.buffer_len {
+                    unsafe {
+                        core::ptr::write_bytes(self.buffer.add(row_offset), 0, span_bytes);
+                    }
+                }
+            }
+        } else if bpp == 4 && (self.buffer as usize) % 4 == 0 {
+            // Relleno vectorizado / optimizado por palabra completa de 32 bits
+            let pixel_word = self.color_to_u32(color);
+            for py in y..max_y {
+                let row_offset = (py * self.stride + x) * 4;
+                if row_offset + span_len * 4 <= self.buffer_len {
+                    unsafe {
+                        let dst_ptr = self.buffer.add(row_offset) as *mut u32;
+                        core::slice::from_raw_parts_mut(dst_ptr, span_len).fill(pixel_word);
+                    }
+                }
+            }
+        } else {
+            // Respaldo para formatos no empaquetados o no alineados a 4 bytes
+            for py in y..max_y {
+                let row_offset = (py * self.stride + x) * bpp;
+                if row_offset + span_len * bpp <= self.buffer_len {
+                    unsafe {
+                        let mut ptr = self.buffer.add(row_offset);
+                        for _ in 0..span_len {
+                            match self.pixel_format {
+                                PixelFormat::Rgb => {
+                                    *ptr = color.r;
+                                    *ptr.add(1) = color.g;
+                                    *ptr.add(2) = color.b;
+                                    if bpp >= 4 {
+                                        *ptr.add(3) = 0xFF;
+                                    }
+                                }
+                                PixelFormat::Bgr => {
+                                    *ptr = color.b;
+                                    *ptr.add(1) = color.g;
+                                    *ptr.add(2) = color.r;
+                                    if bpp >= 4 {
+                                        *ptr.add(3) = 0xFF;
+                                    }
+                                }
+                                PixelFormat::U8 => {
+                                    let gray = ((color.r as u16 + color.g as u16 + color.b as u16) / 3) as u8;
+                                    *ptr = gray;
+                                }
+                                _ => {}
+                            }
+                            ptr = ptr.add(bpp);
+                        }
+                    }
+                }
             }
         }
     }
@@ -368,26 +454,165 @@ impl Framebuffer {
         }
     }
 
-    /// Renders an 8x16 bitmap character glyph at pixel coordinates `(x, y)`.
+    /// Renders an 8x16 bitmap character glyph at pixel coordinates `(x, y)` with
+    /// optimized row-wise blitting (one base pointer calculation per glyph row).
     pub fn draw_char(&mut self, x: usize, y: usize, c: char, fg: Color, bg: Color) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+
+        let cols = FONT_WIDTH.min(self.width - x);
+        let bpp = self.bytes_per_pixel;
         let glyph = font::get_glyph(c);
 
-        for (row_idx, &row_byte) in glyph.iter().enumerate() {
-            let py = y + row_idx;
-            if py >= self.height {
-                break;
-            }
+        if bpp == 4 && (self.buffer as usize) % 4 == 0 {
+            let fg_word = self.color_to_u32(fg);
+            let bg_word = self.color_to_u32(bg);
 
-            for col_idx in 0..FONT_WIDTH {
-                let px = x + col_idx;
-                if px >= self.width {
+            for (row_idx, &row_byte) in glyph.iter().enumerate() {
+                let py = y + row_idx;
+                if py >= self.height {
                     break;
                 }
 
-                let is_fg = (row_byte & (0x80 >> col_idx)) != 0;
-                let color = if is_fg { fg } else { bg };
-                self.put_pixel(px, py, color);
+                let row_offset = (py * self.stride + x) * 4;
+                if row_offset + cols * 4 > self.buffer_len {
+                    continue;
+                }
+
+                unsafe {
+                    let row_ptr = self.buffer.add(row_offset) as *mut u32;
+                    for col_idx in 0..cols {
+                        let is_fg = (row_byte & (0x80 >> col_idx)) != 0;
+                        let val = if is_fg { fg_word } else { bg_word };
+                        *row_ptr.add(col_idx) = val;
+                    }
+                }
+            }
+        } else {
+            for (row_idx, &row_byte) in glyph.iter().enumerate() {
+                let py = y + row_idx;
+                if py >= self.height {
+                    break;
+                }
+
+                let row_offset = (py * self.stride + x) * bpp;
+                if row_offset + cols * bpp > self.buffer_len {
+                    continue;
+                }
+
+                unsafe {
+                    let mut ptr = self.buffer.add(row_offset);
+                    for col_idx in 0..cols {
+                        let is_fg = (row_byte & (0x80 >> col_idx)) != 0;
+                        let color = if is_fg { fg } else { bg };
+                        match self.pixel_format {
+                            PixelFormat::Rgb => {
+                                *ptr = color.r;
+                                *ptr.add(1) = color.g;
+                                *ptr.add(2) = color.b;
+                                if bpp >= 4 {
+                                    *ptr.add(3) = 0xFF;
+                                }
+                            }
+                            PixelFormat::Bgr => {
+                                *ptr = color.b;
+                                *ptr.add(1) = color.g;
+                                *ptr.add(2) = color.r;
+                                if bpp >= 4 {
+                                    *ptr.add(3) = 0xFF;
+                                }
+                            }
+                            PixelFormat::U8 => {
+                                let gray = ((color.r as u16 + color.g as u16 + color.b as u16) / 3) as u8;
+                                *ptr = gray;
+                            }
+                            _ => {}
+                        }
+                        ptr = ptr.add(bpp);
+                    }
+                }
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn test_framebuffer_draw_rect_and_pixel_fidelity() {
+        let mut buffer = [0u8; 64 * 64 * 4];
+        let mut fb = unsafe {
+            Framebuffer::new_raw(
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                64,
+                64,
+                64,
+                4,
+                PixelFormat::Bgr,
+            )
+        };
+
+        // Rellenar rectángulo 10x10 con color rojo
+        fb.draw_rect(5, 5, 10, 10, Color::RED);
+
+        // Comprobar que dentro del rectángulo los píxeles son rojos (BGR: B=49, G=49, R=205, A=255)
+        for y in 5..15 {
+            for x in 5..15 {
+                let offset = (y * 64 + x) * 4;
+                assert_eq!(buffer[offset], Color::RED.b);
+                assert_eq!(buffer[offset + 1], Color::RED.g);
+                assert_eq!(buffer[offset + 2], Color::RED.r);
+                assert_eq!(buffer[offset + 3], 0xFF);
+            }
+        }
+
+        // Píxeles fuera del rectángulo deben seguir a cero
+        assert_eq!(buffer[0], 0);
+        assert_eq!(buffer[(4 * 64 + 4) * 4], 0);
+        assert_eq!(buffer[(15 * 64 + 15) * 4], 0);
+    }
+
+    #[test_case]
+    fn test_framebuffer_draw_char_fast_blitting() {
+        let mut buffer = [0u8; 64 * 64 * 4];
+        let mut fb = unsafe {
+            Framebuffer::new_raw(
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                64,
+                64,
+                64,
+                4,
+                PixelFormat::Bgr,
+            )
+        };
+
+        fb.draw_char(0, 0, 'A', Color::WHITE, Color::BLACK);
+
+        // Debe haber pintado píxeles blancos (foreground) y negros (background)
+        let mut fg_count = 0;
+        let mut bg_count = 0;
+        for y in 0..16 {
+            for x in 0..8 {
+                let offset = (y * 64 + x) * 4;
+                let b = buffer[offset];
+                let g = buffer[offset + 1];
+                let r = buffer[offset + 2];
+                if b == 255 && g == 255 && r == 255 {
+                    fg_count += 1;
+                } else if b == 0 && g == 0 && r == 0 {
+                    bg_count += 1;
+                }
+            }
+        }
+
+        assert_eq!(fg_count + bg_count, 8 * 16);
+        assert!(fg_count > 0);
+        assert!(bg_count > 0);
+    }
+}
+

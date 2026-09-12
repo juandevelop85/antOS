@@ -65,14 +65,12 @@ impl Surface {
         self.clip_rect = Rect::new(0, 0, self.width, self.height);
     }
 
-    /// Clears the entire surface with a uniform solid color.
+    /// Clears the entire surface with a uniform solid color using fast slice filling.
     pub fn clear(&mut self, color: Color) {
         let pixel = color.to_u32_argb();
         let total = (self.width * self.height) as usize;
         unsafe {
-            for i in 0..total {
-                *self.buffer.add(i) = pixel;
-            }
+            core::slice::from_raw_parts_mut(self.buffer, total).fill(pixel);
         }
     }
 
@@ -113,12 +111,12 @@ impl Surface {
 
         if color.a == 255 {
             let pixel = color.to_u32_argb();
+            let width = clipped.width as usize;
             for y in clipped.y..clipped.bottom() {
                 let row_offset = (y as u32 * self.stride + clipped.x as u32) as usize;
                 unsafe {
-                    for x in 0..clipped.width as usize {
-                        *self.buffer.add(row_offset + x) = pixel;
-                    }
+                    core::slice::from_raw_parts_mut(self.buffer.add(row_offset), width)
+                        .fill(pixel);
                 }
             }
         } else {
@@ -318,3 +316,40 @@ impl Surface {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn test_surface_clear_and_fill_rect() {
+        let mut surface = Surface::new_desktop(32, 32);
+        surface.clear(Color::BLACK);
+
+        for y in 0..32 {
+            for x in 0..32 {
+                let idx = (y * 32 + x) as usize;
+                unsafe {
+                    assert_eq!(*surface.buffer.add(idx), Color::BLACK.to_u32_argb());
+                }
+            }
+        }
+
+        surface.fill_rect(Rect::new(4, 4, 8, 8), Color::rgb(255, 0, 0));
+
+        for y in 4..12 {
+            for x in 4..12 {
+                let idx = (y * 32 + x) as usize;
+                unsafe {
+                    assert_eq!(*surface.buffer.add(idx), Color::rgb(255, 0, 0).to_u32_argb());
+                }
+            }
+        }
+
+        // Píxeles fuera del rectángulo siguen negros
+        unsafe {
+            assert_eq!(*surface.buffer, Color::BLACK.to_u32_argb());
+        }
+    }
+}
+
