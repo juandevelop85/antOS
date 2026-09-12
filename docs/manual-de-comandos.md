@@ -974,19 +974,29 @@ antos notify clear
 
 ### 4.7 Memoria Semántica y Grafo de Contexto (`antos memory`)
 
-Motor de análisis estático, cálculo de vectores de términos L2 y grafo bidireccional de dependencias:
+Motor de análisis estático, vocabulario global compacto (`TermDictionary`), vectores dispersos `Vec<(u32, f32)>` y grafo bidireccional de relaciones en tiempo amortizado $O(1)$:
 
 ```bash
-# Indexar el espacio de trabajo en la base SQLite vectorial (.antos/memory.db)
+# Consultar el estado de la memoria semántica, total de fragmentos y aristas
+antos memory
+antos memory status
+
+# Indexar o reindexar el espacio de trabajo (.antos/memory.json)
 antos memory index
+antos memory reindex
 
-# Búsqueda semántica por similitud coseno
+# Búsqueda semántica por similitud coseno dispersa (rápida, zero-allocation)
 antos memory search "orquestador de agentes y roles"
-antos memory search "bóveda de secretos y permisos"
+antos memory search "bóveda de secretos y permisos" --limit 10
+antos memory find "liberar puerto listener" -n 3
 
-# Visualizar el grafo de dependencias de un módulo o archivo específico
-antos memory graph system/antosd/src/main.rs
-antos memory graph system/antosd/src/flow.rs
+# Inspeccionar el total de nodos y aristas del grafo de contexto del proyecto
+antos memory graph
+
+# Visualizar el grafo de dependencias de un símbolo, ticket o archivo específico en O(grado)
+antos memory graph file:system/antosd/src/main.rs
+antos memory graph ticket:T6.2
+antos memory graph symbol:system/antosd/src/memory.rs:compute_sparse_vector
 ```
 
 ---

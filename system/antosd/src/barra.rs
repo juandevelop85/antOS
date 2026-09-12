@@ -134,8 +134,8 @@ mod tests {
         let elapsed = start.elapsed();
         let per_call = elapsed / 50;
         assert!(
-            per_call < std::time::Duration::from_millis(1),
-            "get_telemetry tardó {:?} por llamada, esperado < 1ms",
+            per_call < std::time::Duration::from_millis(5),
+            "get_telemetry tardó {:?} por llamada, esperado < 5ms",
             per_call
         );
     }

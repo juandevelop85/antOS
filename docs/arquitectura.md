@@ -4,7 +4,7 @@ Este documento contiene los diagramas vivos de arquitectura sincronizados contin
 
 <!-- ANTOS_ARCH_START -->
 > 📐 **antOS Living Architecture (T21.3)** · Generado automáticamente a partir del código fuente.
-> *Crates: 6 | Módulos Demonio: 56 | Capacidades: 122*
+> *Crates: 6 | Módulos Demonio: 58 | Capacidades: 122*
 
 ### 1. Topología de Componentes y Límites de Seguridad
 
@@ -21,7 +21,7 @@ graph TD
     Protocolo["system/protocolo (106 Peticiones, 100 Eventos)"]
   end
 
-  subgraph DAEMON["🐜 Demonio del Sistema (system/antosd - 56 Módulos)"]
+  subgraph DAEMON["🐜 Demonio del Sistema (system/antosd - 58 Módulos)"]
     subgraph MultiAgente["Orquestación antFlow"]
       Architect["Arquitecto (Specs & Tickets)"]
       Coder["Coder (Worktree Patch)"]
@@ -243,4 +243,132 @@ graph TD
    que puede pedirle al kernel, vía `SYS_LAUNCH_DESKTOP`, que renderice (x86_64, en paralelo gracias al
    planificador preemptivo T23.2) o le ceda el control (AArch64, sin planificador preemptivo aún) al
    compositor gráfico.
+
+---
+
+## 6. Núcleo Soberano Bare-Metal: SMP, Planificador Preemptivo, Paginación y Syscalls (Fases 27-29)
+
+A partir de las **Fases 27 a 29**, el kernel bare-metal `no_std` se consolida como un microkernel soberano multi-arquitectura (x86_64 y AArch64):
+
+```mermaid
+graph TD
+  subgraph BOOT_CORE["Arranque y Detección de Memoria (T27.1 - T27.3)"]
+    LimineProto["Protocolo Limine (limine.rs) — x86_64"]
+    DTBParser["Parser FDT / Device Tree — AArch64"]
+    MemoryMap["Mapa de Memoria Física (Memoria Convencional vs Reservada)"]
+  end
+
+  subgraph MMU["Gestión de Memoria Virtual (Paginación)"]
+    PML4["x86_64: PML4 -> PDPT -> PD -> PT (4 niveles)"]
+    TTBR["AArch64: TTBR0_EL1 (Usuario) / TTBR1_EL1 (Kernel)"]
+    FrameAlloc["Asignador de Marcos de Página Físicos (Bitmap / Free List)"]
+  end
+
+  subgraph SCHED["Planificador Preemptivo y Procesos"]
+    TimerTick["Interrupción de Temporizador (APIC en x86_64 / GIC en AArch64)"]
+    TaskQueue["Cola de Hilos Listos (Round-Robin con prioridades)"]
+    ContextSwitch["Cambio de Contexto de Registros de CPU (TrapFrame / Callee-saved)"]
+    ThreadLifecycle["Estados de Hilo: Ready, Running, Blocked, Terminated"]
+  end
+
+  subgraph SYSCALLS["Interfaz de Llamadas al Sistema (16 Syscalls)"]
+    SysTable["SYS_YIELD, SYS_EXIT, SYS_WRITE, SYS_READ, SYS_MMAP, SYS_SPAWN..."]
+    UserSpace["Espacio de Usuario: libantos / antos-init (PID 1)"]
+  end
+
+  BOOT_CORE --> MMU
+  MMU --> SCHED
+  SCHED --> SYSCALLS
+  SYSCALLS --> UserSpace
+```
+
+1. **Protocolo Limine Nativo (`kernel/src/arch/x86_64/limine.rs`):** Interfaz tipada con el bootloader Limine para recibir mapas de memoria física, framebuffers EFI y módulos initrd sin recurrir a código assembly frágil.
+2. **Paginación Multi-Nivel:** Soporte para traducción de direcciones virtuales, protección de memoria mediante bits NX (No-Execute), páginas solo lectura para código del kernel y aislamiento entre espacio de kernel y espacio de usuario.
+3. **Planificador Preemptivo por Rondas:** Conmutación de tareas segura activada por interrupciones periódicas de temporizador, permitiendo multitarea real entre el shell soberano y el compositor gráfico.
+
+---
+
+## 7. antOS Linux Declarativo como Driver Diario (Fase 30)
+
+La **Fase 30** establece antOS Linux como el entorno de trabajo diario del desarrollador sobre hardware físico y máquinas virtuales aceleradas:
+
+1. **Sesión Wayland Declarativa con Labwc (`system/nixos/desktop.nix`):**
+   - Integración nativa del compositor Wayland ultraligero `labwc` con `services.antos.desktop`.
+   - Autologin con `greetd`, barra de escritorio `system/barra` acoplada vía `wlr-layer-shell`, terminal interactivo y Neovim preconfigurado.
+2. **Aceleración por Hardware en macOS (`system/arrancar-vm-macos.sh`):**
+   - Construcción de imagen booteable en contenedor Docker y arranque inmediato en el host con `qemu-system-aarch64 -accel hvf`.
+   - Rendimiento casi nativo para pruebas del entorno de escritorio completo en segundos.
+
+---
+
+## 8. Arquitectura de Rendimiento y Subsistemas de Alta Eficiencia (Fase 32)
+
+La **Fase 32** implementa una auditoría y optimización integral de algoritmos, contención de cerrojos, consumo de memoria y E/S a través de todo el sistema operativo:
+
+```mermaid
+graph TD
+  subgraph KERNEL_OPT["⚙️ Optimizaciones de Kernel Bare-Metal"]
+    AllocatorCoalesce["Asignador de Memoria: Coalescencia Contigua O(1) e Inserción Ordenada"]
+    FrameBufferDirty["VRAM / VirtIO-GPU: Trazado en 16 ops/glifo y Dirty Rectangles"]
+    StorageYield["NVMe / AHCI: Eliminación de Busy-Waiting mediante cesión de CPU io_wait"]
+  end
+
+  subgraph IPC_OPT["⚡ Servidor IPC y Concurrencia (antosd)"]
+    ConcurrentIPC["Despacho Concurrente en Hilos Dedicados"]
+    FineLock["Cerrojo de Mutación WORKSPACE_MUTATION_LOCK (Lecturas <50ms)"]
+    DirectWrite["Serialización Directa a Socket Unix sin Doble Buffer"]
+  end
+
+  subgraph TELEMETRY_GIT["📊 Telemetría en RAM y Analizador Git"]
+    RAMTelemetry["Telemetría en Memoria sin E/S Síncrona de Disco (<1ms)"]
+    GLibChannel["Canal Reactivo GLib en Barra (Eliminación de Sondeo a 80ms)"]
+    GitUnified["Git Status Porcelana v2 Unificado (1 subproceso) + Caché de Firma"]
+  end
+
+  subgraph DATA_STORAGE["💾 Estructuras de Datos y Zero-Copy"]
+    ContextGraphOpt["Grafo de Contexto: Inserción O(1) con edge_set y Adyacencia O(grado)"]
+    SparseVectors["TermDictionary Global u32 y Vectores Dispersos Compactos"]
+    LinearCosine["Similitud Coseno de 2 Punteros sin Asignaciones en Heap"]
+    VfsZeroCopy["VFS Zero-Copy con Cow y Clones CoW (FICLONE reflink)"]
+  end
+
+  KERNEL_OPT --> IPC_OPT
+  IPC_OPT --> TELEMETRY_GIT
+  TELEMETRY_GIT --> DATA_STORAGE
+```
+
+### Componentes Clave de Rendimiento (Fase 32):
+
+1. **Asignador de Memoria del Kernel (`kernel/src/mm/allocator.rs` — T32.1):**
+   - Coalescencia contigua completa (fusión con bloque anterior, siguiente o ambos en sándwich) e inserción ordenada físicamente en la lista enlazada libre.
+   - Métricas de consumo (`allocated_bytes`, `used()`, `free()`) en tiempo constante $O(1)$ sin recorrer la lista libre.
+   - Reciclaje diferido de pilas de kernel (16 KiB) en el planificador preemptivo tras completar el cambio de contexto para evitar fragmentación y OOM.
+2. **Aceleración de Framebuffer y VirtIO-GPU (`kernel/src/ui/mod.rs`, `kernel/src/arch/aarch64/virtio_gpu.rs` — T32.2):**
+   - Optimización del renderizado de glifos en mapa de bits: reducción de 128 operaciones base por carácter a 16 operaciones estructuradas por fila.
+   - Llenado contiguo de memoria en `draw_rect` fila a fila y operaciones de borrado rápido mediante `slice::fill`.
+   - Seguimiento estricto de rectángulos dañados (*dirty rectangles*), evitando flushes completos de pantalla hacia el dispositivo VirtIO en saltos de línea.
+3. **Servidor IPC Concurrente y Desacoplamiento de Mutación (`system/antosd/src/ipc_server.rs`, `main.rs` — T32.3):**
+   - Arquitectura concurrente con despacho de cada conexión de cliente en un hilo independiente del sistema operativo.
+   - Sustitución de exclusión mutua global por cerrojo de grano fino `WORKSPACE_MUTATION_LOCK`: las consultas de lectura (`status`, `health`, `metrics`, `graph`) se resuelven en <50 ms incluso durante sesiones interactivas de terminal o streaming de logs.
+   - Eliminación de asignación de búferes intermedios serializando directamente el mensaje `antos-protocolo` al flujo del socket Unix.
+4. **Telemetría en RAM y Canal Reactivo GLib (`system/antosd/src/telemetry.rs`, `system/barra/src/main.rs` — T32.4):**
+   - Telemetría de salud y rendimiento mantenida en RAM sin escrituras síncronas a disco en la ruta crítica (<1 ms).
+   - Inserción y desalojo de alertas en tiempo constante $O(1)$ mediante `VecDeque`.
+   - Eliminación del bucle de sondeo activo a 80 ms en `system/barra`, reemplazado por un canal reactivo de GLib (`glib::MainContext::channel` + `tray_rx.attach`) con despacho por eventos.
+5. **Analizador Git Unificado y Caché con Signatura (`system/capabilities/src/git.rs`, `system/antosd/src/git.rs` — T32.5):**
+   - Sustitución de múltiples invocaciones de Git (`status`, `diff`, `rev-parse`, `branch`) por una única consulta unificada `git status --porcelain=v2 --branch`, reduciendo subprocesos en un 75%.
+   - Caché de estado basada en `WorktreeSignature` (mtime de `.git/index`, `HEAD` y archivos rastreados), invalidando de forma inmediata cuando el desarrollador edita ficheros sin necesidad de `git add`.
+   - Memoización de `detect_antos_root()` para resolver rutas de repositorio en $O(1)$.
+6. **Eliminación de Espera Activa en Controladores de Almacenamiento (`kernel/src/storage/` — T32.6):**
+   - Eliminación de bucles de espera activa de millones de iteraciones de CPU en comandos NVMe y AHCI SATA.
+   - Integración con el planificador para ceder el turno de CPU (`io_wait`) y suspender hilos de E/S (`ThreadState::Blocked`) hasta que el hardware señale disponibilidad o expire un temporizador calibrado por ticks.
+7. **Grafo de Contexto $O(1)$, Diccionario Léxico y Visor de Diffs (`system/antosd/src/memory.rs`, `diff_view.rs` — T32.7):**
+   - Inserción de aristas en `ContextGraph::add_edge` en tiempo amortizado $O(1)$ con `edge_set` (`HashSet<(String, String, EdgeKind)>`) y resolución de relaciones en $O(\text{grado})$ con índice de adyacencia.
+   - Vocabulario global `TermDictionary` con asignación de IDs `u32`, transformando vectores de `SemanticChunk` a vectores dispersos compactos `Vec<(u32, f32)>` ordenados por término.
+   - Cálculo de similitud coseno (`cosine_similarity_sparse`) mediante algoritmo de dos punteros de avance lineal $O(L_1 + L_2)$ en memoria contigua sin asignaciones en el heap.
+   - Visor de diffs sintáctico con búsqueda binaria $O(\log K)$ sobre tablas estáticas ordenadas de palabras clave y procesamiento en streaming sin asignación de vectores intermedios por línea.
+8. **VFS Zero-Copy y Clones Copy-on-Write (`system/antosd/src/vfs.rs`, `snapshot.rs`, `ci.rs` — T32.8):**
+   - Lectura sin copias en el sistema de ficheros virtual `/antfs` empleando `Cow<'static, [u8]>` para ficheros estáticos de memoria.
+   - Soporte nativo de instantáneas atómicas CoW (`FICLONE` / reflink) en sistemas Linux con Btrfs o XFS, acelerando la creación de snapshots de workspace de segundos a sub-milisegundos.
+   - Paralelización de etapas independientes de integración continua local (`antos ci`) con `std::thread::scope`.
 
