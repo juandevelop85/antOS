@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -23,7 +23,62 @@ pub enum ChunkKind {
     General,
 }
 
-/// A chunk of text with metadata and a normalized vector embedding.
+/// Diccionario de términos global para asignar IDs compactos u32 a términos léxicos.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TermDictionary {
+    pub terms: Vec<String>,
+    #[serde(skip)]
+    index: HashMap<String, u32>,
+}
+
+impl TermDictionary {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn ensure_index(&mut self) {
+        if self.index.len() != self.terms.len() {
+            self.index.clear();
+            for (id, term) in self.terms.iter().enumerate() {
+                self.index.insert(term.clone(), id as u32);
+            }
+        }
+    }
+
+    pub fn get_or_intern(&mut self, term: &str) -> u32 {
+        self.ensure_index();
+        if let Some(&id) = self.index.get(term) {
+            id
+        } else {
+            let id = self.terms.len() as u32;
+            self.terms.push(term.to_string());
+            self.index.insert(term.to_string(), id);
+            id
+        }
+    }
+
+    pub fn get_id(&self, term: &str) -> Option<u32> {
+        if !self.index.is_empty() {
+            self.index.get(term).copied()
+        } else {
+            self.terms.iter().position(|t| t == term).map(|i| i as u32)
+        }
+    }
+
+    pub fn resolve(&self, id: u32) -> Option<&str> {
+        self.terms.get(id as usize).map(String::as_str)
+    }
+
+    pub fn len(&self) -> usize {
+        self.terms.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.terms.is_empty()
+    }
+}
+
+/// A chunk of text with metadata and a compact sparse vector representation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticChunk {
     pub id: String,
@@ -33,12 +88,12 @@ pub struct SemanticChunk {
     pub content: String,
     pub line_start: usize,
     pub line_end: usize,
-    /// Term frequency or dense vector representation.
-    pub vector: HashMap<String, f32>,
+    /// Representación vectorial dispersa compacta ordenada por term_id: `(term_id, peso)`.
+    pub vector: Vec<(u32, f32)>,
 }
 
 /// Relationship edge in the project context graph.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum EdgeKind {
     /// File or module defines a symbol / struct / function.
@@ -73,11 +128,34 @@ pub struct GraphEdge {
 pub struct ContextGraph {
     pub nodes: BTreeMap<String, GraphNode>,
     pub edges: Vec<GraphEdge>,
+    #[serde(skip)]
+    edge_set: HashSet<(String, String, EdgeKind)>,
+    #[serde(skip)]
+    adjacency: HashMap<String, Vec<(String, EdgeKind)>>,
 }
 
 impl ContextGraph {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn ensure_indices(&mut self) {
+        if self.edge_set.len() != self.edges.len() {
+            self.edge_set.clear();
+            self.adjacency.clear();
+            for edge in &self.edges {
+                self.edge_set
+                    .insert((edge.source.clone(), edge.target.clone(), edge.kind));
+                self.adjacency
+                    .entry(edge.source.clone())
+                    .or_default()
+                    .push((edge.target.clone(), edge.kind));
+                self.adjacency
+                    .entry(edge.target.clone())
+                    .or_default()
+                    .push((edge.source.clone(), edge.kind));
+            }
+        }
     }
 
     pub fn add_node(&mut self, id: &str, label: &str, kind: &str, path: Option<&str>) {
@@ -95,33 +173,51 @@ impl ContextGraph {
     }
 
     pub fn add_edge(&mut self, source: &str, target: &str, kind: EdgeKind) {
-        let exists = self
-            .edges
-            .iter()
-            .any(|e| e.source == source && e.target == target && e.kind == kind);
-        if !exists {
+        let key = (source.to_string(), target.to_string(), kind);
+        if self.edge_set.insert(key) {
             self.edges.push(GraphEdge {
                 source: source.to_string(),
                 target: target.to_string(),
                 kind,
             });
+            self.adjacency
+                .entry(source.to_string())
+                .or_default()
+                .push((target.to_string(), kind));
+            self.adjacency
+                .entry(target.to_string())
+                .or_default()
+                .push((source.to_string(), kind));
         }
     }
 
     pub fn related_to(&self, query_id: &str) -> Vec<(&GraphNode, &EdgeKind)> {
-        let mut results = Vec::new();
-        for edge in &self.edges {
-            if edge.source == query_id {
-                if let Some(node) = self.nodes.get(&edge.target) {
-                    results.push((node, &edge.kind));
-                }
-            } else if edge.target == query_id {
-                if let Some(node) = self.nodes.get(&edge.source) {
-                    results.push((node, &edge.kind));
+        if let Some(neighbors) = self.adjacency.get(query_id) {
+            let mut results = Vec::with_capacity(neighbors.len());
+            for (neighbor_id, kind) in neighbors {
+                if let Some(node) = self.nodes.get(neighbor_id) {
+                    results.push((node, kind));
                 }
             }
+            results
+        } else if !self.edges.is_empty() && self.adjacency.is_empty() {
+            // Fallback en caso de que los índices en memoria no se hayan reconstruido
+            let mut results = Vec::new();
+            for edge in &self.edges {
+                if edge.source == query_id {
+                    if let Some(node) = self.nodes.get(&edge.target) {
+                        results.push((node, &edge.kind));
+                    }
+                } else if edge.target == query_id {
+                    if let Some(node) = self.nodes.get(&edge.source) {
+                        results.push((node, &edge.kind));
+                    }
+                }
+            }
+            results
+        } else {
+            Vec::new()
         }
-        results
     }
 }
 
@@ -143,8 +239,17 @@ pub struct SearchHit {
 pub struct MemoryStore {
     pub version: u32,
     pub last_indexed: u64,
+    #[serde(default)]
+    pub dictionary: TermDictionary,
     pub chunks: Vec<SemanticChunk>,
     pub graph: ContextGraph,
+}
+
+impl MemoryStore {
+    pub fn ensure_indices(&mut self) {
+        self.dictionary.ensure_index();
+        self.graph.ensure_indices();
+    }
 }
 
 /// Core engine for semantic indexing and vector search.
@@ -157,13 +262,23 @@ impl MemoryEngine {
             let content = std::fs::read_to_string(db_path).with_context(|| {
                 format!("failed to read memory store from {}", db_path.display())
             })?;
-            let store: MemoryStore = serde_json::from_str(&content)
-                .with_context(|| "failed to parse memory store JSON")?;
+            let mut store: MemoryStore = match serde_json::from_str(&content) {
+                Ok(s) => s,
+                Err(_) => MemoryStore {
+                    version: 2,
+                    last_indexed: 0,
+                    dictionary: TermDictionary::new(),
+                    chunks: Vec::new(),
+                    graph: ContextGraph::new(),
+                },
+            };
+            store.ensure_indices();
             Ok(store)
         } else {
             Ok(MemoryStore {
-                version: 1,
+                version: 2,
                 last_indexed: 0,
+                dictionary: TermDictionary::new(),
                 chunks: Vec::new(),
                 graph: ContextGraph::new(),
             })
@@ -195,6 +310,7 @@ impl MemoryEngine {
     pub fn index_workspace(workspace: &Path) -> Result<MemoryStore> {
         let mut chunks = Vec::new();
         let mut graph = ContextGraph::new();
+        let mut dictionary = TermDictionary::new();
 
         let files = scan_workspace_files(workspace)?;
 
@@ -217,7 +333,7 @@ impl MemoryEngine {
                 .extension()
                 .and_then(|s| s.to_str())
                 .unwrap_or_default();
-            let parsed_chunks = parse_file_chunks(&rel_path, &content, ext);
+            let parsed_chunks = parse_file_chunks(&rel_path, &content, ext, &mut dictionary);
 
             for chunk in parsed_chunks {
                 // Link chunk symbols to file in graph
@@ -255,17 +371,20 @@ impl MemoryEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        Ok(MemoryStore {
-            version: 1,
+        let mut store = MemoryStore {
+            version: 2,
             last_indexed: now,
+            dictionary,
             chunks,
             graph,
-        })
+        };
+        store.ensure_indices();
+        Ok(store)
     }
 
-    /// Performs semantic vector search using cosine similarity on term vectors.
+    /// Performs semantic vector search using cosine similarity on compact sparse vectors.
     pub fn search(store: &MemoryStore, query: &str, limit: usize) -> Vec<SearchHit> {
-        let query_vector = compute_term_vector(query);
+        let query_vector = encode_query_vector(query, &store.dictionary);
         if query_vector.is_empty() {
             return Vec::new();
         }
@@ -273,7 +392,7 @@ impl MemoryEngine {
         let mut scored_hits = Vec::new();
 
         for chunk in &store.chunks {
-            let score = cosine_similarity(&query_vector, &chunk.vector);
+            let score = cosine_similarity_sparse(&query_vector, &chunk.vector);
             if score > 0.05 {
                 let snippet = make_snippet(&chunk.content, 200);
                 scored_hits.push(SearchHit {
@@ -357,7 +476,12 @@ fn scan_workspace_files(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 /// Parses a file into semantic chunks based on syntax or structure.
-fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticChunk> {
+fn parse_file_chunks(
+    rel_path: &str,
+    content: &str,
+    ext: &str,
+    dict: &mut TermDictionary,
+) -> Vec<SemanticChunk> {
     let mut chunks = Vec::new();
     let lines: Vec<&str> = content.lines().collect();
 
@@ -381,7 +505,7 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
                     } else {
                         ChunkKind::Documentation
                     };
-                    let vector = compute_term_vector(&chunk_text);
+                    let vector = compute_sparse_vector(&chunk_text, dict);
                     chunks.push(SemanticChunk {
                         id: format!("{}:{}-{}", rel_path, start_idx, i),
                         path: rel_path.to_string(),
@@ -407,7 +531,7 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
             } else {
                 ChunkKind::Documentation
             };
-            let vector = compute_term_vector(&chunk_text);
+            let vector = compute_sparse_vector(&chunk_text, dict);
             chunks.push(SemanticChunk {
                 id: format!("{}:{}-{}", rel_path, start_idx, lines.len()),
                 path: rel_path.to_string(),
@@ -437,7 +561,7 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
 
             if is_symbol_decl && !current_lines.is_empty() && current_lines.len() >= 5 {
                 let chunk_text = current_lines.join("\n");
-                let vector = compute_term_vector(&chunk_text);
+                let vector = compute_sparse_vector(&chunk_text, dict);
                 chunks.push(SemanticChunk {
                     id: format!("{}:{}-{}", rel_path, start_idx, i),
                     path: rel_path.to_string(),
@@ -475,7 +599,7 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
 
         if !current_lines.is_empty() {
             let chunk_text = current_lines.join("\n");
-            let vector = compute_term_vector(&chunk_text);
+            let vector = compute_sparse_vector(&chunk_text, dict);
             chunks.push(SemanticChunk {
                 id: format!("{}:{}-{}", rel_path, start_idx, lines.len()),
                 path: rel_path.to_string(),
@@ -493,7 +617,7 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
             let start = chunk_idx * 60 + 1;
             let end = start + window.len() - 1;
             let chunk_text = window.join("\n");
-            let vector = compute_term_vector(&chunk_text);
+            let vector = compute_sparse_vector(&chunk_text, dict);
             let kind = if ext == "toml" || ext == "json" {
                 ChunkKind::Configuration
             } else {
@@ -515,7 +639,99 @@ fn parse_file_chunks(rel_path: &str, content: &str, ext: &str) -> Vec<SemanticCh
     chunks
 }
 
-/// Computes normalized term frequencies for cosine similarity.
+/// Computes compact sparse vector sorted by term ID with L2 normalization.
+pub fn compute_sparse_vector(text: &str, dict: &mut TermDictionary) -> Vec<(u32, f32)> {
+    let mut counts: HashMap<u32, f32> = HashMap::new();
+    let mut total = 0.0;
+
+    for word in tokenize(text) {
+        let term_id = dict.get_or_intern(&word);
+        *counts.entry(term_id).or_insert(0.0) += 1.0;
+        total += 1.0;
+    }
+
+    if total == 0.0 {
+        return Vec::new();
+    }
+
+    let mut sum_sq = 0.0;
+    for val in counts.values_mut() {
+        *val /= total;
+        sum_sq += (*val) * (*val);
+    }
+
+    let norm = sum_sq.sqrt();
+    if norm > 0.0 {
+        for val in counts.values_mut() {
+            *val /= norm;
+        }
+    }
+
+    let mut vec: Vec<(u32, f32)> = counts.into_iter().collect();
+    vec.sort_unstable_by_key(|&(id, _)| id);
+    vec
+}
+
+/// Encodes query text into a compact sparse vector using an existing dictionary without interning new terms.
+pub fn encode_query_vector(text: &str, dict: &TermDictionary) -> Vec<(u32, f32)> {
+    let mut counts: HashMap<u32, f32> = HashMap::new();
+    let mut total = 0.0;
+
+    for word in tokenize(text) {
+        if let Some(term_id) = dict.get_id(&word) {
+            *counts.entry(term_id).or_insert(0.0) += 1.0;
+            total += 1.0;
+        }
+    }
+
+    if total == 0.0 {
+        return Vec::new();
+    }
+
+    let mut sum_sq = 0.0;
+    for val in counts.values_mut() {
+        *val /= total;
+        sum_sq += (*val) * (*val);
+    }
+
+    let norm = sum_sq.sqrt();
+    if norm > 0.0 {
+        for val in counts.values_mut() {
+            *val /= norm;
+        }
+    }
+
+    let mut vec: Vec<(u32, f32)> = counts.into_iter().collect();
+    vec.sort_unstable_by_key(|&(id, _)| id);
+    vec
+}
+
+/// Cosine similarity between two sorted sparse vectors: `Vec<(u32, f32)>`.
+/// Runs in O(L1 + L2) time with zero allocations using a two-pointer merge.
+pub fn cosine_similarity_sparse(v1: &[(u32, f32)], v2: &[(u32, f32)]) -> f32 {
+    let mut i = 0;
+    let mut j = 0;
+    let mut dot = 0.0;
+
+    while i < v1.len() && j < v2.len() {
+        let (id1, val1) = v1[i];
+        let (id2, val2) = v2[j];
+
+        if id1 == id2 {
+            dot += val1 * val2;
+            i += 1;
+            j += 1;
+        } else if id1 < id2 {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+
+    dot
+}
+
+/// Computes normalized term frequencies for cosine similarity (legacy HashMap format).
 pub fn compute_term_vector(text: &str) -> HashMap<String, f32> {
     let mut counts: HashMap<String, f32> = HashMap::new();
     let mut total = 0.0;
@@ -546,7 +762,7 @@ pub fn compute_term_vector(text: &str) -> HashMap<String, f32> {
     counts
 }
 
-/// Cosine similarity between two normalized vectors.
+/// Cosine similarity between two normalized vectors (legacy HashMap format).
 pub fn cosine_similarity(v1: &HashMap<String, f32>, v2: &HashMap<String, f32>) -> f32 {
     if v1.is_empty() || v2.is_empty() {
         return 0.0;
@@ -641,6 +857,28 @@ mod tests {
     }
 
     #[test]
+    fn test_sparse_vector_and_term_dictionary() {
+        let mut dict = TermDictionary::new();
+        let v1 = compute_sparse_vector("fn create_worktree(repo: &str) -> Result<PathBuf>", &mut dict);
+        let v2 = compute_sparse_vector("worktree ephemeral git repository path", &mut dict);
+        let v3 = compute_sparse_vector("postgres database ephemeral service port 5432", &mut dict);
+
+        let q_vec = encode_query_vector("worktree git", &dict);
+        let sim_q1 = cosine_similarity_sparse(&q_vec, &v1);
+        let sim_q2 = cosine_similarity_sparse(&q_vec, &v2);
+        let sim_q3 = cosine_similarity_sparse(&q_vec, &v3);
+
+        assert!(sim_q1 > 0.05, "q should match worktree function");
+        assert!(sim_q2 > 0.05, "q should match worktree description");
+        assert!(sim_q1 > sim_q3, "worktree should match more than postgres");
+
+        // Verify sorted invariant
+        for window in v1.windows(2) {
+            assert!(window[0].0 < window[1].0, "sparse vector must be strictly sorted by term ID");
+        }
+    }
+
+    #[test]
     fn test_context_graph_relationships() {
         let mut graph = ContextGraph::new();
         graph.add_node("file:src/git.rs", "src/git.rs", "file", Some("src/git.rs"));
@@ -664,6 +902,57 @@ mod tests {
     }
 
     #[test]
+    fn test_context_graph_o1_insertion() {
+        use std::time::Instant;
+
+        let mut graph = ContextGraph::new();
+        for i in 0..1000 {
+            graph.add_node(&format!("node_{i}"), &format!("Node {i}"), "test", None);
+        }
+
+        let start = Instant::now();
+        // Insert 5000 edges
+        for i in 0..5000 {
+            let src = format!("node_{}", i % 500);
+            let tgt = format!("node_{}", (i + 1) % 500);
+            graph.add_edge(&src, &tgt, EdgeKind::Defines);
+        }
+        let elapsed = start.elapsed();
+
+        // Check duplicate handling (500 distinct pairs were inserted)
+        assert_eq!(graph.edges.len(), 500);
+        assert!(
+            elapsed.as_millis() < 50,
+            "La inserción de 5000 aristas tomó {}ms (debe ser < 50ms en O(1))",
+            elapsed.as_millis()
+        );
+
+        let rel = graph.related_to("node_0");
+        assert!(!rel.is_empty(), "node_0 must have related edges");
+    }
+
+    #[test]
+    fn test_context_graph_ensure_indices_deserialization() {
+        let mut graph = ContextGraph::new();
+        graph.add_node("file:a.rs", "a.rs", "file", None);
+        graph.add_node("file:b.rs", "b.rs", "file", None);
+        graph.add_edge("file:a.rs", "file:b.rs", EdgeKind::Imports);
+
+        let serialized = serde_json::to_string(&graph).expect("serialize graph");
+        let mut deserialized: ContextGraph = serde_json::from_str(&serialized).expect("deserialize");
+
+        // Before ensure_indices, fallback or ensure_indices works
+        deserialized.ensure_indices();
+        let rel = deserialized.related_to("file:a.rs");
+        assert_eq!(rel.len(), 1);
+        assert_eq!(rel[0].0.id, "file:b.rs");
+
+        // Adding duplicate edge after deserialization should be O(1) ignored
+        deserialized.add_edge("file:a.rs", "file:b.rs", EdgeKind::Imports);
+        assert_eq!(deserialized.edges.len(), 1);
+    }
+
+    #[test]
     fn test_index_and_search_mock() {
         let temp_dir = std::env::temp_dir().join(format!("antos-mem-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp_dir);
@@ -679,6 +968,7 @@ pub fn kill_port_listener(port: u16) -> Result<()> {
 
         let store = MemoryEngine::index_workspace(&temp_dir).expect("index");
         assert!(!store.chunks.is_empty());
+        assert!(!store.dictionary.is_empty());
 
         let hits = MemoryEngine::search(&store, "liberar puerto listener", 5);
         assert!(

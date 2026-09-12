@@ -258,60 +258,59 @@ fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
     (old_start, old_lines, new_start, new_lines)
 }
 
-/// Tokenizes a single code line into syntax tokens with color classifications.
+static RS_KEYWORDS: &[&str] = &[
+    "Self", "async", "await", "break", "const", "continue", "else", "enum", "fn", "for",
+    "if", "impl", "let", "loop", "match", "mod", "mut", "pub", "return", "self",
+    "static", "struct", "trait", "type", "unsafe", "use", "where", "while",
+];
+
+static PY_KEYWORDS: &[&str] = &[
+    "as", "async", "await", "class", "def", "elif", "else", "except", "for",
+    "from", "if", "import", "lambda", "pass", "return", "try", "while", "with", "yield",
+];
+
+static JS_KEYWORDS: &[&str] = &[
+    "async", "await", "class", "const", "else", "export", "for", "function",
+    "if", "import", "interface", "let", "new", "return", "type", "var", "while",
+];
+
+static DEFAULT_KEYWORDS: &[&str] = &[
+    "const", "def", "fn", "func", "function", "let", "return", "var",
+];
+
+/// Tokenizes a single code line into syntax tokens with color classifications (T32.7).
+/// Uses binary search on static sorted keyword tables and eliminates intermediate allocations.
 pub fn highlight_syntax(line: &str, ext: &str) -> Vec<SyntaxToken> {
     let keywords: &[&str] = match ext {
-        "rs" => &[
-            "fn", "let", "pub", "struct", "enum", "impl", "trait", "match", "if", "else", "return",
-            "mut", "use", "mod", "async", "await", "self", "Self", "where", "for", "loop", "while",
-            "break", "continue", "unsafe", "const", "static", "type",
-        ],
-        "py" => &[
-            "def", "class", "import", "from", "return", "if", "elif", "else", "for", "while",
-            "try", "except", "with", "as", "async", "await", "pass", "yield", "lambda",
-        ],
-        "ts" | "js" => &[
-            "function",
-            "const",
-            "let",
-            "var",
-            "import",
-            "export",
-            "class",
-            "interface",
-            "type",
-            "return",
-            "if",
-            "else",
-            "async",
-            "await",
-            "for",
-            "while",
-            "new",
-        ],
-        _ => &[
-            "fn", "def", "func", "function", "let", "var", "const", "return",
-        ],
+        "rs" => RS_KEYWORDS,
+        "py" => PY_KEYWORDS,
+        "ts" | "js" => JS_KEYWORDS,
+        _ => DEFAULT_KEYWORDS,
     };
 
-    let mut tokens = Vec::new();
     let trimmed = line.trim();
 
     if trimmed.starts_with("//") || trimmed.starts_with('#') {
-        tokens.push(SyntaxToken {
+        return vec![SyntaxToken {
             text: line.to_string(),
             token_type: SyntaxTokenType::Comment,
-        });
-        return tokens;
+        }];
     }
 
-    let words: Vec<&str> = line
-        .split_inclusive(|c: char| !c.is_alphanumeric() && c != '_')
-        .collect();
+    let mut tokens = Vec::with_capacity(line.len() / 6 + 1);
 
-    for w in words {
+    for w in line.split_inclusive(|c: char| !c.is_alphanumeric() && c != '_') {
         let clean_word = w.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        if keywords.contains(&clean_word) {
+        if clean_word.is_empty() {
+            tokens.push(SyntaxToken {
+                text: w.to_string(),
+                token_type: if w.contains('"') || w.contains('\'') {
+                    SyntaxTokenType::StringLit
+                } else {
+                    SyntaxTokenType::Normal
+                },
+            });
+        } else if keywords.binary_search(&clean_word).is_ok() {
             tokens.push(SyntaxToken {
                 text: w.to_string(),
                 token_type: SyntaxTokenType::Keyword,
@@ -326,7 +325,7 @@ pub fn highlight_syntax(line: &str, ext: &str) -> Vec<SyntaxToken> {
                 text: w.to_string(),
                 token_type: SyntaxTokenType::StringLit,
             });
-        } else if clean_word.chars().all(|c| c.is_ascii_digit()) && !clean_word.is_empty() {
+        } else if clean_word.chars().all(|c| c.is_ascii_digit()) {
             tokens.push(SyntaxToken {
                 text: w.to_string(),
                 token_type: SyntaxTokenType::Number,
@@ -408,5 +407,34 @@ index 1234567..89abcdef 100644
         assert!(rendered.contains("src/main.rs"));
         assert!(rendered.contains("(+1)"));
         assert!(rendered.contains("(-1)"));
+    }
+
+    #[test]
+    fn test_parse_large_diff_performance_over_2000_lines() {
+        use std::time::Instant;
+
+        let mut diff = String::with_capacity(120_000);
+        diff.push_str("diff --git a/big_file.rs b/big_file.rs\nindex 0000000..1111111 100644\n--- a/big_file.rs\n+++ b/big_file.rs\n@@ -1,2500 +1,2500 @@\n");
+        for i in 0..2500 {
+            if i % 3 == 0 {
+                diff.push_str(&format!("+    let var_{i}: u64 = compute_hash({i}); // insert\n"));
+            } else if i % 3 == 1 {
+                diff.push_str(&format!("-    let old_var_{i} = calculate({i}); // remove\n"));
+            } else {
+                diff.push_str(&format!("     fn step_{i}() -> Result<()> {{ Ok(()) }}\n"));
+            }
+        }
+
+        let start = Instant::now();
+        let parsed = DiffEngine::parse_unified_diff(&diff);
+        let elapsed = start.elapsed();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].hunks[0].lines.len(), 2500);
+        assert!(
+            elapsed.as_millis() < 150,
+            "El parseo de 2500 líneas tardó {}ms (debe ser < 150ms)",
+            elapsed.as_millis()
+        );
     }
 }
