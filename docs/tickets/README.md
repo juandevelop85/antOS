@@ -157,6 +157,14 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 31** | [T31.17](T31.17-la-vm-de-antos-nixos-no-se-construye.md) | La VM de antOS NixOS No Se Construye: Dos Roturas Latentes en el Camino Nix | ✅ Completado |
 | **Fase 31** | [T31.18](T31.18-el-modulo-nixos-de-antos-no-arranca-el-demonio.md) | El Módulo NixOS de antOS No Arranca el Demonio | ✅ Completado |
 | **Fase 31** | [T31.19](T31.19-la-ci-no-construye-por-nix.md) | La CI No Construye por Nix | ✅ Completado |
+| **Fase 32** | [T32.1](T32.1-coalescencia-y-ordenacion-en-el-asignador-de-memoria-del-kernel.md) | Coalescencia, Ordenación y Reutilización en el Asignador de Memoria del Kernel | ⏳ Pendiente |
+| **Fase 32** | [T32.2](T32.2-aceleracion-del-framebuffer-y-optimizacion-de-flush-en-virtio-gpu.md) | Aceleración del Framebuffer y Optimización de Flush en VirtIO GPU | ⏳ Pendiente |
+| **Fase 32** | [T32.3](T32.3-servidor-ipc-concurrente-y-desacoplamiento-de-mutacion-en-antosd.md) | Servidor IPC Concurrente y Desacoplamiento de Mutación en antosd | ⏳ Pendiente |
+| **Fase 32** | [T32.4](T32.4-optimizacion-de-telemetria-en-memoria-y-eliminacion-de-sondeo-activo-en-barra.md) | Optimización de Telemetría en Memoria y Eliminación de Sondeo Activo en Barra | ⏳ Pendiente |
+| **Fase 32** | [T32.5](T32.5-consulta-unificada-y-cache-consistente-en-el-analizador-git.md) | Consulta Unificada y Caché Consistente en el Analizador Git | ⏳ Pendiente |
+| **Fase 32** | [T32.6](T32.6-eliminacion-de-espera-activa-busy-waiting-en-nvme-y-ahci-sata.md) | Eliminación de Espera Activa (Busy-Waiting) en Controladores NVMe y AHCI SATA | ⏳ Pendiente |
+| **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ⏳ Pendiente |
+| **Fase 32** | [T32.8](T32.8-zero-copy-en-vfs-y-clones-copy-on-write-para-linux.md) | Zero-Copy en VFS y Clones Copy-on-Write en Linux | ⏳ Pendiente |
 
 ---
 
@@ -390,5 +398,25 @@ arranca por HVF hasta consola con `antos-doctor` pasando y el demonio corriendo.
 Orden sugerido de ataque: ~~T31.1~~ → ~~T31.2~~ → ~~T31.3~~ → ~~T31.4~~ →
 ~~T31.5~~ → ~~T31.6~~ → ~~T31.7~~ → ~~T31.8~~ → ~~T31.9~~ → ~~T31.10~~ →
 ~~T31.11~~ → ~~T31.12~~ → ~~T31.13~~ → ~~T31.14~~ → ~~T31.15~~ →
-~~T31.16~~ → ~~T31.17~~ → ~~T31.18~~ → ~~T31.19~~. Fase 31 completa; los
-candidatos siguientes son los tickets de Fase 30 (T30.1–T30.6).
+~~T31.16~~ → ~~T31.17~~ → ~~T31.18~~ → ~~T31.19~~. Fase 31 completa.
+
+---
+
+## Fase 32 · Auditoría y Optimización de Rendimiento del Sistema (September 2026)
+
+Revisión técnica de cuellos de botella de latencia, contención de cerrojos, fragmentación de memoria, sobrecarga de E/S y operaciones cuadráticas en el kernel bare-metal y el espacio de usuario (`system/antosd`, `system/barra`).
+
+- **Memoria y renderizado en Kernel (T32.1 – T32.2):**
+  - **✅ T32.1 resuelto:** Coalescencia contigua (izquierda, derecha y sándwich) y ordenación física en el asignador de lista enlazada; métricas $O(1)$ (`allocated_bytes`, `used()`, `free()`) y reciclaje diferido de pilas de kernel (16 KiB) en el planificador preemptivo tras el cambio de contexto para frenar fragmentación y OOM.
+  - **T32.2:** Aceleración de trazado en VRAM de 128 a 16 operaciones base por glifo; eliminación de flushes de pantalla completa VirtIO en cada salto de línea en AArch64.
+- **Concurrencia y E/S en Demonio e Interfaz (T32.3 – T32.5):**
+  - **T32.3:** Servidor IPC concurrente para consultas de solo lectura y desacoplamiento de mutaciones de workspace; fin del congelamiento de `antos-barra` y CLI durante sesiones de agentes; eliminación de doble serialización JSON.
+  - **T32.4:** Telemetría en RAM sin lecturas de disco síncronas cada 3s en `antosd`; eliminación del bucle de sondeo activo a 80 ms en el hilo de GTK de `antos-barra`.
+  - **T32.5:** Unificación de inspección Git con `status --porcelain=v2` (de 4 subprocesos a 1) y corrección de la caché ante cambios unstaged.
+- **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
+  - **T32.6:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA.
+  - **T32.7:** Reducción de la inserción en el grafo de contexto de $O(E^2)$ a $O(1)$; diccionario léxico compacto para vectores semánticos y optimización de tokens en el visor de diffs.
+  - **T32.8:** Lectura zero-copy para ficheros de memoria en VFS; soporte de clonado CoW (`FICLONE`) en Linux; paralelización real de stages independientes en CI local.
+
+Orden sugerido de ataque: ~~T32.1~~ → T32.3 → T32.2 → T32.4 → T32.5 → T32.7 → T32.6 → T32.8.
+

@@ -5,12 +5,19 @@
 
 use crate::sync::SpinLock;
 use crate::task::pcb::{CpuContext, ProcessControlBlock, ThreadControlBlock, ThreadState};
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::{BTreeMap, BTreeSet, VecDeque};
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Default quantum in timer ticks (e.g. 2 ticks = 20 ms at 100 Hz).
 pub const DEFAULT_QUANTUM_TICKS: u32 = 2;
+
+/// Default stack size in bytes for kernel threads (16 KiB).
+pub const KERNEL_STACK_SIZE: usize = 16384;
+
+static NEXT_PID: AtomicU64 = AtomicU64::new(1);
+static NEXT_TID: AtomicU64 = AtomicU64::new(1);
 
 /// Statistics snapshot of the scheduler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +26,7 @@ pub struct SchedulerMetrics {
     pub total_threads: usize,
     pub ready_threads: usize,
     pub context_switches: u64,
+    pub recycled_stacks: usize,
 }
 
 pub struct Scheduler {
@@ -29,6 +37,12 @@ pub struct Scheduler {
     active: bool,
     default_quantum: u32,
     context_switches: u64,
+    /// Pool of reusable 16 KiB kernel stack pointers (stack tops).
+    stack_pool: Vec<u64>,
+    /// Set of stack tops allocated by this scheduler to safely track ownership.
+    owned_stacks: BTreeSet<u64>,
+    /// Stack pointer awaiting recycling once the next thread context is activated.
+    pending_free_stack: Option<u64>,
 }
 
 impl Scheduler {
@@ -41,6 +55,37 @@ impl Scheduler {
             active: false,
             default_quantum: DEFAULT_QUANTUM_TICKS,
             context_switches: 0,
+            stack_pool: Vec::new(),
+            owned_stacks: BTreeSet::new(),
+            pending_free_stack: None,
+        }
+    }
+
+    /// Allocates or reuses a 16 KiB kernel stack. Returns the top address.
+    pub fn alloc_kernel_stack(&mut self) -> u64 {
+        if let Some(stack_top) = self.stack_pool.pop() {
+            // Reutilizar una pila ya existente del pool
+            stack_top
+        } else {
+            // Asignar un nuevo buffer de pila en el heap del kernel
+            let stack_vec = alloc::vec![0u8; KERNEL_STACK_SIZE].leak();
+            let stack_top = (stack_vec.as_ptr() as u64) + KERNEL_STACK_SIZE as u64;
+            self.owned_stacks.insert(stack_top);
+            stack_top
+        }
+    }
+
+    /// Marks a kernel stack to be reclaimed if it belongs to our managed pool.
+    pub fn defer_recycle_stack(&mut self, stack_top: u64) {
+        if self.owned_stacks.contains(&stack_top) {
+            self.pending_free_stack = Some(stack_top);
+        }
+    }
+
+    /// Consumes any pending stack marked for recycling now that CPU context has switched.
+    fn drain_pending_stack(&mut self) {
+        if let Some(stack_top) = self.pending_free_stack.take() {
+            self.stack_pool.push(stack_top);
         }
     }
 
@@ -63,9 +108,6 @@ impl Scheduler {
         is_user: bool,
         arg: u64,
     ) -> (u64, u64) {
-        static NEXT_PID: AtomicU64 = AtomicU64::new(1);
-        static NEXT_TID: AtomicU64 = AtomicU64::new(1);
-
         let pid = NEXT_PID.fetch_add(1, Ordering::Relaxed);
         let tid = NEXT_TID.fetch_add(1, Ordering::Relaxed);
 
@@ -75,8 +117,7 @@ impl Scheduler {
         let actual_kernel_sp = if kernel_sp != 0 {
             kernel_sp
         } else {
-            let stack_vec = alloc::vec![0u8; 16384].leak();
-            (stack_vec.as_ptr() as u64) + 16384
+            self.alloc_kernel_stack()
         };
 
         let context = if is_user {
@@ -112,16 +153,13 @@ impl Scheduler {
         is_user: bool,
         arg: u64,
     ) -> Option<u64> {
-        static NEXT_TID: AtomicU64 = AtomicU64::new(1);
-
         let process_arc = self.processes.get(&pid)?.clone();
         let tid = NEXT_TID.fetch_add(1, Ordering::Relaxed);
 
         let actual_kernel_sp = if kernel_sp != 0 {
             kernel_sp
         } else {
-            let stack_vec = alloc::vec![0u8; 16384].leak();
-            (stack_vec.as_ptr() as u64) + 16384
+            self.alloc_kernel_stack()
         };
 
         let context = if is_user {
@@ -220,7 +258,6 @@ impl Scheduler {
                 continue;
             }
 
-            // Check if address space switch is needed
             let next_pid = next.pid;
             let current_pid = self
                 .current_tid
@@ -250,6 +287,9 @@ impl Scheduler {
 
             self.current_tid = Some(next_tid);
             self.context_switches = self.context_switches.saturating_add(1);
+
+            // CPU context switched: safe to return pending dead stack to the recycling pool
+            self.drain_pending_stack();
             return true;
         }
 
@@ -282,10 +322,16 @@ impl Scheduler {
     pub fn exit_current(&mut self, exit_code: u64, ctx: &mut CpuContext) -> bool {
         if let Some(curr_tid) = self.current_tid {
             let mut pid_to_check = None;
+            let mut kernel_sp_to_free = None;
             if let Some(curr_thread_arc) = self.threads.get(&curr_tid).cloned() {
                 let mut curr = curr_thread_arc.lock();
                 curr.mark_terminated();
                 pid_to_check = Some(curr.pid);
+                kernel_sp_to_free = Some(curr.kernel_sp);
+            }
+
+            if let Some(ksp) = kernel_sp_to_free {
+                self.defer_recycle_stack(ksp);
             }
 
             if let Some(pid) = pid_to_check {
@@ -314,6 +360,7 @@ impl Scheduler {
             total_threads: self.threads.len(),
             ready_threads: self.ready_queue.len(),
             context_switches: self.context_switches,
+            recycled_stacks: self.stack_pool.len(),
         }
     }
 }
@@ -488,10 +535,16 @@ pub fn exit_current_syscall(exit_code: u64) -> bool {
     let mut sched = SCHEDULER.lock();
     if let Some(curr_tid) = sched.current_tid {
         let mut pid_to_check = None;
+        let mut kernel_sp_to_free = None;
         if let Some(curr_thread_arc) = sched.threads.get(&curr_tid).cloned() {
             let mut curr = curr_thread_arc.lock();
             curr.mark_terminated();
             pid_to_check = Some(curr.pid);
+            kernel_sp_to_free = Some(curr.kernel_sp);
+        }
+
+        if let Some(ksp) = kernel_sp_to_free {
+            sched.defer_recycle_stack(ksp);
         }
 
         if let Some(pid) = pid_to_check {
@@ -541,6 +594,7 @@ pub fn exit_current_syscall(exit_code: u64) -> bool {
         next.time_slice = sched.default_quantum;
         sched.current_tid = Some(next_tid);
         sched.context_switches = sched.context_switches.saturating_add(1);
+        sched.drain_pending_stack();
         next_context = Some(next.context);
         break;
     }
@@ -554,3 +608,67 @@ pub fn exit_current_syscall(exit_code: u64) -> bool {
 
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn test_scheduler_stack_pool_allocation_and_recycling() {
+        let mut scheduler = Scheduler::new();
+        assert_eq!(scheduler.stack_pool.len(), 0);
+
+        // Pedir dos pilas del pool
+        let s1 = scheduler.alloc_kernel_stack();
+        let s2 = scheduler.alloc_kernel_stack();
+        assert_ne!(s1, s2);
+        assert!(scheduler.owned_stacks.contains(&s1));
+        assert!(scheduler.owned_stacks.contains(&s2));
+        assert_eq!(scheduler.stack_pool.len(), 0);
+
+        // Marcar s1 para reciclaje diferido
+        scheduler.defer_recycle_stack(s1);
+        assert_eq!(scheduler.stack_pool.len(), 0);
+
+        // Simular switch consumiendo la pila pendiente
+        scheduler.drain_pending_stack();
+        assert_eq!(scheduler.stack_pool.len(), 1);
+
+        // La siguiente petición debe reutilizar s1 sin asignar nueva memoria
+        let s3 = scheduler.alloc_kernel_stack();
+        assert_eq!(s3, s1);
+        assert_eq!(scheduler.stack_pool.len(), 0);
+    }
+
+    #[test_case]
+    fn test_scheduler_thread_lifecycle_recycles_stack() {
+        let mut scheduler = Scheduler::new();
+        scheduler.active = true;
+
+        // Spawn proceso y primary thread
+        let (pid, _t1) = scheduler.spawn_process("test-proc", 0, 0x1000, 0, 0, false, 0);
+
+        // Spawn thread secundario
+        let t2 = scheduler.spawn_thread(pid, 0x2000, 0, 0, false, 0).unwrap();
+
+        let mut ctx = CpuContext::default();
+        // Conmutar al hilo 1
+        assert!(scheduler.pick_and_switch_next(&mut ctx));
+        assert_eq!(scheduler.current_tid, Some(_t1));
+
+        // Terminar hilo 1: debe conmutar al hilo 2 y reciclar la pila del hilo 1
+        assert!(scheduler.exit_current(0, &mut ctx));
+        assert_eq!(scheduler.current_tid, Some(t2));
+        assert_eq!(scheduler.get_metrics().recycled_stacks, 1);
+
+        // Crear un tercer hilo: debe reutilizar la pila reciclada
+        let t3 = scheduler.spawn_thread(pid, 0x3000, 0, 0, false, 0).unwrap();
+        assert_eq!(scheduler.get_metrics().recycled_stacks, 0);
+
+        // Conmutar a t3 al terminar t2
+        assert!(scheduler.exit_current(0, &mut ctx));
+        assert_eq!(scheduler.current_tid, Some(t3));
+        assert_eq!(scheduler.get_metrics().recycled_stacks, 1);
+    }
+}
+
