@@ -254,11 +254,19 @@ impl AhciDisk {
             let port = &mut *self.port_mmio;
 
             // 1. Wait until port is not busy
-            let mut timeout = 1_000_000;
+            let start_ticks = crate::task::timer::ticks();
+            let timeout_ticks = 100; // 1 segundo (100 ticks a 100 Hz)
+            let mut spins = 0usize;
+            let mut fallback = 1_000_000usize;
             while (core::ptr::read_volatile(&port.tfd) & (PORT_TFD_BSY | PORT_TFD_DRQ)) != 0 {
-                core::hint::spin_loop();
-                timeout -= 1;
-                if timeout == 0 {
+                if spins < 64 {
+                    core::hint::spin_loop();
+                    spins += 1;
+                } else {
+                    crate::task::scheduler::io_wait();
+                }
+                fallback = fallback.saturating_sub(1);
+                if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                     return Err(AhciError::DeviceBusy);
                 }
             }
@@ -318,16 +326,24 @@ impl AhciDisk {
             // 6. Issue command on Slot 0
             core::ptr::write_volatile(&mut port.ci, 1);
 
-            // 7. Spin wait for completion
-            let mut wait_spins = 20_000_000;
+            // 7. Wait for completion with calibrated timeout and cooperative CPU release
+            let start_ticks = crate::task::timer::ticks();
+            let timeout_ticks = 500; // 5 segundos calibrados a 100 Hz
+            let mut spins = 0usize;
+            let mut fallback = 5_000_000usize;
             while (core::ptr::read_volatile(&port.ci) & 1) != 0 {
                 if (core::ptr::read_volatile(&port.is) & (1 << 30)) != 0 {
                     // Task file error bit
                     return Err(AhciError::IoError);
                 }
-                core::hint::spin_loop();
-                wait_spins -= 1;
-                if wait_spins == 0 {
+                if spins < 64 {
+                    core::hint::spin_loop();
+                    spins += 1;
+                } else {
+                    crate::task::scheduler::io_wait();
+                }
+                fallback = fallback.saturating_sub(1);
+                if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                     return Err(AhciError::CommandTimeout);
                 }
             }
@@ -405,10 +421,21 @@ impl AhciController {
             if (cap2 & 1) != 0 {
                 let bohc = core::ptr::read_volatile(&hba.bohc);
                 core::ptr::write_volatile(&mut hba.bohc, bohc | (1 << 1)); // OS Owned Semaphore (OOS)
-                let mut spins = 50_000;
-                while (core::ptr::read_volatile(&hba.bohc) & 1) != 0 && spins > 0 {
-                    core::hint::spin_loop();
-                    spins -= 1;
+                let start_ticks = crate::task::timer::ticks();
+                let timeout_ticks = 100; // 1 segundo
+                let mut spins = 0usize;
+                let mut fallback = 50_000usize;
+                while (core::ptr::read_volatile(&hba.bohc) & 1) != 0 {
+                    if spins < 64 {
+                        core::hint::spin_loop();
+                        spins += 1;
+                    } else {
+                        crate::task::scheduler::io_wait();
+                    }
+                    fallback = fallback.saturating_sub(1);
+                    if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
+                        break;
+                    }
                 }
             }
         }
@@ -523,9 +550,15 @@ impl AhciController {
         cmd &= !PORT_CMD_ST;
         core::ptr::write_volatile(&mut port.cmd, cmd);
 
-        let mut timeout = 50_000;
+        let mut spins = 0usize;
+        let mut timeout = 50_000usize;
         while (core::ptr::read_volatile(&port.cmd) & PORT_CMD_CR) != 0 && timeout > 0 {
-            core::hint::spin_loop();
+            if spins < 64 {
+                core::hint::spin_loop();
+                spins += 1;
+            } else {
+                crate::task::scheduler::io_wait();
+            }
             timeout -= 1;
         }
 
@@ -533,18 +566,30 @@ impl AhciController {
         cmd &= !PORT_CMD_FRE;
         core::ptr::write_volatile(&mut port.cmd, cmd);
 
+        spins = 0;
         timeout = 50_000;
         while (core::ptr::read_volatile(&port.cmd) & PORT_CMD_FR) != 0 && timeout > 0 {
-            core::hint::spin_loop();
+            if spins < 64 {
+                core::hint::spin_loop();
+                spins += 1;
+            } else {
+                crate::task::scheduler::io_wait();
+            }
             timeout -= 1;
         }
     }
 
     /// Starts command execution and FIS reception on port.
     unsafe fn start_port(port: &mut HbaPortRegisters) {
-        let mut timeout = 50_000;
+        let mut spins = 0usize;
+        let mut timeout = 50_000usize;
         while (core::ptr::read_volatile(&port.cmd) & PORT_CMD_CR) != 0 && timeout > 0 {
-            core::hint::spin_loop();
+            if spins < 64 {
+                core::hint::spin_loop();
+                spins += 1;
+            } else {
+                crate::task::scheduler::io_wait();
+            }
             timeout -= 1;
         }
 

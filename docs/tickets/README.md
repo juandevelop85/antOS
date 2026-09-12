@@ -414,9 +414,9 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
   - **T32.4:** Telemetría en RAM sin lecturas de disco síncronas cada 3s en `antosd`; eliminación del bucle de sondeo activo a 80 ms en el hilo de GTK de `antos-barra`.
   - **T32.5:** Unificación de inspección Git con `status --porcelain=v2` (de 4 subprocesos a 1) y corrección de la caché ante cambios unstaged.
 - **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
-  - **T32.6:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA.
+  - **✅ T32.6 resuelto:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA; cesión de CPU (`io_wait`), soporte para suspensión de hilos (`ThreadState::Blocked`) en el planificador preemptivo y timeouts calibrados por ticks de temporizador.
   - **T32.7:** Reducción de la inserción en el grafo de contexto de $O(E^2)$ a $O(1)$; diccionario léxico compacto para vectores semánticos y optimización de tokens en el visor de diffs.
   - **T32.8:** Lectura zero-copy para ficheros de memoria en VFS; soporte de clonado CoW (`FICLONE`) en Linux; paralelización real de stages independientes en CI local.
 
-Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → T32.3 → T32.4 → T32.5 → T32.7 → T32.6 → T32.8.
+Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → T32.3 → T32.4 → T32.5 → ~~T32.6~~ → T32.7 → T32.8.
 

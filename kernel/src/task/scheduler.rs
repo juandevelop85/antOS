@@ -354,6 +354,55 @@ impl Scheduler {
         self.pick_and_switch_next(ctx)
     }
 
+    /// Transitions a thread to `Blocked` state and removes it from `ready_queue`.
+    pub fn block_thread(&mut self, tid: u64) -> bool {
+        if let Some(thread_arc) = self.threads.get(&tid).cloned() {
+            let mut thread = thread_arc.lock();
+            if thread.state != ThreadState::Terminated && thread.state != ThreadState::Blocked {
+                thread.mark_blocked();
+                self.ready_queue.retain(|&id| id != tid);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Transitions the currently running thread to `Blocked` state and switches to the next ready thread.
+    pub fn block_current(&mut self, ctx: &mut CpuContext) -> bool {
+        if let Some(curr_tid) = self.current_tid {
+            if let Some(curr_thread_arc) = self.threads.get(&curr_tid).cloned() {
+                let mut curr = curr_thread_arc.lock();
+                if curr.state == ThreadState::Running {
+                    curr.mark_blocked();
+                    curr.context = *ctx;
+                }
+            }
+        }
+        self.pick_and_switch_next(ctx)
+    }
+
+    /// Transitions a blocked thread back to `Ready` state and places it on `ready_queue`.
+    pub fn unblock_thread(&mut self, tid: u64) -> bool {
+        if let Some(thread_arc) = self.threads.get(&tid).cloned() {
+            let mut thread = thread_arc.lock();
+            if thread.state == ThreadState::Blocked {
+                thread.mark_ready();
+                thread.time_slice = self.default_quantum;
+                self.ready_queue.push_back(tid);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Checks if a thread is currently in the `Blocked` state.
+    pub fn is_thread_blocked(&self, tid: u64) -> bool {
+        self.threads
+            .get(&tid)
+            .map(|t| t.lock().state == ThreadState::Blocked)
+            .unwrap_or(false)
+    }
+
     pub fn get_metrics(&self) -> SchedulerMetrics {
         SchedulerMetrics {
             total_processes: self.processes.len(),
@@ -459,6 +508,55 @@ pub fn yield_current(ctx: &mut CpuContext) -> bool {
 /// Marks the current thread's quantum as nearly expired.
 pub fn expire_current_quantum() {
     SCHEDULER.lock().expire_current_quantum();
+}
+
+/// Transitions a thread to `Blocked` state and removes it from the ready queue.
+pub fn block_thread(tid: u64) -> bool {
+    SCHEDULER.lock().block_thread(tid)
+}
+
+/// Transitions the currently running thread to `Blocked` state and switches to the next ready thread.
+pub fn block_current(ctx: &mut CpuContext) -> bool {
+    SCHEDULER.lock().block_current(ctx)
+}
+
+/// Unblocks a previously blocked thread, placing it back on the ready queue.
+pub fn unblock_thread(tid: u64) -> bool {
+    SCHEDULER.lock().unblock_thread(tid)
+}
+
+/// Checks if a thread is currently in `Blocked` state.
+pub fn is_thread_blocked(tid: u64) -> bool {
+    SCHEDULER.lock().is_thread_blocked(tid)
+}
+
+/// Returns the TID of the currently executing thread, if any.
+pub fn current_tid() -> Option<u64> {
+    SCHEDULER.lock().current_tid
+}
+
+/// Cooperative pause during driver I/O wait loops.
+///
+/// If the preemptive scheduler is active, this function marks the current quantum
+/// as expired so that the timer interrupt immediately yields the CPU to other ready threads.
+/// When interrupts are enabled, it halts the CPU with `sti; hlt` (or `wfi` on AArch64) until the next
+/// hardware interrupt, dropping CPU utilization to 0% during DMA or disk operations.
+pub fn io_wait() {
+    if is_active() {
+        expire_current_quantum();
+    }
+    if crate::sync::interrupts_enabled() {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            core::arch::asm!("sti; hlt", options(nomem, nostack));
+        }
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            core::arch::asm!("wfi", options(nomem, nostack));
+        }
+    } else {
+        core::hint::spin_loop();
+    }
 }
 
 /// Terminates the current thread.
@@ -670,5 +768,35 @@ mod tests {
         assert_eq!(scheduler.current_tid, Some(t3));
         assert_eq!(scheduler.get_metrics().recycled_stacks, 1);
     }
+
+    #[test_case]
+    fn test_scheduler_block_and_unblock_thread() {
+        let mut scheduler = Scheduler::new();
+        scheduler.active = true;
+
+        let (pid, t1) = scheduler.spawn_process("block-proc", 0, 0x1000, 0, 0, false, 0);
+        let t2 = scheduler.spawn_thread(pid, 0x2000, 0, 0, false, 0).unwrap();
+
+        // Bloquear t2
+        assert!(scheduler.block_thread(t2));
+        assert!(scheduler.is_thread_blocked(t2));
+        // t2 no debe estar en ready_queue
+        assert_eq!(scheduler.ready_queue.len(), 1);
+
+        let mut ctx = CpuContext::default();
+        // Conmutar: debe elegir t1 ya que t2 está bloqueado
+        assert!(scheduler.pick_and_switch_next(&mut ctx));
+        assert_eq!(scheduler.current_tid, Some(t1));
+
+        // Desbloquear t2
+        assert!(scheduler.unblock_thread(t2));
+        assert!(!scheduler.is_thread_blocked(t2));
+        assert_eq!(scheduler.ready_queue.len(), 1);
+
+        // Terminar t1: debe conmutar a t2 ahora que está listo
+        assert!(scheduler.exit_current(0, &mut ctx));
+        assert_eq!(scheduler.current_tid, Some(t2));
+    }
 }
+
 

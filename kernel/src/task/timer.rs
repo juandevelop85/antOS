@@ -29,7 +29,14 @@ pub fn tick() {
 }
 
 pub fn ticks() -> u64 {
-    TICKS.load(Ordering::Relaxed)
+    #[cfg(target_arch = "aarch64")]
+    {
+        crate::arch::aarch64::timer::ticks()
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        TICKS.load(Ordering::Relaxed)
+    }
 }
 
 /// LIMITACIÓN CONOCIDA: solo una tarea puede dormir a la vez. La segunda

@@ -322,11 +322,19 @@ impl NvmeController {
                 core::ptr::write_volatile(cc_ptr, cc & !NVME_CC_EN);
 
                 // Wait until RDY == 0
-                let mut spins = 1_000_000;
+                let start_ticks = crate::task::timer::ticks();
+                let timeout_ticks = 100; // 1 segundo (100 ticks a 100 Hz)
+                let mut spins = 0usize;
+                let mut fallback = 1_000_000usize;
                 while (core::ptr::read_volatile(csts_ptr) & NVME_CSTS_RDY) != 0 {
-                    core::hint::spin_loop();
-                    spins -= 1;
-                    if spins == 0 {
+                    if spins < 64 {
+                        core::hint::spin_loop();
+                        spins += 1;
+                    } else {
+                        crate::task::scheduler::io_wait();
+                    }
+                    fallback = fallback.saturating_sub(1);
+                    if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                         return Err(NvmeError::ControllerTimeout);
                     }
                 }
@@ -354,15 +362,23 @@ impl NvmeController {
             core::ptr::write_volatile(cc_ptr, cc);
 
             // 6. Wait until RDY == 1
-            let mut spins = 1_000_000;
+            let start_ticks = crate::task::timer::ticks();
+            let timeout_ticks = 200; // 2 segundos
+            let mut spins = 0usize;
+            let mut fallback = 1_000_000usize;
             while (core::ptr::read_volatile(csts_ptr) & NVME_CSTS_RDY) == 0 {
                 let csts = core::ptr::read_volatile(csts_ptr);
                 if (csts & NVME_CSTS_CFS) != 0 {
                     return Err(NvmeError::FatalStatus);
                 }
-                core::hint::spin_loop();
-                spins -= 1;
-                if spins == 0 {
+                if spins < 64 {
+                    core::hint::spin_loop();
+                    spins += 1;
+                } else {
+                    crate::task::scheduler::io_wait();
+                }
+                fallback = fallback.saturating_sub(1);
+                if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                     return Err(NvmeError::ControllerTimeout);
                 }
             }
@@ -390,7 +406,10 @@ impl NvmeController {
             let cq_slot = (self.acq_head as usize) % (QUEUE_ENTRIES as usize);
             let cqe_ptr = self.acq_virt.add(cq_slot);
 
-            let mut spins = 5_000_000;
+            let start_ticks = crate::task::timer::ticks();
+            let timeout_ticks = 500; // 5 segundos calibrados a 100 Hz
+            let mut spins = 0usize;
+            let mut fallback = 5_000_000usize;
             loop {
                 compiler_fence(Ordering::SeqCst);
                 let cqe = core::ptr::read_volatile(cqe_ptr);
@@ -414,9 +433,15 @@ impl NvmeController {
                     return Ok(cqe);
                 }
 
-                core::hint::spin_loop();
-                spins -= 1;
-                if spins == 0 {
+                if spins < 64 {
+                    core::hint::spin_loop();
+                    spins += 1;
+                } else {
+                    crate::task::scheduler::io_wait();
+                }
+
+                fallback = fallback.saturating_sub(1);
+                if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                     return Err(NvmeError::ControllerTimeout);
                 }
             }
@@ -433,12 +458,12 @@ impl NvmeController {
         create_cq.cdw11 = 1; // Physically contiguous, interrupts disabled
         self.submit_admin_command(create_cq)?;
 
-        // 2. Create I/O SQ 1 (QID = 1 in bits 15:0, QSIZE in bits 31:16, CQID = 1 in bits 31:16 of cdw11)
+        // 2. Create I/O SQ 1 (QID = 1, QSIZE, CQID = 1 in cdw11 bits 31:16)
         let mut create_sq = NvmeCmd::default();
         create_sq.cdw0 = NVME_ADMIN_CMD_CREATE_IO_SQ as u32;
         create_sq.prp1 = self.iosq_phys;
         create_sq.cdw10 = 1 | (((QUEUE_ENTRIES - 1) as u32) << 16);
-        create_sq.cdw11 = (1 << 16) | 1; // CQID = 1, physically contiguous
+        create_sq.cdw11 = 1 | (1 << 16); // Physically contiguous, CQID = 1
         self.submit_admin_command(create_sq)?;
 
         Ok(())
@@ -476,7 +501,10 @@ impl NvmeController {
             let cq_slot = (self.iocq_head as usize) % (QUEUE_ENTRIES as usize);
             let cqe_ptr = self.iocq_virt.add(cq_slot);
 
-            let mut spins = 5_000_000;
+            let start_ticks = crate::task::timer::ticks();
+            let timeout_ticks = 500; // 5 segundos calibrados a 100 Hz
+            let mut spins = 0usize;
+            let mut fallback = 5_000_000usize;
             loop {
                 compiler_fence(Ordering::SeqCst);
                 let cqe = core::ptr::read_volatile(cqe_ptr);
@@ -499,9 +527,15 @@ impl NvmeController {
                     return Ok(());
                 }
 
-                core::hint::spin_loop();
-                spins -= 1;
-                if spins == 0 {
+                if spins < 64 {
+                    core::hint::spin_loop();
+                    spins += 1;
+                } else {
+                    crate::task::scheduler::io_wait();
+                }
+
+                fallback = fallback.saturating_sub(1);
+                if crate::task::timer::ticks().saturating_sub(start_ticks) >= timeout_ticks || fallback == 0 {
                     return Err(NvmeError::ControllerTimeout);
                 }
             }
