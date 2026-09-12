@@ -15,7 +15,7 @@ pub struct NotificationEngine {
     _private: (),
 }
 
-static NOTIF_LOCK: Mutex<()> = Mutex::new(());
+static NOTIF_CACHE: Mutex<Option<(PathBuf, Vec<NotificationItem>)>> = Mutex::new(None);
 
 impl NotificationEngine {
     pub fn global() -> Self {
@@ -27,32 +27,50 @@ impl NotificationEngine {
         workspace.join(".antos").join("notifications.json")
     }
 
-    /// Lists all notifications, loading them from `.antos/notifications.json`.
+    /// Lists all notifications, loading them from in-memory cache or `.antos/notifications.json`.
     pub fn list(&self, workspace: &Path) -> Result<Vec<NotificationItem>> {
-        let _guard = lock_or_recover(&NOTIF_LOCK);
+        let mut cache_guard = lock_or_recover(&NOTIF_CACHE);
+        if let Some((cached_ws, items)) = cache_guard.as_ref() {
+            if cached_ws == workspace {
+                return Ok(items.clone());
+            }
+        }
+
         let path = Self::storage_path(workspace);
         if !path.exists() {
+            *cache_guard = Some((workspace.to_path_buf(), Vec::new()));
             return Ok(Vec::new());
         }
 
         let content = fs::read_to_string(&path)?;
         if content.trim().is_empty() {
+            *cache_guard = Some((workspace.to_path_buf(), Vec::new()));
             return Ok(Vec::new());
         }
 
         let list: Vec<NotificationItem> = serde_json::from_str(&content).unwrap_or_default();
+        *cache_guard = Some((workspace.to_path_buf(), list.clone()));
         Ok(list)
     }
 
     /// Adds a new notification item and persists it atomically.
     pub fn notify(&self, workspace: &Path, mut item: NotificationItem) -> Result<()> {
-        let _guard = lock_or_recover(&NOTIF_LOCK);
+        let mut cache_guard = lock_or_recover(&NOTIF_CACHE);
         let path = Self::storage_path(workspace);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let mut current = if path.exists() {
+        let mut current = if let Some((cached_ws, items)) = cache_guard.as_ref() {
+            if cached_ws == workspace {
+                items.clone()
+            } else if path.exists() {
+                let content = fs::read_to_string(&path)?;
+                serde_json::from_str::<Vec<NotificationItem>>(&content).unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        } else if path.exists() {
             let content = fs::read_to_string(&path)?;
             serde_json::from_str::<Vec<NotificationItem>>(&content).unwrap_or_default()
         } else {
@@ -76,6 +94,7 @@ impl NotificationEngine {
 
         let json = serde_json::to_string_pretty(&current)?;
         fs::write(&path, json)?;
+        *cache_guard = Some((workspace.to_path_buf(), current));
         Ok(())
     }
 
@@ -132,10 +151,11 @@ impl NotificationEngine {
                 notifs[idx].read = true;
             }
 
-            let _guard = lock_or_recover(&NOTIF_LOCK);
+            let mut cache_guard = lock_or_recover(&NOTIF_CACHE);
             let path = Self::storage_path(workspace);
             let json = serde_json::to_string_pretty(&notifs)?;
             fs::write(&path, json)?;
+            *cache_guard = Some((workspace.to_path_buf(), notifs));
         }
 
         Ok((true, message))
@@ -143,20 +163,33 @@ impl NotificationEngine {
 
     /// Clears all read notifications from disk.
     pub fn clear(&self, workspace: &Path) -> Result<usize> {
-        let _guard = lock_or_recover(&NOTIF_LOCK);
+        let mut cache_guard = lock_or_recover(&NOTIF_CACHE);
         let path = Self::storage_path(workspace);
-        if !path.exists() {
+        let mut notifs = if let Some((cached_ws, items)) = cache_guard.as_ref() {
+            if cached_ws == workspace {
+                items.clone()
+            } else if path.exists() {
+                let content = fs::read_to_string(&path)?;
+                serde_json::from_str::<Vec<NotificationItem>>(&content).unwrap_or_default()
+            } else {
+                return Ok(0);
+            }
+        } else if path.exists() {
+            let content = fs::read_to_string(&path)?;
+            serde_json::from_str::<Vec<NotificationItem>>(&content).unwrap_or_default()
+        } else {
             return Ok(0);
-        }
+        };
 
-        let content = fs::read_to_string(&path)?;
-        let mut notifs: Vec<NotificationItem> = serde_json::from_str(&content).unwrap_or_default();
         let initial_len = notifs.len();
         notifs.retain(|n| !n.read);
 
         let removed = initial_len - notifs.len();
-        let json = serde_json::to_string_pretty(&notifs)?;
-        fs::write(&path, json)?;
+        if removed > 0 || !path.exists() {
+            let json = serde_json::to_string_pretty(&notifs)?;
+            fs::write(&path, json)?;
+        }
+        *cache_guard = Some((workspace.to_path_buf(), notifs));
         Ok(removed)
     }
 }
@@ -228,7 +261,7 @@ mod tests {
     }
 
     /// T31.7 acceptance criterion, against the real production global lock
-    /// (not a synthetic one): poison `NOTIF_LOCK` by panicking on another
+    /// (not a synthetic one): poison `NOTIF_CACHE` by panicking on another
     /// thread while holding it, then confirm the public API — `list`, which
     /// takes that same lock via `lock_or_recover` — still works afterward,
     /// in this same process, instead of panicking on the poison.
@@ -239,8 +272,8 @@ mod tests {
         fs::create_dir_all(&temp).unwrap();
 
         let handle = std::thread::spawn(|| {
-            let _guard = NOTIF_LOCK.lock().unwrap();
-            panic!("intentional panic to poison NOTIF_LOCK for this test");
+            let _guard = NOTIF_CACHE.lock().unwrap();
+            panic!("intentional panic to poison NOTIF_CACHE for this test");
         });
         assert!(
             handle.join().is_err(),
@@ -249,7 +282,7 @@ mod tests {
 
         // A plain `.lock().unwrap()` inside `list`/`notify` would panic
         // again here, taking this test (and, in production, every other
-        // caller of NOTIF_LOCK) down with it. `lock_or_recover` must not.
+        // caller of NOTIF_CACHE) down with it. `lock_or_recover` must not.
         let engine = NotificationEngine::global();
         assert_eq!(engine.list(&temp).unwrap().len(), 0);
 

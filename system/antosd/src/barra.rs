@@ -6,11 +6,14 @@
 
 use antos_protocol::{BarraAlert, BarraTelemetry};
 use anyhow::Result;
+use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 /// Gestor central de telemetría y alertas para la interfaz gráfica `antos-barra`.
 pub struct BarraManager {
-    alerts: Mutex<Vec<BarraAlert>>,
+    alerts: Mutex<VecDeque<BarraAlert>>,
+    cached_workspace: OnceLock<PathBuf>,
 }
 
 static INSTANCIA: OnceLock<BarraManager> = OnceLock::new();
@@ -19,7 +22,8 @@ impl BarraManager {
     /// Obtiene la instancia global singleton del gestor de barra.
     pub fn global() -> &'static BarraManager {
         INSTANCIA.get_or_init(|| BarraManager {
-            alerts: Mutex::new(Vec::new()),
+            alerts: Mutex::new(VecDeque::new()),
+            cached_workspace: OnceLock::new(),
         })
     }
 
@@ -33,14 +37,16 @@ impl BarraManager {
                 (false, 0)
             };
 
-        let ws = crate::ctx::Ctx::discover()
-            .map(|c| c.workspace)
-            .unwrap_or_else(|_| {
-                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-            });
+        let ws = self.cached_workspace.get_or_init(|| {
+            crate::ctx::Ctx::discover()
+                .map(|c| c.workspace)
+                .unwrap_or_else(|_| {
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                })
+        });
 
         // 2. Estado del Profiler de procesos
-        let profiler_reports = crate::profiler::ProfilerEngine::global().load_reports(&ws);
+        let profiler_reports = crate::profiler::ProfilerEngine::global().load_reports(ws);
         let (profiler_rss_bytes, profiler_cpu_percent) =
             if let Some(last) = profiler_reports.first() {
                 let total_cpu = (last.cpu_user_ms + last.cpu_sys_ms) as f32;
@@ -64,7 +70,7 @@ impl BarraManager {
         let active_notifications_count = {
             let notif_hub = crate::notification::NotificationEngine::global();
             notif_hub
-                .list(&ws)
+                .list(ws)
                 .unwrap_or_default()
                 .iter()
                 .filter(|n| !n.read)
@@ -83,12 +89,12 @@ impl BarraManager {
         }
     }
 
-    /// Registra y emite una alerta visual hacia la barra de escritorio.
+    /// Registra y emite una alerta visual hacia la barra de escritorio en tiempo O(1).
     pub fn emit_alert(&self, alert: BarraAlert) -> Result<()> {
         let mut guard = self.alerts.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
-        guard.push(alert);
+        guard.push_back(alert);
         if guard.len() > 50 {
-            guard.remove(0);
+            guard.pop_front();
         }
         Ok(())
     }
@@ -115,18 +121,38 @@ mod tests {
     }
 
     #[test]
+    fn test_barra_manager_telemetry_latency() {
+        let manager = BarraManager::global();
+        // Calentamiento inicial
+        let _ = manager.get_telemetry();
+
+        // 50 llamadas consecutivas deben responder directamente de memoria en sub-milisegundo
+        let start = std::time::Instant::now();
+        for _ in 0..50 {
+            let _ = manager.get_telemetry();
+        }
+        let elapsed = start.elapsed();
+        let per_call = elapsed / 50;
+        assert!(
+            per_call < std::time::Duration::from_millis(1),
+            "get_telemetry tardó {:?} por llamada, esperado < 1ms",
+            per_call
+        );
+    }
+
+    #[test]
     fn test_barra_manager_alerts_lifecycle() {
         let manager = BarraManager::global();
-        let alert = BarraAlert {
-            category: "ebpf".into(),
-            message: "Alerta de prueba de violación LSM".into(),
-            urgent: true,
-        };
-
-        assert!(manager.emit_alert(alert.clone()).is_ok());
+        for i in 0..60 {
+            let alert = BarraAlert {
+                category: "ebpf".into(),
+                message: format!("Alerta {i}"),
+                urgent: true,
+            };
+            assert!(manager.emit_alert(alert).is_ok());
+        }
         let alerts = manager.get_alerts(5);
-        assert!(!alerts.is_empty());
-        assert_eq!(alerts[0].category, "ebpf");
-        assert_eq!(alerts[0].message, "Alerta de prueba de violación LSM");
+        assert_eq!(alerts.len(), 5);
+        assert_eq!(alerts[0].message, "Alerta 59");
     }
 }

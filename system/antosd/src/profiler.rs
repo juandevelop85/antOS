@@ -47,7 +47,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_REPORTS_HISTORY: usize = 50;
 
-static PROFILER_LOCK: Mutex<()> = Mutex::new(());
+static PROFILER_CACHE: Mutex<Option<(PathBuf, Vec<ProfileReport>)>> = Mutex::new(None);
 
 #[derive(Serialize, Deserialize, Default)]
 struct ProfilerStorage {
@@ -66,24 +66,61 @@ impl ProfilerEngine {
         workspace.join(".antos").join("profiler_reports.json")
     }
 
-    /// Loads persisted reports from disk.
+    /// Loads persisted reports from in-memory cache or disk.
     pub fn load_reports(&self, workspace: &Path) -> Vec<ProfileReport> {
+        let mut cache_guard = lock_or_recover(&PROFILER_CACHE);
+        if let Some((cached_ws, reports)) = cache_guard.as_ref() {
+            if cached_ws == workspace {
+                return reports.clone();
+            }
+        }
+
         let path = Self::storage_path(workspace);
         if !path.exists() {
+            *cache_guard = Some((workspace.to_path_buf(), Vec::new()));
             return Vec::new();
         }
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(storage) = serde_json::from_str::<ProfilerStorage>(&content) {
+                *cache_guard = Some((workspace.to_path_buf(), storage.reports.clone()));
                 return storage.reports;
             }
         }
+        *cache_guard = Some((workspace.to_path_buf(), Vec::new()));
         Vec::new()
     }
 
-    /// Persists a report to disk.
+    /// Persists a report to disk and updates the in-memory cache.
     fn save_report(&self, workspace: &Path, report: ProfileReport) {
-        let _guard = lock_or_recover(&PROFILER_LOCK);
-        let mut reports = self.load_reports(workspace);
+        let mut cache_guard = lock_or_recover(&PROFILER_CACHE);
+        let mut reports = if let Some((cached_ws, r)) = cache_guard.as_ref() {
+            if cached_ws == workspace {
+                r.clone()
+            } else {
+                let path = Self::storage_path(workspace);
+                if path.exists() {
+                    fs::read_to_string(&path)
+                        .ok()
+                        .and_then(|c| serde_json::from_str::<ProfilerStorage>(&c).ok())
+                        .map(|s| s.reports)
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
+            }
+        } else {
+            let path = Self::storage_path(workspace);
+            if path.exists() {
+                fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<ProfilerStorage>(&c).ok())
+                    .map(|s| s.reports)
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        };
+
         reports.retain(|r| r.id != report.id);
         reports.insert(0, report);
         if reports.len() > MAX_REPORTS_HISTORY {
@@ -94,10 +131,13 @@ impl ProfilerEngine {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let storage = ProfilerStorage { reports };
+        let storage = ProfilerStorage {
+            reports: reports.clone(),
+        };
         if let Ok(json) = serde_json::to_string_pretty(&storage) {
             let _ = fs::write(path, json);
         }
+        *cache_guard = Some((workspace.to_path_buf(), reports));
     }
 
     /// Executes a command under active profiling and records metrics and bottlenecks.

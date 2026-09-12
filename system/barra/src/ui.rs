@@ -71,10 +71,8 @@ pub(crate) fn build_ui(app: &Application) {
 
     let is_expanded: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-    // Icono de bandeja SNI (T30.8, seguimiento): se publica ya, pero el
-    // canal se sondea más abajo, una vez existen `window`/`input` para
-    // cablear el toggle — ver `tray.rs`.
-    let (tray_tx, tray_rx) = std::sync::mpsc::channel::<()>();
+    // Icono de bandeja SNI (T30.8, T32.4): canal reactivo GLib sin sondeo activo.
+    let (tray_tx, tray_rx) = gtk4::glib::MainContext::channel::<()>(gtk4::glib::Priority::default());
     crate::tray::spawn(tray_tx);
 
     let frame = GtkBox::new(Orientation::Vertical, 12);
@@ -304,18 +302,15 @@ pub(crate) fn build_ui(app: &Application) {
         });
     }
 
-    // Click en el icono de bandeja → alterna expandir/colapsar (T30.8,
-    // seguimiento). `tray::spawn` manda por `tray_tx` desde su propio hilo
-    // (`Tray::activate`, disparado por el host SNI); aquí solo se sondea,
-    // mismo patrón que `session::run_offthread`.
+    // Click en el icono de bandeja → alterna expandir/colapsar (T30.8, T32.4).
+    // `tray::spawn` envía el evento a través del canal reactivo GLib (`tray_rx.attach`),
+    // eliminando por completo el sondeo periódico por temporizador.
     {
         let window_ref = window.clone();
         let input_ref = input.clone();
         let is_expanded_ref = is_expanded.clone();
-        gtk4::glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
-            while tray_rx.try_recv().is_ok() {
-                set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, !is_expanded_ref.get());
-            }
+        tray_rx.attach(None, move |()| {
+            set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, !is_expanded_ref.get());
             gtk4::glib::ControlFlow::Continue
         });
     }
