@@ -161,7 +161,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 32** | [T32.2](T32.2-aceleracion-del-framebuffer-y-optimizacion-de-flush-en-virtio-gpu.md) | Aceleración del Framebuffer y Optimización de Flush en VirtIO GPU | ✅ Completado |
 | **Fase 32** | [T32.3](T32.3-servidor-ipc-concurrente-y-desacoplamiento-de-mutacion-en-antosd.md) | Servidor IPC Concurrente y Desacoplamiento de Mutación en antosd | ✅ Completado |
 | **Fase 32** | [T32.4](T32.4-optimizacion-de-telemetria-en-memoria-y-eliminacion-de-sondeo-activo-en-barra.md) | Optimización de Telemetría en Memoria y Eliminación de Sondeo Activo en Barra | ✅ Completado |
-| **Fase 32** | [T32.5](T32.5-consulta-unificada-y-cache-consistente-en-el-analizador-git.md) | Consulta Unificada y Caché Consistente en el Analizador Git | ⏳ Pendiente |
+| **Fase 32** | [T32.5](T32.5-consulta-unificada-y-cache-consistente-en-el-analizador-git.md) | Consulta Unificada y Caché Consistente en el Analizador Git | ✅ Completado |
 | **Fase 32** | [T32.6](T32.6-eliminacion-de-espera-activa-busy-waiting-en-nvme-y-ahci-sata.md) | Eliminación de Espera Activa (Busy-Waiting) en Controladores NVMe y AHCI SATA | ✅ Completado |
 | **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ⏳ Pendiente |
 | **Fase 32** | [T32.8](T32.8-zero-copy-en-vfs-y-clones-copy-on-write-para-linux.md) | Zero-Copy en VFS y Clones Copy-on-Write en Linux | ✅ Completado |
@@ -412,11 +412,11 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
 - **Concurrencia y E/S en Demonio e Interfaz (T32.3 – T32.5):**
   - **✅ T32.3 resuelto:** Servidor IPC concurrente despachado en hilos dedicados y desacoplamiento de mutaciones con `WORKSPACE_MUTATION_LOCK`; consultas de solo lectura en <50 ms sin congelamiento por sesiones interactivas; eliminación de la doble serialización en `SocketHandler::on_result`.
   - **✅ T32.4 resuelto:** Telemetría en RAM sin lecturas de disco síncronas en `antosd` (<1 ms); `VecDeque` para inserción/desalojo $O(1)$ de alertas; eliminación del bucle de sondeo activo a 80 ms en `system/barra` reemplazado por canal reactivo de GLib (`glib::MainContext::channel` + `tray_rx.attach`).
-  - **T32.5:** Unificación de inspección Git con `status --porcelain=v2` (de 4 subprocesos a 1) y corrección de la caché ante cambios unstaged.
+  - **✅ T32.5 resuelto:** Unificación de inspección Git con `status --porcelain=v2 --branch` (reducción de subprocesos de 4 a 1 en caso general); caché consistente con `WorktreeSignature` que detecta inmediatamente modificaciones en el working tree sin `git add`; memoización $O(1)$ de `detect_antos_root()`.
 - **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
   - **✅ T32.6 resuelto:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA; cesión de CPU (`io_wait`), soporte para suspensión de hilos (`ThreadState::Blocked`) en el planificador preemptivo y timeouts calibrados por ticks de temporizador.
   - **T32.7:** Reducción de la inserción en el grafo de contexto de $O(E^2)$ a $O(1)$; diccionario léxico compacto para vectores semánticos y optimización de tokens en el visor de diffs.
   - **✅ T32.8 resuelto:** Lectura zero-copy con `Cow<'static, [u8]>` para ficheros de memoria en VFS sin asignación en heap; soporte de instantáneas CoW (`FICLONE` / reflink) en Linux para ficheros y directorios; paralelización de stages concurrentes en CI local con `std::thread::scope`.
 
-Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → ~~T32.3~~ → ~~T32.4~~ → T32.5 → ~~T32.6~~ → T32.7 → ~~T32.8~~.
+Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → ~~T32.3~~ → ~~T32.4~~ → ~~T32.5~~ → ~~T32.6~~ → T32.7 → ~~T32.8~~.
 
