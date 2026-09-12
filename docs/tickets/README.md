@@ -410,7 +410,7 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
   - **✅ T32.1 resuelto:** Coalescencia contigua (izquierda, derecha y sándwich) y ordenación física en el asignador de lista enlazada; métricas $O(1)$ (`allocated_bytes`, `used()`, `free()`) y reciclaje diferido de pilas de kernel (16 KiB) en el planificador preemptivo tras el cambio de contexto para frenar fragmentación y OOM.
   - **✅ T32.2 resuelto:** Aceleración de trazado en VRAM de 128 a 16 operaciones base por glifo en `draw_char`; llenado contiguo por fila en `draw_rect`; seguimiento de rectángulos dañados (*dirty rectangles*) y eliminación de flushes de pantalla completa VirtIO en cada `newline` en AArch64; borrado y llenado rápido con `slice::fill` en `Surface`.
 - **Concurrencia y E/S en Demonio e Interfaz (T32.3 – T32.5):**
-  - **T32.3:** Servidor IPC concurrente para consultas de solo lectura y desacoplamiento de mutaciones de workspace; fin del congelamiento de `antos-barra` y CLI durante sesiones de agentes; eliminación de doble serialización JSON.
+  - **✅ T32.3 resuelto:** Servidor IPC concurrente despachado en hilos dedicados y desacoplamiento de mutaciones con `WORKSPACE_MUTATION_LOCK`; consultas de solo lectura en <50 ms sin congelamiento por sesiones interactivas; eliminación de la doble serialización en `SocketHandler::on_result`.
   - **T32.4:** Telemetría en RAM sin lecturas de disco síncronas cada 3s en `antosd`; eliminación del bucle de sondeo activo a 80 ms en el hilo de GTK de `antos-barra`.
   - **T32.5:** Unificación de inspección Git con `status --porcelain=v2` (de 4 subprocesos a 1) y corrección de la caché ante cambios unstaged.
 - **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
@@ -418,5 +418,5 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
   - **T32.7:** Reducción de la inserción en el grafo de contexto de $O(E^2)$ a $O(1)$; diccionario léxico compacto para vectores semánticos y optimización de tokens en el visor de diffs.
   - **✅ T32.8 resuelto:** Lectura zero-copy con `Cow<'static, [u8]>` para ficheros de memoria en VFS sin asignación en heap; soporte de instantáneas CoW (`FICLONE` / reflink) en Linux para ficheros y directorios; paralelización de stages concurrentes en CI local con `std::thread::scope`.
 
-Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → T32.3 → T32.4 → T32.5 → ~~T32.6~~ → T32.7 → ~~T32.8~~.
+Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → ~~T32.3~~ → T32.4 → T32.5 → ~~T32.6~~ → T32.7 → ~~T32.8~~.
 

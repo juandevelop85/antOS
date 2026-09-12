@@ -67,6 +67,7 @@ pub struct Capability {
     pub policy: Policy,
 }
 
+#[derive(Clone)]
 pub struct Catalog {
     pub caps: BTreeMap<String, Capability>,
 }

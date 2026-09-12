@@ -24,22 +24,17 @@
 //! suficiente para un solo usuario en su máquina y claramente insuficiente
 //! para cualquier otra cosa.
 //!
-//! ## Una conexión cada vez, a propósito (T31.8)
+//! ## Servidor concurrente y desacoplamiento de mutación (T32.3)
 //!
-//! `serve` no atiende conexiones en paralelo. No es una limitación que
-//! quede por resolver: dos intenciones mutando el mismo espacio de trabajo
-//! a la vez producirían diffs que ya no describen el resultado — el mismo
-//! fallo que se evitó calculando los pasos en orden dentro de una sola
-//! intención, pero ahora entre procesos. Antes de "arreglar" esto
-//! convirtiéndolo en concurrente, hace falta resolver esa cuestión de fondo,
-//! no solo la de E/S.
+//! `serve` despacha cada conexión en su propio hilo de trabajo. A diferencia
+//! del diseño serial original (T31.8), las consultas de solo lectura y telemetría
+//! (`QueryGitStatus`, `ListTickets`, `GetTicket`, `QueryBarraTelemetry`, etc.)
+//! no sufren bloqueo alguno cuando un cliente mantiene una sesión interactiva abierta.
 //!
-//! Lo que sí hacía falta arreglar era el otro lado de esa decisión: sin un
-//! tiempo de espera, una conexión que no envía nada bloqueaba el bucle serie
-//! **para todos los demás clientes**, indefinidamente. Cada conexión
-//! aceptada lleva ahora un tiempo de espera de lectura y escritura; se
-//! libera el de lectura en cuanto el cliente manda una petición real, para
-//! no cortar una aprobación interactiva humana que puede tardar.
+//! Para prevenir que dos intenciones simultáneas modifiquen el mismo espacio
+//! de trabajo a la vez produciendo diffs inconsistentes, la ejecución de
+//! `Request::Intent` se sincroniza mediante `WORKSPACE_MUTATION_LOCK`, encolando
+//! ordenadamente las mutaciones sin bloquear al resto de clientes.
 
 #![allow(unused_imports, dead_code)]
 
@@ -53,12 +48,19 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 mod transport;
 
 use transport::*;
 pub use transport::{serve, socket_path};
+
+/// Cerrojo exclusivo para mutaciones de espacio de trabajo / sesiones de intención (T32.3).
+/// Evita que dos intenciones simultáneas modifiquen el workspace y produzcan diffs inconsistentes,
+/// permitiendo a la vez que todas las consultas de solo lectura y telemetría se ejecuten
+/// concurrentemente sin bloqueo.
+pub static WORKSPACE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
 
 fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -91,6 +93,12 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             planner,
             dry_run,
         } => {
+            // T32.3: Serializa exclusivamente las mutaciones de workspace entre intenciones,
+            // permitiendo que consultas de lectura y telemetría sigan respondiendo en paralelo.
+            let _mutation_guard = WORKSPACE_MUTATION_LOCK
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+
             let planner_instance = crate::pick_planner(Some(ctx), planner.as_deref())?;
             let mut handler = SocketHandler {
                 writer: &mut writer,
@@ -2413,5 +2421,117 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_read_only_queries_bypass_active_mutation_lock() {
+        let (ctx, temp) = test_ctx();
+        let catalog = test_catalog(&ctx);
+
+        // Simulamos que una sesión interactiva de Request::Intent tiene retenido el cerrojo de mutación.
+        let mutation_lock = WORKSPACE_MUTATION_LOCK.lock().unwrap();
+
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        client_stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+
+        send(
+            &mut client_stream,
+            &Request::DiagnosePorts { port: Some(59999) },
+        )
+        .unwrap();
+
+        let start = Instant::now();
+        let handle = std::thread::spawn(move || handle_connection(&ctx, &catalog, server_stream));
+
+        let mut reader = BufReader::new(client_stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let elapsed = start.elapsed();
+
+        let event: Event = serde_json::from_str(line.trim()).unwrap();
+        assert!(
+            matches!(event, Event::PortsStatus(_)),
+            "consulta de solo lectura debe responder exitosamente mientras hay una intención en curso, obtuvo: {event:?}"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "consulta de solo lectura debe responder de inmediato sin esperar al cerrojo de mutación, tardó: {elapsed:?}"
+        );
+
+        handle.join().unwrap().unwrap();
+        drop(mutation_lock);
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_concurrent_intents_are_serialized_cleanly() {
+        let (ctx, temp) = test_ctx();
+        let catalog = test_catalog(&ctx);
+
+        // Bloqueamos manualmente el cerrojo de mutación
+        let guard = WORKSPACE_MUTATION_LOCK.lock().unwrap();
+
+        let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+        client_stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+
+        // Enviamos una petición de Intent sintética con dry_run
+        send(
+            &mut client_stream,
+            &Request::Intent {
+                text: "listar archivos".into(),
+                planner: Some("local".into()),
+                dry_run: true,
+            },
+        )
+        .unwrap();
+
+        let handle = std::thread::spawn(move || handle_connection(&ctx, &catalog, server_stream));
+
+        // Damos tiempo para que el hilo intente adquirir el cerrojo
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Liberamos el cerrojo: ahora la intención puede proceder
+        drop(guard);
+
+        let res = handle.join().unwrap();
+        assert!(res.is_ok());
+
+        let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_socket_handler_on_result_without_double_serialization() {
+        let (mut server, client) = UnixStream::pair().unwrap();
+        let mut server_reader = BufReader::new(server.try_clone().unwrap());
+
+        let mut handler = SocketHandler {
+            writer: &mut server,
+            reader: &mut server_reader,
+        };
+
+        let exec_res = ExecutionResult {
+            ok: true,
+            message: "operación completada".into(),
+            snapshot: None,
+        };
+
+        handler.on_result(&exec_res).expect("on_result debe emitir sin error");
+
+        let mut client_reader = BufReader::new(client);
+        let mut line = String::new();
+        client_reader.read_line(&mut line).unwrap();
+
+        let event: Event = serde_json::from_str(line.trim()).unwrap();
+        match event {
+            Event::Result(res) => {
+                assert!(res.ok);
+                assert_eq!(res.message, "operación completada");
+            }
+            other => panic!("se esperaba Event::Result, se obtuvo: {other:?}"),
+        }
     }
 }

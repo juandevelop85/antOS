@@ -122,8 +122,7 @@ impl SessionHandler for SocketHandler<'_> {
     }
 
     fn on_result(&mut self, result: &ExecutionResult) -> Result<()> {
-        let copy: ExecutionResult = serde_json::from_str(&serde_json::to_string(result)?)?;
-        send(self.writer, &Event::Result(copy))
+        send(self.writer, &Event::Result(result.clone()))
     }
 }
 
@@ -185,6 +184,9 @@ pub fn serve(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
         terminal::paint(&path.display().to_string(), terminal::DIM)
     );
 
+    let ctx = std::sync::Arc::new(ctx.clone());
+    let catalog = std::sync::Arc::new(catalog.clone());
+
     for connection in listener.incoming() {
         let stream = match connection {
             Ok(s) => s,
@@ -199,18 +201,23 @@ pub fn serve(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
         let _ = stream.set_read_timeout(Some(IPC_READ_TIMEOUT));
         let _ = stream.set_write_timeout(Some(IPC_WRITE_TIMEOUT));
 
-        // Se atiende una conexión cada vez, a propósito — ver el comentario
-        // del módulo. Dos intenciones mutando el mismo espacio de trabajo a
-        // la vez producirían diffs que ya no describen el resultado.
-        if let Err(e) = super::handle_connection(ctx, catalog, stream) {
-            if is_idle_timeout(&e) {
-                eprintln!(
-                    "conexión IPC abandonada: sin actividad durante {IPC_READ_TIMEOUT:?}, cerrada"
-                );
-            } else {
-                eprintln!("sesión terminada con error: {e:#}");
+        let ctx_clone = std::sync::Arc::clone(&ctx);
+        let catalog_clone = std::sync::Arc::clone(&catalog);
+
+        // T32.3: Despacho concurrente de conexiones en hilos de trabajo dedicados.
+        // Las peticiones de solo lectura responden inmediatamente sin verse bloqueadas
+        // por intenciones interactivas o de larga duración.
+        std::thread::spawn(move || {
+            if let Err(e) = super::handle_connection(&ctx_clone, &catalog_clone, stream) {
+                if is_idle_timeout(&e) {
+                    eprintln!(
+                        "conexión IPC abandonada: sin actividad durante {IPC_READ_TIMEOUT:?}, cerrada"
+                    );
+                } else {
+                    eprintln!("sesión terminada con error: {e:#}");
+                }
             }
-        }
+        });
     }
     Ok(())
 }
