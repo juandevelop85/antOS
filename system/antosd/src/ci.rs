@@ -321,6 +321,127 @@ impl CiEngine {
         findings
     }
 
+    /// Ejecuta una etapa individual de CI, reportando su resultado, secretos detectados
+    /// y estado de éxito.
+    ///
+    /// Reviewed under T31.4: unlike `vm.rs`'s ad hoc `vm exec` or `env.rs`'s toolchain
+    /// probe, this `sh -c` is not a defect — running the user's own declared CI stage
+    /// command IS the feature, exactly like a real CI runner. `stage.command` comes from
+    /// the project's own `.antos/ci.toml`, which the project owner controls.
+    fn execute_stage(stage: &StageConfig, workspace: &Path) -> (CiStageResult, Vec<String>, bool) {
+        let stage_start = Instant::now();
+
+        if stage.command == "internal:secret_scanner" {
+            match Self::scan_secrets(workspace) {
+                Ok(secrets) => {
+                    let duration = stage_start.elapsed().as_millis() as u64;
+                    if secrets.is_empty() {
+                        (
+                            CiStageResult {
+                                name: stage.name.clone(),
+                                command: stage.command.clone(),
+                                status: CiStageStatus::Passed,
+                                duration_ms: duration,
+                                output_snippet: "0 secretos o credenciales detectadas".into(),
+                                exit_code: Some(0),
+                            },
+                            Vec::new(),
+                            true,
+                        )
+                    } else {
+                        let findings = secrets.clone();
+                        (
+                            CiStageResult {
+                                name: stage.name.clone(),
+                                command: stage.command.clone(),
+                                status: CiStageStatus::Failed,
+                                duration_ms: duration,
+                                output_snippet: format!(
+                                    "Se detectaron {} secretos potenciales:\n{}",
+                                    secrets.len(),
+                                    secrets.join("\n")
+                                ),
+                                exit_code: Some(1),
+                            },
+                            findings,
+                            false,
+                        )
+                    }
+                }
+                Err(e) => (
+                    CiStageResult {
+                        name: stage.name.clone(),
+                        command: stage.command.clone(),
+                        status: CiStageStatus::Failed,
+                        duration_ms: stage_start.elapsed().as_millis() as u64,
+                        output_snippet: format!("Error en escaneo de seguridad: {e}"),
+                        exit_code: Some(1),
+                    },
+                    Vec::new(),
+                    false,
+                ),
+            }
+        } else {
+            let output_res = Command::new("sh")
+                .arg("-c")
+                .arg(&stage.command)
+                .current_dir(workspace)
+                .output();
+
+            let duration = stage_start.elapsed().as_millis() as u64;
+
+            match output_res {
+                Ok(out) => {
+                    let code = out.status.code().unwrap_or(-1);
+                    let is_ok = out.status.success();
+
+                    let combined_out = String::from_utf8_lossy(&out.stdout).to_string()
+                        + "\n"
+                        + &String::from_utf8_lossy(&out.stderr);
+                    let snippet = combined_out
+                        .trim()
+                        .lines()
+                        .take(5)
+                        .collect::<Vec<&str>>()
+                        .join("\n");
+
+                    (
+                        CiStageResult {
+                            name: stage.name.clone(),
+                            command: stage.command.clone(),
+                            status: if is_ok {
+                                CiStageStatus::Passed
+                            } else {
+                                CiStageStatus::Failed
+                            },
+                            duration_ms: duration,
+                            output_snippet: if snippet.is_empty() {
+                                "OK".into()
+                            } else {
+                                snippet
+                            },
+                            exit_code: Some(code),
+                        },
+                        Vec::new(),
+                        is_ok,
+                    )
+                }
+                Err(e) => (
+                    CiStageResult {
+                        name: stage.name.clone(),
+                        command: stage.command.clone(),
+                        status: CiStageStatus::Failed,
+                        duration_ms: duration,
+                        output_snippet: format!("Fallo al invocar comando: {e}"),
+                        exit_code: Some(127),
+                    },
+                    Vec::new(),
+                    false,
+                ),
+            }
+        }
+    }
+
     /// Executes the CI pipeline locally, collecting stage results and metrics.
     pub fn run_pipeline(
         workspace: &Path,
@@ -343,6 +464,14 @@ impl CiEngine {
         let mut secrets_found = Vec::new();
         let mut security_clean = true;
 
+        enum ExecutionStep<'a> {
+            Skipped(&'a StageConfig),
+            Batch(Vec<&'a StageConfig>),
+        }
+
+        let mut steps: Vec<ExecutionStep> = Vec::new();
+        let mut current_parallel: Vec<&StageConfig> = Vec::new();
+
         for stage in &config.stages {
             // Apply stage filtering if requested
             if let Some(target_stage) = stage_filter {
@@ -353,138 +482,77 @@ impl CiEngine {
 
             // In fast mode, skip stages not flagged as fast
             if fast_mode && !stage.fast {
-                stages_results.push(CiStageResult {
-                    name: stage.name.clone(),
-                    command: stage.command.clone(),
-                    status: CiStageStatus::Skipped,
-                    duration_ms: 0,
-                    output_snippet: "Omitido en modo rápido (--fast)".into(),
-                    exit_code: None,
-                });
+                if !current_parallel.is_empty() {
+                    steps.push(ExecutionStep::Batch(std::mem::take(&mut current_parallel)));
+                }
+                steps.push(ExecutionStep::Skipped(stage));
                 continue;
             }
 
-            let stage_start = Instant::now();
-
-            if stage.command == "internal:secret_scanner" {
-                // Internal security scanner
-                match Self::scan_secrets(workspace) {
-                    Ok(secrets) => {
-                        let duration = stage_start.elapsed().as_millis() as u64;
-                        if secrets.is_empty() {
-                            stages_results.push(CiStageResult {
-                                name: stage.name.clone(),
-                                command: stage.command.clone(),
-                                status: CiStageStatus::Passed,
-                                duration_ms: duration,
-                                output_snippet: "0 secretos o credenciales detectadas".into(),
-                                exit_code: Some(0),
-                            });
-                        } else {
-                            security_clean = false;
-                            overall_success = false;
-                            secrets_found.extend(secrets.clone());
-                            stages_results.push(CiStageResult {
-                                name: stage.name.clone(),
-                                command: stage.command.clone(),
-                                status: CiStageStatus::Failed,
-                                duration_ms: duration,
-                                output_snippet: format!(
-                                    "Se detectaron {} secretos potenciales:\n{}",
-                                    secrets.len(),
-                                    secrets.join("\n")
-                                ),
-                                exit_code: Some(1),
-                            });
-                        }
-                    }
-                    Err(e) => {
-                        overall_success = false;
-                        stages_results.push(CiStageResult {
-                            name: stage.name.clone(),
-                            command: stage.command.clone(),
-                            status: CiStageStatus::Failed,
-                            duration_ms: stage_start.elapsed().as_millis() as u64,
-                            output_snippet: format!("Error en escaneo de seguridad: {e}"),
-                            exit_code: Some(1),
-                        });
-                    }
-                }
+            if stage.parallel {
+                current_parallel.push(stage);
             } else {
-                // External shell / tool execution.
-                //
-                // Reviewed under T31.4: unlike `vm.rs`'s ad hoc `vm exec` or
-                // `env.rs`'s toolchain probe, this `sh -c` is not a defect —
-                // running the user's own declared CI stage command IS the
-                // feature, exactly like a real CI runner. `stage.command`
-                // comes from the project's own `.antos/ci.toml`, which the
-                // project owner controls (same trust boundary as any script
-                // they'd commit and run themselves).
-                //
-                // It does run fully unconfined today, though — no
-                // `sandbox::` recinto, direct read/write to `workspace`. The
-                // module doc comment above overstates this as running "in
-                // sandboxes"; that is aspirational, not current behavior.
-                // Routing CI stages through `sandbox::run` is a reasonable
-                // follow-up, but a materially different one than T31.4's ad
-                // hoc single-command case: a CI stage legitimately needs
-                // broad read/write across the whole workspace, so it needs
-                // its own `Policy` derivation, not the empty one `vm.rs`
-                // uses — left for a dedicated ticket rather than folded in
-                // here.
-                let output_res = Command::new("sh")
-                    .arg("-c")
-                    .arg(&stage.command)
-                    .current_dir(workspace)
-                    .output();
+                if !current_parallel.is_empty() {
+                    steps.push(ExecutionStep::Batch(std::mem::take(&mut current_parallel)));
+                }
+                steps.push(ExecutionStep::Batch(vec![stage]));
+            }
+        }
 
-                let duration = stage_start.elapsed().as_millis() as u64;
+        if !current_parallel.is_empty() {
+            steps.push(ExecutionStep::Batch(current_parallel));
+        }
 
-                match output_res {
-                    Ok(out) => {
-                        let code = out.status.code().unwrap_or(-1);
-                        let is_ok = out.status.success();
+        for step in steps {
+            match step {
+                ExecutionStep::Skipped(stage) => {
+                    stages_results.push(CiStageResult {
+                        name: stage.name.clone(),
+                        command: stage.command.clone(),
+                        status: CiStageStatus::Skipped,
+                        duration_ms: 0,
+                        output_snippet: "Omitido en modo rápido (--fast)".into(),
+                        exit_code: None,
+                    });
+                }
+                ExecutionStep::Batch(batch) => {
+                    if batch.len() == 1 {
+                        let (res, secrets, is_ok) = Self::execute_stage(batch[0], workspace);
                         if !is_ok {
                             overall_success = false;
                         }
-
-                        let combined_out = String::from_utf8_lossy(&out.stdout).to_string()
-                            + "\n"
-                            + &String::from_utf8_lossy(&out.stderr);
-                        let snippet = combined_out
-                            .trim()
-                            .lines()
-                            .take(5)
-                            .collect::<Vec<&str>>()
-                            .join("\n");
-
-                        stages_results.push(CiStageResult {
-                            name: stage.name.clone(),
-                            command: stage.command.clone(),
-                            status: if is_ok {
-                                CiStageStatus::Passed
-                            } else {
-                                CiStageStatus::Failed
-                            },
-                            duration_ms: duration,
-                            output_snippet: if snippet.is_empty() {
-                                "OK".into()
-                            } else {
-                                snippet
-                            },
-                            exit_code: Some(code),
+                        if !secrets.is_empty() {
+                            security_clean = false;
+                            secrets_found.extend(secrets);
+                        }
+                        stages_results.push(res);
+                    } else {
+                        // Ejecución concurrente mediante std::thread::scope (T32.8)
+                        let mut batch_results = Vec::with_capacity(batch.len());
+                        std::thread::scope(|s| {
+                            let mut handles = Vec::with_capacity(batch.len());
+                            for stage in &batch {
+                                handles.push(s.spawn(move || {
+                                    Self::execute_stage(stage, workspace)
+                                }));
+                            }
+                            for handle in handles {
+                                if let Ok(result) = handle.join() {
+                                    batch_results.push(result);
+                                }
+                            }
                         });
-                    }
-                    Err(e) => {
-                        overall_success = false;
-                        stages_results.push(CiStageResult {
-                            name: stage.name.clone(),
-                            command: stage.command.clone(),
-                            status: CiStageStatus::Failed,
-                            duration_ms: duration,
-                            output_snippet: format!("Fallo al invocar comando: {e}"),
-                            exit_code: Some(127),
-                        });
+
+                        for (res, secrets, is_ok) in batch_results {
+                            if !is_ok {
+                                overall_success = false;
+                            }
+                            if !secrets.is_empty() {
+                                security_clean = false;
+                                secrets_found.extend(secrets);
+                            }
+                            stages_results.push(res);
+                        }
                     }
                 }
             }
@@ -740,5 +808,53 @@ mod tests {
         assert!(!uninstalled.pre_push_installed);
 
         let _ = fs::remove_dir_all(&temp_ws);
+    }
+
+    #[test]
+    fn test_parallel_stages_execution() {
+        let temp_ws =
+            std::env::temp_dir().join(format!("test_ci_parallel_ws_{}", std::process::id()));
+        let temp_state =
+            std::env::temp_dir().join(format!("test_ci_parallel_state_{}", std::process::id()));
+        let antos_dir = temp_ws.join(".antos");
+        let _ = fs::create_dir_all(&antos_dir);
+        let _ = fs::create_dir_all(&temp_state);
+
+        let ci_toml = r#"
+name = "parallel-test"
+
+[[stages]]
+name = "par_1"
+command = "echo par1"
+parallel = true
+fast = true
+
+[[stages]]
+name = "par_2"
+command = "echo par2"
+parallel = true
+fast = true
+
+[[stages]]
+name = "seq_1"
+command = "echo seq1"
+parallel = false
+fast = true
+"#;
+        fs::write(antos_dir.join("ci.toml"), ci_toml).unwrap();
+
+        let report = CiEngine::run_pipeline(&temp_ws, &temp_state, None, false).expect("run ci");
+        assert!(report.success);
+        assert_eq!(report.stages.len(), 3);
+        assert_eq!(report.stages[0].name, "par_1");
+        assert_eq!(report.stages[1].name, "par_2");
+        assert_eq!(report.stages[2].name, "seq_1");
+        assert!(report
+            .stages
+            .iter()
+            .all(|s| s.status == CiStageStatus::Passed));
+
+        let _ = fs::remove_dir_all(&temp_ws);
+        let _ = fs::remove_dir_all(&temp_state);
     }
 }

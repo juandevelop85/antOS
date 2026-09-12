@@ -6,6 +6,7 @@
 use super::vfs::{DirEntry, FileInfo, FsError};
 #[cfg(target_arch = "x86_64")]
 use crate::drivers::virtio_blk;
+use alloc::borrow::Cow;
 use alloc::string::{String, ToString};
 #[cfg(target_arch = "x86_64")]
 use alloc::vec;
@@ -140,8 +141,11 @@ impl TarFs {
         self.entries.iter().find(|e| e.path == norm)
     }
 
-    /// Reads all bytes belonging to a file entry.
-    pub fn read_file(&self, entry: &TarEntry) -> Result<Vec<u8>, FsError> {
+    /// Reads all bytes belonging to a file entry as a `Cow<'static, [u8]>`.
+    ///
+    /// When backed by in-memory storage (`TarBacking::Memory`), returns a borrowed
+    /// slice with zero heap allocations.
+    pub fn read_file_cow(&self, entry: &TarEntry) -> Result<Cow<'static, [u8]>, FsError> {
         if entry.is_dir {
             return Err(FsError::NotAFile);
         }
@@ -153,7 +157,7 @@ impl TarFs {
                 // slip a truncated or out-of-bounds slice past the check.
                 let start = entry.sector_or_offset;
                 match start.checked_add(entry.size) {
-                    Some(end) if end <= slice.len() => Ok(slice[start..end].to_vec()),
+                    Some(end) if end <= slice.len() => Ok(Cow::Borrowed(&slice[start..end])),
                     _ => Err(FsError::IoError),
                 }
             }
@@ -166,7 +170,7 @@ impl TarFs {
                     virtio_blk::read_blocks(entry.sector_or_offset as u64, &mut raw_buf)
                         .map_err(|_| FsError::IoError)?;
                     raw_buf.truncate(entry.size);
-                    Ok(raw_buf)
+                    Ok(Cow::Owned(raw_buf))
                 }
                 #[cfg(not(target_arch = "x86_64"))]
                 {
@@ -174,6 +178,11 @@ impl TarFs {
                 }
             }
         }
+    }
+
+    /// Reads all bytes belonging to a file entry into an owned vector.
+    pub fn read_file(&self, entry: &TarEntry) -> Result<Vec<u8>, FsError> {
+        self.read_file_cow(entry).map(Cow::into_owned)
     }
 
     /// Queries file information.
@@ -383,5 +392,30 @@ mod tests {
             fs.read_file(&entry).is_err(),
             "start + size overflow must be rejected, not wrap into a valid slice"
         );
+    }
+
+    #[test_case]
+    fn test_read_file_cow_memory_backing_is_borrowed() {
+        static MOCK_DATA: [u8; 64] = [42u8; 64];
+        let fs = TarFs {
+            backing: TarBacking::Memory(&MOCK_DATA),
+            entries: alloc::vec::Vec::new(),
+        };
+        let entry = TarEntry {
+            path: String::from("/mock.bin"),
+            size: 16,
+            is_dir: false,
+            sector_or_offset: 10,
+        };
+        let cow = fs.read_file_cow(&entry).expect("read_file_cow failed");
+        match cow {
+            Cow::Borrowed(slice) => {
+                assert_eq!(slice.len(), 16);
+                assert_eq!(slice[0], 42);
+            }
+            Cow::Owned(_) => {
+                panic!("TarBacking::Memory must return Cow::Borrowed, not Cow::Owned");
+            }
+        }
     }
 }

@@ -108,6 +108,11 @@ fn capture(from: &Path, to: &Path) -> Result<String> {
     if clone_tree(from, to) {
         return Ok("clon".into());
     }
+    // Si un intento de clon falló a mitad y dejó entradas parciales en el destino,
+    // limpiamos antes de proceder con copia recursiva estándar.
+    if to.exists() {
+        let _ = remove_any(to);
+    }
     copy_tree(from, to)?;
     Ok("copia".into())
 }
@@ -133,7 +138,73 @@ fn clone_tree(from: &Path, to: &Path) -> bool {
     unsafe { clonefile(src.as_ptr(), dst.as_ptr(), 0) == 0 }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Clonado copy-on-write para Linux mediante ioctl(..., FICLONE, ...).
+/// Soporta ficheros individuales directamente y árboles de directorios
+/// recursivamente preservando la jerarquía.
+#[cfg(target_os = "linux")]
+fn clone_tree(from: &Path, to: &Path) -> bool {
+    if from.is_file() {
+        if let Some(parent) = to.parent() {
+            if std::fs::create_dir_all(parent).is_err() {
+                return false;
+            }
+        }
+        return clone_file_linux(from, to);
+    }
+
+    if from.is_dir() {
+        if std::fs::create_dir_all(to).is_err() {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(from) else {
+            return false;
+        };
+        for entry in entries {
+            let Ok(entry) = entry else {
+                return false;
+            };
+            let sub_from = entry.path();
+            let sub_to = to.join(entry.file_name());
+            if !clone_tree(&sub_from, &sub_to) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    false
+}
+
+/// Clona un archivo regular en Linux utilizando FICLONE (ioctl reflink de btrfs/xfs/zfs).
+#[cfg(target_os = "linux")]
+fn clone_file_linux(from: &Path, to: &Path) -> bool {
+    use std::fs::File;
+    use std::os::unix::io::AsRawFd;
+
+    let Ok(src_file) = File::open(from) else {
+        return false;
+    };
+
+    let Ok(dst_file) = File::options()
+        .write(true)
+        .create_new(true)
+        .open(to)
+    else {
+        return false;
+    };
+
+    // FICLONE ioctl: _IOW(0x94, 9, int) = 0x40049409
+    const FICLONE: libc::c_ulong = 0x40049409;
+    let ret = unsafe { libc::ioctl(dst_file.as_raw_fd(), FICLONE as _, src_file.as_raw_fd()) };
+    if ret == 0 {
+        true
+    } else {
+        let _ = std::fs::remove_file(to);
+        false
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn clone_tree(_from: &Path, _to: &Path) -> bool {
     false
 }
@@ -152,4 +223,82 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
         std::fs::copy(from, to)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_snapshot_take_and_restore() {
+        let temp_dir = std::env::temp_dir().join(format!("test_snap_{}", std::process::id()));
+        let ws = temp_dir.join("workspace");
+        let snaps = temp_dir.join("snaps");
+        let _ = std::fs::create_dir_all(&ws);
+        let _ = std::fs::create_dir_all(&snaps);
+
+        let file_a = ws.join("file_a.txt");
+        let sub_dir = ws.join("sub");
+        let _ = std::fs::create_dir_all(&sub_dir);
+        let file_b = sub_dir.join("file_b.txt");
+
+        std::fs::write(&file_a, "Contenido A inicial").unwrap();
+        std::fs::write(&file_b, "Contenido B inicial").unwrap();
+
+        let paths = vec![file_a.clone(), sub_dir.clone()];
+        let snap = take("snap_01", &paths, &snaps).expect("take snapshot");
+        assert_eq!(snap.entries.len(), 2);
+        assert!(snap.entries.iter().all(|e| e.existed));
+        assert!(snap.entries.iter().all(|e| e.method == "clon" || e.method == "copia"));
+
+        // Modificar o eliminar archivos en workspace
+        std::fs::write(&file_a, "Contenido A modificado").unwrap();
+        std::fs::remove_file(&file_b).unwrap();
+        let file_c = sub_dir.join("file_c_nuevo.txt");
+        std::fs::write(&file_c, "Archivo nuevo no deseado").unwrap();
+
+        // Restaurar instantánea
+        let loaded = load("snap_01", &snaps).expect("load snapshot");
+        let done = restore(&loaded).expect("restore snapshot");
+        assert_eq!(done.len(), 2);
+
+        // Verificar que los contenidos volvieron al estado original
+        assert_eq!(
+            std::fs::read_to_string(&file_a).unwrap(),
+            "Contenido A inicial"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file_b).unwrap(),
+            "Contenido B inicial"
+        );
+        assert!(!file_c.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_snapshot_non_existent_path_removal_on_restore() {
+        let temp_dir =
+            std::env::temp_dir().join(format!("test_snap_nonexist_{}", std::process::id()));
+        let ws = temp_dir.join("workspace");
+        let snaps = temp_dir.join("snaps");
+        let _ = std::fs::create_dir_all(&ws);
+        let _ = std::fs::create_dir_all(&snaps);
+
+        let file_ghost = ws.join("ghost.txt");
+        let paths = vec![file_ghost.clone()];
+        let snap = take("snap_ghost", &paths, &snaps).expect("take snapshot");
+        assert!(!snap.entries[0].existed);
+        assert_eq!(snap.entries[0].method, "inexistente");
+
+        // Creamos el archivo después de la instantánea
+        std::fs::write(&file_ghost, "Aparecí después").unwrap();
+        assert!(file_ghost.exists());
+
+        // Al restaurar, debe desaparecer
+        restore(&snap).expect("restore");
+        assert!(!file_ghost.exists());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }

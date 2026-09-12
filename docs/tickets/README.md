@@ -416,7 +416,7 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
 - **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
   - **✅ T32.6 resuelto:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA; cesión de CPU (`io_wait`), soporte para suspensión de hilos (`ThreadState::Blocked`) en el planificador preemptivo y timeouts calibrados por ticks de temporizador.
   - **T32.7:** Reducción de la inserción en el grafo de contexto de $O(E^2)$ a $O(1)$; diccionario léxico compacto para vectores semánticos y optimización de tokens en el visor de diffs.
-  - **T32.8:** Lectura zero-copy para ficheros de memoria en VFS; soporte de clonado CoW (`FICLONE`) en Linux; paralelización real de stages independientes en CI local.
+  - **✅ T32.8 resuelto:** Lectura zero-copy con `Cow<'static, [u8]>` para ficheros de memoria en VFS sin asignación en heap; soporte de instantáneas CoW (`FICLONE` / reflink) en Linux para ficheros y directorios; paralelización de stages concurrentes en CI local con `std::thread::scope`.
 
-Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → T32.3 → T32.4 → T32.5 → ~~T32.6~~ → T32.7 → T32.8.
+Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → T32.3 → T32.4 → T32.5 → ~~T32.6~~ → T32.7 → ~~T32.8~~.
 
