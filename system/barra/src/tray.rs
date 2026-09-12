@@ -12,7 +12,7 @@ use ksni::{Icon, Tray};
 const ICON_SIZE: i32 = 22;
 
 struct AntosTray {
-    activate_tx: gtk4::glib::Sender<()>,
+    activate_tx: async_channel::Sender<()>,
 }
 
 impl Tray for AntosTray {
@@ -29,7 +29,8 @@ impl Tray for AntosTray {
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {
-        let _ = self.activate_tx.send(());
+        // Canal sin límite: `send_blocking` nunca bloquea el hilo del host SNI.
+        let _ = self.activate_tx.send_blocking(());
     }
 }
 
@@ -61,7 +62,7 @@ fn antos_icon() -> Icon {
 ///
 /// Si el registro SNI falla del todo, la barra sigue funcionando igual —
 /// D-Bus/SNI es un atajo para abrirla, no un requisito para que exista.
-pub(crate) fn spawn(activate_tx: gtk4::glib::Sender<()>) {
+pub(crate) fn spawn(activate_tx: async_channel::Sender<()>) {
     std::thread::spawn(move || {
         let tray = AntosTray { activate_tx };
         match tray.assume_sni_available(true).spawn() {

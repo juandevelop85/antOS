@@ -21,6 +21,10 @@ gtk4-layer-shell = "0.8"
 # "blocking" + "async-io" en vez del "tokio" por defecto: no hace falta
 # arrastrar un runtime async completo solo para publicar un icono.
 ksni = { version = "0.3.6", default-features = false, features = ["blocking", "async-io"] }
+# Canal hilo-de-bandeja → bucle GTK (T32.4): reemplazo de
+# `glib::MainContext::channel`, retirado de glib-rs en 0.19. Ya viene en el
+# árbol vía `ksni`/`async-io`, así que no añade ninguna descarga nueva.
+async-channel = "2"
 
 # gtk4 es enorme y compilarlo con información de depuración se comió los
 # 1,9 GiB de la máquina de contenedores: rustc murió con SIGKILL. Sin

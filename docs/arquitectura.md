@@ -354,7 +354,7 @@ graph TD
 4. **Telemetría en RAM y Canal Reactivo GLib (`system/antosd/src/telemetry.rs`, `system/barra/src/main.rs` — T32.4):**
    - Telemetría de salud y rendimiento mantenida en RAM sin escrituras síncronas a disco en la ruta crítica (<1 ms).
    - Inserción y desalojo de alertas en tiempo constante $O(1)$ mediante `VecDeque`.
-   - Eliminación del bucle de sondeo activo a 80 ms en `system/barra`, reemplazado por un canal reactivo de GLib (`glib::MainContext::channel` + `tray_rx.attach`) con despacho por eventos.
+   - Eliminación del bucle de sondeo activo a 80 ms en `system/barra`, reemplazado por un canal reactivo (`async_channel::unbounded` + `glib::spawn_future_local`) con despacho por eventos.
 5. **Analizador Git Unificado y Caché con Signatura (`system/capabilities/src/git.rs`, `system/antosd/src/git.rs` — T32.5):**
    - Sustitución de múltiples invocaciones de Git (`status`, `diff`, `rev-parse`, `branch`) por una única consulta unificada `git status --porcelain=v2 --branch`, reduciendo subprocesos en un 75%.
    - Caché de estado basada en `WorktreeSignature` (mtime de `.git/index`, `HEAD` y archivos rastreados), invalidando de forma inmediata cuando el desarrollador edita ficheros sin necesidad de `git add`.

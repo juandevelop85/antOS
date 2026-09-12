@@ -163,7 +163,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 32** | [T32.4](T32.4-optimizacion-de-telemetria-en-memoria-y-eliminacion-de-sondeo-activo-en-barra.md) | Optimización de Telemetría en Memoria y Eliminación de Sondeo Activo en Barra | ✅ Completado |
 | **Fase 32** | [T32.5](T32.5-consulta-unificada-y-cache-consistente-en-el-analizador-git.md) | Consulta Unificada y Caché Consistente en el Analizador Git | ✅ Completado |
 | **Fase 32** | [T32.6](T32.6-eliminacion-de-espera-activa-busy-waiting-en-nvme-y-ahci-sata.md) | Eliminación de Espera Activa (Busy-Waiting) en Controladores NVMe y AHCI SATA | ✅ Completado |
-| **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ⏳ Pendiente |
+| **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ✅ Completado |
 | **Fase 32** | [T32.8](T32.8-zero-copy-en-vfs-y-clones-copy-on-write-para-linux.md) | Zero-Copy en VFS y Clones Copy-on-Write en Linux | ✅ Completado |
 
 ---
@@ -411,7 +411,7 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
   - **✅ T32.2 resuelto:** Aceleración de trazado en VRAM de 128 a 16 operaciones base por glifo en `draw_char`; llenado contiguo por fila en `draw_rect`; seguimiento de rectángulos dañados (*dirty rectangles*) y eliminación de flushes de pantalla completa VirtIO en cada `newline` en AArch64; borrado y llenado rápido con `slice::fill` en `Surface`.
 - **Concurrencia y E/S en Demonio e Interfaz (T32.3 – T32.5):**
   - **✅ T32.3 resuelto:** Servidor IPC concurrente despachado en hilos dedicados y desacoplamiento de mutaciones con `WORKSPACE_MUTATION_LOCK`; consultas de solo lectura en <50 ms sin congelamiento por sesiones interactivas; eliminación de la doble serialización en `SocketHandler::on_result`.
-  - **✅ T32.4 resuelto:** Telemetría en RAM sin lecturas de disco síncronas en `antosd` (<1 ms); `VecDeque` para inserción/desalojo $O(1)$ de alertas; eliminación del bucle de sondeo activo a 80 ms en `system/barra` reemplazado por canal reactivo de GLib (`glib::MainContext::channel` + `tray_rx.attach`).
+  - **✅ T32.4 resuelto:** Telemetría en RAM sin lecturas de disco síncronas en `antosd` (<1 ms); `VecDeque` para inserción/desalojo $O(1)$ de alertas; eliminación del bucle de sondeo activo a 80 ms en `system/barra` reemplazado por un canal reactivo (`async_channel` consumido con `glib::spawn_future_local`; `glib::MainContext::channel` ya no existe en glib-rs ≥ 0.19).
   - **✅ T32.5 resuelto:** Unificación de inspección Git con `status --porcelain=v2 --branch` (reducción de subprocesos de 4 a 1 en caso general); caché consistente con `WorktreeSignature` que detecta inmediatamente modificaciones en el working tree sin `git add`; memoización $O(1)$ de `detect_antos_root()`.
 - **Almacenamiento, Estructuras de Datos y Zero-Copy (T32.6 – T32.8):**
   - **✅ T32.6 resuelto:** Eliminación de busy-waiting de millones de iteraciones de CPU en controladores NVMe y AHCI SATA; cesión de CPU (`io_wait`), soporte para suspensión de hilos (`ThreadState::Blocked`) en el planificador preemptivo y timeouts calibrados por ticks de temporizador.

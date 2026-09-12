@@ -71,8 +71,12 @@ pub(crate) fn build_ui(app: &Application) {
 
     let is_expanded: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
-    // Icono de bandeja SNI (T30.8, T32.4): canal reactivo GLib sin sondeo activo.
-    let (tray_tx, tray_rx) = gtk4::glib::MainContext::channel::<()>(gtk4::glib::Priority::default());
+    // Icono de bandeja SNI (T30.8, T32.4): canal reactivo sin sondeo activo.
+    // `async-channel` (ya presente en el árbol de dependencias vía `ksni`)
+    // sustituye a `glib::MainContext::channel`, retirado de glib-rs en 0.19;
+    // el consumidor se cablea más abajo con `glib::spawn_future_local`, una
+    // vez existen `window`/`input` — ver `tray.rs`.
+    let (tray_tx, tray_rx) = async_channel::unbounded::<()>();
     crate::tray::spawn(tray_tx);
 
     let frame = GtkBox::new(Orientation::Vertical, 12);
@@ -303,15 +307,23 @@ pub(crate) fn build_ui(app: &Application) {
     }
 
     // Click en el icono de bandeja → alterna expandir/colapsar (T30.8, T32.4).
-    // `tray::spawn` envía el evento a través del canal reactivo GLib (`tray_rx.attach`),
-    // eliminando por completo el sondeo periódico por temporizador.
+    // `tray::spawn` manda por `tray_tx` desde su propio hilo (`Tray::activate`,
+    // disparado por el host SNI); aquí una tarea local del bucle GLib duerme
+    // en `recv().await` y solo despierta cuando llega un evento — sin ningún
+    // sondeo periódico por temporizador. Termina sola si el emisor se cierra.
     {
         let window_ref = window.clone();
         let input_ref = input.clone();
         let is_expanded_ref = is_expanded.clone();
-        tray_rx.attach(None, move |()| {
-            set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, !is_expanded_ref.get());
-            gtk4::glib::ControlFlow::Continue
+        gtk4::glib::spawn_future_local(async move {
+            while tray_rx.recv().await.is_ok() {
+                set_bar_expanded(
+                    &window_ref,
+                    &input_ref,
+                    &is_expanded_ref,
+                    !is_expanded_ref.get(),
+                );
+            }
         });
     }
 

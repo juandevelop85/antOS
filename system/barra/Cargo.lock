@@ -7,6 +7,7 @@ name = "antos-barra"
 version = "0.1.0"
 dependencies = [
  "antos-protocol",
+ "async-channel",
  "gtk4",
  "gtk4-layer-shell",
  "ksni",
