@@ -34,9 +34,9 @@
       <action name="Execute" command="antos intent 'abre el centro de control de agentes'"/>
     </keybind>
 
-    <!-- Super + Return: Interactive Virtual Terminal (vte) -->
+    <!-- Super + Return: Interactive Virtual Terminal -->
     <keybind key="W-Return">
-      <action name="Execute" command="antos vte"/>
+      <action name="Execute" command="foot"/>
     </keybind>
 
     <!-- Super + D: Interactive Diff Viewer & Rollback -->
@@ -46,12 +46,12 @@
 
     <!-- Super + E: Default Text Editor (Neovim) -->
     <keybind key="W-e">
-      <action name="Execute" command="antos edit"/>
+      <action name="Execute" command="foot -e antos edit"/>
     </keybind>
 
     <!-- Super + W: Integrated Dev TUI Workspace (Neovim + antFlow + DiffViewer) -->
     <keybind key="W-w">
-      <action name="Execute" command="antos dev"/>
+      <action name="Execute" command="foot -e antos dev"/>
     </keybind>
 
     <!-- Traditional desktop shortcuts (T30.6). No-ops if `panel` is disabled:

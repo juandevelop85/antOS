@@ -39,6 +39,13 @@ let
   # `system/desktop/start-session.sh` pero con rutas del store.
   sessionScript = pkgs.writeShellScript "antos-desktop-session" ''
     set -eu
+
+    # Cargar el entorno global de NixOS: PATH (/run/current-system/sw/bin),
+    # XDG_DATA_DIRS, XDG_CONFIG_DIRS y variables de sesión declaradas.
+    if [ -f /etc/set-environment ]; then
+      . /etc/set-environment
+    fi
+
     export XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
     mkdir -p "$XDG_CONFIG_HOME/labwc"
     cp -f /etc/antos/desktop/rc.xml "$XDG_CONFIG_HOME/labwc/rc.xml"
@@ -47,7 +54,11 @@ let
       cp -f /etc/antos/desktop/labwc/menu.xml "$XDG_CONFIG_HOME/labwc/menu.xml"
     ''}
     chmod +x "$XDG_CONFIG_HOME/labwc/autostart"
-    exec ${lib.getExe cfg.compositor} -s "$XDG_CONFIG_HOME/labwc/autostart"
+
+    # Lanzar el compositor dentro de una sesión D-Bus propia para que
+    # Waybar (módulo tray / SNI), Mako (notificaciones) y antos-barra
+    # tengan un bus de sesión funcional.
+    exec ${pkgs.dbus}/bin/dbus-run-session ${lib.getExe cfg.compositor} -s "$XDG_CONFIG_HOME/labwc/autostart"
   '';
 
   # ── Escritorio tradicional opcional (T30.6) ──────────────────────────────
@@ -61,10 +72,15 @@ let
     # `_a` lanza en segundo plano solo si no hay ya una instancia: la sesión
     # de greetd se reinicia cuando el compositor sale (y el primer arranque en
     # frío bajo emulación puede provocarlo), y sin esta guarda quedarían dos
-    # de cada cliente apilados. El `sleep` da margen a que el compositor tenga
-    # el socket Wayland listo antes de conectar el panel.
-    _a() { p="$1"; shift; if ! pgrep -f "$p" >/dev/null 2>&1; then "$@" >/dev/null 2>&1 & fi; }
-    sleep 1
+    # de cada cliente apilados. Esperamos hasta que el socket Wayland esté
+    # activo antes de conectar el panel y los clientes gráficos.
+    _a() { p="$1"; shift; if ! pgrep -f "$p" >/dev/null 2>&1; then "$@" >> /tmp/antos-desktop.log 2>&1 & fi; }
+
+    for _ in $(seq 1 30); do
+      [ -n "''${WAYLAND_DISPLAY:-}" ] && [ -S "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/''${WAYLAND_DISPLAY}" ] && break
+      sleep 0.1
+    done
+
     _a 'swaybg' ${pkgs.swaybg}/bin/swaybg ${
       if cfg.panel.wallpaper != null
       then ''-i "${cfg.panel.wallpaper}" -m fill''
@@ -148,14 +164,17 @@ let
         <item label="Terminal">
           <action name="Execute" command="${lib.getExe cfg.terminal}"/>
         </item>
+        <item label="Barra de intención antOS">
+          <action name="Execute" command="${lib.getExe cfg.barra} --panel"/>
+        </item>
         <item label="Archivos">
           <action name="Execute" command="${lib.getExe cfg.panel.fileManager}"/>
         </item>
         <item label="Editor">
-          <action name="Execute" command="antos edit"/>
+          <action name="Execute" command="${lib.getExe cfg.terminal} -e antos edit"/>
         </item>
         <item label="antOS · dev">
-          <action name="Execute" command="antos dev"/>
+          <action name="Execute" command="${lib.getExe cfg.terminal} -e antos dev"/>
         </item>
         <separator/>
         <item label="Lanzador de aplicaciones">

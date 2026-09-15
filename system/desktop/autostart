@@ -9,13 +9,23 @@
 # lanzamiento.
 set -euo pipefail
 
+LOG="/tmp/antos-desktop.log"
+
+# Sincronizar variables de sesión con systemd --user y D-Bus si están presentes
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user import-environment PATH XDG_DATA_DIRS XDG_CONFIG_DIRS XDG_CURRENT_DESKTOP XDG_SESSION_TYPE WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS ANTOS_WORKSPACE ANTOS_STATE 2>/dev/null || true
+fi
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd --all 2>/dev/null || true
+fi
+
 # 1. Ensure antOS daemon is running.
 #    En NixOS el demonio es un servicio systemd (T31.18) y esta rama no hace
 #    nada; en un Linux de desarrollo con el binario en el PATH, lo levanta.
 if command -v antosd >/dev/null 2>&1; then
-    pgrep -x antosd >/dev/null 2>&1 || antosd >/dev/null 2>&1 &
+    pgrep -x antosd >/dev/null 2>&1 || antosd >> "$LOG" 2>&1 &
 elif [ -x "./target/debug/antosd" ]; then
-    pgrep -f "target/debug/antosd" >/dev/null 2>&1 || ./target/debug/antosd >/dev/null 2>&1 &
+    pgrep -f "target/debug/antosd" >/dev/null 2>&1 || ./target/debug/antosd >> "$LOG" 2>&1 &
 fi
 
 # 2. Launch antOS Desktop Bar (GTK4 Layer-Shell).
@@ -29,7 +39,7 @@ fi
 #    tras el arranque, pero lanzada a mano segundos después sí funcionaba).
 sleep 1
 if command -v antos-barra >/dev/null 2>&1; then
-    pgrep -f antos-barra >/dev/null 2>&1 || antos-barra >/dev/null 2>&1 &
+    pgrep -f antos-barra >/dev/null 2>&1 || antos-barra >> "$LOG" 2>&1 &
 elif [ -x "./system/barra/target/debug/antos-barra" ]; then
-    pgrep -f antos-barra >/dev/null 2>&1 || ./system/barra/target/debug/antos-barra >/dev/null 2>&1 &
+    pgrep -f antos-barra >/dev/null 2>&1 || ./system/barra/target/debug/antos-barra >> "$LOG" 2>&1 &
 fi
