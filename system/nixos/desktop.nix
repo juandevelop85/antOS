@@ -38,15 +38,24 @@ let
   # compositor con el `autostart` de antOS. Equivale a
   # `system/desktop/start-session.sh` pero con rutas del store.
   sessionScript = pkgs.writeShellScript "antos-desktop-session" ''
-    set -eu
+    set -e
+
+    # Predefinir rutas base XDG por si no vienen fijadas en el entorno
+    export HOME="''${HOME:-/home/${cfg.autologinUser}}"
+    export XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
+    export XDG_DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
+    export XDG_STATE_HOME="''${XDG_STATE_HOME:-$HOME/.local/state}"
+    export XDG_CACHE_HOME="''${XDG_CACHE_HOME:-$HOME/.cache}"
 
     # Cargar el entorno global de NixOS: PATH (/run/current-system/sw/bin),
     # XDG_DATA_DIRS, XDG_CONFIG_DIRS y variables de sesión declaradas.
+    # Desactivamos set -u porque /etc/set-environment se diseñó para shells
+    # estándar de login (/etc/profile) y evalúa variables opcionales.
     if [ -f /etc/set-environment ]; then
+      set +u
       . /etc/set-environment
     fi
 
-    export XDG_CONFIG_HOME="''${XDG_CONFIG_HOME:-$HOME/.config}"
     mkdir -p "$XDG_CONFIG_HOME/labwc"
     cp -f /etc/antos/desktop/rc.xml "$XDG_CONFIG_HOME/labwc/rc.xml"
     cp -f /etc/antos/desktop/autostart "$XDG_CONFIG_HOME/labwc/autostart"
