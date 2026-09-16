@@ -12,13 +12,18 @@
 
 let
   cfg = config.services.antos.desktop;
+  isLabwc = cfg.flavor == "labwc";
+  isPlasma = cfg.flavor == "plasma";
 
   # Variables de entorno de la sesión Wayland — el contenido de
   # `system/desktop/environment`, declarado aquí para que sea parte de la
-  # definición del sistema.
-  sessionEnv = {
+  # definición del sistema. Con el sabor `plasma`, `XDG_CURRENT_DESKTOP` y
+  # `XDG_SESSION_DESKTOP` los fija `startplasma-wayland` a `KDE` (portales,
+  # filtrado de `.desktop`, etc.): no se declaran `antOS` para no contradecirlo.
+  sessionEnv = lib.optionalAttrs isLabwc {
     XDG_CURRENT_DESKTOP = "antOS";
     XDG_SESSION_DESKTOP = "antOS";
+  } // {
     XDG_SESSION_TYPE = "wayland";
     GDK_BACKEND = "wayland,x11,*";
     QT_QPA_PLATFORM = "wayland;xcb";
@@ -152,6 +157,54 @@ let
     _apply_output_scale
     ( while sleep 2; do _apply_output_scale; done ) &
   '';
+
+  # ── Sabor Plasma (T30.9) ─────────────────────────────────────────────
+  # Sesión: el mismo `greetd` con autologin, pero `exec startplasma-wayland`.
+  # Sin `dbus-run-session`: Plasma 6 arranca por `systemd --user` y usa el
+  # bus de usuario (`$XDG_RUNTIME_DIR/bus`); un bus propio lo rompería.
+  plasmaSessionScript = pkgs.writeShellScript "antos-plasma-session" ''
+    set -e
+    if [ -f /etc/set-environment ]; then
+      set +u
+      . /etc/set-environment
+    fi
+    exec ${pkgs.kdePackages.plasma-workspace}/bin/startplasma-wayland
+  '';
+
+  # Escala HiDPI bajo Plasma: mismo criterio y mismo sondeo que
+  # `outputScaleSnippet`, pero con `kscreen-doctor` (KScreen es quien manda
+  # sobre las salidas en Plasma; `wlr-randr` funcionaría contra KWin pero
+  # KScreen lo pisaría al reaplicar su configuración guardada).
+  plasmaScaleScript = let
+    kscreenDoctor = "${pkgs.kdePackages.libkscreen}/bin/kscreen-doctor";
+    wantScale =
+      if cfg.outputScale == "auto"
+      then ''if [ "$width" -ge 2560 ]; then want=2; else want=1; fi''
+      else ''want=${toString cfg.outputScale}'';
+  in pkgs.writeShellScript "antos-plasma-output-scale" ''
+    _apply_output_scale() {
+      ${kscreenDoctor} -j 2>/dev/null \
+        | ${lib.getExe pkgs.jq} -r '.outputs[] | select(.enabled) | . as $o | "\(.name) \(.scale * 1) \(($o.modes[] | select(.id == $o.currentModeId) | .size.width) // 0)"' \
+        | while read -r name scale width; do
+            ${wantScale}
+            if [ "$scale" != "$want" ]; then
+              ${kscreenDoctor} "output.$name.scale.$want" >> /tmp/antos-desktop.log 2>&1 || true
+            fi
+          done
+    }
+    _apply_output_scale
+    while sleep 2; do _apply_output_scale; done
+  '';
+
+  # Entrada de lanzador para la barra (Kickoff la muestra bajo «Utilidades»).
+  barraDesktopItem = pkgs.makeDesktopItem {
+    name = "antos-barra";
+    desktopName = "Barra de intención antOS";
+    comment = "Barra de intención y centro de agentes de antOS";
+    exec = lib.getExe cfg.barra;
+    icon = "utilities-terminal";
+    categories = [ "Utility" "System" ];
+  };
 
   sessionAutostart = pkgs.writeShellScript "antos-autostart"
     (builtins.replaceStrings [ "# @antos:outputs@" "# @antos:panel@" ]
@@ -287,6 +340,19 @@ in
   options.services.antos.desktop = {
     enable = lib.mkEnableOption "el escritorio antOS Linux (Wayland + antos-barra)";
 
+    flavor = lib.mkOption {
+      type = lib.types.enum [ "labwc" "plasma" ];
+      default = "labwc";
+      description = ''
+        Sabor del escritorio (T30.9). `labwc`: compositor `wlroots` ligero +
+        `antos-barra` + el mobiliario opcional de `panel` (T30.6). `plasma`:
+        KDE Plasma 6 en Wayland completo (KWin, plasmashell, Dolphin,
+        Konsole, Ajustes…) con `antos-barra` anclada arriba por layer-shell
+        y su icono en la bandeja de Plasma; `panel` y `compositor` se
+        ignoran. Ambos usan el mismo autologin por `greetd`.
+      '';
+    };
+
     compositor = lib.mkOption {
       type = lib.types.package;
       default = pkgs.labwc;
@@ -414,37 +480,23 @@ in
     services.antos.user = lib.mkDefault cfg.autologinUser;
 
     environment.systemPackages = [
-      cfg.compositor
       cfg.barra
       cfg.terminal
       cfg.editor
       pkgs.wl-clipboard
-      pkgs.grim # captura de pantalla (wlr-screencopy) para QA visual (T14.2)
-      pkgs.slurp
       pkgs.git
-      pkgs.wlr-randr # escala HiDPI de las salidas (`outputScale`)
       pkgs.jq
     ];
 
     environment.sessionVariables = sessionEnv;
 
-    # Configuración declarativa de la sesión, tomada de `system/desktop/`.
-    environment.etc."antos/desktop/rc.xml".source = ../desktop/rc.xml;
-    # `autostart` = base (`system/desktop/autostart`: demonio + antos-barra)
-    # más el mobiliario del panel si `panel.enable` (T30.6). Generado, no
-    # copiado tal cual, por eso.
-    environment.etc."antos/desktop/autostart" = {
-      source = sessionAutostart;
-      mode = "0755";
-    };
-    environment.etc."antos/desktop/environment".source = ../desktop/environment;
-
     # Entrada de sesión Wayland + autologin. `greetd` con `default_session`
-    # arranca la sesión de antOS para `autologinUser` sin más pasos.
+    # arranca la sesión de antOS para `autologinUser` sin más pasos; el
+    # comando depende del sabor (T30.9).
     services.greetd = {
       enable = true;
       settings.default_session = {
-        command = "${sessionScript}";
+        command = if isPlasma then "${plasmaSessionScript}" else "${sessionScript}";
         user = cfg.autologinUser;
       };
     };
@@ -461,12 +513,64 @@ in
     programs.dconf.enable = lib.mkDefault true;
     fonts.packages = [ pkgs.dejavu_fonts pkgs.noto-fonts ];
 
+  }
+
+  # ── Sabor Labwc (por defecto) ──────────────────────────────────────────
+  (lib.mkIf isLabwc {
+    environment.systemPackages = [
+      cfg.compositor
+      pkgs.grim # captura de pantalla (wlr-screencopy) para QA visual (T14.2)
+      pkgs.slurp
+      pkgs.wlr-randr # escala HiDPI de las salidas (`outputScale`)
+    ];
+
+    # Configuración declarativa de la sesión, tomada de `system/desktop/`.
+    environment.etc."antos/desktop/rc.xml".source = ../desktop/rc.xml;
+    # `autostart` = base (`system/desktop/autostart`: demonio + antos-barra)
+    # más el mobiliario del panel si `panel.enable` (T30.6). Generado, no
+    # copiado tal cual, por eso.
+    environment.etc."antos/desktop/autostart" = {
+      source = sessionAutostart;
+      mode = "0755";
+    };
+    environment.etc."antos/desktop/environment".source = ../desktop/environment;
+
     xdg.portal = {
       enable = true;
       extraPortals = [ pkgs.xdg-desktop-portal-wlr ];
       config.common.default = "wlr";
     };
-  }
+  })
+
+  # ── Sabor Plasma 6 Wayland (T30.9) ─────────────────────────────────────
+  (lib.mkIf isPlasma {
+    services.desktopManager.plasma6.enable = true;
+
+    environment.systemPackages = [
+      barraDesktopItem
+      pkgs.kdePackages.libkscreen # `kscreen-doctor` (escala HiDPI)
+    ];
+
+    # `antos-barra` arranca con la sesión por autostart XDG (Plasma lo
+    # convierte en una unidad `systemd --user`), y el vigilante de escala
+    # igual. `OnlyShowIn=KDE`: no interfiere si el usuario elige otra sesión.
+    environment.etc."xdg/autostart/antos-barra.desktop".text = ''
+      [Desktop Entry]
+      Type=Application
+      Name=Barra de intención antOS
+      Exec=${lib.getExe cfg.barra}
+      OnlyShowIn=KDE;
+      X-KDE-autostart-phase=2
+    '';
+    environment.etc."xdg/autostart/antos-output-scale.desktop".text = ''
+      [Desktop Entry]
+      Type=Application
+      Name=antOS · escala HiDPI de las salidas
+      Exec=${plasmaScaleScript}
+      OnlyShowIn=KDE;
+      X-KDE-autostart-phase=2
+    '';
+  })
 
   # ── Userland de desarrollo (T30.3) ────────────────────────────────────
   (lib.mkIf cfg.devTools {
@@ -534,7 +638,8 @@ in
   })
 
   # ── Escritorio tradicional sobre Labwc (T30.6) ────────────────────────
-  (lib.mkIf cfg.panel.enable {
+  # Solo con el sabor Labwc: bajo Plasma el mobiliario lo trae Plasma.
+  (lib.mkIf (isLabwc && cfg.panel.enable) {
     environment.systemPackages = [
       cfg.panel.package
       cfg.panel.launcher

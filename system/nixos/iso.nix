@@ -12,6 +12,9 @@
 
   services.antos.enable = true;
   services.antos.desktop.enable = true;
+  # La ISO en vivo trae el escritorio completo (T30.9): KDE Plasma 6 Wayland
+  # con `antos-barra` arriba. `"labwc"` devuelve la sesión ligera de T30.6.
+  services.antos.desktop.flavor = "plasma";
 
   # `isoImage.isoName` se renombró a `image.fileName` en nixpkgs recientes.
   image.fileName = lib.mkForce "antos-linux-${lib.version}.iso";

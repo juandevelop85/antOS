@@ -138,6 +138,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 30** | [T30.6](T30.6-escritorio-tradicional-opcional-sobre-labwc.md) | Escritorio Tradicional Opcional sobre Labwc (panel, lanzador, fondo, notificaciones) | ✅ Completado |
 | **Fase 30** | [T30.7](T30.7-arranque-acelerado-de-la-vm-grafica-en-macos-hvf.md) | Arranque Acelerado de la VM Gráfica en macOS (HVF) | ✅ Completado |
 | **Fase 30** | [T30.8](T30.8-barra-compacta-con-expansion-bajo-demanda.md) | Barra Compacta con Expansión Bajo Demanda | ✅ Completado |
+| **Fase 30** | [T30.9](T30.9-escritorio-kde-plasma-6-wayland-como-sabor-alternativo.md) | Escritorio KDE Plasma 6 (Wayland) como Sabor Alternativo | ✅ Completado |
 | **Fase 31** | [T31.1](T31.1-bypass-de-autenticacion-y-tokens-predecibles-en-la-consola-web.md) | Bypass de Autenticación y Tokens Predecibles en la Consola Web Remota | ✅ Completado |
 | **Fase 31** | [T31.2](T31.2-ciclo-de-vida-y-limites-de-recursos-del-servidor-de-consola-web.md) | Ciclo de Vida y Límites de Recursos del Servidor de Consola Web | ✅ Completado |
 | **Fase 31** | [T31.3](T31.3-desbordamientos-aritmeticos-en-cargador-elf-y-tarfs-del-kernel.md) | Desbordamientos Aritméticos en el Cargador ELF y en tarfs del Kernel | ✅ Completado |

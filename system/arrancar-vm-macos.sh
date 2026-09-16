@@ -78,11 +78,20 @@ if [ -z "$FW" ]; then
 fi
 
 # ── construir la ISO en el contenedor ────────────────────────────────────
+# El flake se referencia como `git+file:///src`, NO `path:/src`: `path:`
+# copia el árbol ENTERO al store en cada evaluación — `target/` incluido
+# (ISO de 2,4 GB + `cargo target`), 5 GB por copia — y así se llenó el
+# volumen `antos-nix-store` (29 copias, 96 de 100 GB). `git+file:` copia
+# solo los ficheros seguidos por git (con sus cambios sin commit; un fichero
+# nuevo necesita `git add` para que Nix lo vea). El volumen es una caché: si
+# se llena, `podman volume rm antos-nix-store` y se resiembra solo. NO pasar
+# `nix-collect-garbage` dentro: borra también las herramientas de la imagen
+# `nixos/nix` (viven en ese mismo volumen sin raíz de GC) y la deja inútil.
 if [ ! -f "$ISO" ] || [ "$REBUILD" = 1 ]; then
   echo ">> construyendo la ISO de antOS Linux (la primera vez descarga el cierre entero)"
   podman run --rm -v "$RAIZ:/src" -v antos-nix-store:/nix docker.io/nixos/nix:latest \
     nix --extra-experimental-features "nix-command flakes" \
-        build "path:/src#iso" --out-link /nix/antos-iso --print-build-logs
+        build "git+file:///src#iso" --out-link /nix/antos-iso --print-build-logs
   mkdir -p "${RAIZ}/target"
   # Copia a un temporal y `mv` atómico: si hay una VM arrancada desde la ISO
   # anterior, conserva su inodo y sigue funcionando; sobrescribir en sitio

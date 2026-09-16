@@ -29,7 +29,7 @@ fi
 
 podman run --rm -v "$RAIZ:/src" -v antos-nix-store:/nix docker.io/nixos/nix:latest \
   nix --extra-experimental-features "nix-command flakes" \
-      build "path:/src#nixosConfigurations.${TARGET}.config.system.build.vm" \
+      build "git+file:///src#nixosConfigurations.${TARGET}.config.system.build.vm" \
       --out-link /nix/vm
 
 if [ "$MODO" = "grafica" ]; then

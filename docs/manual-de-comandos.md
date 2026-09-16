@@ -212,6 +212,15 @@ ANTOS_VM_RES=1680x1050 ./system/arrancar-vm-macos.sh   # tamaño inicial de la v
 > target/antos-vm-monitor.sock` (monitor de QEMU). Tras 10 min sin actividad
 > la sesión se bloquea (`swaylock`, contraseña `antos`);
 > `services.antos.desktop.panel.idleLockSeconds = 0` lo desactiva.
+>
+> **Sabor del escritorio (T30.9).** La ISO en vivo arranca **KDE Plasma 6
+> Wayland** (`services.antos.desktop.flavor = "plasma"` en `iso.nix`) con
+> `antos-barra` anclada arriba y su icono en la bandeja de Plasma; la escala
+> HiDPI se aplica con `kscreen-doctor`. `flavor = "labwc"` (por defecto en
+> el módulo, y lo que usa la VM de CI) devuelve la sesión ligera Labwc +
+> mobiliario `wlroots` de T30.6. El flake se construye con `git+file:///src`:
+> Nix solo ve ficheros seguidos por git (`git add` para los nuevos), y así
+> `target/` no acaba copiado al store del volumen `antos-nix-store`.
 
 Requiere macOS con `qemu` (`brew install qemu`) y `podman`. Construye
 `.#iso` en el contenedor `nixos/nix` (la primera vez descarga el cierre
