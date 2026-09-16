@@ -3,4 +3,6 @@ resolver = "2"
 members = ["builder", "system/protocolo", "system/antosd"]
 
 # kernel/ tiene su propio workspace: se compila para bare metal, no para el host.
-exclude = ["kernel"]
+# evals/agent/fixtures/ contiene crates de ejemplo para los casos de
+# evaluación de agentes (T33.5): no son miembros, se copian a un temporal.
+exclude = ["kernel", "evals/agent/fixtures/rust-red-test"]

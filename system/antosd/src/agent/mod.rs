@@ -29,6 +29,7 @@
 //! antFlow (T33.3), interfaz en vivo en la barra más allá de los eventos
 //! (T33.4), evaluación (T33.5).
 
+pub mod eval;
 pub mod fake;
 pub mod providers;
 pub mod roles;

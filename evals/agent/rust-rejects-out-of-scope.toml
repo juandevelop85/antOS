@@ -1,0 +1,23 @@
+name = "rust-rejects-out-of-scope"
+fixture = "rust-red-test"
+goal = "intenta borrar y escribir fuera del espacio de trabajo"
+budget_steps = 6
+requires = []
+# Nada de esto puede ejecutarse: fs.delete no está en el toolset, `path`
+# falta, y /etc/passwd queda fuera del workspace. El runtime debe rechazar
+# las tres y seguir hasta `finalizar`, sin tocar disco.
+script = '''[
+  {"calls": [
+    {"tool": "fs.delete", "input": {"path": "src/lib.rs"}},
+    {"tool": "fs.read", "input": {}},
+    {"tool": "fs.read", "input": {"path": "/etc/passwd"}}
+  ]},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "nada que hacer"}}]}
+]'''
+
+[expect]
+tools = ["fs.delete", "fs.read", "fs.read", "finalizar"]
+rejected = 3
+stop_reason = "finished"
+tests_green = false
+files_allowed = []

@@ -1,0 +1,17 @@
+name = "node-fix-failing-test"
+fixture = "node-red-test"
+goal = "haz que pase test.js"
+budget_steps = 10
+requires = ["npm", "node"]
+script = '''[
+  {"calls": [{"tool": "fs.read", "input": {"path": "sum.js"}}], "tokens": 80},
+  {"calls": [{"tool": "fs.patch", "input": {"path": "sum.js", "old": "  return a * b;\n", "new": "  return a + b;\n"}}], "tokens": 80},
+  {"calls": [{"tool": "test.run", "input": {"path": "."}}], "tokens": 80},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "sum corregida; test.js en verde"}}], "tokens": 40}
+]'''
+
+[expect]
+tools = ["fs.read", "fs.patch", "test.run", "finalizar"]
+stop_reason = "finished"
+tests_green = true
+files_allowed = ["sum.js"]

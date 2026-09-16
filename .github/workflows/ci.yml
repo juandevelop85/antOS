@@ -441,6 +441,14 @@ jobs:
           export ANTOS_BARRA_BIN="$PWD/system/barra/target/release/antos-barra"
           bash system/desktop/smoke.sh
 
+      # T33.5: evaluación determinista de agentes con el binario real y el
+      # ejecutor confinado (Landlock aquí). Los casos viven en evals/agent/;
+      # el proveedor es `fake` (sin red ni clave). `--live` nunca en CI.
+      - name: Deterministic agent evaluation
+        run: |
+          export ANTOS_STATE="$(mktemp -d)"
+          "$PWD/target/release/antos" eval agent
+
   # ──────────────────────────────────────────────── Lint · clippy (barra)
   # T31.10: `system/barra` had no quality gate at all beyond compiling in
   # the desktop-smoke job above (and without -D warnings there). GTK4/

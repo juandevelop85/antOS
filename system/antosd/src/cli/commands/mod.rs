@@ -1,6 +1,7 @@
 pub mod app;
 pub mod ci;
 pub mod dev;
+pub mod eval;
 pub mod flow;
 pub mod mesh;
 pub mod pkg;

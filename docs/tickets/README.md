@@ -170,7 +170,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 33** | [T33.2](T33.2-runtime-de-agente-bucle-de-herramientas-sobre-el-catalogo-de-capacidades.md) | Runtime de Agente: Bucle de Herramientas sobre el Catálogo de Capacidades | ✅ Completado |
 | **Fase 33** | [T33.3](T33.3-roles-antflow-reales-sobre-el-runtime-de-agente.md) | Roles antFlow Reales sobre el Runtime de Agente | ✅ Completado |
 | **Fase 33** | [T33.4](T33.4-la-barra-como-puesto-de-mando-pasos-en-vivo-aprobaciones-inline-y-tablero-real.md) | La Barra como Puesto de Mando: Pasos en Vivo, Aprobaciones Inline y Tablero Real | ✅ Completado |
-| **Fase 33** | [T33.5](T33.5-evaluacion-reproducible-de-agentes-smoke-determinista-y-metricas.md) | Evaluación Reproducible de Agentes: Smoke Determinista y Métricas | ⏳ Pendiente |
+| **Fase 33** | [T33.5](T33.5-evaluacion-reproducible-de-agentes-smoke-determinista-y-metricas.md) | Evaluación Reproducible de Agentes: Smoke Determinista y Métricas | ✅ Completado |
 
 ---
 
@@ -471,5 +471,5 @@ de un modelo con presupuesto y supervisión.
 - **T33.5** — evaluación reproducible: smoke determinista en CI con `fake`
   y `antos eval agent --live` con métricas y diff de regresiones.
 
-Orden sugerido de ataque: ~~T33.1~~ → ~~T33.2~~ → ~~T33.3~~ → ~~T33.4~~ → T33.5.
+Orden sugerido de ataque: ~~T33.1~~ → ~~T33.2~~ → ~~T33.3~~ → ~~T33.4~~ → ~~T33.5~~. Fase 33 completa.
 

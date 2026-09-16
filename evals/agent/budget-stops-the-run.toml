@@ -1,0 +1,17 @@
+name = "budget-stops-the-run"
+fixture = "rust-red-test"
+goal = "lee todos los ficheros"
+budget_steps = 2
+requires = []
+script = '''[
+  {"calls": [{"tool": "fs.read", "input": {"path": "src/lib.rs"}}]},
+  {"calls": [{"tool": "fs.read", "input": {"path": "Cargo.toml"}}]},
+  {"calls": [{"tool": "fs.read", "input": {"path": "src/lib.rs"}}]},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "no debería llegar"}}]}
+]'''
+
+[expect]
+tools = ["fs.read", "fs.read"]
+stop_reason = "budget_exhausted"
+tests_green = false
+files_allowed = []

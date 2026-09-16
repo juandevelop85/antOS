@@ -910,6 +910,24 @@ o agente, y modelo/pasos/tokens del último run. Sin proveedor configurado,
 abre o cierra la barra (atajo global registrado por `.desktop`; activa el
 icono SNI, lo mismo que un clic en la bandeja).
 
+**Evaluar antes de cambiar prompts o modelos (T33.5).** Los casos de
+`evals/agent/*.toml` (fixture + objetivo + guion `fake` + lo esperado) son
+el contrato del runtime y corren en `cargo test` y en CI:
+
+```bash
+antos eval agent                       # determinista: proveedor fake, sin red
+antos eval agent --case rust-fix-failing-test
+antos eval agent --live [--provider claude]   # los mismos casos con el modelo real (cuesta dinero)
+antos eval diff                        # última ejecución vs anterior: regresiones
+```
+
+Cada ejecución queda en `.antos/evals/<fecha>.json` con pasos, tokens,
+segundos, motivo de parada, tests en verde y ficheros escritos por caso.
+`eval diff` señala regresión si un caso pasaba y falla, sus tests pasaban y
+están en rojo, ya no termina con `finished`, o sube un 30 % en pasos o
+tokens. Flujo recomendado: `antos eval agent --live` → cambiar el prompt o
+el modelo del rol → `antos eval agent --live` → `antos eval diff`.
+
 Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
 configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
 inventa correcciones: al aprobar un incidente lanza un run de Coder con el

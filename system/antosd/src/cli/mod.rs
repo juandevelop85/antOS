@@ -67,6 +67,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "hook" | "hooks" => commands::ci::cmd_hook(ctx, &rest[1..]),
         "snapshot" | "snapshots" | "tm" => commands::tools::cmd_snapshot(ctx, &rest[1..]),
         "bench" | "benchmark" => commands::tools::cmd_bench(ctx, &rest[1..]),
+        "eval" => commands::eval::cmd_eval(ctx, &rest[1..]),
         "issue" | "issues" => commands::tools::cmd_issue(ctx, &rest[1..]),
         "pr" | "pull-request" => commands::tools::cmd_pr(ctx, &rest[1..]),
         "doc" | "docs" => commands::tools::cmd_doc(ctx, &rest[1..]),

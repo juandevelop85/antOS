@@ -1,0 +1,17 @@
+name = "rust-fix-failing-test"
+fixture = "rust-red-test"
+goal = "haz que pase el test sums de src/lib.rs"
+budget_steps = 10
+requires = ["cargo"]
+script = '''[
+  {"text": "Miro el código.", "calls": [{"tool": "fs.read", "input": {"path": "src/lib.rs"}}], "tokens": 100},
+  {"text": "Corrijo la suma.", "calls": [{"tool": "fs.patch", "input": {"path": "src/lib.rs", "old": "    a * b\n", "new": "    a + b\n"}}], "tokens": 100},
+  {"text": "Verifico.", "calls": [{"tool": "test.run", "input": {"path": "."}}], "tokens": 100},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "sum corregida y tests en verde"}}], "tokens": 50}
+]'''
+
+[expect]
+tools = ["fs.read", "fs.patch", "test.run", "finalizar"]
+stop_reason = "finished"
+tests_green = true
+files_allowed = ["src/lib.rs"]
