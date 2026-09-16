@@ -26,6 +26,12 @@ pub struct ClaudePlanner {
 }
 
 impl ClaudePlanner {
+    /// Clave y modelo resueltos, para que el runtime de agente (T33.2) use
+    /// exactamente la misma configuración que el planificador.
+    pub fn credentials(&self) -> (&str, &str) {
+        (&self.api_key, &self.model)
+    }
+
     pub fn from_env() -> Result<Self> {
         let api_key = read_key()?;
         let model = crate::util::env_with_legacy_fallback("ANTOS_MODEL", "SYSO_MODEL")

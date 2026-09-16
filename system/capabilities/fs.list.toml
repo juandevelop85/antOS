@@ -1,0 +1,14 @@
+name = "fs.list"
+summary = "Lista ficheros y directorios bajo una ruta del espacio de trabajo, con profundidad y número acotados"
+
+[params]
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+depth = { type = "text", optional = true, default = "2" }
+limit = { type = "text", optional = true, default = "200" }
+
+[effects]
+reads = ["{path}"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

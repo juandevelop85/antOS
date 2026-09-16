@@ -23,6 +23,26 @@ pub enum Change {
     Read {
         path: PathBuf,
     },
+    /// Sustitución exacta de un bloque de texto que aparece UNA vez (T33.2:
+    /// la herramienta de edición de un agente; `Write` queda para ficheros
+    /// nuevos o reescrituras completas).
+    Patch {
+        path: PathBuf,
+        old: String,
+        new: String,
+    },
+    /// Listado acotado de un directorio (T33.2).
+    ListDir {
+        path: PathBuf,
+        depth: usize,
+        limit: usize,
+    },
+    /// Suite de tests del proyecto, detectada por sus ficheros (T33.2). Corre
+    /// dentro del ejecutor confinado como cualquier otro cambio.
+    TestRun {
+        workspace: PathBuf,
+        filter: Option<String>,
+    },
     GitStatus {
         repo_root: PathBuf,
     },

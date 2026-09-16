@@ -46,6 +46,9 @@ impl PendingChanges {
             }
             Change::Mkdir { .. }
             | Change::Read { .. }
+            | Change::Patch { .. }
+            | Change::ListDir { .. }
+            | Change::TestRun { .. }
             | Change::GitStatus { .. }
             | Change::GitCommit { .. }
             | Change::GitBranch { .. }

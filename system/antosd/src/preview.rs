@@ -19,6 +19,41 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
             Change::Read { path } => {
                 out.push(Line::Info(format!("lee       {}", ctx.display(path))));
             }
+            Change::ListDir { path, depth, .. } => {
+                out.push(Line::Info(format!(
+                    "lista     {} (profundidad {depth})",
+                    ctx.display(path)
+                )));
+            }
+            Change::TestRun { workspace, filter } => {
+                out.push(Line::Info(format!(
+                    "tests     {}{}",
+                    ctx.display(workspace),
+                    filter
+                        .as_deref()
+                        .map(|f| format!(" (filtro «{f}»)"))
+                        .unwrap_or_default()
+                )));
+            }
+            Change::Patch { path, old, new } => {
+                // El parche se muestra como el diff real que dejará: se aplica
+                // sobre el contenido actual (o el previsto por un paso anterior).
+                out.push(Line::Info(format!("parchea   {}", ctx.display(path))));
+                let current = pending
+                    .read(path)
+                    .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default());
+                match crate::exec::fs::apply_patch(&current, old, new) {
+                    Ok(patched) => {
+                        for (marker, text) in diff(&current, &patched) {
+                            match marker {
+                                '-' => out.push(Line::Del(format!("  {text}"))),
+                                _ => out.push(Line::Add(format!("  {text}"))),
+                            }
+                        }
+                    }
+                    Err(e) => out.push(Line::Del(format!("  parche inaplicable: {e}"))),
+                }
+            }
             Change::Mkdir { path } => {
                 out.push(Line::Info(format!("crea dir  {}", ctx.display(path))));
             }

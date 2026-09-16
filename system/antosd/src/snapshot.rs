@@ -65,6 +65,42 @@ pub fn take(id: &str, paths: &[PathBuf], snapshots_dir: &Path) -> Result<Snapsho
     Ok(snap)
 }
 
+/// Amplía una instantánea existente con rutas nuevas (T33.2). Un run de
+/// agente no sabe de antemano qué va a escribir: cada paso que escribe una
+/// ruta todavía no cubierta la fotografía ANTES de tocarla, y el manifiesto
+/// se reescribe. Las rutas ya cubiertas no se vuelven a capturar: lo que
+/// interesa es el estado previo al run, no al paso.
+pub fn extend(snap: &mut Snapshot, paths: &[PathBuf], snapshots_dir: &Path) -> Result<()> {
+    let dir = snapshots_dir.join(&snap.id);
+    std::fs::create_dir_all(&dir)?;
+    for original in paths {
+        if snap.entries.iter().any(|e| &e.original == original) {
+            continue;
+        }
+        let i = snap.entries.len();
+        if original.exists() {
+            let stored = dir.join(format!("{i:03}"));
+            let method = capture(original, &stored)
+                .with_context(|| format!("fotografiando {}", original.display()))?;
+            snap.entries.push(Entry {
+                original: original.clone(),
+                existed: true,
+                stored: Some(stored),
+                method,
+            });
+        } else {
+            snap.entries.push(Entry {
+                original: original.clone(),
+                existed: false,
+                stored: None,
+                method: "inexistente".into(),
+            });
+        }
+    }
+    std::fs::write(dir.join("manifest.json"), serde_json::to_vec_pretty(&snap)?)?;
+    Ok(())
+}
+
 pub fn load(id: &str, snapshots_dir: &Path) -> Result<Snapshot> {
     let path = snapshots_dir.join(id).join("manifest.json");
     let raw = std::fs::read_to_string(&path)

@@ -1,0 +1,17 @@
+name = "test.run"
+summary = "Ejecuta la suite de tests del proyecto (cargo test, npm test o pytest según el proyecto) dentro del sandbox y devuelve un resumen acotado de la salida"
+
+[params]
+path = { type = "path", within = "$WORKSPACE", optional = true, default = "$WORKSPACE" }
+filter = { type = "text", max = 256, optional = true }
+
+[effects]
+reads = ["{path}"]
+# `target/` y `Cargo.lock` son artefactos de construcción, no efectos que
+# confirmar ni fotografiar (T33.2): cargo escribe el lock si falta o si el
+# grafo cambió. pytest corre sin caché ni bytecode (ver exec/fs.rs).
+scratch = ["{path}/target/", "{path}/Cargo.lock"]
+
+[policy]
+tier = "auto"
+reversible = "unnecessary"

@@ -15,7 +15,7 @@ use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN,
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
-pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
+pub fn cmd_agent(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> Result<()> {
     if args.is_empty() || args[0] == "list" || args[0] == "roles" {
         println!(
             "\n{}",
@@ -126,6 +126,8 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             );
             return Ok(());
         }
+        "do" => cmd_agent_do(ctx, &args[1..], opts)?,
+        "report" => cmd_agent_report(ctx)?,
         "run" => {
             let ticket_id = args
                 .get(1)
@@ -290,7 +292,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             cmd_swarm(ctx, &args[1..])?;
         }
         _ => {
-            bail!("subcomando desconocido para agent. Usa: antos agent run <ticket_id> [--node <id>] | antos agent status [ticket_id] | antos agent swarm | antos agents");
+            bail!("subcomando desconocido para agent. Usa: antos agent do \"<objetivo>\" [--provider p] [--budget N] [--tools a,b] [--dry-run] [-y] | antos agent report | antos agent run <ticket_id> [--node <id>] | antos agent status [ticket_id] | antos agent swarm | antos agents");
         }
     }
     Ok(())
@@ -309,7 +311,7 @@ pub fn cmd_panel(ctx: &Ctx, args: &[String]) -> Result<()> {
                 target_ticket.clone(),
                 "--auto".to_string(),
             ];
-            return cmd_agent(ctx, &run_args);
+            return cmd_agent(ctx, &run_args, &crate::cli::args::Opts::default());
         }
     }
 
@@ -557,4 +559,116 @@ fn backend_label(task: &antos_protocol::FlowTask) -> String {
         }
         antos_protocol::FlowBackend::Agent => paint("agente con modelo", GREEN),
     }
+}
+
+/// `antos agent do "<objetivo>"` (T33.2): un run de agente con el proveedor
+/// activo (o `--provider`), el toolset por defecto (o `--tools a,b,c`) y el
+/// presupuesto por defecto (o `--budget <pasos>`). Con el demonio en marcha
+/// va por IPC; si no, en proceso — las garantías son las mismas.
+fn cmd_agent_do(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> Result<()> {
+    let mut goal: Vec<String> = Vec::new();
+    let mut provider: Option<String> = None;
+    let mut tools: Option<Vec<String>> = None;
+    let mut budget = antos_protocol::AgentBudget::default();
+    // `-y`/`--dry-run` globales los consume `Opts`; aquí se aceptan también
+    // tras el subcomando por comodidad.
+    let mut dry_run = opts.dry_run;
+    let mut assume_yes = opts.assume_yes;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--provider" | "-p" => {
+                provider = args.get(i + 1).cloned();
+                i += 1;
+            }
+            "--tools" | "-t" => {
+                tools = args
+                    .get(i + 1)
+                    .map(|t| t.split(',').map(|s| s.trim().to_string()).collect());
+                i += 1;
+            }
+            "--budget" | "-b" => {
+                budget.max_steps = args
+                    .get(i + 1)
+                    .and_then(|b| b.parse().ok())
+                    .ok_or_else(|| anyhow::anyhow!("--budget espera un número de pasos"))?;
+                i += 1;
+            }
+            "--dry-run" | "--seco" => dry_run = true,
+            "--yes" | "-y" | "--si" => assume_yes = true,
+            other => goal.push(other.to_string()),
+        }
+        i += 1;
+    }
+    let goal = goal.join(" ");
+    if goal.trim().is_empty() {
+        bail!("uso: antos agent do \"<objetivo>\" [--provider p] [--budget N] [--tools a,b] [--dry-run] [-y]");
+    }
+
+    let force_local =
+        crate::util::env_with_legacy_fallback("ANTOS_SIN_DEMONIO", "SYSO_SIN_DEMONIO").is_some();
+    if !force_local && crate::ipc::daemon_is_running(ctx) {
+        crate::ipc::remote_agent_run(
+            &crate::ipc::socket_path(ctx),
+            &goal,
+            provider.as_deref(),
+            tools,
+            Some(budget),
+            dry_run,
+            assume_yes,
+        )?;
+        return Ok(());
+    }
+
+    let catalog = crate::capability::Catalog::load(&ctx.caps_dir)?;
+    let mut prov = crate::agent::providers::resolve(&ctx.state, provider.as_deref())?;
+    let mut cfg = crate::agent::RunConfig::new(goal);
+    if let Some(t) = tools {
+        cfg.toolset = t;
+    }
+    cfg.budget = budget;
+    cfg.dry_run = dry_run;
+    let mut terminal = crate::terminal::Terminal::new(assume_yes);
+    crate::agent::run(ctx, &catalog, &mut *prov, &cfg, &mut terminal)?;
+    Ok(())
+}
+
+/// `antos agent report`: los runs de agente registrados en el journal, del
+/// más reciente al más antiguo, con su instantánea (deshacible con `undo`).
+fn cmd_agent_report(ctx: &Ctx) -> Result<()> {
+    let records = crate::journal::read_all(&ctx.journal_path()).unwrap_or_default();
+    let runs: Vec<_> = records
+        .iter()
+        .rev()
+        .filter(|r| r.planner.starts_with("agent:"))
+        .collect();
+    println!("\n{}", paint("antOS · Runs de agente (journal)", BOLD));
+    if runs.is_empty() {
+        println!("  Ninguno todavía. Prueba: antos agent do \"haz que pase el test X\"\n");
+        return Ok(());
+    }
+    for r in runs {
+        println!(
+            "  • {} {} · {} pasos · {} · {}{}",
+            paint(&r.id, YELLOW),
+            paint(&r.at, DIM),
+            r.plan.steps.len(),
+            r.detail.as_deref().unwrap_or("-"),
+            r.intent,
+            if r.reverted {
+                paint(" (revertido)", DIM)
+            } else {
+                String::new()
+            }
+        );
+        for s in &r.plan.steps {
+            println!(
+                "      {} {}",
+                paint(&s.capability, CYAN),
+                crate::agent::tools::summarize_args(&s.args)
+            );
+        }
+    }
+    println!();
+    Ok(())
 }

@@ -23,6 +23,31 @@ pub fn changes_for(
             content: a["content"].clone(),
         }])),
 
+        "fs.patch" => Ok(Some(vec![Change::Patch {
+            path: abs(ctx, &a["path"]),
+            old: a["old"].clone(),
+            new: a["new"].clone(),
+        }])),
+
+        "fs.list" => Ok(Some(vec![Change::ListDir {
+            path: abs(ctx, &a["path"]),
+            depth: a
+                .get("depth")
+                .and_then(|d| d.parse().ok())
+                .unwrap_or(2)
+                .clamp(1, 6),
+            limit: a
+                .get("limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(200)
+                .clamp(1, 2000),
+        }])),
+
+        "test.run" => Ok(Some(vec![Change::TestRun {
+            workspace: abs(ctx, &a["path"]),
+            filter: a.get("filter").filter(|f| !f.is_empty()).cloned(),
+        }])),
+
         "fs.delete" => Ok(Some(vec![Change::Delete {
             path: abs(ctx, &a["path"]),
         }])),
@@ -88,28 +113,24 @@ pub fn changes_for(
 pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::Write { path, content } => {
-            let guard = crate::vfs_guard::VfsGuardEngine::global();
-            let val = guard.intercept_write(&path.display().to_string(), content)?;
-            if !val.is_valid {
-                let err_msgs: Vec<String> = val
-                    .errors
-                    .iter()
-                    .map(|e| format!("  • L{}:{}: {}", e.line, e.column, e.message))
-                    .collect();
-                bail!(
-                    "escritura rechazada por el interceptor sintáctico VFS ({}):\n{}",
-                    path.display(),
-                    err_msgs.join("\n")
-                );
-            }
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creando el directorio {}", parent.display()))?;
-            }
-            std::fs::write(path, content)
-                .with_context(|| format!("escribiendo {}", path.display()))?;
+            write_guarded(path, content)?;
             Ok(Some(String::new()))
         }
+        Change::Patch { path, old, new } => {
+            let current = std::fs::read_to_string(path)
+                .with_context(|| format!("leyendo {} para parchear", path.display()))?;
+            let patched = apply_patch(&current, old, new)
+                .with_context(|| format!("parcheando {}", path.display()))?;
+            write_guarded(path, &patched)?;
+            Ok(Some(format!(
+                "parche aplicado en {} ({} → {} líneas)",
+                path.display(),
+                current.lines().count(),
+                patched.lines().count()
+            )))
+        }
+        Change::ListDir { path, depth, limit } => Ok(Some(list_dir(path, *depth, *limit)?)),
+        Change::TestRun { workspace, filter } => Ok(Some(run_tests(workspace, filter.as_deref())?)),
         Change::Mkdir { path } => {
             std::fs::create_dir_all(path)
                 .with_context(|| format!("creando el directorio {}", path.display()))?;
@@ -131,6 +152,171 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
         }
         _ => Ok(None),
     }
+}
+
+/// Escritura con el interceptor sintáctico del VFS Guard (T10.2): compartida
+/// por `Write` y `Patch` para que un parche no pueda colar lo que una
+/// escritura completa rechazaría.
+fn write_guarded(path: &Path, content: &str) -> Result<()> {
+    let guard = crate::vfs_guard::VfsGuardEngine::global();
+    let val = guard.intercept_write(&path.display().to_string(), content)?;
+    if !val.is_valid {
+        let err_msgs: Vec<String> = val
+            .errors
+            .iter()
+            .map(|e| format!("  • L{}:{}: {}", e.line, e.column, e.message))
+            .collect();
+        bail!(
+            "escritura rechazada por el interceptor sintáctico VFS ({}):\n{}",
+            path.display(),
+            err_msgs.join("\n")
+        );
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creando el directorio {}", parent.display()))?;
+    }
+    std::fs::write(path, content).with_context(|| format!("escribiendo {}", path.display()))
+}
+
+/// Sustitución exacta: `old` tiene que aparecer exactamente una vez. Cero
+/// apariciones o más de una son errores, nunca una elección silenciosa —
+/// es la garantía que hace que un modelo no pueda «parchear» a ciegas.
+pub fn apply_patch(current: &str, old: &str, new: &str) -> Result<String> {
+    if old.is_empty() {
+        bail!("el bloque a sustituir («old») no puede estar vacío");
+    }
+    let occurrences = current.matches(old).count();
+    match occurrences {
+        0 => {
+            bail!("el bloque a sustituir no aparece en el fichero (¿espacios o sangría distintos?)")
+        }
+        1 => Ok(current.replacen(old, new, 1)),
+        n => {
+            bail!("el bloque a sustituir aparece {n} veces; amplía el contexto para que sea único")
+        }
+    }
+}
+
+/// Listado acotado, ordenado, sin `.git` ni `target`/`node_modules` (ruido que
+/// un agente no necesita y que dispara el límite antes de ver el código).
+fn list_dir(root: &Path, depth: usize, limit: usize) -> Result<String> {
+    const SKIP: &[&str] = &[".git", "target", "node_modules", ".antos", "__pycache__"];
+    fn walk(dir: &Path, root: &Path, depth: usize, limit: usize, out: &mut Vec<String>) {
+        if depth == 0 || out.len() >= limit {
+            return;
+        }
+        let Ok(rd) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            if out.len() >= limit {
+                return;
+            }
+            let name = e.file_name().to_string_lossy().to_string();
+            if SKIP.contains(&name.as_str()) {
+                continue;
+            }
+            let p = e.path();
+            let rel = p.strip_prefix(root).unwrap_or(&p).display().to_string();
+            if p.is_dir() {
+                out.push(format!("{rel}/"));
+                walk(&p, root, depth - 1, limit, out);
+            } else {
+                out.push(rel);
+            }
+        }
+    }
+    if !root.is_dir() {
+        bail!("no es un directorio: {}", root.display());
+    }
+    let mut out = Vec::new();
+    walk(root, root, depth, limit, &mut out);
+    if out.len() >= limit {
+        out.push(format!("… (límite de {limit} entradas alcanzado)"));
+    }
+    Ok(out.join("\n"))
+}
+
+/// Suite de tests del proyecto. El intérprete NUNCA es `sh -c` (T31.4): se
+/// invoca el binario del gestor con argumentos separados. La salida se
+/// acota a las últimas líneas para que quepa en el contexto de un modelo.
+fn run_tests(workspace: &Path, filter: Option<&str>) -> Result<String> {
+    const TAIL_LINES: usize = 120;
+    let (program, args): (&str, Vec<String>) = if workspace.join("Cargo.toml").exists() {
+        let mut a = vec!["test".to_string(), "--quiet".to_string()];
+        if let Some(f) = filter {
+            a.push(f.to_string());
+        }
+        ("cargo", a)
+    } else if workspace.join("package.json").exists() {
+        let mut a = vec!["test".to_string(), "--silent".to_string()];
+        if let Some(f) = filter {
+            a.push("--".to_string());
+            a.push(f.to_string());
+        }
+        ("npm", a)
+    } else if workspace.join("pyproject.toml").exists()
+        || workspace.join("pytest.ini").exists()
+        || workspace.join("setup.py").exists()
+    {
+        // Sin caché ni bytecode: así pytest no necesita escribir nada fuera
+        // de lo que el recinto permite.
+        let mut a = vec![
+            "-q".to_string(),
+            "-p".to_string(),
+            "no:cacheprovider".to_string(),
+        ];
+        if let Some(f) = filter {
+            a.push("-k".to_string());
+            a.push(f.to_string());
+        }
+        ("pytest", a)
+    } else {
+        bail!(
+            "no reconozco el proyecto en {} (busco Cargo.toml, package.json o pyproject.toml)",
+            workspace.display()
+        );
+    };
+    // El recinto solo deja escribir lo declarado, y `$TMPDIR` no lo está:
+    // los temporales de rustc/pytest van dentro del artefacto de
+    // construcción (`target/`, declarado como `scratch`).
+    let tmp = workspace.join("target").join("antos-tmp");
+    std::fs::create_dir_all(&tmp)
+        .with_context(|| format!("creando el temporal de tests {}", tmp.display()))?;
+    let out = std::process::Command::new(program)
+        .args(&args)
+        .current_dir(workspace)
+        .env("TMPDIR", &tmp)
+        .env("TMP", &tmp)
+        .env("TEMP", &tmp)
+        .env("CARGO_TERM_COLOR", "never")
+        .env("NO_COLOR", "1")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .output()
+        .with_context(|| format!("ejecutando {program} {}", args.join(" ")))?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    text.push_str(&String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<&str> = text.lines().collect();
+    let tail: Vec<&str> = lines[lines.len().saturating_sub(TAIL_LINES)..].to_vec();
+    let verdict = if out.status.success() {
+        "TESTS EN VERDE"
+    } else {
+        "TESTS EN ROJO"
+    };
+    Ok(format!(
+        "{verdict} ({program} {}, código {}){}\n{}",
+        args.join(" "),
+        out.status.code().unwrap_or(-1),
+        if lines.len() > TAIL_LINES {
+            format!(" — últimas {TAIL_LINES} de {} líneas", lines.len())
+        } else {
+            String::new()
+        },
+        tail.join("\n")
+    ))
 }
 
 pub fn abs(ctx: &Ctx, raw: &str) -> PathBuf {

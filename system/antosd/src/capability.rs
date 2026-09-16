@@ -48,6 +48,14 @@ pub struct Effects {
     pub deletes: Vec<String>,
     #[serde(default)]
     pub network: Vec<String>,
+    /// Artefactos de construcción (T33.2): directorios que el paso puede
+    /// escribir dentro del espacio de trabajo pero que NO son un efecto que
+    /// el usuario deba confirmar ni fotografiar — `target/` de `cargo test`,
+    /// por ejemplo. El recinto los deja escribir; el radio de impacto no los
+    /// cuenta como escrituras. Un directorio lleva barra final (el recinto lo
+    /// crea antes de ejecutar); un fichero (`Cargo.lock`), no.
+    #[serde(default)]
+    pub scratch: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

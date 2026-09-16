@@ -42,7 +42,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "ports" => commands::tools::cmd_ports(&rest[1..]),
         "services" | "service" => commands::tools::cmd_services(ctx, &rest[1..]),
         "secrets" | "secret" => commands::tools::cmd_secrets(ctx, &rest[1..]),
-        "agent" | "agents" | "flow" => commands::flow::cmd_agent(ctx, &rest[1..]),
+        "agent" | "agents" | "flow" => commands::flow::cmd_agent(ctx, &rest[1..], &opts),
         "panel" | "board" => commands::flow::cmd_panel(ctx, &rest[1..]),
         "llm" | "models" | "model" => commands::tools::cmd_llm(ctx, &rest[1..]),
         "memory" | "memoria" | "search" => commands::tools::cmd_memory(ctx, &rest[1..]),

@@ -22,6 +22,19 @@ impl Sandbox for Seatbelt {
         "escrituras, red y lectura de secretos (.env/ssh) blindadas por el kernel"
     }
 
+    /// Los directorios declarados se crean antes de encerrar, igual que en
+    /// Landlock: un proceso confinado que crea `target/` de forma atómica
+    /// (directorio temporal en la raíz + renombrado, como hace cargo) no
+    /// puede, porque la raíz no es escribible — y no tiene por qué serlo.
+    fn prepare(&self, policy: &Policy) -> Result<()> {
+        for dir in &policy.dirs {
+            std::fs::create_dir_all(dir).map_err(|e| {
+                anyhow::anyhow!("preparando el directorio declarado {}: {e}", dir.display())
+            })?;
+        }
+        Ok(())
+    }
+
     fn command(&self, exe: &Path, policy: &Policy, subcommand: &str) -> Result<Command> {
         let mut cmd = Command::new(SANDBOX_EXEC);
         cmd.arg("-p").arg(sbpl(policy)).arg(exe).arg(subcommand);
@@ -153,5 +166,27 @@ mod tests {
             quota: None,
         };
         assert!(sbpl(&policy).contains("\"/ws/ma\\\"lo\""));
+    }
+
+    /// T33.2: los directorios declarados se crean antes de encerrar, como
+    /// en Landlock; si no, `cargo` no puede crear `target/` (lo hace con un
+    /// temporal en la raíz + renombrado, y la raíz no es escribible).
+    #[test]
+    fn prepare_creates_declared_directories() {
+        let base =
+            std::env::temp_dir().join(format!("antos_seatbelt_prepare_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let target = base.join("proj").join("target");
+        let policy = Policy {
+            writes: vec![target.clone()],
+            reads: vec![],
+            dirs: vec![target.clone()],
+            network: false,
+            allowed_secrets: vec![],
+            quota: None,
+        };
+        Seatbelt.prepare(&policy).expect("prepare");
+        assert!(target.is_dir());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

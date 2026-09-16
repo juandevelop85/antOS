@@ -157,6 +157,37 @@ pub(crate) fn listen_events(
                     render_error(&content, &err_msg);
                     input.set_sensitive(true);
                 }
+                // T33.2: pasos e informe de un run de agente. La línea de
+                // tiempo con aprobación inline y detener es T33.4; aquí solo
+                // se muestran para que nada de un run quede invisible.
+                Event::AgentStep(step) => {
+                    let mark = match step.outcome {
+                        antos_protocol::AgentStepOutcome::Executed => "✓",
+                        antos_protocol::AgentStepOutcome::Finished => "■",
+                        _ => "✗",
+                    };
+                    content.append(&make_label(
+                        &format!(
+                            "[agente {}] {} {} {}",
+                            step.step, mark, step.tool, step.args_summary
+                        ),
+                        "paso",
+                    ));
+                }
+                Event::AgentDone(report) => {
+                    let class = match report.stop_reason {
+                        antos_protocol::AgentStopReason::Finished => "ok",
+                        _ => "error",
+                    };
+                    content.append(&make_label(
+                        &format!(
+                            "[agente] {:?} · {} pasos · {} tokens · {}",
+                            report.stop_reason, report.steps, report.tokens_used, report.summary
+                        ),
+                        class,
+                    ));
+                    input.set_sensitive(true);
+                }
                 _ => {}
             }
         }

@@ -59,10 +59,18 @@ pub struct Policy {
 
 impl Policy {
     pub fn from_blast(blast: &Blast) -> Self {
+        // Los artefactos de construcción (`scratch`, T33.2) son escribibles
+        // en el recinto y se crean en `prepare` (Landlock necesita que el
+        // directorio exista para poder ponerle una regla), pero no aparecen
+        // en el radio de impacto ni en la instantánea.
+        let mut writes = blast.paths_to_snapshot();
+        writes.extend(blast.scratch.iter().cloned());
+        let mut dirs: Vec<PathBuf> = blast.dirs.iter().cloned().collect();
+        dirs.extend(blast.scratch_dirs.iter().cloned());
         Policy {
-            writes: blast.paths_to_snapshot(),
+            writes,
             reads: blast.reads.iter().cloned().collect(),
-            dirs: blast.dirs.iter().cloned().collect(),
+            dirs,
             network: !blast.network.is_empty(),
             allowed_secrets: Vec::new(),
             quota: None,

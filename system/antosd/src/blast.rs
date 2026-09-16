@@ -27,6 +27,13 @@ pub struct Blast {
     /// deducirlo del nombre sería exactamente el tipo de suposición que este
     /// diseño trata de eliminar.
     pub dirs: BTreeSet<PathBuf>,
+    /// Artefactos de construcción declarados (`[effects] scratch`, T33.2):
+    /// el recinto los deja escribir, pero no elevan el nivel ni se
+    /// fotografían. Fuera del espacio de trabajo cuentan como escape.
+    pub scratch: BTreeSet<PathBuf>,
+    /// De los artefactos, cuáles son directorios (barra final en el
+    /// manifiesto): son los que el recinto crea antes de ejecutar.
+    pub scratch_dirs: BTreeSet<PathBuf>,
     pub declared_tier: Tier,
     pub irreversible: bool,
 }
@@ -54,6 +61,17 @@ impl Blast {
             }
 
             b.network.extend(cap.effects.network.iter().cloned());
+
+            for tpl in &cap.effects.scratch {
+                let (resolved, is_dir) = resolve(tpl, step, workspace, system_config, state);
+                if !resolved.starts_with(workspace) && !resolved.starts_with(state) {
+                    b.escapes.insert(resolved.clone());
+                }
+                if is_dir {
+                    b.scratch_dirs.insert(resolved.clone());
+                }
+                b.scratch.insert(resolved);
+            }
 
             for (templates, bucket) in [
                 (&cap.effects.reads, &mut b.reads),
@@ -275,6 +293,70 @@ mod tests {
         let mut caps = BTreeMap::new();
         caps.insert(cap.name.clone(), cap);
         Catalog { caps }
+    }
+
+    /// T33.2: `[effects] scratch` deja escribir artefactos de construcción
+    /// en el recinto sin elevar el nivel ni fotografiarlos; fuera del
+    /// espacio de trabajo sigue siendo un escape.
+    #[test]
+    fn scratch_is_writable_in_the_sandbox_but_neither_confirmed_nor_snapshotted() {
+        let cap = Capability {
+            name: "t.tests".into(),
+            summary: String::new(),
+            params: BTreeMap::new(),
+            effects: Effects {
+                reads: vec!["{path}".into()],
+                scratch: vec!["{path}/target/".into()],
+                ..Default::default()
+            },
+            policy: Policy {
+                tier: Tier::Auto,
+                reversible: Reversible::Unnecessary,
+            },
+        };
+        let mut caps = BTreeMap::new();
+        caps.insert(cap.name.clone(), cap);
+        let catalog = Catalog { caps };
+        let ws = std::env::temp_dir().join("antos_blast_scratch_ws");
+        let state = std::env::temp_dir().join("antos_blast_scratch_state");
+        let _ = std::fs::create_dir_all(&ws);
+        let plan = |path: &str| Plan {
+            id: "p".into(),
+            intent: String::new(),
+            planner: "prueba".into(),
+            steps: vec![Step {
+                capability: "t.tests".into(),
+                args: [("path".to_string(), path.to_string())]
+                    .into_iter()
+                    .collect(),
+            }],
+        };
+
+        let inside = ws.join("proj");
+        let b = Blast::compute(
+            &plan(&inside.display().to_string()),
+            &catalog,
+            &ws,
+            &state,
+            &state,
+        )
+        .expect("blast");
+        assert!(b.writes.is_empty(), "scratch no es una escritura");
+        assert!(b.paths_to_snapshot().is_empty(), "scratch no se fotografía");
+        assert_eq!(b.required_tier().0, Tier::Auto, "scratch no eleva el nivel");
+        assert_eq!(b.scratch.len(), 1);
+        let policy = crate::sandbox::Policy::from_blast(&b);
+        assert!(
+            policy.writes.iter().any(|p| p.ends_with("target")),
+            "el recinto sí deja escribir el scratch"
+        );
+        assert!(policy.dirs.iter().any(|p| p.ends_with("target")));
+
+        let b = Blast::compute(&plan("/tmp/fuera"), &catalog, &ws, &state, &state).expect("blast");
+        assert!(
+            !b.escapes.is_empty(),
+            "scratch fuera del workspace es un escape"
+        );
     }
 
     fn plan_leyendo(path: &str) -> Plan {

@@ -861,6 +861,55 @@ antos -p claude "refactoriza la gestión de errores usando thiserror"
 
 ### 4.2 Orquestación Multi-Agente (`antos agent`)
 
+> **Estado honesto (T33.1).** `antos agent run` y el tablero muestran hoy el
+> pipeline **simulado** de T3.1 (la máquina de estados avanza sola, el
+> «Coder» escribe un *scaffold* fijo y los modelos por rol son etiquetas):
+> el CLI, la barra y el IPC lo marcan como «SIMULACIÓN». El trabajo real de
+> agentes es `antos agent do` (T33.2, abajo); los roles sobre ese runtime
+> llegan con T33.3.
+
+#### Agente con herramientas (`antos agent do`, T33.2)
+
+Un modelo trabaja varios turnos sobre el espacio de trabajo con **las
+capacidades del catálogo como herramientas**: `fs.read`, `fs.list`,
+`fs.patch` (sustitución exacta de un bloque único), `fs.write`, `test.run`
+(`cargo test` / `npm test` / `pytest` dentro del sandbox), `git.status` y
+`memory.search`, más la terminal `finalizar`. Cada llamada pasa por lo mismo
+que un paso de intención —validación del catálogo, radio de impacto, puerta
+de confirmación (`confirm` pregunta; `-y` aprueba), instantánea, ejecución
+confinada, journal— y el resultado vuelve al modelo. No existe ninguna
+herramienta que ejecute comandos arbitrarios. Un solo registro de journal e
+instantánea por run: `antos undo` deshace el run entero.
+
+```bash
+# Con el proveedor activo (antos llm use claude|ollama|openrouter|…)
+antos agent do "haz que pase el test sums de src/lib.rs"
+
+# Proveedor explícito (o proveedor:modelo), presupuesto en pasos, toolset acotado
+antos agent do "añade un test para parse_port" --provider claude
+antos agent do "corrige el warning de clippy en git.rs" -p ollama:qwen2.5-coder:latest --budget 12
+antos agent do "explícame qué hace exec/mod.rs" --tools fs.read,fs.list,memory.search
+
+# Ver qué haría sin escribir nada; aprobar todo sin preguntar
+antos -n agent do "renombra la función"      # dry-run
+antos -y agent do "arregla el build"         # sin preguntar en los pasos confirm
+
+# Runs registrados (id, pasos, instantánea)
+antos agent report
+antos undo                                   # deshace el último run
+
+# Proveedor determinista para tests y demos: un guion JSON de turnos
+ANTOS_AGENT_FAKE_SCRIPT=guion.json antos agent do "…" --provider fake
+```
+
+Presupuesto por defecto: 20 pasos, 400 000 tokens, 10 minutos. Los
+artefactos de construcción (`target/`, `Cargo.lock`) están declarados como
+`scratch` en `test.run`: el recinto los deja escribir, pero ni se confirman
+ni se fotografían. Limitación conocida: bajo Landlock (Linux) el recinto
+solo lee `/usr`, `/lib`, `/etc`…; en antOS Linux el toolchain vive en
+`/nix/store` y `~/.cargo`, así que `test.run` necesita ampliar esas raíces
+de solo lectura (seguimiento en T33.2).
+
 Gestiona el equipo autónomo de agentes especializados (`antFlow`) que ejecutan tareas en *Git Worktrees* efímeros:
 
 ```bash

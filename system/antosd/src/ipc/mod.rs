@@ -115,6 +115,36 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 send(&mut writer, &Event::Error(format!("{e:#}")))?;
             }
         }
+        Request::AgentRun {
+            goal,
+            provider,
+            toolset,
+            budget,
+            dry_run,
+        } => {
+            // Un run de agente muta el workspace durante varios turnos: se
+            // serializa igual que una intención (T32.3).
+            let _mutation_guard = WORKSPACE_MUTATION_LOCK
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let mut handler = SocketHandler {
+                writer: &mut writer,
+                reader: &mut reader,
+            };
+            let mut cfg = crate::agent::RunConfig::new(goal);
+            if let Some(t) = toolset {
+                cfg.toolset = t;
+            }
+            if let Some(b) = budget {
+                cfg.budget = b;
+            }
+            cfg.dry_run = dry_run;
+            let outcome = crate::agent::providers::resolve(&ctx.state, provider.as_deref())
+                .and_then(|mut p| crate::agent::run(ctx, catalog, &mut *p, &cfg, &mut handler));
+            if let Err(e) = outcome {
+                send(&mut writer, &Event::Error(format!("{e:#}")))?;
+            }
+        }
         Request::Approval(_) => {
             send(
                 &mut writer,
@@ -1193,6 +1223,94 @@ pub fn daemon_is_running(ctx: &Ctx) -> bool {
 ///
 /// Note that rendering uses the SAME `Terminal` as local mode:
 /// there is no second way to show a plan, so they cannot diverge.
+/// Cliente de un run de agente (T33.2): `antos agent do …`. Misma mecánica
+/// que `remote_intent`: eventos hasta `AgentDone`, aprobaciones por terminal.
+pub fn remote_agent_run(
+    socket: &Path,
+    goal: &str,
+    provider: Option<&str>,
+    toolset: Option<Vec<String>>,
+    budget: Option<antos_protocol::AgentBudget>,
+    dry_run: bool,
+    assume_yes: bool,
+) -> Result<Option<antos_protocol::AgentReport>> {
+    let stream = UnixStream::connect(socket)
+        .with_context(|| format!("could not connect to daemon at {}", socket.display()))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = stream;
+
+    send(
+        &mut writer,
+        &Request::AgentRun {
+            goal: goal.to_string(),
+            provider: provider.map(str::to_string),
+            toolset,
+            budget,
+            dry_run,
+        },
+    )?;
+
+    let mut term = terminal::Terminal::new(assume_yes);
+    let mut report = None;
+    while let Received::Message(event) = receive::<Event>(&mut reader)? {
+        match event {
+            Event::Note(t) => term.on_note(&t)?,
+            Event::Proposal(p) => {
+                let decision = term.on_proposal(&p)?;
+                send(&mut writer, &Request::Approval(decision))?;
+            }
+            Event::AgentStep(step) => term.on_note(&format_agent_step(&step))?,
+            Event::AgentDone(r) => {
+                term.on_note(&format_agent_report(&r))?;
+                report = Some(*r);
+                break;
+            }
+            Event::Error(e) => bail!("{e}"),
+            other => term.on_note(&format!("{other:?}"))?,
+        }
+    }
+    Ok(report)
+}
+
+pub fn format_agent_step(step: &antos_protocol::AgentStepEvent) -> String {
+    use antos_protocol::AgentStepOutcome as O;
+    let mark = match step.outcome {
+        O::Executed => "✓",
+        O::Rejected => "✗ rechazada",
+        O::Declined => "✗ no aprobada",
+        O::Failed => "✗ falló",
+        O::Finished => "■ finalizar",
+    };
+    let preview = if step.output_preview.is_empty() {
+        String::new()
+    } else {
+        format!(" → {}", step.output_preview)
+    };
+    format!(
+        "[agente · paso {}] {} {} {}{} ({} tokens)",
+        step.step, mark, step.tool, step.args_summary, preview, step.tokens_used
+    )
+}
+
+pub fn format_agent_report(r: &antos_protocol::AgentReport) -> String {
+    let mut out = format!(
+        "[agente · fin] {:?} · {} pasos · {} tokens · {} s · {}:{}\n  {}",
+        r.stop_reason, r.steps, r.tokens_used, r.seconds, r.provider, r.model, r.summary
+    );
+    if !r.files_written.is_empty() {
+        out.push_str(&format!("\n  escritos: {}", r.files_written.join(", ")));
+    }
+    if let Some(s) = &r.snapshot_id {
+        out.push_str(&format!(
+            "\n  instantánea {s} · `antos undo` deshace el run entero"
+        ));
+    }
+    if let Some(e) = &r.error {
+        out.push_str(&format!("\n  error: {e}"));
+    }
+    out
+}
+
 pub fn remote_intent(
     socket: &Path,
     text: &str,
@@ -1229,6 +1347,8 @@ pub fn remote_intent(
             }
             Event::Output(t) => term.on_output(&t)?,
             Event::Result(r) => term.on_result(&r)?,
+            Event::AgentStep(step) => term.on_note(&format_agent_step(&step))?,
+            Event::AgentDone(report) => term.on_note(&format_agent_report(&report))?,
             Event::GitStatus(status) => {
                 term.on_note(&format!("git branch: {:?}", status.branch))?;
             }

@@ -9,6 +9,7 @@
 //! are not calculated, and nothing is validated. That belongs in the daemon by
 //! design—a client capable of computing its own tier could simply choose it.
 
+pub mod agent;
 pub mod dev;
 pub mod elf;
 pub mod flow;
@@ -28,6 +29,7 @@ pub mod wasm;
 #[cfg(test)]
 mod tests;
 
+pub use agent::*;
 pub use dev::*;
 pub use elf::*;
 pub use flow::*;

@@ -1,0 +1,15 @@
+name = "fs.patch"
+summary = "Sustituye en un fichero del espacio de trabajo un bloque de texto exacto (que debe aparecer una sola vez) por otro"
+
+[params]
+path = { type = "path", within = "$WORKSPACE" }
+old = { type = "text", max = 65536 }
+new = { type = "text", max = 65536 }
+
+[effects]
+reads = ["{path}"]
+writes = ["{path}"]
+
+[policy]
+tier = "confirm"
+reversible = "snapshot"

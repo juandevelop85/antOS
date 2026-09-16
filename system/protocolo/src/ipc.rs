@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::*;
 use crate::dev::*;
 use crate::flow::*;
 use crate::git::*;
@@ -63,6 +64,21 @@ pub enum Request {
     /// Approve or reject final changes of an antFlow task.
     #[serde(alias = "AprobarFlow")]
     ApproveFlow { ticket_id: String, decision: bool },
+    /// Run a multi-turn tool-using agent on a goal (T33.2). Steps stream as
+    /// `Event::AgentStep`; confirmations use the same `Proposal`/`Approval`
+    /// gate as an intent; the run ends with `Event::AgentDone`.
+    AgentRun {
+        goal: String,
+        /// Provider spec (`claude`, `ollama`, `openrouter:model`, `fake`…);
+        /// `None` → the active provider of `llm_config.json`.
+        provider: Option<String>,
+        /// Catalog capability names the model may call; `None` → default toolset.
+        toolset: Option<Vec<String>>,
+        #[serde(default)]
+        budget: Option<AgentBudget>,
+        #[serde(default)]
+        dry_run: bool,
+    },
     /// Query structured syntax diff for ticket, file, or commit (T8.1 / T17.2).
     #[serde(alias = "ConsultarDiff")]
     QueryDiff {
@@ -509,6 +525,10 @@ pub enum Event {
         #[serde(default)]
         simulated: bool,
     },
+    /// One tool call of an agent run, as it happens (T33.2).
+    AgentStep(AgentStepEvent),
+    /// Final report of an agent run (T33.2).
+    AgentDone(Box<AgentReport>),
     /// Structured and syntax-highlighted diffs (T8.1).
     #[serde(alias = "DiffEstructurado")]
     StructuredDiff(Vec<DiffFile>),

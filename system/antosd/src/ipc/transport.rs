@@ -221,3 +221,21 @@ pub fn serve(ctx: &Ctx, catalog: &Catalog) -> Result<()> {
     }
     Ok(())
 }
+
+/// El mismo socket, para un run de agente (T33.2): los pasos y el informe
+/// salen como eventos propios; la confirmación reutiliza la puerta
+/// `Proposal`/`Approval` de una intención — silencio nunca es un sí.
+impl crate::agent::AgentHandler for SocketHandler<'_> {
+    fn on_step(&mut self, event: &antos_protocol::AgentStepEvent) -> Result<()> {
+        send(self.writer, &Event::AgentStep(event.clone()))
+    }
+    fn on_confirm(&mut self, proposal: &Proposal) -> Result<bool> {
+        SessionHandler::on_proposal(self, proposal)
+    }
+    fn on_note(&mut self, text: &str) -> Result<()> {
+        send(self.writer, &Event::Note(text.to_string()))
+    }
+    fn on_done(&mut self, report: &antos_protocol::AgentReport) -> Result<()> {
+        send(self.writer, &Event::AgentDone(Box::new(report.clone())))
+    }
+}
