@@ -1,9 +1,28 @@
 //! antOS Autonomous Sentinel & Continuous Autopilot Daemon (T16.3).
 //!
-//! Provides background monitoring of the active workspace, detecting broken builds,
-//! syntax errors, and test failures. Automatically orchestrates the antFlow agent roles
-//! (Architect, Coder, QA, Auditor) to generate fixes in ephemeral worktrees and send
-//! notification alerts ready for human approval.
+//! Vigila el espacio de trabajo en busca de ficheros fuente con errores de
+//! sintaxis y propone una corrección que el desarrollador aprueba o rechaza
+//! desde la bandeja de notificaciones (T8.2).
+//!
+//! ## Estado de implementación (T33.1)
+//!
+//! Real:
+//! - `start`/`stop`/`status` y la persistencia de la configuración e
+//!   incidentes en `.antos/`;
+//! - `scan_workspace`: recorre los fuentes (`rs`, `json`, `toml`, `ts`,
+//!   `js`, `py`) y los valida con el VFS Guard (`vfs_guard::validate_content`);
+//! - una notificación por incidente con acciones Aprobar/Rechazar, y
+//!   `resolve_incident` que escribe la corrección aprobada en el fichero.
+//!
+//! Simulado (los nombres del ticket original prometen más de lo que hay):
+//! - **no participa ningún modelo ni ningún rol de antFlow**: `generate_fix`
+//!   solo equilibra llaves, paréntesis y corchetes sin cerrar y devuelve un
+//!   diff aproximado. No detecta builds rotos ni tests en rojo, y no usa
+//!   worktrees efímeros: `worktree_branch` es un nombre, no una rama creada.
+//!
+//! T33.3 sustituye `generate_fix` por un `AgentRun` de Coder (T33.2) con
+//! el error como objetivo; sin proveedor configurado, Autopilot se limita a
+//! notificar el incidente.
 
 use crate::util::unix_now;
 use antos_protocol::{

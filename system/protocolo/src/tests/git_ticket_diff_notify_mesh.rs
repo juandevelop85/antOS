@@ -170,7 +170,9 @@ fn test_tickets_protocol_serialization() {
             role: Some(AgentRole::Architect),
             detail: "assigning task to architect".into(),
             model: None,
+            simulated: true,
         }],
+        backend: FlowBackend::Simulated,
     };
 
     let json_task = serde_json::to_string(&task).expect("serialize task");
@@ -550,4 +552,40 @@ fn test_lsp_serialization() {
     let json_ev2 = serde_json::to_string(&ev2).expect("serialize lsp config ev");
     let des_ev2: Event = serde_json::from_str(&json_ev2).expect("deserialize lsp config ev");
     assert_eq!(ev2, des_ev2);
+}
+
+/// T33.1: una tarea guardada antes de `FlowBackend`/`simulated` sigue cargando
+/// y se lee como lo que era —una simulación—, sin reescribir nada en disco.
+#[test]
+fn flow_task_saved_before_t33_1_loads_as_simulated() {
+    let legacy = r#"{
+        "id": "flow-legacy",
+        "ticket_id": "T3.1",
+        "state": "implementing",
+        "current_role": "coder",
+        "worktree_path": null,
+        "branch_name": "agent/t3.1",
+        "qa_retries": 0,
+        "max_qa_retries": 3,
+        "diff_preview": null,
+        "audit_summary": null,
+        "history": [{
+            "timestamp_seconds": 1700000000,
+            "old_state": "pending",
+            "new_state": "planning",
+            "role": "architect",
+            "detail": "legacy",
+            "model": "claude-opus-5"
+        }]
+    }"#;
+    let task: FlowTask = serde_json::from_str(legacy).expect("legacy task deserializes");
+    assert_eq!(task.backend, FlowBackend::Simulated);
+    assert_eq!(FlowBackend::default(), FlowBackend::Simulated);
+    assert!(!task.history[0].simulated);
+    assert_eq!(FlowBackend::Simulated.label_es(), "simulación");
+    assert_eq!(FlowBackend::Agent.label_es(), "agente");
+
+    let round: FlowTask =
+        serde_json::from_str(&serde_json::to_string(&task).expect("ser")).expect("de");
+    assert_eq!(round, task);
 }

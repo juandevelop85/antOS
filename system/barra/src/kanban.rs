@@ -3,7 +3,9 @@
 use crate::session::run_offthread;
 use crate::socket_path;
 use crate::widgets::{empty_box, make_label};
-use antos_protocol::{AgentRole, Event, FlowTask, Request, TicketStatus, TicketSummary};
+use antos_protocol::{
+    AgentRole, Event, FlowBackend, FlowTask, Request, TicketStatus, TicketSummary,
+};
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Button, Entry, Orientation, ScrolledWindow};
 use std::cell::RefCell;
@@ -123,6 +125,13 @@ fn render_kanban_view(
         } else {
             badge.add_css_class("idle");
         }
+        agent_bar.append(&badge);
+    }
+    // T33.1: si alguna tarea es la simulación de T3.1, el monitor lo dice en
+    // vez de presentar los roles como agentes trabajando.
+    if flows.iter().any(|f| f.backend == FlowBackend::Simulated) {
+        let badge = make_label("⚠ simulación (sin modelo)", "agent-badge");
+        badge.add_css_class("idle");
         agent_bar.append(&badge);
     }
     sheet.append(&agent_bar);

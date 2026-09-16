@@ -1,12 +1,38 @@
 //! Orquestador de Roles Multi-Agente (antFlow Core en Rust) (T3.1).
 //!
-//! Coordina la máquina de estados entre agentes especializados:
-//! - Arquitecto: Análisis técnico de tickets y especificaciones (T1.3).
-//! - Coder: Modificación de código y refactorización en Worktree efímero (T2.2).
-//! - QA / Tester: Ejecución de pruebas y validación en sandbox confinado.
-//! - Auditor: Análisis de radio de impacto, seguridad y diffs para aprobación final.
+//! Máquina de estados de una tarea por ticket —Pending → Planning
+//! (Arquitecto) → Implementing (Coder) → Testing (QA) → Reviewing (Auditor)
+//! → aprobación del desarrollador— con historial de transiciones, worktree
+//! y rama de agente por ticket (T2.2), reintentos de QA y persistencia en
+//! disco.
+//!
+//! ## Estado de implementación (T33.1)
+//!
+//! Lo que este fichero hace de verdad:
+//! - la máquina de estados y su historial (`start_task`,
+//!   `advance_phase_with_model`, `approve_task`, `save_task_to_disk`);
+//! - crear el worktree y la rama del ticket (`crate::git`);
+//! - QA: ejecutar la suite real del worktree (`run_worktree_tests`:
+//!   `cargo test` o `npm test`) y realimentar la salida al historial;
+//! - calcular el diff del worktree (`calculate_worktree_diff`).
+//!
+//! Lo que **no** hace todavía, aunque los nombres de rol y de modelo del
+//! historial lo sugieran:
+//! - ningún rol invoca un modelo. El nombre de modelo por rol
+//!   (`LlmConfig::get_role_model`) se anota en la transición como etiqueta
+//!   del modelo *asignado*, no de uno que haya corrido; por eso cada
+//!   transición lleva `simulated: true` y la tarea `backend: Simulated`;
+//! - el «Arquitecto» solo cuenta los criterios de aceptación del ticket;
+//! - el «Coder» de `run_worktree_pipeline` escribe un *scaffold* fijo
+//!   (`pub fn run() -> bool { true }`) o copia los ficheros que le pasen;
+//! - el «Auditor» no revisa el diff: lo adjunta y aprueba siempre;
+//! - `approve_task` cambia el estado a `Merged`/`Failed` y nada más: no
+//!   fusiona la rama del agente ni elimina el worktree.
+//!
+//! El runtime que hace real cada rol es T33.2 (bucle de herramientas) y
+//! T33.3 (roles sobre el runtime); `FlowBackend::Agent` marcará esas tareas.
 
-use antos_protocol::{AgentRole, FlowState, FlowTask, FlowTransition};
+use antos_protocol::{AgentRole, FlowBackend, FlowState, FlowTask, FlowTransition};
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -71,6 +97,7 @@ impl FlowEngine {
             diff_preview: None,
             audit_summary: None,
             history: Vec::new(),
+            backend: FlowBackend::Simulated,
         };
 
         let llm_config = crate::llm::LlmConfig::load_from_state(state_dir);
@@ -88,6 +115,7 @@ impl FlowEngine {
                 ticket_detail.acceptance_criteria.len()
             ),
             model: Some(arch_model),
+            simulated: true,
         });
         task.state = FlowState::Planning;
         task.current_role = Some(AgentRole::Architect);
@@ -135,6 +163,7 @@ impl FlowEngine {
                         detalle.to_string()
                     },
                     model: model_opt,
+                    simulated: true,
                 });
             }
             FlowState::Implementing => {
@@ -152,6 +181,7 @@ impl FlowEngine {
                         detalle.to_string()
                     },
                     model: model_opt,
+                    simulated: true,
                 });
             }
             FlowState::Testing => {
@@ -170,6 +200,7 @@ impl FlowEngine {
                             detalle.to_string()
                         },
                         model: model_opt,
+                        simulated: true,
                     });
                 } else if task.qa_retries < task.max_qa_retries {
                     // QA falló -> realimentar a Coder para corrección
@@ -186,6 +217,7 @@ impl FlowEngine {
                             task.qa_retries, task.max_qa_retries
                         ),
                         model: model_opt,
+                        simulated: true,
                     });
                 } else {
                     // Superó límite de reintentos
@@ -201,6 +233,7 @@ impl FlowEngine {
                             task.qa_retries, task.max_qa_retries
                         ),
                         model: model_opt,
+                        simulated: true,
                     });
                 }
             }
@@ -222,6 +255,7 @@ impl FlowEngine {
                         detalle.to_string()
                     },
                     model: model_opt,
+                    simulated: true,
                 });
             }
             FlowState::ReadyForApproval => {
@@ -274,9 +308,11 @@ impl FlowEngine {
                 old_state: previous,
                 new_state: FlowState::Merged,
                 role: None,
-                detail: "Aprobado por el desarrollador. Cambios integrados a la rama principal."
+                detail: "Aprobado por el desarrollador. La rama del agente queda como está: \
+                         antFlow no fusiona ni elimina el worktree todavía (T33.3)."
                     .into(),
                 model: None,
+                simulated: true,
             });
         } else {
             task.state = FlowState::Failed;
@@ -285,8 +321,11 @@ impl FlowEngine {
                 old_state: previous,
                 new_state: FlowState::Failed,
                 role: None,
-                detail: "Rechazado por el desarrollador. Worktree descartado.".into(),
+                detail: "Rechazado por el desarrollador. Tarea cerrada; el worktree y la rama \
+                         del agente se conservan para inspección (limpieza manual, T33.3)."
+                    .into(),
                 model: None,
+                simulated: true,
             });
         }
 
@@ -694,6 +733,12 @@ mod tests {
         assert_eq!(task.ticket_id, "T9.1");
         assert_eq!(task.state, FlowState::ReadyForApproval);
         assert!(task.audit_summary.is_some());
+        // T33.1: el pipeline de hoy es una simulación y lo dice.
+        assert_eq!(task.backend, FlowBackend::Simulated);
+        assert!(
+            task.history.iter().all(|t| t.simulated),
+            "ninguna transición del pipeline simulado puede presentarse como obra de un modelo"
+        );
 
         // Limpiar directorio temporal de prueba
         let _ = std::fs::remove_dir_all(&temp_dir);

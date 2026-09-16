@@ -179,6 +179,34 @@ impl FlowState {
     }
 }
 
+/// Who produced the work behind an antFlow task (T33.1).
+///
+/// `Simulated` es el pipeline de T3.1/T3.2 tal cual existe hoy: la máquina de
+/// estados avanza sola, el «Coder» escribe un *scaffold* fijo y los modelos
+/// por rol son etiquetas. `Agent` es el runtime de T33.2/T33.3, donde cada
+/// fase la ejecuta un modelo con herramientas del catálogo. Toda tarea
+/// guardada antes de T33.1 se lee como `Simulated` (`#[serde(default)]`),
+/// que es exactamente lo que era.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FlowBackend {
+    /// State machine without a model: scaffold code, labels for role models.
+    #[default]
+    Simulated,
+    /// Each phase is an `AgentRun` with a real model and catalog tools.
+    Agent,
+}
+
+impl FlowBackend {
+    /// Spanish label shown to the user (CLI, bar).
+    pub fn label_es(&self) -> &'static str {
+        match self {
+            FlowBackend::Simulated => "simulación",
+            FlowBackend::Agent => "agente",
+        }
+    }
+}
+
 /// Record of a lifecycle state transition in antFlow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowTransition {
@@ -194,6 +222,12 @@ pub struct FlowTransition {
     pub detail: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// `true` when no model produced this transition: `model` is then the
+    /// model *assigned* to the role, not one that ran (T33.1). Transitions
+    /// saved before T33.1 default to `false` only if they carry no model;
+    /// callers that print models must check this flag first.
+    #[serde(default)]
+    pub simulated: bool,
 }
 
 /// Active or historical task orchestrated by antFlow.
@@ -216,6 +250,9 @@ pub struct FlowTask {
     pub audit_summary: Option<String>,
     #[serde(alias = "historial")]
     pub history: Vec<FlowTransition>,
+    /// Who did the work (T33.1). Missing in tasks saved before → `Simulated`.
+    #[serde(default)]
+    pub backend: FlowBackend,
 }
 
 /// Panel kind inside the integrated Dev TUI workspace (T20.1).

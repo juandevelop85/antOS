@@ -123,13 +123,20 @@ pub(crate) fn listen_events(
                     role,
                     detail,
                     model,
+                    simulated,
                     ..
                 } => {
                     let role_label = role.map(|r| r.name()).unwrap_or("System");
-                    let model_suffix = model
-                        .as_deref()
-                        .map(|m| format!(" · {m}"))
-                        .unwrap_or_default();
+                    // T33.1: en una simulación el modelo es solo el asignado al
+                    // rol; no se presenta como si hubiera corrido.
+                    let model_suffix = if simulated {
+                        " · simulación".to_string()
+                    } else {
+                        model
+                            .as_deref()
+                            .map(|m| format!(" · {m}"))
+                            .unwrap_or_default()
+                    };
                     let transition_text = format!(
                         "{}: {} [{}{}]",
                         new_state.label(),
@@ -286,12 +293,20 @@ fn render_flow_task(
     sheet.append(&make_label("antFlow · TAREA DE AGENTES", "etiqueta"));
     sheet.append(&make_label(
         &format!(
-            "Ticket: {} | Estado: {}",
+            "Ticket: {} | Estado: {} | Ejecución: {}",
             task.ticket_id,
-            task.state.label()
+            task.state.label(),
+            task.backend.label_es()
         ),
         "nivel",
     ));
+    if task.backend == antos_protocol::FlowBackend::Simulated {
+        // T33.1: que nadie confunda el pipeline de demostración con un agente.
+        sheet.append(&make_label(
+            "SIMULACIÓN: ningún modelo participó en esta tarea (ver T33.1 / T33.2)",
+            "error",
+        ));
+    }
 
     if let Some(role) = task.current_role {
         sheet.append(&make_label(

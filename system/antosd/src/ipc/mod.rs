@@ -2519,7 +2519,9 @@ mod tests {
             snapshot: None,
         };
 
-        handler.on_result(&exec_res).expect("on_result debe emitir sin error");
+        handler
+            .on_result(&exec_res)
+            .expect("on_result debe emitir sin error");
 
         let mut client_reader = BufReader::new(client);
         let mut line = String::new();

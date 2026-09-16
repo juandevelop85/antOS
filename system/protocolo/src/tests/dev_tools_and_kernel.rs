@@ -71,6 +71,7 @@ fn test_submodule_namespaces_and_roundtrips() {
         diff_preview: None,
         audit_summary: None,
         history: vec![],
+        backend: FlowBackend::Simulated,
     };
     let json_task = serde_json::to_string(&task).expect("task serde");
     let des_task: FlowTask = serde_json::from_str(&json_task).expect("task deser");

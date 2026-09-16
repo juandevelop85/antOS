@@ -130,7 +130,7 @@ fn scan_dir_signature(
 
         if let Ok(meta) = entry.metadata() {
             if let Ok(m) = meta.modified() {
-                if sig.max_mtime.map_or(true, |cur| m > cur) {
+                if sig.max_mtime.is_none_or(|cur| m > cur) {
                     sig.max_mtime = Some(m);
                 }
             }
@@ -367,8 +367,8 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
                     }
                 }
             }
-        } else if line.starts_with("? ") {
-            let raw_path = line[2..].trim();
+        } else if let Some(rest) = line.strip_prefix("? ") {
+            let raw_path = rest.trim();
             let path =
                 if raw_path.starts_with('"') && raw_path.ends_with('"') && raw_path.len() >= 2 {
                     &raw_path[1..raw_path.len() - 1]
@@ -386,13 +386,14 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
                 let x = xy.chars().next().unwrap_or('.');
                 let y = xy.chars().nth(1).unwrap_or('.');
                 let raw_path = parts[8];
-                let path =
-                    if raw_path.starts_with('"') && raw_path.ends_with('"') && raw_path.len() >= 2
-                    {
-                        &raw_path[1..raw_path.len() - 1]
-                    } else {
-                        raw_path
-                    };
+                let path = if raw_path.starts_with('"')
+                    && raw_path.ends_with('"')
+                    && raw_path.len() >= 2
+                {
+                    &raw_path[1..raw_path.len() - 1]
+                } else {
+                    raw_path
+                };
 
                 if x != '.' {
                     staged_entries.push((path.to_string(), char_to_status(x)));
@@ -410,13 +411,14 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
                 let y = xy.chars().nth(1).unwrap_or('.');
                 let path_and_orig = parts[9];
                 let raw_path = path_and_orig.split('\t').next().unwrap_or(path_and_orig);
-                let path =
-                    if raw_path.starts_with('"') && raw_path.ends_with('"') && raw_path.len() >= 2
-                    {
-                        &raw_path[1..raw_path.len() - 1]
-                    } else {
-                        raw_path
-                    };
+                let path = if raw_path.starts_with('"')
+                    && raw_path.ends_with('"')
+                    && raw_path.len() >= 2
+                {
+                    &raw_path[1..raw_path.len() - 1]
+                } else {
+                    raw_path
+                };
 
                 if x != '.' {
                     staged_entries.push((path.to_string(), char_to_status(x)));
@@ -433,13 +435,14 @@ fn inspect_repo(repo_root: &Path, git_dir: &Path) -> Result<GitRepoStatus> {
                 let x = xy.chars().next().unwrap_or('.');
                 let y = xy.chars().nth(1).unwrap_or('.');
                 let raw_path = parts[10];
-                let path =
-                    if raw_path.starts_with('"') && raw_path.ends_with('"') && raw_path.len() >= 2
-                    {
-                        &raw_path[1..raw_path.len() - 1]
-                    } else {
-                        raw_path
-                    };
+                let path = if raw_path.starts_with('"')
+                    && raw_path.ends_with('"')
+                    && raw_path.len() >= 2
+                {
+                    &raw_path[1..raw_path.len() - 1]
+                } else {
+                    raw_path
+                };
 
                 if x != '.' {
                     staged_entries.push((path.to_string(), GitFileStatus::Conflicted));

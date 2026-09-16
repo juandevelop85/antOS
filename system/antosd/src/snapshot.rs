@@ -185,11 +185,7 @@ fn clone_file_linux(from: &Path, to: &Path) -> bool {
         return false;
     };
 
-    let Ok(dst_file) = File::options()
-        .write(true)
-        .create_new(true)
-        .open(to)
-    else {
+    let Ok(dst_file) = File::options().write(true).create_new(true).open(to) else {
         return false;
     };
 
@@ -227,6 +223,8 @@ fn copy_tree(from: &Path, to: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     #[test]
@@ -249,7 +247,10 @@ mod tests {
         let snap = take("snap_01", &paths, &snaps).expect("take snapshot");
         assert_eq!(snap.entries.len(), 2);
         assert!(snap.entries.iter().all(|e| e.existed));
-        assert!(snap.entries.iter().all(|e| e.method == "clon" || e.method == "copia"));
+        assert!(snap
+            .entries
+            .iter()
+            .all(|e| e.method == "clon" || e.method == "copia"));
 
         // Modificar o eliminar archivos en workspace
         std::fs::write(&file_a, "Contenido A modificado").unwrap();

@@ -505,6 +505,9 @@ pub enum Event {
         detail: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        /// No model produced this transition (T33.1); see `FlowTransition::simulated`.
+        #[serde(default)]
+        simulated: bool,
     },
     /// Structured and syntax-highlighted diffs (T8.1).
     #[serde(alias = "DiffEstructurado")]

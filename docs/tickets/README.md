@@ -166,7 +166,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 32** | [T32.6](T32.6-eliminacion-de-espera-activa-busy-waiting-en-nvme-y-ahci-sata.md) | Eliminación de Espera Activa (Busy-Waiting) en Controladores NVMe y AHCI SATA | ✅ Completado |
 | **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ✅ Completado |
 | **Fase 32** | [T32.8](T32.8-zero-copy-en-vfs-y-clones-copy-on-write-para-linux.md) | Zero-Copy en VFS y Clones Copy-on-Write en Linux | ✅ Completado |
-| **Fase 33** | [T33.1](T33.1-honestidad-de-antflow-y-autopilot-estado-de-implementacion-visible.md) | Honestidad de antFlow y Autopilot: Estado de Implementación Visible | ⏳ Pendiente |
+| **Fase 33** | [T33.1](T33.1-honestidad-de-antflow-y-autopilot-estado-de-implementacion-visible.md) | Honestidad de antFlow y Autopilot: Estado de Implementación Visible | ✅ Completado |
 | **Fase 33** | [T33.2](T33.2-runtime-de-agente-bucle-de-herramientas-sobre-el-catalogo-de-capacidades.md) | Runtime de Agente: Bucle de Herramientas sobre el Catálogo de Capacidades | ⏳ Pendiente |
 | **Fase 33** | [T33.3](T33.3-roles-antflow-reales-sobre-el-runtime-de-agente.md) | Roles antFlow Reales sobre el Runtime de Agente | ⏳ Pendiente |
 | **Fase 33** | [T33.4](T33.4-la-barra-como-puesto-de-mando-pasos-en-vivo-aprobaciones-inline-y-tablero-real.md) | La Barra como Puesto de Mando: Pasos en Vivo, Aprobaciones Inline y Tablero Real | ⏳ Pendiente |
@@ -471,5 +471,5 @@ de un modelo con presupuesto y supervisión.
 - **T33.5** — evaluación reproducible: smoke determinista en CI con `fake`
   y `antos eval agent --live` con métricas y diff de regresiones.
 
-Orden sugerido de ataque: T33.1 → T33.2 → T33.3 → T33.4 → T33.5.
+Orden sugerido de ataque: ~~T33.1~~ → T33.2 → T33.3 → T33.4 → T33.5.
 

@@ -173,6 +173,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("  Tarea ID:       {}", paint(&task.id, YELLOW));
             println!("  Ticket:         {}", paint(&task.ticket_id, BOLD));
             println!("  Estado:         {}", task.state.label());
+            println!("  Ejecución:      {}", backend_label(&task));
             if let Some(wt) = &task.worktree_path {
                 println!("  Worktree:       {}", paint(wt, DIM));
             }
@@ -192,11 +193,16 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     .role
                     .map(|r| format!(" [{}]", r.name_es()))
                     .unwrap_or_default();
-                let model_fmt = t
-                    .model
-                    .as_deref()
-                    .map(|m| format!(" ({})", paint(m, CYAN)))
-                    .unwrap_or_default();
+                // El modelo solo se imprime cuando corrió de verdad (T33.1):
+                // en una simulación es la etiqueta del modelo asignado.
+                let model_fmt = if t.simulated {
+                    String::new()
+                } else {
+                    t.model
+                        .as_deref()
+                        .map(|m| format!(" ({})", paint(m, CYAN)))
+                        .unwrap_or_default()
+                };
                 println!(
                     "    • {}{}{}: {}",
                     paint(t.new_state.label(), BOLD),
@@ -231,6 +237,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                         )
                     );
                     println!("  Estado:     {}", task.state.label());
+                    println!("  Ejecución:  {}", backend_label(&task));
                     println!(
                         "  Rol Activo: {}",
                         task.current_role.map(|r| r.name_es()).unwrap_or("Ninguno")
@@ -246,11 +253,14 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                     }
                     println!("\n  Transiciones:");
                     for h in &task.history {
-                        let model_fmt = h
-                            .model
-                            .as_deref()
-                            .map(|m| format!(" [{}]", paint(m, CYAN)))
-                            .unwrap_or_default();
+                        let model_fmt = if h.simulated {
+                            String::new()
+                        } else {
+                            h.model
+                                .as_deref()
+                                .map(|m| format!(" [{}]", paint(m, CYAN)))
+                                .unwrap_or_default()
+                        };
                         println!("    • [{}] {}{}", h.new_state.label(), h.detail, model_fmt);
                     }
                     println!();
@@ -265,9 +275,10 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String]) -> Result<()> {
                 } else {
                     for t in tasks {
                         println!(
-                            "  • {:<8} {:<30} (reintentos QA: {})",
+                            "  • {:<8} {:<30} {} (reintentos QA: {})",
                             paint(&t.ticket_id, BOLD),
                             t.state.label(),
+                            backend_label(&t),
                             t.qa_retries
                         );
                     }
@@ -536,3 +547,14 @@ pub fn cmd_swarm(ctx: &Ctx, args: &[String]) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------- vfs
+
+/// Etiqueta de ejecución de una tarea antFlow (T33.1): deja claro cuando el
+/// pipeline es la simulación de T3.1 y no un agente con modelo.
+fn backend_label(task: &antos_protocol::FlowTask) -> String {
+    match task.backend {
+        antos_protocol::FlowBackend::Simulated => {
+            paint("SIMULACIÓN · ningún modelo participó (T33.1)", YELLOW)
+        }
+        antos_protocol::FlowBackend::Agent => paint("agente con modelo", GREEN),
+    }
+}

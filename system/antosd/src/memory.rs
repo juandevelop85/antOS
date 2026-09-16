@@ -859,7 +859,10 @@ mod tests {
     #[test]
     fn test_sparse_vector_and_term_dictionary() {
         let mut dict = TermDictionary::new();
-        let v1 = compute_sparse_vector("fn create_worktree(repo: &str) -> Result<PathBuf>", &mut dict);
+        let v1 = compute_sparse_vector(
+            "fn create_worktree(repo: &str) -> Result<PathBuf>",
+            &mut dict,
+        );
         let v2 = compute_sparse_vector("worktree ephemeral git repository path", &mut dict);
         let v3 = compute_sparse_vector("postgres database ephemeral service port 5432", &mut dict);
 
@@ -874,7 +877,10 @@ mod tests {
 
         // Verify sorted invariant
         for window in v1.windows(2) {
-            assert!(window[0].0 < window[1].0, "sparse vector must be strictly sorted by term ID");
+            assert!(
+                window[0].0 < window[1].0,
+                "sparse vector must be strictly sorted by term ID"
+            );
         }
     }
 
@@ -939,7 +945,8 @@ mod tests {
         graph.add_edge("file:a.rs", "file:b.rs", EdgeKind::Imports);
 
         let serialized = serde_json::to_string(&graph).expect("serialize graph");
-        let mut deserialized: ContextGraph = serde_json::from_str(&serialized).expect("deserialize");
+        let mut deserialized: ContextGraph =
+            serde_json::from_str(&serialized).expect("deserialize");
 
         // Before ensure_indices, fallback or ensure_indices works
         deserialized.ensure_indices();

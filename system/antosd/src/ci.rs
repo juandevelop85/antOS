@@ -532,9 +532,8 @@ impl CiEngine {
                         std::thread::scope(|s| {
                             let mut handles = Vec::with_capacity(batch.len());
                             for stage in &batch {
-                                handles.push(s.spawn(move || {
-                                    Self::execute_stage(stage, workspace)
-                                }));
+                                handles
+                                    .push(s.spawn(move || Self::execute_stage(stage, workspace)));
                             }
                             for handle in handles {
                                 if let Ok(result) = handle.join() {

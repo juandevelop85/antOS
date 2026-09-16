@@ -116,9 +116,11 @@ impl NotificationEngine {
         let message = match action {
             NotificationAction::Approve => {
                 match crate::flow::FlowEngine::global().approve_task(&notif.ticket_id, true) {
-                    Ok(_) => format!(
-                        "Aprobación concedida: cambios del ticket {} fusionados con éxito.",
-                        notif.ticket_id
+                    Ok(task) => format!(
+                        "Aprobación registrada para el ticket {}{}. La rama del agente queda como \
+                         está: antFlow no fusiona todavía (T33.3).",
+                        notif.ticket_id,
+                        simulated_suffix(&task)
                     ),
                     Err(e) => format!(
                         "Error al aprobar cambios del ticket {}: {e:#}",
@@ -128,9 +130,11 @@ impl NotificationEngine {
             }
             NotificationAction::Reject => {
                 match crate::flow::FlowEngine::global().approve_task(&notif.ticket_id, false) {
-                    Ok(_) => format!(
-                        "Rollback completado: cambios del ticket {} revertidos y worktree limpiado.",
-                        notif.ticket_id
+                    Ok(task) => format!(
+                        "Rechazo registrado para el ticket {}{}. El worktree y la rama se conservan \
+                         para inspección; la limpieza es manual (T33.3).",
+                        notif.ticket_id,
+                        simulated_suffix(&task)
                     ),
                     Err(e) => format!("Error al revertir cambios del ticket {}: {e:#}", notif.ticket_id),
                 }
@@ -217,6 +221,14 @@ pub fn notify_ticket_ready_for_review(
     };
 
     NotificationEngine::global().notify(workspace, notif)
+}
+
+/// Sufijo para no confundir una tarea simulada con un agente (T33.1).
+fn simulated_suffix(task: &antos_protocol::FlowTask) -> &'static str {
+    match task.backend {
+        antos_protocol::FlowBackend::Simulated => " (tarea simulada: ningún modelo participó)",
+        antos_protocol::FlowBackend::Agent => "",
+    }
 }
 
 #[cfg(test)]

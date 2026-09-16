@@ -259,19 +259,34 @@ fn parse_hunk_header(header: &str) -> (usize, usize, usize, usize) {
 }
 
 static RS_KEYWORDS: &[&str] = &[
-    "Self", "async", "await", "break", "const", "continue", "else", "enum", "fn", "for",
-    "if", "impl", "let", "loop", "match", "mod", "mut", "pub", "return", "self",
-    "static", "struct", "trait", "type", "unsafe", "use", "where", "while",
+    "Self", "async", "await", "break", "const", "continue", "else", "enum", "fn", "for", "if",
+    "impl", "let", "loop", "match", "mod", "mut", "pub", "return", "self", "static", "struct",
+    "trait", "type", "unsafe", "use", "where", "while",
 ];
 
 static PY_KEYWORDS: &[&str] = &[
-    "as", "async", "await", "class", "def", "elif", "else", "except", "for",
-    "from", "if", "import", "lambda", "pass", "return", "try", "while", "with", "yield",
+    "as", "async", "await", "class", "def", "elif", "else", "except", "for", "from", "if",
+    "import", "lambda", "pass", "return", "try", "while", "with", "yield",
 ];
 
 static JS_KEYWORDS: &[&str] = &[
-    "async", "await", "class", "const", "else", "export", "for", "function",
-    "if", "import", "interface", "let", "new", "return", "type", "var", "while",
+    "async",
+    "await",
+    "class",
+    "const",
+    "else",
+    "export",
+    "for",
+    "function",
+    "if",
+    "import",
+    "interface",
+    "let",
+    "new",
+    "return",
+    "type",
+    "var",
+    "while",
 ];
 
 static DEFAULT_KEYWORDS: &[&str] = &[
@@ -417,9 +432,13 @@ index 1234567..89abcdef 100644
         diff.push_str("diff --git a/big_file.rs b/big_file.rs\nindex 0000000..1111111 100644\n--- a/big_file.rs\n+++ b/big_file.rs\n@@ -1,2500 +1,2500 @@\n");
         for i in 0..2500 {
             if i % 3 == 0 {
-                diff.push_str(&format!("+    let var_{i}: u64 = compute_hash({i}); // insert\n"));
+                diff.push_str(&format!(
+                    "+    let var_{i}: u64 = compute_hash({i}); // insert\n"
+                ));
             } else if i % 3 == 1 {
-                diff.push_str(&format!("-    let old_var_{i} = calculate({i}); // remove\n"));
+                diff.push_str(&format!(
+                    "-    let old_var_{i} = calculate({i}); // remove\n"
+                ));
             } else {
                 diff.push_str(&format!("     fn step_{i}() -> Result<()> {{ Ok(()) }}\n"));
             }
