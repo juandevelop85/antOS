@@ -238,4 +238,24 @@ impl crate::agent::AgentHandler for SocketHandler<'_> {
     fn on_done(&mut self, report: &antos_protocol::AgentReport) -> Result<()> {
         send(self.writer, &Event::AgentDone(Box::new(report.clone())))
     }
+    /// Mira sin bloquear si el cliente envió `AgentStop` (T33.4). Cualquier
+    /// otra cosa que llegue fuera de una `Proposal` se descarta: durante un
+    /// run no hay más diálogo que aprobar o detener.
+    fn should_stop(&mut self) -> bool {
+        let stream = self.reader.get_ref();
+        if stream.set_nonblocking(true).is_err() {
+            return false;
+        }
+        let mut line = String::new();
+        let outcome = self.reader.read_line(&mut line);
+        let _ = self.reader.get_ref().set_nonblocking(false);
+        match outcome {
+            Ok(0) => true, // el cliente se fue: no hay a quién servir el run
+            Ok(_) => matches!(
+                serde_json::from_str::<Request>(line.trim()),
+                Ok(Request::AgentStop)
+            ),
+            Err(_) => false,
+        }
+    }
 }

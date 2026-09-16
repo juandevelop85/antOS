@@ -77,6 +77,9 @@ pub enum AgentStopReason {
     Declined,
     /// El modelo dejó de pedir herramientas sin finalizar (respuesta de texto).
     ModelStopped,
+    /// El usuario detuvo el run (`Request::AgentStop`, botón «detener» de la
+    /// barra, T33.4). Lo ejecutado hasta entonces queda en el journal.
+    Stopped,
     /// Error del proveedor o del runtime.
     Error,
 }

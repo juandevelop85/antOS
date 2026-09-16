@@ -79,6 +79,10 @@ pub enum Request {
         #[serde(default)]
         dry_run: bool,
     },
+    /// Stop the agent run in progress on this connection (T33.4). The
+    /// current tool finishes; nothing else starts. Ignored if no run is
+    /// active.
+    AgentStop,
     /// Query structured syntax diff for ticket, file, or commit (T8.1 / T17.2).
     #[serde(alias = "ConsultarDiff")]
     QueryDiff {

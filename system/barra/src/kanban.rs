@@ -95,7 +95,7 @@ fn render_kanban_view(
     tickets: &[TicketSummary],
     flows: &[FlowTask],
     input: Entry,
-    stream_writer: Rc<RefCell<Option<UnixStream>>>,
+    _stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
     let sheet = GtkBox::new(Orientation::Vertical, 12);
     sheet.add_css_class("hoja");
@@ -145,7 +145,7 @@ fn render_kanban_view(
         "⏳ BACKLOG",
         tickets.iter().filter(|t| t.status == TicketStatus::Pending),
         input.clone(),
-        stream_writer.clone(),
+        flows,
         true,
     );
     let col_progress = create_kanban_column(
@@ -154,7 +154,7 @@ fn render_kanban_view(
             .iter()
             .filter(|t| t.status == TicketStatus::InProgress),
         input.clone(),
-        stream_writer.clone(),
+        flows,
         false,
     );
     let col_review = create_kanban_column(
@@ -163,7 +163,7 @@ fn render_kanban_view(
             .iter()
             .filter(|t| t.status == TicketStatus::InReview),
         input.clone(),
-        stream_writer.clone(),
+        flows,
         false,
     );
     let col_done = create_kanban_column(
@@ -172,7 +172,7 @@ fn render_kanban_view(
             .iter()
             .filter(|t| t.status == TicketStatus::Completed),
         input.clone(),
-        stream_writer.clone(),
+        flows,
         false,
     );
 
@@ -196,7 +196,7 @@ fn create_kanban_column<'a, I>(
     title: &str,
     tickets: I,
     input: Entry,
-    stream_writer: Rc<RefCell<Option<UnixStream>>>,
+    flows: &[FlowTask],
     show_dispatch_btn: bool,
 ) -> GtkBox
 where
@@ -219,27 +219,39 @@ where
         card.append(&id_lbl);
         card.append(&title_lbl);
 
+        // T33.4: la tarjeta muestra el estado real de su tarea antFlow, si la
+        // hay — fase, rol, y si es una simulación o un agente con modelo,
+        // con los pasos y tokens del último run.
+        if let Some(flow) = flows
+            .iter()
+            .find(|f| f.ticket_id.eq_ignore_ascii_case(&t.id))
+        {
+            let last_report = flow.history.iter().rev().find_map(|h| h.report.as_ref());
+            let text = match (flow.backend, last_report) {
+                (FlowBackend::Simulated, _) => {
+                    format!("⚠ simulación · {}", flow.state.label())
+                }
+                (FlowBackend::Agent, Some(r)) => format!(
+                    "agente · {} · {} · {} pasos · {} tokens",
+                    flow.state.label(),
+                    r.model,
+                    r.steps,
+                    r.tokens_used
+                ),
+                (FlowBackend::Agent, None) => format!("agente · {}", flow.state.label()),
+            };
+            card.append(&make_label(&text, "kanban-card-id"));
+        }
+
         if show_dispatch_btn {
             let dispatch_btn = Button::with_label("🚀 Despachar");
             dispatch_btn.add_css_class("dispatch-btn");
             let tid = t.id.clone();
             let input_ref = input.clone();
-            let writer_ref = stream_writer.clone();
             dispatch_btn.connect_clicked(move |_| {
-                input_ref.set_text(&format!("desarrolla ticket {tid}"));
-                if let Some(stream) = writer_ref.borrow_mut().as_mut() {
-                    let current_dir = std::env::current_dir()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|_| ".".into());
-                    let req = Request::StartFlow {
-                        workspace_path: current_dir,
-                        ticket_id: tid.clone(),
-                    };
-                    if let Ok(json) = serde_json::to_string(&req) {
-                        let _ = writeln!(stream, "{json}");
-                        let _ = stream.flush();
-                    }
-                }
+                // Por la misma sesión que una intención (T33.4): el pipeline
+                // real emite pasos, propuestas e informe a esta conexión.
+                input_ref.set_text(&format!("ticket: {tid}"));
                 input_ref.emit_activate();
             });
             card.append(&dispatch_btn);

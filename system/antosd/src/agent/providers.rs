@@ -452,18 +452,21 @@ fn openai_style_tool(t: &ToolSpec) -> Value {
 /// de los planificadores para leer claves y endpoints.
 pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dyn AgentProvider>> {
     let config = crate::llm::LlmConfig::load_from_state(state_dir);
+    let no_active = config.active_provider == "auto" || config.active_provider == "local";
     let spec = match spec {
         Some(s) => s.to_string(),
-        None => {
-            if config.active_provider == "auto" || config.active_provider == "local" {
-                bail!(
-                    "no hay proveedor de modelo activo para un agente: elige uno con \
-                     `antos llm use <proveedor>` o pásalo con --provider (claude, ollama, \
-                     groq, openrouter, gemini, opencode, openai)"
-                );
-            }
-            config.active_provider.clone()
+        // Afordancia de pruebas (smoke de la barra, T33.4): con un guion
+        // `fake` en el entorno y sin proveedor activo, el agente lo usa.
+        // Explícito por variable de entorno; nunca por defecto.
+        None if no_active && std::env::var_os("ANTOS_AGENT_FAKE_SCRIPT").is_some() => {
+            "fake".to_string()
         }
+        None if no_active => bail!(
+            "no hay proveedor de modelo activo para un agente: elige uno con \
+             `antos llm use <proveedor>` o pásalo con --provider (claude, ollama, \
+             groq, openrouter, gemini, opencode, openai)"
+        ),
+        None => config.active_provider.clone(),
     };
     let (provider, model_override) = match spec.split_once(':') {
         Some((p, m)) if !m.is_empty() => (p.to_string(), Some(m.to_string())),

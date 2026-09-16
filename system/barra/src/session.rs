@@ -50,6 +50,21 @@ pub(crate) fn start_session(
     planner: Option<String>,
     dry_run: bool,
 ) -> Result<(UnixStream, Receiver<Event>), String> {
+    start_session_request(Request::Intent {
+        text: text.to_string(),
+        planner,
+        dry_run,
+    })
+}
+
+/// Como `start_session`, para cualquier petición que abra un diálogo de
+/// eventos (T33.4): `AgentRun` (un agente con herramientas) y `StartFlow`
+/// (el pipeline de roles de un ticket) viajan por la misma sesión que una
+/// intención, así que la barra ve sus pasos, aprueba sus propuestas y
+/// recibe su informe con el mismo bucle de eventos.
+pub(crate) fn start_session_request(
+    request: Request,
+) -> Result<(UnixStream, Receiver<Event>), String> {
     let path = socket_path();
     let stream = UnixStream::connect(&path).map_err(|e| {
         format!(
@@ -59,11 +74,6 @@ pub(crate) fn start_session(
     })?;
 
     let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
-    let request = Request::Intent {
-        text: text.to_string(),
-        planner,
-        dry_run,
-    };
 
     writeln!(
         writer,
@@ -102,6 +112,9 @@ pub(crate) fn listen_events(
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
     input: Entry,
 ) {
+    // Línea de tiempo del run de agente en curso (T33.4): se crea con el
+    // primer paso y se reutiliza hasta `AgentDone`.
+    let timeline: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
     gtk4::glib::timeout_add_local(std::time::Duration::from_millis(35), move || {
         while let Ok(event) = events.try_recv() {
             match event {
@@ -157,35 +170,34 @@ pub(crate) fn listen_events(
                     render_error(&content, &err_msg);
                     input.set_sensitive(true);
                 }
-                // T33.2: pasos e informe de un run de agente. La línea de
-                // tiempo con aprobación inline y detener es T33.4; aquí solo
-                // se muestran para que nada de un run quede invisible.
+                // T33.4: pasos en vivo, botón «detener» e informe con «deshacer».
                 Event::AgentStep(step) => {
-                    let mark = match step.outcome {
-                        antos_protocol::AgentStepOutcome::Executed => "✓",
-                        antos_protocol::AgentStepOutcome::Finished => "■",
-                        _ => "✗",
+                    let mut tl = timeline.borrow_mut();
+                    let list = match tl.as_ref() {
+                        Some(list) => list.clone(),
+                        None => {
+                            let list = build_timeline(&content, stream_writer.clone());
+                            *tl = Some(list.clone());
+                            list
+                        }
                     };
-                    content.append(&make_label(
-                        &format!(
-                            "[agente {}] {} {} {}",
-                            step.step, mark, step.tool, step.args_summary
-                        ),
-                        "paso",
-                    ));
+                    list.append(&make_label(&format_step(&step), step_css_class(&step)));
+                    // Máximo 50 pasos visibles: el journal tiene el resto.
+                    let mut n = 0;
+                    let mut child = list.first_child();
+                    while let Some(c) = child {
+                        n += 1;
+                        child = c.next_sibling();
+                    }
+                    if n > 50 {
+                        if let Some(first) = list.first_child() {
+                            list.remove(&first);
+                        }
+                    }
                 }
                 Event::AgentDone(report) => {
-                    let class = match report.stop_reason {
-                        antos_protocol::AgentStopReason::Finished => "ok",
-                        _ => "error",
-                    };
-                    content.append(&make_label(
-                        &format!(
-                            "[agente] {:?} · {} pasos · {} tokens · {}",
-                            report.stop_reason, report.steps, report.tokens_used, report.summary
-                        ),
-                        class,
-                    ));
+                    *timeline.borrow_mut() = None;
+                    render_agent_report(&content, &report, input.clone());
                     input.set_sensitive(true);
                 }
                 _ => {}
@@ -378,7 +390,7 @@ fn render_flow_task(
 
         let reject_btn = Button::with_label("Rechazar Flow");
         reject_btn.add_css_class("descartar");
-        let approve_btn = Button::with_label("Aprobar & Fusionar");
+        let approve_btn = Button::with_label("Aprobar (la rama del agente se conserva)");
         approve_btn.add_css_class("aprobar");
 
         let ticket_id_clone = task.ticket_id.clone();
@@ -405,4 +417,118 @@ fn render_flow_task(
         button_box.append(&approve_btn);
         content.append(&button_box);
     }
+}
+
+/// Contenedor de la línea de tiempo (T33.4) con el botón «detener», que
+/// envía `AgentStop` por la misma conexión del run.
+fn build_timeline(content: &GtkBox, stream_writer: Rc<RefCell<Option<UnixStream>>>) -> GtkBox {
+    let sheet = GtkBox::new(Orientation::Vertical, 6);
+    sheet.add_css_class("hoja");
+    sheet.add_css_class("flow");
+    let header = GtkBox::new(Orientation::Horizontal, 8);
+    header.append(&make_label("AGENTE · PASOS EN VIVO", "etiqueta"));
+    let stop = Button::with_label("■ Detener");
+    stop.add_css_class("descartar");
+    stop.set_halign(Align::End);
+    stop.set_hexpand(true);
+    let writer = stream_writer.clone();
+    stop.connect_clicked(move |btn| {
+        if let Some(stream) = writer.borrow_mut().as_mut() {
+            if let Ok(json) = serde_json::to_string(&Request::AgentStop) {
+                let _ = writeln!(stream, "{json}");
+                let _ = stream.flush();
+            }
+        }
+        btn.set_sensitive(false);
+        btn.set_label("deteniendo…");
+    });
+    header.append(&stop);
+    sheet.append(&header);
+    let list = GtkBox::new(Orientation::Vertical, 2);
+    sheet.append(&list);
+    content.append(&sheet);
+    list
+}
+
+fn format_step(step: &antos_protocol::AgentStepEvent) -> String {
+    use antos_protocol::AgentStepOutcome as O;
+    let mark = match step.outcome {
+        O::Executed => "✓",
+        O::Finished => "■",
+        O::Rejected => "✗ rechazada",
+        O::Declined => "✗ no aprobada",
+        O::Failed => "✗ falló",
+    };
+    let preview = if step.output_preview.is_empty() {
+        String::new()
+    } else {
+        format!(" → {}", truncate_str(&step.output_preview, 120))
+    };
+    format!(
+        "{}. {mark} {} {}{} · {} tokens",
+        step.step,
+        step.tool,
+        truncate_str(&step.args_summary, 80),
+        preview,
+        step.tokens_used
+    )
+}
+
+fn step_css_class(step: &antos_protocol::AgentStepEvent) -> &'static str {
+    use antos_protocol::AgentStepOutcome as O;
+    match step.outcome {
+        O::Executed | O::Finished => "paso",
+        _ => "error",
+    }
+}
+
+/// Informe final del run (T33.4): resumen, ficheros escritos y un botón
+/// «Deshacer» que restaura la instantánea del run con una intención real
+/// (`snapshot.restore`), por el mismo camino que cualquier otra.
+fn render_agent_report(content: &GtkBox, report: &antos_protocol::AgentReport, input: Entry) {
+    use antos_protocol::AgentStopReason as R;
+    let sheet = GtkBox::new(Orientation::Vertical, 8);
+    sheet.add_css_class("hoja");
+    sheet.add_css_class(match report.stop_reason {
+        R::Finished => "auto",
+        R::Stopped | R::Declined | R::BudgetExhausted | R::ModelStopped => "confirm",
+        R::Error => "grant",
+    });
+    sheet.append(&make_label("AGENTE · INFORME", "etiqueta"));
+    sheet.append(&make_label(
+        &format!(
+            "{:?} · {} pasos · {} tokens · {} s · {}:{}",
+            report.stop_reason,
+            report.steps,
+            report.tokens_used,
+            report.seconds,
+            report.provider,
+            report.model
+        ),
+        "nivel",
+    ));
+    sheet.append(&make_label(&report.summary, "paso"));
+    if !report.files_written.is_empty() {
+        sheet.append(&make_label(
+            &format!("escritos: {}", report.files_written.join(", ")),
+            "info",
+        ));
+    }
+    if let Some(err) = &report.error {
+        sheet.append(&make_label(err, "error"));
+    }
+    if let Some(snapshot) = &report.snapshot_id {
+        let undo = Button::with_label("↶ Deshacer el run");
+        undo.add_css_class("descartar");
+        let snapshot = snapshot.clone();
+        undo.connect_clicked(move |btn| {
+            // Una intención normal: pasa por planificador local, propuesta y
+            // confirmación como cualquier otra restauración.
+            input.set_text(&format!("restaura la instantánea {snapshot}"));
+            input.emit_activate();
+            btn.set_sensitive(false);
+        });
+        sheet.append(&undo);
+    }
+    content.append(&sheet);
 }

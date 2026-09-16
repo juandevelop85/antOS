@@ -360,3 +360,67 @@ fn unknown_toolset_entries_are_configuration_errors() {
     assert!(err.to_string().contains("capacidad desconocida"));
     let _ = std::fs::remove_dir_all(temp);
 }
+
+/// T33.4: «detener» desde la interfaz corta el run antes de la siguiente
+/// herramienta; lo ya ejecutado queda en el journal con su instantánea.
+#[test]
+fn a_stop_request_ends_the_run_before_the_next_tool() {
+    struct StopAfter {
+        inner: RecordingHandler,
+        after: usize,
+    }
+    impl AgentHandler for StopAfter {
+        fn on_step(&mut self, e: &AgentStepEvent) -> Result<()> {
+            self.inner.on_step(e)
+        }
+        fn on_confirm(&mut self, p: &Proposal) -> Result<bool> {
+            self.inner.on_confirm(p)
+        }
+        fn on_note(&mut self, t: &str) -> Result<()> {
+            self.inner.on_note(t)
+        }
+        fn on_done(&mut self, r: &AgentReport) -> Result<()> {
+            self.inner.on_done(r)
+        }
+        fn should_stop(&mut self) -> bool {
+            self.inner.steps.len() >= self.after
+        }
+    }
+    let (ctx, temp) = test_ctx("stop");
+    fixture_crate(&ctx.workspace);
+    let catalog = Catalog::load(&ctx.caps_dir).unwrap();
+    let script = vec![
+        ScriptedTurn {
+            calls: vec![call("fs.read", json!({"path": "src/lib.rs"}))],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(
+                "fs.patch",
+                json!({"path": "src/lib.rs", "old": "a * b", "new": "a + b"}),
+            )],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "no debería llegar"}))],
+            ..Default::default()
+        },
+    ];
+    let mut provider = FakeProvider::new(script);
+    let mut handler = StopAfter {
+        inner: RecordingHandler {
+            approve: true,
+            ..Default::default()
+        },
+        after: 1,
+    };
+    let cfg = in_process("cambia sum");
+    let report = run(&ctx, &catalog, &mut provider, &cfg, &mut handler).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Stopped);
+    assert_eq!(report.steps, 1);
+    // El parche nunca se ejecutó.
+    assert!(std::fs::read_to_string(ctx.workspace.join("src/lib.rs"))
+        .unwrap()
+        .contains("a * b"));
+    let _ = std::fs::remove_dir_all(temp);
+}

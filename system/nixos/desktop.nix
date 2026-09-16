@@ -199,6 +199,40 @@ let
     while sleep 2; do _apply_output_scale; done
   '';
 
+  # Super+Space bajo Plasma (T33.4): KWin no ejecuta el `rc.xml` de Labwc,
+  # pero kglobalaccel registra el atajo `X-KDE-Shortcuts` de cualquier
+  # entrada `.desktop` instalada. El atajo activa el icono SNI de la barra
+  # por D-Bus — lo mismo que un clic en la bandeja, y lo único que la barra
+  # entiende como «abrir/cerrar» (T30.8) — en vez de lanzar otra instancia.
+  barraToggleScript = pkgs.writeShellScript "antos-barra-toggle" ''
+    dbus=${pkgs.dbus}/bin/dbus-send
+    name=$($dbus --session --print-reply --dest=org.freedesktop.DBus \
+             /org/freedesktop/DBus org.freedesktop.DBus.ListNames 2>/dev/null \
+           | grep -o 'org.kde.StatusNotifierItem-[0-9]*-[0-9]*' \
+           | while read -r n; do
+               pid=''${n#org.kde.StatusNotifierItem-}; pid=''${pid%%-*}
+               if tr '\0' ' ' < /proc/"$pid"/cmdline 2>/dev/null | grep -q antos-barra; then
+                 echo "$n"; break
+               fi
+             done)
+    if [ -z "$name" ]; then
+      exec ${lib.getExe cfg.barra}
+    fi
+    exec $dbus --session --dest="$name" /StatusNotifierItem \
+      org.kde.StatusNotifierItem.Activate int32:0 int32:0
+  '';
+
+  barraToggleDesktopItem = pkgs.makeDesktopItem {
+    name = "antos-barra-toggle";
+    desktopName = "antOS · abrir o cerrar la barra de intención";
+    exec = "${barraToggleScript}";
+    icon = "antos";
+    noDisplay = true;
+    extraConfig = {
+      "X-KDE-Shortcuts" = "Meta+space";
+    };
+  };
+
   # Entrada de lanzador para la barra (Kickoff la muestra bajo «Utilidades»).
   barraDesktopItem = pkgs.makeDesktopItem {
     name = "antos-barra";
@@ -578,6 +612,7 @@ in
 
     environment.systemPackages = [
       barraDesktopItem
+      barraToggleDesktopItem # Super+Space (T33.4)
       branding.icons
       pkgs.kdePackages.libkscreen # `kscreen-doctor` (escala HiDPI)
     ];

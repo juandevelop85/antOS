@@ -71,6 +71,19 @@ else
 fi
 
 # ── 3. Demonio + IPC ─────────────────────────────────────────────────────
+# T33.4: el demonio arranca con un guion `fake` de agente (sin red ni clave)
+# para poder ejercitar el diálogo AgentRun → AgentStep ×4 → AgentDone que
+# la barra pinta como línea de tiempo.
+printf 'hola\n' > "$ANTOS_WORKSPACE/README.md"
+cat > "$RUNTIME/agent-script.json" <<'JSON'
+[
+  {"text": "Miro el espacio de trabajo.", "calls": [{"tool": "fs.list", "input": {"path": "."}}], "tokens": 10},
+  {"calls": [{"tool": "fs.read", "input": {"path": "README.md"}}], "tokens": 10},
+  {"calls": [{"tool": "fs.read", "input": {"path": "README.md"}}], "tokens": 10},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "leído; nada que cambiar"}}], "tokens": 5}
+]
+JSON
+export ANTOS_AGENT_FAKE_SCRIPT="$RUNTIME/agent-script.json"
 "$ANTOS_BIN" demonio >"$RUNTIME/antosd.log" 2>&1 &
 DAEMON_PID=$!
 SOCK="$ANTOS_STATE/antos.sock"
@@ -96,13 +109,38 @@ else
   ok "socket IPC creado (sin python3 para el ping de respuesta)"
 fi
 
+# ── 3b. Diálogo de agente por IPC (T33.4) ────────────────────────────────
+# Lo que la barra consume para su línea de tiempo: un `AgentRun` con el
+# guion `fake` produce exactamente 4 `AgentStep` (list, read, read,
+# finalizar) y un `AgentDone` con `stop_reason: finished`.
+if command -v python3 >/dev/null; then
+  python3 - "$SOCK" <<'PY' || fail "el diálogo AgentRun no produjo 4 pasos y un informe"
+import socket, sys, json
+s = socket.socket(socket.AF_UNIX); s.settimeout(60); s.connect(sys.argv[1])
+s.sendall((json.dumps({"AgentRun": {"goal": "smoke", "provider": None, "toolset": None, "budget": None, "dry_run": False}}) + "\n").encode())
+f = s.makefile(); steps = 0; done = None
+for line in f:
+    ev = json.loads(line)
+    if "AgentStep" in ev: steps += 1
+    if "AgentDone" in ev: done = ev["AgentDone"]; break
+    if "Error" in ev: print("Error:", ev["Error"]); sys.exit(1)
+print(f"AgentStep x{steps}, AgentDone: {done and done['stop_reason']}")
+sys.exit(0 if steps == 4 and done and done["stop_reason"] == "finished" else 1)
+PY
+  ok "AgentRun por IPC: 4 pasos y un informe (proveedor fake)"
+else
+  echo "  · python3 ausente; se omite el diálogo de agente por IPC"
+fi
+
 # ── 4. La barra crea su superficie y sobrevive ───────────────────────────
-"$ANTOS_BARRA_BIN" >"$RUNTIME/barra.log" 2>&1 &
+# T33.4: arranca directamente con un run de agente («agente: …») para que la
+# línea de tiempo y el informe se pinten en la captura.
+"$ANTOS_BARRA_BIN" --intencion "agente: smoke de la barra" >"$RUNTIME/barra.log" 2>&1 &
 BAR_PID=$!
-sleep 3
+sleep 4
 kill -0 "$BAR_PID" 2>/dev/null \
   || fail "antos-barra terminó antes de tiempo:\n$(cat "$RUNTIME/barra.log")"
-ok "antos-barra vivo tras crear su superficie layer-shell"
+ok "antos-barra vivo tras crear su superficie layer-shell y lanzar un run de agente"
 
 # ── 5. Captura de pantalla NO vacía (flujo de QA visual, T14.2) ──────────
 command -v grim >/dev/null || fail "grim no está en el PATH"

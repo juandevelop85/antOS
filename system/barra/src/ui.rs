@@ -7,11 +7,11 @@ use crate::launcher::{
     launch_desktop_application_async, load_installed_apps_async, render_launcher_results,
     update_launcher_selection,
 };
-use crate::session::{listen_events, start_session};
+use crate::session::{listen_events, start_session, start_session_request};
 use crate::telemetry::query_telemetry_async;
 use crate::widgets::{empty_box, make_label, render_error, render_waiting};
 use crate::BAR_WIDTH;
-use antos_protocol::{is_app_query, match_applications, LauncherAppItem};
+use antos_protocol::{is_app_query, match_applications, LauncherAppItem, Request};
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, Box as GtkBox, Button, Entry, Orientation};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
@@ -414,7 +414,36 @@ pub(crate) fn build_ui(app: &Application) {
             let selected_planner = planner_ref.borrow().clone();
             let is_dry = *dry_ref.borrow();
 
-            match start_session(text_trimmed, selected_planner, is_dry) {
+            // T33.4: dos prefijos abren diálogos de agente por la misma
+            // sesión. `agente: <objetivo>` → un run con herramientas
+            // (`AgentRun`); `ticket: T1.2` (o «desarrolla ticket T1.2») →
+            // el pipeline de roles (`StartFlow`). Lo demás es una intención.
+            let session = if let Some(goal) = strip_prefix_ci(text_trimmed, "agente:")
+                .or_else(|| strip_prefix_ci(text_trimmed, "agent:"))
+            {
+                start_session_request(Request::AgentRun {
+                    goal: goal.trim().to_string(),
+                    provider: None,
+                    toolset: None,
+                    budget: None,
+                    dry_run: is_dry,
+                })
+            } else if let Some(ticket) = strip_prefix_ci(text_trimmed, "ticket:")
+                .or_else(|| strip_prefix_ci(text_trimmed, "desarrolla ticket "))
+                .or_else(|| strip_prefix_ci(text_trimmed, "desarrolla el ticket "))
+            {
+                let workspace_path = std::env::current_dir()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| ".".into());
+                start_session_request(Request::StartFlow {
+                    workspace_path,
+                    ticket_id: ticket.trim().to_uppercase(),
+                })
+            } else {
+                start_session(text_trimmed, selected_planner, is_dry)
+            };
+
+            match session {
                 Ok((stream, events)) => {
                     *stream_writer.borrow_mut() = Some(stream);
                     render_waiting(&content);
@@ -477,5 +506,19 @@ pub(crate) fn build_ui(app: &Application) {
     } else if let Some(text) = initial_intent {
         input.set_text(&text);
         input.emit_activate();
+    }
+}
+
+/// `strip_prefix` sin distinguir mayúsculas ASCII y sin cortar un carácter
+/// multibyte a medias (T33.4).
+fn strip_prefix_ci<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
+    let n = prefix.len();
+    if text.len() < n || !text.is_char_boundary(n) {
+        return None;
+    }
+    if text[..n].eq_ignore_ascii_case(prefix) {
+        Some(&text[n..])
+    } else {
+        None
     }
 }

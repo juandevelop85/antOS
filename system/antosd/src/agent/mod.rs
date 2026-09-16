@@ -116,6 +116,12 @@ pub trait AgentHandler {
     fn on_note(&mut self, text: &str) -> Result<()>;
     /// Informe final.
     fn on_done(&mut self, report: &AgentReport) -> Result<()>;
+    /// ¿Ha pedido el usuario detener el run? Se consulta antes de cada
+    /// herramienta y entre turnos; la herramienta en curso termina. Por
+    /// defecto nunca.
+    fn should_stop(&mut self) -> bool {
+        false
+    }
 }
 
 /// Prompt de sistema genérico. Los roles de T33.3 traen el suyo.
@@ -192,8 +198,9 @@ pub fn run(
         let mut results = Vec::with_capacity(current.calls.len());
         let mut finished: Option<String> = None;
         let mut declined = false;
+        let mut stopped = false;
         for call in &current.calls {
-            if finished.is_some() || declined {
+            if finished.is_some() || declined || stopped {
                 // Ya no se ejecuta nada más de este turno; pero cada llamada
                 // recibe SU resultado para no dejar `tool_use` sin respuesta.
                 results.push(ToolResult {
@@ -228,6 +235,17 @@ pub fn run(
                     name: call.name.clone(),
                     content: "ok".into(),
                     is_error: false,
+                });
+                continue;
+            }
+            // Parada pedida por el usuario (T33.4): ninguna herramienta más.
+            if handler.should_stop() {
+                stopped = true;
+                results.push(ToolResult {
+                    id: call.id.clone(),
+                    name: call.name.clone(),
+                    content: "no ejecutada: el usuario detuvo el run".into(),
+                    is_error: true,
                 });
                 continue;
             }
@@ -267,6 +285,13 @@ pub fn run(
             break (
                 AgentStopReason::Declined,
                 current.text.trim().to_string(),
+                None,
+            );
+        }
+        if stopped || handler.should_stop() {
+            break (
+                AgentStopReason::Stopped,
+                "detenido por el usuario".to_string(),
                 None,
             );
         }

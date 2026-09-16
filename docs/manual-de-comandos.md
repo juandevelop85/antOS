@@ -897,6 +897,19 @@ antos agent run T33.4 --auto --simulated              # demo sin modelo (T3.1)
 antos agent status T33.4                              # fase, modelo real, pasos y tokens por transición
 ```
 
+**Desde la barra (T33.4).** En la barra de intención, `agente: <objetivo>`
+lanza un run con herramientas y `ticket: T1.2` (o «desarrolla ticket T1.2»,
+o el botón «Despachar» del tablero) el pipeline de roles, por la misma sesión
+que una intención: los pasos aparecen en vivo con un botón «■ Detener»
+(`Request::AgentStop`, corta antes de la siguiente herramienta), cada paso
+`confirm` se aprueba inline con su diff, y el informe final ofrece «↶
+Deshacer el run» (restaura la instantánea del run como una intención
+normal). Las tarjetas del tablero muestran fase, si la tarea es simulación
+o agente, y modelo/pasos/tokens del último run. Sin proveedor configurado,
+«Despachar» arranca la tarea simulada y lo dice. Bajo Plasma, **Super+Space**
+abre o cierra la barra (atajo global registrado por `.desktop`; activa el
+icono SNI, lo mismo que un clic en la bandeja).
+
 Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
 configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
 inventa correcciones: al aprobar un incidente lanza un run de Coder con el

@@ -145,6 +145,13 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 send(&mut writer, &Event::Error(format!("{e:#}")))?;
             }
         }
+        Request::AgentStop => {
+            // Fuera de un run no hay nada que detener (T33.4).
+            send(
+                &mut writer,
+                &Event::Note("no hay ningún run de agente activo".into()),
+            )?;
+        }
         Request::Approval(_) => {
             send(
                 &mut writer,
@@ -201,16 +208,67 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             workspace_path,
             ticket_id,
         } => {
-            match crate::flow::FlowEngine::global().start_task(
-                Path::new(&workspace_path),
-                &ctx.state,
-                &ticket_id,
-            ) {
-                Ok(task) => {
-                    send(&mut writer, &Event::FlowStatus(Some(task)))?;
+            // T33.4: con proveedores configurados, el despacho desde la barra
+            // corre el pipeline REAL (T33.3) por esta misma conexión: pasos
+            // (`AgentStep`), aprobaciones (`Proposal`/`Approval`) e informes
+            // (`AgentDone`) llegan a quien despachó. Sin proveedor, se arranca
+            // la tarea simulada de T3.1 y se dice.
+            let ws = Path::new(&workspace_path);
+            let llm_config = crate::llm::LlmConfig::load_from_state(&ctx.state);
+            let coder_spec = llm_config.get_role_model("coder");
+            let has_provider = crate::agent::providers::resolve(&ctx.state, Some(&coder_spec))
+                .is_ok()
+                || std::env::var_os("ANTOS_AGENT_FAKE_SCRIPT").is_some();
+            if has_provider {
+                let _mutation_guard = WORKSPACE_MUTATION_LOCK
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                let flow_ctx = Ctx {
+                    workspace: ws.to_path_buf(),
+                    current_project: None,
+                    ..ctx.clone()
+                };
+                let state = ctx.state.clone();
+                let fake = std::env::var_os("ANTOS_AGENT_FAKE_SCRIPT").is_some();
+                let mut providers = move |role: antos_protocol::AgentRole| {
+                    if fake {
+                        return crate::agent::providers::resolve(&state, Some("fake"));
+                    }
+                    let key = match role {
+                        antos_protocol::AgentRole::Architect => "architect",
+                        antos_protocol::AgentRole::Coder => "coder",
+                        antos_protocol::AgentRole::Auditor => "auditor",
+                        _ => "qa",
+                    };
+                    let spec = llm_config.get_role_model(key);
+                    crate::agent::providers::resolve(&state, Some(&spec))
+                };
+                let mut handler = SocketHandler {
+                    writer: &mut writer,
+                    reader: &mut reader,
+                };
+                match crate::flow::FlowEngine::global().run_agent_pipeline(
+                    &flow_ctx,
+                    catalog,
+                    &ticket_id,
+                    &mut providers,
+                    &mut handler,
+                ) {
+                    Ok(task) => send(&mut writer, &Event::FlowStatus(Some(task)))?,
+                    Err(e) => send(&mut writer, &Event::Error(format!("{e:#}")))?,
                 }
-                Err(e) => {
-                    send(&mut writer, &Event::Error(format!("{e:#}")))?;
+            } else {
+                send(
+                    &mut writer,
+                    &Event::Note(
+                        "sin proveedor de modelo configurado: se arranca la tarea SIMULADA (T33.1); \
+                         configura uno con `antos llm use <proveedor>` y `antos agent config`"
+                            .into(),
+                    ),
+                )?;
+                match crate::flow::FlowEngine::global().start_task(ws, &ctx.state, &ticket_id) {
+                    Ok(task) => send(&mut writer, &Event::FlowStatus(Some(task)))?,
+                    Err(e) => send(&mut writer, &Event::Error(format!("{e:#}")))?,
                 }
             }
         }
