@@ -8,41 +8,24 @@
 let
   # ── Marca de arranque (T30.9, seguimiento) ────────────────────────────
   # El menú de arranque de la ISO (GRUB) y el splash de Plymouth salían con
-  # la marca de NixOS. No hay un logotipo de antOS en el repositorio, así que
-  # se genera en tiempo de construcción con ImageMagick (dependencia solo de
-  # build) sobre la paleta `antOS-Dark` del panel (`waybarStyle`,
-  # `fuzzelConfig` en desktop.nix): fondo 1a1b26, texto c0caf5, acento 7aa2f7.
-  font = "${pkgs.dejavu_fonts}/share/fonts/truetype/DejaVuSans-Bold.ttf";
-  # Salida siempre `PNG32:` (RGBA de 8 bits): el lector PNG de GRUB no
-  # entiende PNG de paleta, que es lo que ImageMagick elige para un color
-  # plano, y con una sola imagen ilegible el tema entero cae a modo texto.
+  # la marca de NixOS. El icono y el fondo oficiales viven en
+  # `system/desktop/assets/` y `branding.nix` deriva de ellos el logo de GRUB
+  # (icono + «antOS»), el fondo oscurecido y el icono de Plymouth.
+  branding = import ./branding.nix { inherit pkgs lib; };
   magick = "${pkgs.imagemagick}/bin/magick";
-
-  # Logotipo: «antOS» con «ant» en acento y «OS» en claro. 319×100 es el
-  # tamaño que el tema de GRUB espera para `logo.png`.
-  antosLogo = pkgs.runCommand "antos-logo" { } ''
-    mkdir -p $out
-    ${magick} -size 319x100 xc:none -font ${font} -pointsize 72 \
-      -gravity West -fill '#7aa2f7' -annotate +6+0 'ant' \
-      -gravity West -fill '#c0caf5' -annotate +138+0 'OS' \
-      PNG32:$out/logo.png
-    # Plymouth: cuadrado con el mismo texto (se muestra sobre fondo oscuro).
-    ${magick} -size 256x256 xc:none -font ${font} -pointsize 64 \
-      -gravity Center -fill '#7aa2f7' -annotate -52+0 'ant' \
-      -gravity Center -fill '#c0caf5' -annotate +56+0 'OS' \
-      PNG32:$out/plymouth-logo.png
-  '';
 
   # Tema de GRUB: parte del de NixOS (fuentes `.pf2`, iconos, cajas del
   # terminal) y sustituye logotipo, fondo, cuadro de selección y `theme.txt`
   # por una versión oscura. El menú va sin caja (transparente sobre el fondo).
+  # Toda imagen generada va como `PNG32:` (RGBA): el lector PNG de GRUB no
+  # entiende PNG de paleta y con una sola imagen ilegible cae a modo texto.
   antosGrubTheme = pkgs.runCommand "antos-grub2-theme" { } ''
     mkdir -p $out
     cp -r ${pkgs.nixos-grub2-theme}/. $out/
     chmod -R u+w $out
     rm -f $out/boot_menu_*.png
-    cp ${antosLogo}/logo.png $out/logo.png
-    ${magick} -size 1x1 xc:'#1a1b26' PNG32:$out/background.png
+    cp ${branding.art}/grub-logo.png $out/logo.png
+    cp ${branding.art}/grub-background.png $out/background.png
     # Cuadro de selección: nueve piezas de color sólido (GRUB exige el juego
     # completo para `selected_item_pixmap_style`).
     for p in c n s e w ne nw se sw; do
@@ -126,7 +109,7 @@ in
   # 10 s de espera en el menú era demasiado para una ISO que arranca sola.
   boot.loader.timeout = lib.mkForce 3;
   # Splash de arranque (Plymouth lo activa la base gráfica del instalador).
-  boot.plymouth.logo = "${antosLogo}/plymouth-logo.png";
+  boot.plymouth.logo = "${branding.art}/icon-256.png";
 
   services.antos.enable = true;
   services.antos.desktop.enable = true;

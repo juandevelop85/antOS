@@ -14,6 +14,9 @@ let
   cfg = config.services.antos.desktop;
   isLabwc = cfg.flavor == "labwc";
   isPlasma = cfg.flavor == "plasma";
+  # Arte de antOS (icono y fondo de `system/desktop/assets/`, derivados en
+  # construcción; ver `branding.nix`).
+  branding = import ./branding.nix { inherit pkgs lib; };
 
   # Variables de entorno de la sesión Wayland — el contenido de
   # `system/desktop/environment`, declarado aquí para que sea parte de la
@@ -202,9 +205,35 @@ let
     desktopName = "Barra de intención antOS";
     comment = "Barra de intención y centro de agentes de antOS";
     exec = lib.getExe cfg.barra;
-    icon = "utilities-terminal";
+    icon = "antos"; # `branding.icons` (hicolor)
     categories = [ "Utility" "System" ];
   };
+
+  # Aspecto de Plasma al iniciar sesión: tema Breeze Dark (a juego con el
+  # arte de antOS) y fondo de escritorio. `plasma-apply-lookandfeel` y
+  # `plasma-apply-wallpaperimage` hablan con plasmashell por D-Bus, así que
+  # se espera a que esté en el bus; el tema va ANTES del fondo porque
+  # aplicar un paquete look-and-feel puede reponer el fondo por defecto.
+  # Se aplica UNA vez por usuario (marca en `~/.config`): en la ISO en vivo
+  # el `$HOME` es nuevo en cada arranque, y en un sistema instalado no
+  # pisa lo que el usuario haya elegido después.
+  plasmaLookScript = pkgs.writeShellScript "antos-plasma-look" ''
+    marker="''${XDG_CONFIG_HOME:-$HOME/.config}/antos-look-applied"
+    [ -e "$marker" ] && exit 0
+    for _ in $(seq 1 60); do
+      if ${pkgs.dbus}/bin/dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+           /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner string:org.kde.plasmashell \
+           2>/dev/null | grep -q 'boolean true'; then
+        break
+      fi
+      sleep 1
+    done
+    sleep 2
+    ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-lookandfeel -a org.kde.breezedark.desktop 2>/dev/null || true
+    sleep 2
+    ${pkgs.kdePackages.plasma-workspace}/bin/plasma-apply-wallpaperimage ${branding.art}/wallpaper.png \
+      && touch "$marker"
+  '';
 
   sessionAutostart = pkgs.writeShellScript "antos-autostart"
     (builtins.replaceStrings [ "# @antos:outputs@" "# @antos:panel@" ]
@@ -454,7 +483,8 @@ in
 
       wallpaper = lib.mkOption {
         type = lib.types.nullOr lib.types.path;
-        default = null;
+        default = "${branding.art}/wallpaper.png";
+        defaultText = lib.literalExpression "el fondo de `system/desktop/assets/`";
         description = "Imagen de fondo. `null` → color sólido.";
       };
 
@@ -548,8 +578,16 @@ in
 
     environment.systemPackages = [
       barraDesktopItem
+      branding.icons
       pkgs.kdePackages.libkscreen # `kscreen-doctor` (escala HiDPI)
     ];
+
+    # Fondo de la pantalla de bloqueo (kscreenlocker lee `$XDG_CONFIG_DIRS`).
+    environment.etc."xdg/kscreenlockerrc".text = ''
+      [Greeter][Wallpaper][org.kde.image][General]
+      Image=file://${branding.art}/wallpaper.png
+      PreviewImage=file://${branding.art}/wallpaper.png
+    '';
 
     # `antos-barra` arranca con la sesión por autostart XDG (Plasma lo
     # convierte en una unidad `systemd --user`), y el vigilante de escala
@@ -567,6 +605,14 @@ in
       Type=Application
       Name=antOS · escala HiDPI de las salidas
       Exec=${plasmaScaleScript}
+      OnlyShowIn=KDE;
+      X-KDE-autostart-phase=2
+    '';
+    environment.etc."xdg/autostart/antos-look.desktop".text = ''
+      [Desktop Entry]
+      Type=Application
+      Name=antOS · tema y fondo de escritorio
+      Exec=${plasmaLookScript}
       OnlyShowIn=KDE;
       X-KDE-autostart-phase=2
     '';

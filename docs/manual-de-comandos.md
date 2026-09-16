@@ -221,6 +221,12 @@ ANTOS_VM_RES=1680x1050 ./system/arrancar-vm-macos.sh   # tamaño inicial de la v
 > mobiliario `wlroots` de T30.6. El flake se construye con `git+file:///src`:
 > Nix solo ve ficheros seguidos por git (`git add` para los nuevos), y así
 > `target/` no acaba copiado al store del volumen `antos-nix-store`.
+>
+> **Arte.** El icono y el fondo oficiales viven en `system/desktop/assets/`
+> (`antos-icon.png`, `antos-wallpaper.png`); `system/nixos/branding.nix` los
+> deriva en construcción (menú de GRUB, Plymouth, fondo de escritorio y de
+> bloqueo de Plasma, icono del lanzador, fondo de Labwc). Para cambiarlos
+> basta sustituir esos dos ficheros y reconstruir (`--rebuild`).
 
 Requiere macOS con `qemu` (`brew install qemu`) y `podman`. Construye
 `.#iso` en el contenedor `nixos/nix` (la primera vez descarga el cierre
