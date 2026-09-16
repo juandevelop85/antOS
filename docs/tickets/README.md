@@ -166,6 +166,11 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 32** | [T32.6](T32.6-eliminacion-de-espera-activa-busy-waiting-en-nvme-y-ahci-sata.md) | Eliminación de Espera Activa (Busy-Waiting) en Controladores NVMe y AHCI SATA | ✅ Completado |
 | **Fase 32** | [T32.7](T32.7-optimizacion-de-grafo-y-vectores-en-memoria-semantica.md) | Optimización de Grafo y Vectores en Memoria Semántica y Visor de Diffs | ✅ Completado |
 | **Fase 32** | [T32.8](T32.8-zero-copy-en-vfs-y-clones-copy-on-write-para-linux.md) | Zero-Copy en VFS y Clones Copy-on-Write en Linux | ✅ Completado |
+| **Fase 33** | [T33.1](T33.1-honestidad-de-antflow-y-autopilot-estado-de-implementacion-visible.md) | Honestidad de antFlow y Autopilot: Estado de Implementación Visible | ⏳ Pendiente |
+| **Fase 33** | [T33.2](T33.2-runtime-de-agente-bucle-de-herramientas-sobre-el-catalogo-de-capacidades.md) | Runtime de Agente: Bucle de Herramientas sobre el Catálogo de Capacidades | ⏳ Pendiente |
+| **Fase 33** | [T33.3](T33.3-roles-antflow-reales-sobre-el-runtime-de-agente.md) | Roles antFlow Reales sobre el Runtime de Agente | ⏳ Pendiente |
+| **Fase 33** | [T33.4](T33.4-la-barra-como-puesto-de-mando-pasos-en-vivo-aprobaciones-inline-y-tablero-real.md) | La Barra como Puesto de Mando: Pasos en Vivo, Aprobaciones Inline y Tablero Real | ⏳ Pendiente |
+| **Fase 33** | [T33.5](T33.5-evaluacion-reproducible-de-agentes-smoke-determinista-y-metricas.md) | Evaluación Reproducible de Agentes: Smoke Determinista y Métricas | ⏳ Pendiente |
 
 ---
 
@@ -420,4 +425,51 @@ Revisión técnica de cuellos de botella de latencia, contención de cerrojos, f
   - **✅ T32.8 resuelto:** Lectura zero-copy con `Cow<'static, [u8]>` para ficheros de memoria en VFS sin asignación en heap; soporte de instantáneas CoW (`FICLONE` / reflink) en Linux para ficheros y directorios; paralelización de stages concurrentes en CI local con `std::thread::scope`.
 
 Orden sugerido de ataque: ~~T32.1~~ → ~~T32.2~~ → ~~T32.3~~ → ~~T32.4~~ → ~~T32.5~~ → ~~T32.6~~ → ~~T32.7~~ → ~~T32.8~~. Fase 32 completa.
+
+---
+
+## Fase 33 · Agentes que Construyen Software (September 2026)
+
+Revisión del estado del proyecto frente a su propósito —«sistema operativo
+declarativo para construir software con agentes desde la barra»— hecha el
+2026-09-16 contrastando el backlog (130 tickets ✅) con el código.
+
+**Lo que funciona de verdad:** el ciclo *intención → planificador (Claude /
+Ollama / OpenAI-compat / reglas locales) → catálogo de 122 capacidades
+tipadas (`system/capabilities/`) revalidado → radio de impacto y `tier` →
+sandbox Landlock/Seatbelt → snapshot → ejecución → journal → `undo`*, con la
+barra y el CLI como interfaces (`session::intent_session`). Demonio, IPC,
+memoria semántica, parser de tickets, LSP, forja, escritorio (Plasma/Labwc),
+ISO y userland están sólidos.
+
+**El hueco:** antFlow es una máquina de estados sin cerebro. En
+`FlowEngine::run_worktree_pipeline` el «Coder» escribe un *scaffold* fijo,
+el «Arquitecto» solo cuenta criterios y los modelos por rol son etiquetas;
+`Autopilot::generate_fix` equilibra llaves. Los únicos puntos donde participa
+un modelo son los planificadores, de un solo turno. No existe un **bucle de
+agente** (leer → razonar → editar → probar → corregir). La arquitectura ya
+tiene la forma correcta —las capacidades son las herramientas del agente,
+con sus tiers y su sandbox— y solo falta el runtime que las pone en manos
+de un modelo con presupuesto y supervisión.
+
+- **T33.1** — honestidad primero (regla T31.14): cabeceras, `FlowBackend::
+  Simulated | Agent` por IPC, tablero y CLI que no confunden simulación con
+  agente.
+- **T33.2** — runtime `agent::AgentRun`: conversación multi-turno con
+  `tool_use` (Claude / Ollama / OpenAI-compat) cuyo *toolset* es un
+  subconjunto del catálogo (`fs.read`, `fs.list`, `fs.patch` nuevo,
+  `fs.write`, `test.run` nuevo, `git.status`, `memory.search`), cada paso
+  por validación → blast → aprobación → snapshot → `exec` → journal;
+  presupuesto; proveedor `fake` determinista para CI. Sin `sh -c` (T31.4).
+- **T33.3** — Arquitecto (plan tipado), Coder (bucle en el worktree), QA
+  (tests reales realimentando fallos), Auditor (veredicto tipado) sobre el
+  runtime, con modelos por rol de `LlmConfig`; Autopilot pasa a usar el
+  runtime o solo notifica.
+- **T33.4** — la barra como puesto de mando: pasos en vivo, aprobaciones
+  inline con diff, tablero con progreso y coste reales, Super+Space en
+  Plasma.
+- **T33.5** — evaluación reproducible: smoke determinista en CI con `fake`
+  y `antos eval agent --live` con métricas y diff de regresiones.
+
+Orden sugerido de ataque: T33.1 → T33.2 → T33.3 → T33.4 → T33.5.
 
