@@ -47,11 +47,13 @@ if ! command -v labwc >/dev/null 2>&1; then
     exit 0
 fi
 
-# Launch compositor
+# Launch compositor. Labwc ejecuta él mismo `sh ~/.config/labwc/autostart`;
+# pasarlo además con `-s` lo arrancaba dos veces en paralelo y las guardas
+# `pgrep` de cada instancia se veían entre sí (ver system/desktop/autostart).
 if [ "${1:-}" = "--nested" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
     echo ">> Iniciando antOS Desktop en ventana anidada (nested)..."
-    exec labwc -s "${LABWC_CONFIG_DIR}/autostart"
+    exec labwc
 else
     echo ">> Iniciando antOS Desktop como sesión Wayland principal..."
-    exec labwc -s "${LABWC_CONFIG_DIR}/autostart"
+    exec labwc
 fi

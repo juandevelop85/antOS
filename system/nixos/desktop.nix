@@ -34,9 +34,16 @@ let
   };
 
   # Guion de arranque de la sesión: instala la configuración de Labwc en el
-  # `$HOME` del usuario (Labwc lee de `~/.config/labwc`) y ejecuta el
-  # compositor con el `autostart` de antOS. Equivale a
+  # `$HOME` del usuario (Labwc lee de `~/.config/labwc`, `autostart`
+  # incluido: lo ejecuta él mismo con `sh` cuando el socket Wayland está
+  # listo) y ejecuta el compositor. Equivale a
   # `system/desktop/start-session.sh` pero con rutas del store.
+  #
+  # El `autostart` NO se pasa además con `labwc -s`: Labwc ejecuta ambos
+  # (`session_autostart_init` + el comando de `-s`), el guion corría dos
+  # veces en paralelo y las guardas `pgrep` de cada instancia veían al
+  # `pgrep` de la otra — ningún cliente arrancaba y el escritorio quedaba
+  # negro (sin `antos-barra`, sin panel, sin fondo).
   sessionScript = pkgs.writeShellScript "antos-desktop-session" ''
     set -e
 
@@ -67,42 +74,89 @@ let
     # Lanzar el compositor dentro de una sesión D-Bus propia para que
     # Waybar (módulo tray / SNI), Mako (notificaciones) y antos-barra
     # tengan un bus de sesión funcional.
-    exec ${pkgs.dbus}/bin/dbus-run-session ${lib.getExe cfg.compositor} -s "$XDG_CONFIG_HOME/labwc/autostart"
+    exec ${pkgs.dbus}/bin/dbus-run-session ${lib.getExe cfg.compositor}
   '';
 
   # ── Escritorio tradicional opcional (T30.6) ──────────────────────────────
-  # `autostart` base (demonio + antos-barra) de `system/desktop/`, más —si el
-  # panel está activado— las piezas `wlroots` del mobiliario clásico. Se
-  # genera aquí para no meter waybar/swaybg en el `autostart` compartido que
-  # también usa `start-session.sh` sobre Linux no-NixOS.
+  # `autostart` base (demonio + antos-barra) de `system/desktop/`, con —si el
+  # panel está activado— las piezas `wlroots` del mobiliario clásico
+  # insertadas en la marca `# @antos:panel@`, es decir, ANTES de
+  # `antos-barra` (ver el porqué en el propio `autostart`). Se genera aquí
+  # para no meter waybar/swaybg en el `autostart` compartido que también usa
+  # `start-session.sh` sobre Linux no-NixOS.
   panelAutostart = ''
-
     # ── Escritorio tradicional (T30.6) ──
     # `_a` lanza en segundo plano solo si no hay ya una instancia: la sesión
     # de greetd se reinicia cuando el compositor sale (y el primer arranque en
     # frío bajo emulación puede provocarlo), y sin esta guarda quedarían dos
-    # de cada cliente apilados. Esperamos hasta que el socket Wayland esté
-    # activo antes de conectar el panel y los clientes gráficos.
-    _a() { p="$1"; shift; if ! pgrep -f "$p" >/dev/null 2>&1; then "$@" >> /tmp/antos-desktop.log 2>&1 & fi; }
+    # de cada cliente apilados. La guarda es `_running` del `autostart` base
+    # (patrón anclado al ejecutable; ver allí por qué ni `pgrep -f <patrón>`
+    # suelto ni `pgrep -x` sirven).
+    _a() { p="$1"; shift; if ! _running "$p"; then "$@" >> /tmp/antos-desktop.log 2>&1 & fi; }
 
-    for _ in $(seq 1 30); do
-      [ -n "''${WAYLAND_DISPLAY:-}" ] && [ -S "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/''${WAYLAND_DISPLAY}" ] && break
-      sleep 0.1
-    done
-
-    _a 'swaybg' ${pkgs.swaybg}/bin/swaybg ${
+    _a swaybg ${pkgs.swaybg}/bin/swaybg ${
       if cfg.panel.wallpaper != null
       then ''-i "${cfg.panel.wallpaper}" -m fill''
       else "-c '#1a1b26'"
     }
-    _a 'waybar -c /etc/antos' ${lib.getExe cfg.panel.package} -c /etc/antos/desktop/waybar/config -s /etc/antos/desktop/waybar/style.css
-    _a 'bin/mako' ${pkgs.mako}/bin/mako
-    _a 'swayidle' ${pkgs.swayidle}/bin/swayidle -w timeout 600 '${pkgs.swaylock}/bin/swaylock -f'
+    _a waybar ${lib.getExe cfg.panel.package} -c /etc/antos/desktop/waybar/config -s /etc/antos/desktop/waybar/style.css
+    _a mako ${pkgs.mako}/bin/mako
+    ${lib.optionalString (cfg.panel.idleLockSeconds > 0) ''
+      _a swayidle ${pkgs.swayidle}/bin/swayidle -w timeout ${toString cfg.panel.idleLockSeconds} '${pkgs.swaylock}/bin/swaylock -f -c 1a1b26 --indicator-idle-visible'
+    ''}
+
+    # Esperar (hasta 3 s) a que waybar publique `org.kde.StatusNotifierWatcher`
+    # antes de que `antos-barra` intente registrar su icono de bandeja. Si
+    # waybar tarda más, seguimos igual: ksni se reengancha cuando el watcher
+    # aparece claramente después.
+    _i=0
+    while [ "$_i" -lt 30 ]; do
+      if ${pkgs.dbus}/bin/dbus-send --session --print-reply --dest=org.freedesktop.DBus \
+           /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
+           string:org.kde.StatusNotifierWatcher 2>/dev/null | grep -q 'boolean true'; then
+        break
+      fi
+      sleep 0.1
+      _i=$((_i + 1))
+    done
+  '';
+
+  # ── Escala de salida (HiDPI) ─────────────────────────────────────────
+  # Labwc no configura salidas desde `rc.xml`; se hace por
+  # `wlr-output-management` con `wlr-randr`. Con `outputScale = "auto"`, una
+  # salida de ≥ 2560 px de ancho pasa a escala 2: es el caso de QEMU en
+  # macOS a pantalla completa, donde Cocoa entrega al invitado la
+  # resolución nativa Retina (p. ej. 3024×1900) y a escala 1 el panel y la
+  # barra quedan minúsculos. Como la resolución de `virtio-gpu` sigue al
+  # tamaño de la ventana del host (entrar/salir de pantalla completa la
+  # cambia en caliente), un vigilante reaplica la escala tras cada cambio
+  # de modo. Sondea `wlr-randr --json` cada 2 s en vez de escuchar udev:
+  # un modeset iniciado dentro del invitado (p. ej. `wlr-randr --mode`) no
+  # emite evento `drm`, y el sondeo cubre ambos casos con un coste nulo.
+  outputScaleSnippet = let
+    wantScale =
+      if cfg.outputScale == "auto"
+      then ''if [ "$width" -ge 2560 ]; then want=2; else want=1; fi''
+      else ''want=${toString cfg.outputScale}'';
+  in ''
+    _apply_output_scale() {
+      ${lib.getExe pkgs.wlr-randr} --json 2>/dev/null \
+        | ${lib.getExe pkgs.jq} -r '.[] | select(.enabled) | "\(.name) \(.scale * 1) \((.modes[] | select(.current) | .width) // 0)"' \
+        | while read -r name scale width; do
+            ${wantScale}
+            if [ "$scale" != "$want" ]; then
+              ${lib.getExe pkgs.wlr-randr} --output "$name" --scale "$want" >> /tmp/antos-desktop.log 2>&1 || true
+            fi
+          done
+    }
+    _apply_output_scale
+    ( while sleep 2; do _apply_output_scale; done ) &
   '';
 
   sessionAutostart = pkgs.writeShellScript "antos-autostart"
-    (builtins.readFile ../desktop/autostart
-      + lib.optionalString cfg.panel.enable panelAutostart);
+    (builtins.replaceStrings [ "# @antos:outputs@" "# @antos:panel@" ]
+      [ outputScaleSnippet (lib.optionalString cfg.panel.enable panelAutostart) ]
+      (builtins.readFile ../desktop/autostart));
 
   # Panel superior: botón de menú (→ lanzador), reloj, CPU/RAM/red y bandeja.
   # Formatos de texto: sin dependencia de una fuente de iconos.
@@ -158,12 +212,41 @@ let
   # ventana se queda corta y hay que desplazarse para ver el resto. La
   # agrandamos y la anclamos arriba, justo bajo el panel (ahora también
   # arriba), en vez de dejarla centrada.
+  #
+  # `dpi-aware=no` (T30.6, seguimiento): fuzzel por defecto escala la fuente
+  # con el DPI físico que anuncia la salida, y QEMU-Cocoa en macOS informa
+  # de un tamaño físico erróneo (la mitad del real → ~256 DPI), con lo que el
+  # menú salía a 2,7× — «desproporcionado». Con `no`, la fuente sigue solo
+  # la escala de la salida (la misma que usan waybar y antos-barra). `foot`
+  # ya trae `dpi-aware=no` por defecto y no lo sufre.
+  # Colores: los del panel (`waybarStyle`), para que el lanzador no sea una
+  # ventana crema sobre un escritorio oscuro.
   fuzzelConfig = ''
     [main]
-    lines=25
+    font=monospace:size=11
+    dpi-aware=no
+    lines=16
     width=50
     anchor=top
     y-margin=36
+    horizontal-pad=16
+    vertical-pad=10
+    inner-pad=6
+
+    [colors]
+    background=14151cf2
+    text=c0caf5ff
+    prompt=7aa2f7ff
+    input=c0caf5ff
+    match=7aa2f7ff
+    selection=2a2e3fff
+    selection-text=ffffffff
+    selection-match=7aa2f7ff
+    border=2a2e3fff
+
+    [border]
+    width=1
+    radius=8
   '';
 
   labwcMenu = ''
@@ -255,6 +338,19 @@ in
       description = "Navegador incluido de fábrica (`null` para no incluir ninguno).";
     };
 
+    outputScale = lib.mkOption {
+      type = lib.types.either (lib.types.enum [ "auto" ]) lib.types.number;
+      default = "auto";
+      example = 2;
+      description = ''
+        Escala de las salidas Wayland, aplicada con `wlr-randr` al arrancar
+        la sesión y tras cada cambio de modo (evento `drm` de udev).
+        `"auto"`: escala 2 en salidas de ≥ 2560 px de ancho (QEMU en macOS
+        a pantalla completa entrega la resolución Retina nativa), 1 en el
+        resto. Un número fija esa escala en todas las salidas.
+      '';
+    };
+
     # ── Mobiliario de escritorio tradicional (T30.6) ────────────────────
     panel = {
       enable = lib.mkOption {
@@ -295,6 +391,16 @@ in
         default = null;
         description = "Imagen de fondo. `null` → color sólido.";
       };
+
+      idleLockSeconds = lib.mkOption {
+        type = lib.types.ints.unsigned;
+        default = 600;
+        description = ''
+          Segundos de inactividad tras los que `swayidle` bloquea la sesión
+          con `swaylock` (contraseña del usuario de la sesión). `0` desactiva
+          el bloqueo automático.
+        '';
+      };
     };
   };
 
@@ -316,6 +422,8 @@ in
       pkgs.grim # captura de pantalla (wlr-screencopy) para QA visual (T14.2)
       pkgs.slurp
       pkgs.git
+      pkgs.wlr-randr # escala HiDPI de las salidas (`outputScale`)
+      pkgs.jq
     ];
 
     environment.sessionVariables = sessionEnv;
@@ -437,6 +545,12 @@ in
       pkgs.swayidle
       pkgs.libnotify # `notify-send`, para probar `mako`
     ];
+
+    # Sin esta entrada PAM, `swaylock` usa la pila «other» de NixOS
+    # (`pam_warn` + denegar) y rechaza siempre la contraseña: la sesión
+    # quedaba bloqueada en gris para siempre a los `idleLockSeconds` de
+    # inactividad (visto en la VM: «Wrong» con la contraseña correcta).
+    security.pam.services.swaylock = {};
 
     environment.etc."antos/desktop/waybar/config".text = builtins.toJSON waybarConfig;
     environment.etc."antos/desktop/waybar/style.css".text = waybarStyle;

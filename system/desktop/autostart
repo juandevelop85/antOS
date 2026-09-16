@@ -1,15 +1,30 @@
 #!/usr/bin/env bash
 # antOS Desktop · Wayland Session Autostart
-# Launched automatically by the compositor on session start.
+# Labwc lo ejecuta por su cuenta como `sh ~/.config/labwc/autostart` en cuanto
+# el socket Wayland está listo (`session_autostart_init`). NO se pasa además
+# con `labwc -s`: eso arrancaba el guion dos veces en paralelo, y las guardas
+# `pgrep -f <patrón>` de una instancia encontraban al `pgrep -f <patrón>` de
+# la otra (su cmdline contiene el patrón), con lo que ninguna lanzaba nada —
+# escritorio negro sin barra ni panel. Por eso la guarda `_running` ancla el
+# patrón al primer argumento (`^([^ ]*/)?NOMBRE( |$)`): casa con
+# `antos-barra`, `./target/debug/antos-barra` o `/nix/store/…/bin/waybar -c …`,
+# pero nunca con un `pgrep -f …` concurrente (su primer token es `pgrep`).
+# No vale `pgrep -x NOMBRE`: en NixOS los binarios van envueltos y el nombre
+# de proceso es `.antos-barra-wr` / `.waybar-wrapped`.
 #
 # Idempotente (T30.6): si el compositor reinicia la sesión —greetd hace justo
 # eso cuando el compositor sale, y bajo emulación el primer arranque en frío
 # puede tardar de más y provocarlo—, este guion no debe dejar dos
-# `antos-barra` (ni dos de nada) apilados. De ahí el `pgrep -f` antes de cada
+# `antos-barra` (ni dos de nada) apilados. De ahí la guarda antes de cada
 # lanzamiento.
-set -euo pipefail
+#
+# Se ejecuta con `sh` (dash en Debian/Ubuntu): sin bashismos ni `pipefail`.
+set -eu
 
 LOG="/tmp/antos-desktop.log"
+
+# ¿Hay ya un proceso cuyo ejecutable (primer argumento) se llame $1?
+_running() { pgrep -f "^([^ ]*/)?$1( |\$)" >/dev/null 2>&1; }
 
 # Sincronizar variables de sesión con systemd --user y D-Bus si están presentes
 if command -v systemctl >/dev/null 2>&1; then
@@ -23,23 +38,40 @@ fi
 #    En NixOS el demonio es un servicio systemd (T31.18) y esta rama no hace
 #    nada; en un Linux de desarrollo con el binario en el PATH, lo levanta.
 if command -v antosd >/dev/null 2>&1; then
-    pgrep -x antosd >/dev/null 2>&1 || antosd >> "$LOG" 2>&1 &
+    _running antosd || antosd >> "$LOG" 2>&1 &
 elif [ -x "./target/debug/antosd" ]; then
-    pgrep -f "target/debug/antosd" >/dev/null 2>&1 || ./target/debug/antosd >> "$LOG" 2>&1 &
+    _running antosd || ./target/debug/antosd >> "$LOG" 2>&1 &
 fi
 
-# 2. Launch antOS Desktop Bar (GTK4 Layer-Shell).
-#    Margen antes de conectar el layer-shell: mismo motivo ya documentado
-#    para waybar/swaybg/mako en `panelAutostart` (T30.6, system/nixos/
-#    desktop.nix) — bajo emulación, el primer arranque en frío puede
-#    ganarle la carrera al compositor terminando de anunciar
-#    `zwlr_layer_shell_v1`. Sin este margen, `antos-barra` arrancaba,
-#    creaba la ventana y moría sin llegar a pintar ninguna superficie
-#    visible (visto en la VM: `pgrep -f antos-barra` no encontraba nada
-#    tras el arranque, pero lanzada a mano segundos después sí funcionaba).
-sleep 1
+# 2. Esperar a que el socket Wayland exista antes de conectar ningún cliente
+#    layer-shell: bajo emulación, el primer arranque en frío puede ganarle la
+#    carrera al compositor terminando de anunciar `zwlr_layer_shell_v1`.
+_i=0
+while [ "$_i" -lt 30 ]; do
+    if [ -n "${WAYLAND_DISPLAY:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/${WAYLAND_DISPLAY}" ]; then
+        break
+    fi
+    sleep 0.1
+    _i=$((_i + 1))
+done
+
+# 3. Configuración de salidas (escala HiDPI). `system/nixos/desktop.nix`
+#    sustituye la marca por `wlr-randr` (ver `services.antos.desktop.outputScale`):
+#    debe ir antes de cualquier cliente para que ya nazcan a la escala buena.
+# @antos:outputs@
+
+# 3b. Mobiliario del escritorio tradicional (T30.6). `system/nixos/desktop.nix`
+#    sustituye la marca de abajo por el arranque de waybar/swaybg/mako/
+#    swayidle. Va ANTES de `antos-barra` a propósito: el icono de bandeja de
+#    la barra (T30.8) se registra en el `StatusNotifierWatcher` que publica
+#    waybar, y si ambos arrancan a la vez la barra pierde el registro (ksni
+#    solo se reengancha si el watcher aparece después de su primer intento,
+#    no durante él). Sobre un Linux sin el módulo NixOS la marca no hace nada.
+# @antos:panel@
+
+# 4. Launch antOS Desktop Bar (GTK4 Layer-Shell).
 if command -v antos-barra >/dev/null 2>&1; then
-    pgrep -f antos-barra >/dev/null 2>&1 || antos-barra >> "$LOG" 2>&1 &
+    _running antos-barra || antos-barra >> "$LOG" 2>&1 &
 elif [ -x "./system/barra/target/debug/antos-barra" ]; then
-    pgrep -f antos-barra >/dev/null 2>&1 || ./system/barra/target/debug/antos-barra >> "$LOG" 2>&1 &
+    _running antos-barra || ./system/barra/target/debug/antos-barra >> "$LOG" 2>&1 &
 fi

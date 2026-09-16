@@ -185,8 +185,9 @@ sesión gráfica Wayland completa. **Tres formas de arrancarla:**
 > aceleración por hardware, `labwc` sale por *timeout* del *ping* de
 > `libseat`→`logind` (D-Bus) y por una carrera con el KMS de `virtio-gpu`;
 > `greetd` lo reinicia en bucle y los clientes (`antos-barra`, `waybar`) se
-> apilan. El `autostart` de la sesión es idempotente (`pgrep -f`) para que el
-> bucle no duplique nada, pero el arreglo real es **HVF/KVM**: usa
+> apilan. El `autostart` de la sesión es idempotente (guarda `_running`,
+> un `pgrep` anclado al ejecutable) para que el bucle no duplique nada, pero
+> el arreglo real es **HVF/KVM**: usa
 > `arrancar-vm-macos.sh` en macOS, o `./system/arrancar-vm.sh` (headless) en un
 > Linux con `/dev/kvm`.
 
@@ -197,7 +198,20 @@ sesión gráfica Wayland completa. **Tres formas de arrancarla:**
 ./system/arrancar-vm-macos.sh --build-only   # solo construye y copia -> target/antos-linux-aarch64.iso
 ./system/arrancar-vm-macos.sh --headless     # serie a stdio, sin ventana (CI / depuración)
 ./system/arrancar-vm-macos.sh --rebuild      # fuerza reconstruir la ISO
+./system/arrancar-vm-macos.sh --fullscreen   # pantalla completa: resolución Retina nativa + escala 2
+ANTOS_VM_RES=1680x1050 ./system/arrancar-vm-macos.sh   # tamaño inicial de la ventana (1440x900 por defecto)
 ```
+
+> La resolución del invitado **es** el tamaño de la ventana Cocoa en puntos
+> (QEMU se lo pasa por el EDID de `virtio-gpu`). En un Mac Retina la ventana
+> normal se dibuja escalada a 2×; solo `--fullscreen` entrega la resolución
+> nativa, y entonces `services.antos.desktop.outputScale = "auto"` pone el
+> escritorio a escala 2 para que panel, barra y fuentes no salgan
+> minúsculos. Para diagnosticar sin ventana: `nc -U
+> target/antos-vm-serial.sock` (consola serie, shell `nixos`) y `nc -U
+> target/antos-vm-monitor.sock` (monitor de QEMU). Tras 10 min sin actividad
+> la sesión se bloquea (`swaylock`, contraseña `antos`);
+> `services.antos.desktop.panel.idleLockSeconds = 0` lo desactiva.
 
 Requiere macOS con `qemu` (`brew install qemu`) y `podman`. Construye
 `.#iso` en el contenedor `nixos/nix` (la primera vez descarga el cierre
