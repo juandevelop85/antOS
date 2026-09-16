@@ -38,7 +38,11 @@ pub struct ToolSpec {
 
 /// Construye el toolset: cada nombre tiene que existir en el catálogo. Un
 /// nombre desconocido es un error de configuración, no algo que se ignora.
-pub fn build_toolset(catalog: &Catalog, names: &[String]) -> Result<Vec<ToolSpec>> {
+pub fn build_toolset(
+    catalog: &Catalog,
+    names: &[String],
+    finish: Option<&FinishSpec>,
+) -> Result<Vec<ToolSpec>> {
     let mut specs = Vec::with_capacity(names.len() + 1);
     for name in names {
         if name == FINISH_TOOL {
@@ -47,8 +51,24 @@ pub fn build_toolset(catalog: &Catalog, names: &[String]) -> Result<Vec<ToolSpec
         let cap = catalog.get(name)?;
         specs.push(spec_for(cap));
     }
-    specs.push(finish_spec());
+    specs.push(match finish {
+        Some(f) => ToolSpec {
+            name: FINISH_TOOL.into(),
+            description: f.description.clone(),
+            input_schema: f.input_schema.clone(),
+        },
+        None => finish_spec(),
+    });
     Ok(specs)
+}
+
+/// Esquema tipado para la herramienta terminal (T33.3): un rol puede exigir
+/// que `finalizar` devuelva una estructura (plan, veredicto) en vez de solo
+/// un resumen. Debe incluir siempre una propiedad `resumen`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FinishSpec {
+    pub description: String,
+    pub input_schema: Value,
 }
 
 fn spec_for(cap: &Capability) -> ToolSpec {

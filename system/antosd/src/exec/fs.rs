@@ -243,7 +243,7 @@ fn list_dir(root: &Path, depth: usize, limit: usize) -> Result<String> {
 /// Suite de tests del proyecto. El intérprete NUNCA es `sh -c` (T31.4): se
 /// invoca el binario del gestor con argumentos separados. La salida se
 /// acota a las últimas líneas para que quepa en el contexto de un modelo.
-fn run_tests(workspace: &Path, filter: Option<&str>) -> Result<String> {
+pub(crate) fn run_tests(workspace: &Path, filter: Option<&str>) -> Result<String> {
     const TAIL_LINES: usize = 120;
     let (program, args): (&str, Vec<String>) = if workspace.join("Cargo.toml").exists() {
         let mut a = vec!["test".to_string(), "--quiet".to_string()];

@@ -171,6 +171,7 @@ fn test_tickets_protocol_serialization() {
             detail: "assigning task to architect".into(),
             model: None,
             simulated: true,
+            report: None,
         }],
         backend: FlowBackend::Simulated,
     };

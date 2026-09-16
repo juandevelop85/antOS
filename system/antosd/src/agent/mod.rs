@@ -31,6 +31,7 @@
 
 pub mod fake;
 pub mod providers;
+pub mod roles;
 pub mod tools;
 
 use crate::blast::Blast;
@@ -69,6 +70,8 @@ pub struct RunConfig {
     pub system_prompt: Option<String>,
     /// Contexto extra que se antepone al objetivo (ticket, fallo de tests…).
     pub context: Option<String>,
+    /// Esquema tipado de `finalizar` (T33.3); `None` → solo `resumen`.
+    pub finish: Option<tools::FinishSpec>,
     /// Cómo se ejecutan los cambios. Siempre `Confined` salvo en los tests
     /// del propio runtime: el ejecutor confinado relanza el binario de
     /// `antos`, que no existe dentro de un binario de `cargo test`.
@@ -97,6 +100,7 @@ impl RunConfig {
             dry_run: false,
             system_prompt: None,
             context: None,
+            finish: None,
             executor: Executor::Confined,
         }
     }
@@ -139,7 +143,7 @@ pub fn run(
 ) -> Result<AgentReport> {
     let started = Instant::now();
     let run_id = format!("agent-{}", plan::new_id());
-    let tool_specs = tools::build_toolset(catalog, &cfg.toolset)?;
+    let tool_specs = tools::build_toolset(catalog, &cfg.toolset, cfg.finish.as_ref())?;
     let allowed: BTreeSet<&str> = cfg.toolset.iter().map(String::as_str).collect();
     let grants = Grants::load(&ctx.grants_path()).unwrap_or_default();
     let jail = sandbox::for_host();
@@ -152,6 +156,7 @@ pub fn run(
         files_written: BTreeSet::new(),
         executed_steps: Vec::new(),
     };
+    let mut finish_input: Option<String> = None;
 
     let system = cfg.system_prompt.clone().unwrap_or_else(system_prompt);
     let user = match &cfg.context {
@@ -206,6 +211,7 @@ pub fn run(
                     .and_then(|v| v.as_str())
                     .unwrap_or("(sin resumen)")
                     .to_string();
+                finish_input = Some(call.input.to_string());
                 state.steps += 1;
                 handler.on_step(&AgentStepEvent {
                     run_id: run_id.clone(),
@@ -315,6 +321,7 @@ pub fn run(
         snapshot_id: state.snapshot.as_ref().map(|s| s.id.clone()),
         files_written: state.files_written.iter().map(|p| ctx.display(p)).collect(),
         error,
+        result_json: finish_input,
     };
     handler.on_done(&report)?;
     Ok(report)

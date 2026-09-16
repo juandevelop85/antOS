@@ -14,20 +14,22 @@
 //! - una notificación por incidente con acciones Aprobar/Rechazar, y
 //!   `resolve_incident` que escribe la corrección aprobada en el fichero.
 //!
-//! Simulado (los nombres del ticket original prometen más de lo que hay):
-//! - **no participa ningún modelo ni ningún rol de antFlow**: `generate_fix`
-//!   solo equilibra llaves, paréntesis y corchetes sin cerrar y devuelve un
-//!   diff aproximado. No detecta builds rotos ni tests en rojo, y no usa
-//!   worktrees efímeros: `worktree_branch` es un nombre, no una rama creada.
+//! Desde T33.3 no hay corrección inventada: al detectar un incidente,
+//! Autopilot lo notifica; **aprobarlo lanza un run de Coder real**
+//! (`agent::run` con el modelo del rol `coder`, objetivo = el error,
+//! presupuesto corto, sobre el workspace; la aprobación del incidente vale
+//! como aprobación de los pasos `confirm` del run, nunca de los `grant`).
+//! Sin proveedor configurado, aprobar no hace nada más que decirlo
+//! (estado `manual`).
 //!
-//! T33.3 sustituye `generate_fix` por un `AgentRun` de Coder (T33.2) con
-//! el error como objetivo; sin proveedor configurado, Autopilot se limita a
-//! notificar el incidente.
+//! Lo que sigue sin hacer: detectar builds rotos o tests en rojo (solo
+//! sintaxis vía VFS Guard) y aislar la corrección en un worktree
+//! (`worktree_branch` es un nombre, no una rama creada).
 
 use crate::util::unix_now;
 use antos_protocol::{
-    AutopilotConfig, AutopilotFixProposal, AutopilotIncident, AutopilotStatus, NotificationAction,
-    NotificationItem, NotificationKind,
+    AutopilotConfig, AutopilotIncident, AutopilotStatus, NotificationAction, NotificationItem,
+    NotificationKind,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -118,7 +120,12 @@ impl AutopilotEngine {
 
         let active_count = incidents
             .iter()
-            .filter(|i| i.status != "resolved" && i.status != "dismissed")
+            .filter(|i| {
+                !matches!(
+                    i.status.as_str(),
+                    "resolved" | "dismissed" | "manual" | "failed"
+                )
+            })
             .count();
         let resolved_count = incidents.iter().filter(|i| i.status == "resolved").count();
 
@@ -185,30 +192,9 @@ impl AutopilotEngine {
                         format!("inc-{}", chrono::Local::now().format("%Y%m%d%H%M%S%3f"));
                     let branch = format!("autopilot/{incident_id}");
 
-                    // Role 1 · Architect: root-cause diagnosis
-                    let arch_diag =
-                        format!("Architect diagnosed root cause in {rel_path}: {err_msg}");
-
-                    // Role 2 · Coder: generate corrected content & isolated diff
-                    let (fixed_content, diff) = Self::generate_fix(&content, &validation.errors);
-
-                    // Role 3 · QA: verify that fix resolves the errors
-                    let re_val = guard.validate_content(&rel_path, &fixed_content);
-                    let qa_output = if re_val.is_valid {
-                        "QA Verification: All syntax checks and unit regression tests passed (0 errors)".to_string()
-                    } else {
-                        "QA Verification: Partial fix, requires manual review".to_string()
-                    };
-
-                    let proposal = AutopilotFixProposal {
-                        incident_id: incident_id.clone(),
-                        branch: branch.clone(),
-                        title: format!("Autopilot fix for {rel_path}: {err_msg}"),
-                        diff,
-                        test_output: format!("{arch_diag}\n{qa_output}"),
-                        reviewed_by_auditor: true,
-                    };
-
+                    // T33.3: sin corrección inventada. Aprobar lanza un run
+                    // de Coder real si hay proveedor; si no, solo se notifica.
+                    let coder_available = Self::coder_provider(state_dir).is_ok();
                     let incident = AutopilotIncident {
                         id: incident_id.clone(),
                         timestamp: chrono::Local::now().to_rfc3339(),
@@ -218,7 +204,7 @@ impl AutopilotEngine {
                         error_message: err_msg.clone(),
                         status: "ready_for_approval".to_string(),
                         worktree_branch: Some(branch),
-                        fix_proposal: Some(proposal),
+                        fix_proposal: None,
                     };
 
                     // Send notification to notification engine
@@ -226,7 +212,11 @@ impl AutopilotEngine {
                         id: format!("notif-{incident_id}"),
                         ticket_id: incident_id.clone(),
                         title: format!("antOS Autopilot · Incidente en {rel_path}"),
-                        body: format!("Detectado error sintáctico: {err_msg}. Solución propuesta lista para aprobación."),
+                        body: if coder_available {
+                            format!("Detectado error sintáctico: {err_msg}. Aprobar lanza un agente Coder con este error como objetivo (T33.3).")
+                        } else {
+                            format!("Detectado error sintáctico: {err_msg}. Sin proveedor de modelo configurado (antos llm use …): solo notificación.")
+                        },
                         kind: NotificationKind::System,
                         created_at: unix_now()?,
                         read: false,
@@ -276,18 +266,37 @@ impl AutopilotEngine {
         for inc in &mut incidents {
             if inc.id == incident_id {
                 if approve_and_merge {
-                    if let Some(ref _prop) = inc.fix_proposal {
-                        // Apply fix to workspace file
-                        let file_path = workspace_dir.join(&inc.file_path);
-                        if file_path.exists() {
-                            if let Ok(orig_content) = fs::read_to_string(&file_path) {
-                                let (fixed, _) = Self::generate_fix(&orig_content, &[]);
-                                let _ = fs::write(&file_path, fixed);
-                            }
+                    // T33.3: la corrección la hace un Coder real, o nadie.
+                    match Self::run_coder_fix(state_dir, workspace_dir, inc) {
+                        Ok(Some(report)) => {
+                            inc.status = if report.stop_reason
+                                == antos_protocol::AgentStopReason::Finished
+                            {
+                                "resolved".to_string()
+                            } else {
+                                "failed".to_string()
+                            };
+                            inc.error_message = format!(
+                                "{} · Coder [{}:{}] {:?}: {}",
+                                inc.error_message,
+                                report.provider,
+                                report.model,
+                                report.stop_reason,
+                                report.summary
+                            );
                         }
-                        inc.status = "resolved".to_string();
-                    } else {
-                        inc.status = "resolved".to_string();
+                        Ok(None) => {
+                            inc.status = "manual".to_string();
+                            inc.error_message = format!(
+                                "{} · sin proveedor de modelo configurado: corrección manual",
+                                inc.error_message
+                            );
+                        }
+                        Err(e) => {
+                            inc.status = "failed".to_string();
+                            inc.error_message =
+                                format!("{} · el run del Coder falló: {e:#}", inc.error_message);
+                        }
                     }
                 } else {
                     inc.status = "dismissed".to_string();
@@ -355,59 +364,69 @@ impl AutopilotEngine {
         Ok(files)
     }
 
-    /// Generates a simple corrective fix for unbalanced delimiters or malformed syntax.
-    fn generate_fix(
-        content: &str,
-        _errors: &[antos_protocol::SyntaxValidationError],
-    ) -> (String, String) {
-        let mut fixed = content.to_string();
-        let mut open_braces = 0i32;
-        let mut open_parens = 0i32;
-        let mut open_brackets = 0i32;
-
-        for c in content.chars() {
-            match c {
-                '{' => open_braces += 1,
-                '}' => open_braces -= 1,
-                '(' => open_parens += 1,
-                ')' => open_parens -= 1,
-                '[' => open_brackets += 1,
-                ']' => open_brackets -= 1,
-                _ => {}
-            }
+    /// El proveedor del rol `coder` según `llm_config.json`; error si no
+    /// hay ninguno configurado o resoluble (sin clave, etc.).
+    fn coder_provider(state_dir: &Path) -> Result<Box<dyn crate::agent::providers::AgentProvider>> {
+        let config = crate::llm::LlmConfig::load_from_state(state_dir);
+        if config.active_provider == "auto" || config.active_provider == "local" {
+            anyhow::bail!("sin proveedor activo (antos llm use <proveedor>)");
         }
+        let spec = config.get_role_model("coder");
+        crate::agent::providers::resolve(state_dir, Some(&spec))
+    }
 
-        if open_braces > 0 {
-            if !fixed.ends_with('\n') {
-                fixed.push('\n');
-            }
-            for _ in 0..open_braces {
-                fixed.push_str("}\n");
-            }
-        }
-        if open_brackets > 0 {
-            for _ in 0..open_brackets {
-                fixed.push(']');
-            }
-            fixed.push('\n');
-        }
-        if open_parens > 0 {
-            for _ in 0..open_parens {
-                fixed.push(')');
-            }
-            fixed.push('\n');
-        }
+    /// Run de Coder sobre el workspace con el error como objetivo (T33.3).
+    /// `Ok(None)`: no hay proveedor, no se hizo nada.
+    fn run_coder_fix(
+        state_dir: &Path,
+        workspace_dir: &Path,
+        inc: &AutopilotIncident,
+    ) -> Result<Option<antos_protocol::AgentReport>> {
+        let Ok(mut provider) = Self::coder_provider(state_dir) else {
+            return Ok(None);
+        };
+        let discovered = crate::ctx::Ctx::discover()?;
+        let ctx = crate::ctx::Ctx {
+            workspace: workspace_dir.to_path_buf(),
+            state: state_dir.to_path_buf(),
+            current_project: None,
+            ..discovered
+        };
+        let catalog = crate::capability::Catalog::load(&ctx.caps_dir)?;
+        let coder = crate::agent::roles::spec_for(antos_protocol::AgentRole::Coder, 10);
+        let mut cfg = crate::agent::RunConfig::new(format!(
+            "El fichero {} tiene un error de sintaxis: {}. Corrígelo con el mínimo cambio y, si el proyecto tiene suite, verifica con test.run.",
+            inc.file_path, inc.error_message
+        ));
+        cfg.toolset = coder.toolset;
+        cfg.system_prompt = Some(coder.system_prompt);
+        cfg.budget = coder.budget;
+        cfg.finish = Some(coder.finish);
+        // La aprobación del incidente es la aprobación del run: los pasos
+        // `confirm` pasan; los `grant` siguen exigiendo su concesión.
+        let mut handler = ApprovedIncidentHandler;
+        let report = crate::agent::run(&ctx, &catalog, &mut *provider, &cfg, &mut handler)?;
+        Ok(Some(report))
+    }
+}
 
-        let diff = format!(
-            "--- a/file\n+++ b/file\n@@ -{},{} +{},{} @@\n{}",
-            content.lines().count().max(1),
-            1,
-            fixed.lines().count().max(1),
-            1,
-            "+ }\n"
-        );
+/// Observador de un run lanzado desde una notificación ya aprobada: no hay
+/// terminal ni barra delante, así que los pasos `confirm` se aceptan (el
+/// usuario aprobó el incidente) y el resto se registra en el journal.
+struct ApprovedIncidentHandler;
 
-        (fixed, diff)
+impl crate::agent::AgentHandler for ApprovedIncidentHandler {
+    fn on_step(&mut self, _event: &antos_protocol::AgentStepEvent) -> Result<()> {
+        Ok(())
+    }
+    fn on_confirm(&mut self, _proposal: &antos_protocol::Proposal) -> Result<bool> {
+        Ok(true)
+    }
+    fn on_note(&mut self, _text: &str) -> Result<()> {
+        Ok(())
+    }
+    fn on_done(&mut self, _report: &antos_protocol::AgentReport) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -455,24 +474,22 @@ mod tests {
         let inc = &incidents[0];
         assert_eq!(inc.incident_type, "SyntaxError");
         assert_eq!(inc.file_path, "broken.rs");
-        assert!(inc.fix_proposal.is_some());
-        let prop = inc.fix_proposal.as_ref().unwrap();
-        assert!(prop.reviewed_by_auditor);
+        // T33.3: ya no hay una corrección inventada adjunta al incidente.
+        assert!(inc.fix_proposal.is_none());
 
-        // 5. Approve and resolve incident
+        // 5. Approve without a configured provider → nothing is fabricated:
+        //    the incident goes to `manual` and the file is untouched.
         let resolved =
             AutopilotEngine::resolve_incident(&state_dir, &ws_dir, &inc.id, true).unwrap();
-        assert_eq!(resolved.status, "resolved");
+        assert_eq!(resolved.status, "manual");
+        assert!(resolved.error_message.contains("sin proveedor"));
+        let content = fs::read_to_string(&broken_file).unwrap();
+        assert_eq!(content, "fn broken() {\n    let x = 42;\n");
 
-        // Verify the file was fixed
-        let fixed_content = fs::read_to_string(&broken_file).unwrap();
-        assert!(fixed_content.contains('}'));
-
-        // 6. Stop autopilot
+        // 6. Stop autopilot: `manual` no cuenta como resuelto ni como activo.
         let stopped = AutopilotEngine::stop(&state_dir, &ws_dir).unwrap();
         assert!(!stopped.active);
-        assert_eq!(stopped.active_incidents_count, 0);
-        assert_eq!(stopped.resolved_incidents_count, 1);
+        assert_eq!(stopped.resolved_incidents_count, 0);
 
         let _ = fs::remove_dir_all(&temp_dir);
     }

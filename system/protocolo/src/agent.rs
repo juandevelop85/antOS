@@ -101,4 +101,37 @@ pub struct AgentReport {
     pub files_written: Vec<String>,
     /// Detalle del error si `stop_reason == Error`.
     pub error: Option<String>,
+    /// Entrada completa de la herramienta terminal (`finalizar`) serializada
+    /// como JSON, cuando el run define un esquema tipado para ella (T33.3:
+    /// el Arquitecto devuelve un `ImplementationPlan`, el Auditor un
+    /// `AuditVerdict`). Cadena y no `Value` para no añadir `serde_json` a un
+    /// crate que evita dependencias a propósito.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_json: Option<String>,
+}
+
+/// Resumen de un run de agente adjunto a una transición de antFlow (T33.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentReportSummary {
+    pub run_id: String,
+    pub provider: String,
+    pub model: String,
+    pub stop_reason: AgentStopReason,
+    pub steps: u32,
+    pub tokens_used: u64,
+    pub seconds: u64,
+}
+
+impl From<&AgentReport> for AgentReportSummary {
+    fn from(r: &AgentReport) -> Self {
+        Self {
+            run_id: r.run_id.clone(),
+            provider: r.provider.clone(),
+            model: r.model.clone(),
+            stop_reason: r.stop_reason.clone(),
+            steps: r.steps,
+            tokens_used: r.tokens_used,
+            seconds: r.seconds,
+        }
+    }
 }

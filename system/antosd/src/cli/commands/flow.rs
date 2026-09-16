@@ -129,9 +129,9 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> R
         "do" => cmd_agent_do(ctx, &args[1..], opts)?,
         "report" => cmd_agent_report(ctx)?,
         "run" => {
-            let ticket_id = args
-                .get(1)
-                .ok_or_else(|| anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto]"))?;
+            let ticket_id = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("uso: antos agent run <ticket_id> [--auto] [--simulated]")
+            })?;
             let auto = args.iter().any(|a| a == "--auto" || a == "-a");
             let node_target = args
                 .iter()
@@ -161,11 +161,42 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> R
             }
 
             let engine = crate::flow::FlowEngine::global();
+            let simulated = args.iter().any(|a| a == "--simulated" || a == "--simulado");
 
-            let task = if auto {
+            let task = if auto && !simulated {
+                // T33.3: pipeline real. Cada rol usa el proveedor/modelo de
+                // `antos agent config` (`proveedor:modelo`), resuelto igual
+                // que `antos agent do --provider`.
                 println!(
-                    "  {} Ejecutando pipeline automatizado de agentes con modelos asignados...",
+                    "  {} Ejecutando el pipeline de agentes (Arquitecto → Coder → QA → Auditor)...",
                     paint("▶", GREEN)
+                );
+                let catalog = crate::capability::Catalog::load(&ctx.caps_dir)?;
+                let llm_config = crate::llm::LlmConfig::load_from_state(&ctx.state);
+                let state = ctx.state.clone();
+                let mut providers = move |role: antos_protocol::AgentRole| {
+                    // Claves de `antos agent config --role …`: architect, coder, qa, auditor.
+                    let key = match role {
+                        antos_protocol::AgentRole::Architect => "architect",
+                        antos_protocol::AgentRole::Coder => "coder",
+                        antos_protocol::AgentRole::Auditor => "auditor",
+                        _ => "qa",
+                    };
+                    let spec = llm_config.get_role_model(key);
+                    crate::agent::providers::resolve(&state, Some(&spec))
+                };
+                let mut terminal = crate::terminal::Terminal::new(opts.assume_yes);
+                engine.run_agent_pipeline(
+                    ctx,
+                    &catalog,
+                    ticket_id,
+                    &mut providers,
+                    &mut terminal,
+                )?
+            } else if auto {
+                println!(
+                    "  {} Pipeline SIMULADO (--simulated): ningún modelo participa (T33.1).",
+                    paint("▶", YELLOW)
                 );
                 engine.run_worktree_pipeline(&ctx.workspace, &ctx.state, ticket_id, &[])?
             } else {
@@ -262,6 +293,19 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> R
                                 .as_deref()
                                 .map(|m| format!(" [{}]", paint(m, CYAN)))
                                 .unwrap_or_default()
+                        };
+                        let model_fmt = match &h.report {
+                            Some(r) => format!(
+                                "{model_fmt} {}",
+                                paint(
+                                    &format!(
+                                        "({:?}, {} pasos, {} tokens, {} s)",
+                                        r.stop_reason, r.steps, r.tokens_used, r.seconds
+                                    ),
+                                    DIM
+                                )
+                            ),
+                            None => model_fmt,
                         };
                         println!("    • [{}] {}{}", h.new_state.label(), h.detail, model_fmt);
                     }

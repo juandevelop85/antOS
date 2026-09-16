@@ -861,12 +861,46 @@ antos -p claude "refactoriza la gestión de errores usando thiserror"
 
 ### 4.2 Orquestación Multi-Agente (`antos agent`)
 
-> **Estado honesto (T33.1).** `antos agent run` y el tablero muestran hoy el
-> pipeline **simulado** de T3.1 (la máquina de estados avanza sola, el
-> «Coder» escribe un *scaffold* fijo y los modelos por rol son etiquetas):
-> el CLI, la barra y el IPC lo marcan como «SIMULACIÓN». El trabajo real de
-> agentes es `antos agent do` (T33.2, abajo); los roles sobre ese runtime
-> llegan con T33.3.
+> **Estado honesto (T33.1–T33.3).** `antos agent run <ticket> --auto` ejecuta
+> el pipeline **real** (T33.3): Arquitecto → Coder → QA → Auditor, cada rol
+> como un run de agente con el modelo de `antos agent config`. `--simulated`
+> conserva el pipeline de demostración de T3.1 (sin modelo), y el CLI, la
+> barra y el IPC lo marcan como «SIMULACIÓN». Lo que sigue sin hacer ni el
+> pipeline real: fusionar la rama del agente al aprobar (la rama y el
+> worktree se conservan para inspección). El despacho desde el tablero de la
+> barra (`StartFlow`) sigue arrancando la tarea simulada hasta T33.4.
+
+#### Pipeline de roles (`antos agent run --auto`, T33.3)
+
+- **Arquitecto** (solo lectura sobre el workspace): recibe el ticket y
+  entrega un `ImplementationPlan` tipado — `files_to_touch` (las únicas
+  rutas que el Coder podrá modificar), `steps`, `acceptance_checks`. Sin plan
+  válido, o con `files_to_touch` vacío («no realizable»), la tarea falla.
+- **Coder** (edita **en el worktree** `agent/<ticket>`): `fs.patch`,
+  `fs.write`, `test.run`… con el plan como objetivo.
+- **QA** (sin modelo): ejecuta la suite real (`cargo test`/`npm test`/
+  `pytest`); si está en rojo, el extracto del fallo vuelve al Coder como
+  nuevo objetivo, hasta `max_qa_retries` (3).
+- **Auditor** (solo lectura): recibe el diff consolidado, el plan, los
+  criterios y el informe de QA, y emite un `AuditVerdict` (`approve`,
+  `findings`, `risk`). Un diff que toque ficheros fuera de `files_to_touch`
+  se rechaza **aunque el modelo apruebe**; con hallazgos accionables vuelve
+  al Coder, sin ellos la tarea falla.
+- Aprobado ⇒ `ReadyForApproval` con `diff_preview` y `audit_summary`; la
+  aprobación humana (`antos agent approve` / notificación) no cambia.
+
+```bash
+antos agent config --role coder --llm claude          # proveedor[:modelo] por rol
+antos agent run T33.4 --auto                          # pipeline real
+antos -y agent run T33.4 --auto                       # aprueba los pasos confirm del Coder
+antos agent run T33.4 --auto --simulated              # demo sin modelo (T3.1)
+antos agent status T33.4                              # fase, modelo real, pasos y tokens por transición
+```
+
+Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
+configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
+inventa correcciones: al aprobar un incidente lanza un run de Coder con el
+error como objetivo (si hay proveedor; si no, el incidente queda en `manual`).
 
 #### Agente con herramientas (`antos agent do`, T33.2)
 

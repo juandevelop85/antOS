@@ -29,10 +29,22 @@
 //! - `approve_task` cambia el estado a `Merged`/`Failed` y nada más: no
 //!   fusiona la rama del agente ni elimina el worktree.
 //!
-//! El runtime que hace real cada rol es T33.2 (bucle de herramientas) y
-//! T33.3 (roles sobre el runtime); `FlowBackend::Agent` marcará esas tareas.
+//! Lo anterior describe `run_worktree_pipeline` (`--simulated`, conservado
+//! para demos y para el smoke de CI sin modelo). **`run_agent_pipeline`
+//! (T33.3) es real**: cada fase es un `agent::run` con el modelo del rol
+//! (`LlmConfig::get_role_model`), su toolset y su prompt (`agent::roles`) —
+//! el Arquitecto entrega un `ImplementationPlan` tipado, el Coder edita en
+//! el worktree con `fs.patch`/`test.run`, QA ejecuta la suite real y
+//! realimenta el fallo, el Auditor emite un `AuditVerdict` tipado y rechaza
+//! diffs fuera del plan. Esas tareas llevan `backend: Agent` y cada
+//! transición su `report`. Lo que sigue sin hacer ni siquiera el pipeline
+//! real: `approve_task` no fusiona la rama ni limpia el worktree.
 
-use antos_protocol::{AgentRole, FlowBackend, FlowState, FlowTask, FlowTransition};
+use antos_protocol::{
+    AgentReportSummary, AgentRole, FlowBackend, FlowState, FlowTask, FlowTransition,
+};
+
+mod pipeline;
 use anyhow::{bail, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -116,6 +128,7 @@ impl FlowEngine {
             ),
             model: Some(arch_model),
             simulated: true,
+            report: None,
         });
         task.state = FlowState::Planning;
         task.current_role = Some(AgentRole::Architect);
@@ -164,6 +177,7 @@ impl FlowEngine {
                     },
                     model: model_opt,
                     simulated: true,
+                    report: None,
                 });
             }
             FlowState::Implementing => {
@@ -182,6 +196,7 @@ impl FlowEngine {
                     },
                     model: model_opt,
                     simulated: true,
+                    report: None,
                 });
             }
             FlowState::Testing => {
@@ -201,6 +216,7 @@ impl FlowEngine {
                         },
                         model: model_opt,
                         simulated: true,
+                        report: None,
                     });
                 } else if task.qa_retries < task.max_qa_retries {
                     // QA falló -> realimentar a Coder para corrección
@@ -218,6 +234,7 @@ impl FlowEngine {
                         ),
                         model: model_opt,
                         simulated: true,
+                        report: None,
                     });
                 } else {
                     // Superó límite de reintentos
@@ -234,6 +251,7 @@ impl FlowEngine {
                         ),
                         model: model_opt,
                         simulated: true,
+                        report: None,
                     });
                 }
             }
@@ -256,6 +274,7 @@ impl FlowEngine {
                     },
                     model: model_opt,
                     simulated: true,
+                    report: None,
                 });
             }
             FlowState::ReadyForApproval => {
@@ -277,6 +296,31 @@ impl FlowEngine {
     }
 
     /// Advances the task's state machine to the next phase.
+    /// Como `advance_phase_with_model`, pero para una transición producida
+    /// por un run de agente real (T33.3): `simulated = false` y `report`.
+    fn advance_phase_with_report(
+        &self,
+        ticket_id: &str,
+        detail: &str,
+        tests_ok: bool,
+        report: &antos_protocol::AgentReport,
+    ) -> Result<FlowTask> {
+        let mut task =
+            self.advance_phase_with_model(ticket_id, detail, tests_ok, Some(&report.model))?;
+        let mut lock = self
+            .state
+            .lock()
+            .map_err(|_| anyhow::anyhow!("mutex poisoned"))?;
+        if let Some(t) = lock.get_mut(&ticket_id.to_uppercase()) {
+            if let Some(last) = t.history.last_mut() {
+                last.simulated = false;
+                last.report = Some(AgentReportSummary::from(report));
+            }
+            task = t.clone();
+        }
+        Ok(task)
+    }
+
     pub fn advance_phase(
         &self,
         ticket_id: &str,
@@ -313,6 +357,7 @@ impl FlowEngine {
                     .into(),
                 model: None,
                 simulated: true,
+                report: None,
             });
         } else {
             task.state = FlowState::Failed;
@@ -326,6 +371,7 @@ impl FlowEngine {
                     .into(),
                 model: None,
                 simulated: true,
+                report: None,
             });
         }
 
@@ -391,12 +437,9 @@ impl FlowEngine {
         tasks
     }
 
-    /// Ejecuta el pipeline completo de agentes en segundo plano para un ticket (T3.2):
-    /// 1. Arquitecto analiza especificación.
-    /// 2. Creación del Worktree efímero aislado (T2.2).
-    /// 3. Coder aplica los cambios en el Worktree.
-    /// 4. QA ejecuta tests en Sandbox. Si fallan, bucle de reintento.
-    /// 5. Auditor genera diff consolidado y transiciona a ListoParaAprobacion.
+    /// Pipeline SIMULADO (T3.2, conservado como `--simulated`, ver cabecera):
+    /// recorre la máquina de estados sin modelo. `cambios_ficheros` son los
+    /// ficheros que el «Coder» copia al worktree; sin ellos, un scaffold.
     pub fn run_worktree_pipeline(
         &self,
         workspace: &Path,

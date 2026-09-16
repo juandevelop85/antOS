@@ -207,6 +207,40 @@ impl FlowBackend {
     }
 }
 
+/// What the Architect hands to the Coder (T33.3): the typed output of its
+/// `finalizar` tool. Sin plan válido no se pasa a Implementing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ImplementationPlan {
+    /// Una frase: qué se va a hacer y por qué (`resumen` en la herramienta).
+    #[serde(alias = "resumen")]
+    pub summary: String,
+    /// Rutas (relativas al workspace) que el Coder puede tocar. El Auditor
+    /// rechaza un diff que salga de esta lista.
+    #[serde(default)]
+    pub files_to_touch: Vec<String>,
+    /// Pasos concretos, en orden.
+    #[serde(default)]
+    pub steps: Vec<String>,
+    /// Cómo se comprueba cada criterio de aceptación (tests, comandos).
+    #[serde(default)]
+    pub acceptance_checks: Vec<String>,
+}
+
+/// The Auditor's verdict on the consolidated diff (T33.3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AuditVerdict {
+    pub approve: bool,
+    /// Hallazgos accionables; si `approve == false` y hay hallazgos, vuelven
+    /// al Coder como objetivo del siguiente run.
+    #[serde(default)]
+    pub findings: Vec<String>,
+    /// `low` / `medium` / `high`.
+    #[serde(default)]
+    pub risk: String,
+    #[serde(default, alias = "resumen")]
+    pub summary: String,
+}
+
 /// Record of a lifecycle state transition in antFlow.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowTransition {
@@ -228,6 +262,9 @@ pub struct FlowTransition {
     /// callers that print models must check this flag first.
     #[serde(default)]
     pub simulated: bool,
+    /// El run de agente que produjo esta transición (T33.3), si lo hubo.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::agent::AgentReportSummary>,
 }
 
 /// Active or historical task orchestrated by antFlow.

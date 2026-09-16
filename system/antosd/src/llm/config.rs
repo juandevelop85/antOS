@@ -30,6 +30,9 @@ pub struct LlmConfig {
     /// Role-specific model overrides for antFlow (T19.4)
     #[serde(default)]
     pub role_models: BTreeMap<String, String>,
+    /// Presupuesto en pasos por rol para el pipeline de agentes (T33.3).
+    #[serde(default)]
+    pub role_steps: BTreeMap<String, u32>,
 }
 
 impl Default for LlmConfig {
@@ -80,6 +83,7 @@ impl Default for LlmConfig {
             active_provider: "auto".into(),
             providers,
             role_models: BTreeMap::new(),
+            role_steps: BTreeMap::new(),
         }
     }
 }
@@ -158,6 +162,14 @@ impl LlmConfig {
             "auditor" => "groq:llama-3.3-70b-versatile".to_string(),
             _ => self.active_provider.clone(),
         }
+    }
+
+    /// Pasos máximos de un rol (T33.3); `default` si no está configurado.
+    pub fn get_role_steps(&self, role: &str, default: u32) -> u32 {
+        self.role_steps
+            .get(&role.to_lowercase())
+            .copied()
+            .unwrap_or(default)
     }
 
     /// Sets the assigned model for an antFlow role (T19.4).
