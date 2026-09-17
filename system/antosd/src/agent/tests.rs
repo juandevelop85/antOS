@@ -345,6 +345,8 @@ fn model_that_stops_talking_ends_the_run_as_model_stopped() {
     assert_eq!(report.stop_reason, AgentStopReason::ModelStopped);
     assert_eq!(report.summary, "No sé qué hacer.");
     assert_eq!(handler.notes, vec!["No sé qué hacer.".to_string()]);
+    // Antes de darlo por parado se le recordó UNA vez que use herramientas.
+    assert_eq!(provider.nudges, 1);
     let _ = std::fs::remove_dir_all(temp);
 }
 

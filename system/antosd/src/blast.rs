@@ -239,11 +239,18 @@ pub fn expand_all(
 }
 
 pub fn expand(tpl: &str, args: &BTreeMap<String, String>, workspace: &Path) -> String {
-    let mut s = tpl.replace("$WORKSPACE", &workspace.to_string_lossy());
+    let ws = workspace.to_string_lossy();
+    let mut s = tpl.replace("$WORKSPACE", &ws);
     for (k, v) in args {
         s = s.replace(&format!("{{{k}}}"), v);
     }
-    s
+    // Los valores por defecto de los manifiestos (`default = "$WORKSPACE"`)
+    // llegan como argumento, después de la primera sustitución: sin esta
+    // segunda pasada, `{path}/target/` con `path = "$WORKSPACE"` daba
+    // `<ws>/$WORKSPACE/target` — un directorio literal `$WORKSPACE` que el
+    // recinto creaba y hacía escribible mientras el `target/` real quedaba
+    // denegado (visto con `test.run` sin argumentos, T33.5).
+    s.replace("$WORKSPACE", &ws)
 }
 
 /// Normalización puramente léxica: resuelve `.` y `..` sin tocar el disco.
@@ -356,6 +363,25 @@ mod tests {
         assert!(
             !b.escapes.is_empty(),
             "scratch fuera del workspace es un escape"
+        );
+    }
+
+    /// `$WORKSPACE` también se expande cuando viene como VALOR de un
+    /// argumento (los `default` de los manifiestos), no solo en la plantilla.
+    #[test]
+    fn workspace_placeholder_expands_inside_argument_values() {
+        let ws = Path::new("/ws/demo");
+        let args = [("path".to_string(), "$WORKSPACE".to_string())]
+            .into_iter()
+            .collect();
+        assert_eq!(expand("{path}/target/", &args, ws), "/ws/demo/target/");
+        assert_eq!(expand("{path}", &args, ws), "/ws/demo");
+        let plain = [("path".to_string(), "src/lib.rs".to_string())]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            expand("$WORKSPACE/{path}", &plain, ws),
+            "/ws/demo/src/lib.rs"
         );
     }
 

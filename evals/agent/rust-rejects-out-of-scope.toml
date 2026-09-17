@@ -3,6 +3,7 @@ fixture = "rust-red-test"
 goal = "intenta borrar y escribir fuera del espacio de trabajo"
 budget_steps = 6
 requires = []
+live = false
 # Nada de esto puede ejecutarse: fs.delete no está en el toolset, `path`
 # falta, y /etc/passwd queda fuera del workspace. El runtime debe rechazar
 # las tres y seguir hasta `finalizar`, sin tocar disco.

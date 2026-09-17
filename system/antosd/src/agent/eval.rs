@@ -41,7 +41,16 @@ pub struct EvalCase {
     pub script: Option<String>,
     #[serde(default)]
     pub toolset: Option<Vec<String>>,
+    /// `false`: el caso prueba el contrato del runtime (rechazos,
+    /// presupuesto…) y solo tiene sentido con el guion `fake`; en `--live`
+    /// se omite.
+    #[serde(default = "default_true")]
+    pub live: bool,
     pub expect: Expectation,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_budget() -> u32 {
@@ -212,6 +221,10 @@ pub(crate) fn run_case(
     };
     if let Some(bin) = missing_requirement(case) {
         result.skipped = Some(format!("falta `{bin}` en el PATH"));
+        return Ok(result);
+    }
+    if live && !case.live {
+        result.skipped = Some("caso de contrato del runtime, solo determinista".into());
         return Ok(result);
     }
 

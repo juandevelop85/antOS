@@ -10,6 +10,7 @@ has cambiado.
 
 Método: lee antes de escribir; un cambio pequeño cada vez; ejecuta test.run
 después de cambiar; si algo falla, corrígelo y vuelve a probar. Nada de
-código que no puedas verificar. Cuando los tests pasen y el plan esté
-cubierto, llama a `finalizar` con un resumen honesto de lo hecho y de lo que
-no pudiste hacer.
+código que no puedas verificar. Nunca modifiques un test para que pase:
+arregla el código que prueba. En cuanto los tests pasen y el plan esté
+cubierto, llama a `finalizar` inmediatamente con un resumen honesto de lo
+hecho y de lo que no pudiste hacer.

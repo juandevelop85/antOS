@@ -49,6 +49,10 @@ impl Sandbox for Seatbelt {
 /// a menos que una concesión activa esté registrada en `policy.allowed_secrets` (T5.2).
 pub fn sbpl(policy: &Policy) -> String {
     let mut p = String::from("(version 1)\n(allow default)\n(deny file-write*)\n");
+    // `/dev/null` es un sumidero, no un efecto: `git` (y casi cualquier
+    // herramienta) lo abre para escribir, y sin esto `git status` moría
+    // dentro del recinto con «could not open '/dev/null'» (T33.5).
+    p.push_str("(allow file-write* (literal \"/dev/null\"))\n");
 
     // Blindaje de secretos y claves (T5.2 Zero Environmental Authority)
     p.push_str(";; Shield sensitive credentials and secrets by default (T5.2)\n");

@@ -53,6 +53,10 @@ pub trait AgentProvider {
     /// Turnos siguientes: los resultados de TODAS las herramientas del turno
     /// anterior, en un solo mensaje.
     fn continue_with(&mut self, results: &[ToolResult], tools: &[ToolSpec]) -> Result<Turn>;
+    /// Un mensaje de usuario sin resultados de herramienta: el recordatorio
+    /// que el runtime envía cuando el modelo responde en prosa sin llamar a
+    /// nada (T33.5, modelos locales pequeños).
+    fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn>;
 }
 
 fn http_agent() -> ureq::Agent {
@@ -207,6 +211,10 @@ impl AgentProvider for ClaudeAgentProvider {
             .push(json!({"role": "user", "content": blocks}));
         self.request(tools)
     }
+    fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn> {
+        self.messages.push(json!({"role": "user", "content": text}));
+        self.request(tools)
+    }
 }
 
 // ───────────────────────────── Ollama ─────────────────────────────
@@ -273,6 +281,19 @@ impl OllamaAgentProvider {
                     .unwrap_or(Value::Null),
             });
         }
+        // Modelos locales pequeños (7B) a veces escriben la llamada como
+        // texto en vez de usar `tool_calls`: se rescata del texto. Lo que
+        // salga sigue pasando por el catálogo igual que una llamada nativa.
+        if turn.calls.is_empty() {
+            for (name, input) in textual_tool_calls(&turn.text) {
+                self.next_id += 1;
+                turn.calls.push(ToolCall {
+                    id: format!("call-{}", self.next_id),
+                    name,
+                    input,
+                });
+            }
+        }
         turn.tokens = v
             .get("prompt_eval_count")
             .and_then(Value::as_u64)
@@ -304,6 +325,10 @@ impl AgentProvider for OllamaAgentProvider {
                 "content": if r.is_error { format!("ERROR: {}", r.content) } else { r.content.clone() },
             }));
         }
+        self.request(tools)
+    }
+    fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn> {
+        self.messages.push(json!({"role": "user", "content": text}));
         self.request(tools)
     }
 }
@@ -397,6 +422,15 @@ impl OpenAiCompatAgentProvider {
                 input,
             });
         }
+        if turn.calls.is_empty() {
+            for (i, (name, input)) in textual_tool_calls(&turn.text).into_iter().enumerate() {
+                turn.calls.push(ToolCall {
+                    id: format!("text-{}-{i}", self.messages.len()),
+                    name,
+                    input,
+                });
+            }
+        }
         turn.tokens = v
             .pointer("/usage/total_tokens")
             .and_then(Value::as_u64)
@@ -429,6 +463,63 @@ impl AgentProvider for OpenAiCompatAgentProvider {
         }
         self.request(tools)
     }
+    fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn> {
+        self.messages.push(json!({"role": "user", "content": text}));
+        self.request(tools)
+    }
+}
+
+/// Llamadas a herramienta escritas como texto por el modelo: bloques
+/// ```` ```json ```` (o JSON a pelo) con la forma `{"name": …,
+/// "arguments": {…}}` — también `parameters`/`input`, `tool`/`function`
+/// como clave del nombre, y arrays de ellas. Todo lo demás se ignora.
+pub(crate) fn textual_tool_calls(text: &str) -> Vec<(String, Value)> {
+    fn one(v: &Value) -> Option<(String, Value)> {
+        let obj = v.as_object()?;
+        let name = ["name", "tool", "function"]
+            .iter()
+            .find_map(|k| obj.get(*k).and_then(Value::as_str))?
+            .to_string();
+        let input = ["arguments", "parameters", "input", "args"]
+            .iter()
+            .find_map(|k| obj.get(*k))
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let input = match input {
+            // Algunos modelos serializan los argumentos como cadena JSON.
+            Value::String(s) => serde_json::from_str(&s).unwrap_or(Value::String(s)),
+            other => other,
+        };
+        Some((name, input))
+    }
+    let mut out = Vec::new();
+    let mut candidates: Vec<String> = Vec::new();
+    // 1 · bloques de código
+    let mut rest = text;
+    while let Some(start) = rest.find("```") {
+        let after = &rest[start + 3..];
+        let body_start = after.find('\n').map(|i| i + 1).unwrap_or(0);
+        let Some(end) = after[body_start..].find("```") else {
+            break;
+        };
+        candidates.push(after[body_start..body_start + end].trim().to_string());
+        rest = &after[body_start + end + 3..];
+    }
+    // 2 · el texto entero, por si es JSON a pelo
+    candidates.push(text.trim().to_string());
+    for c in candidates {
+        let Ok(v) = serde_json::from_str::<Value>(&c) else {
+            continue;
+        };
+        match &v {
+            Value::Array(items) => out.extend(items.iter().filter_map(one)),
+            other => out.extend(one(other)),
+        }
+        if !out.is_empty() {
+            break;
+        }
+    }
+    out
 }
 
 /// Formato `function` que comparten Ollama y las APIs compatibles con OpenAI.
@@ -511,5 +602,32 @@ pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dy
             Ok(Box::new(super::fake::FakeProvider::from_json(&text)?))
         }
         other => bail!("proveedor de agente desconocido: {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::*;
+
+    #[test]
+    fn textual_tool_calls_are_recovered_from_code_blocks_and_bare_json() {
+        let fenced = "Voy a ejecutar los tests.\n```json\n{\"name\": \"test.run\", \"arguments\": {\"path\": \".\"}}\n```";
+        let calls = textual_tool_calls(fenced);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "test.run");
+        assert_eq!(calls[0].1["path"], ".");
+
+        let bare = r#"{"tool": "fs.read", "input": {"path": "src/lib.rs"}}"#;
+        assert_eq!(textual_tool_calls(bare)[0].0, "fs.read");
+
+        let array = r#"[{"name": "fs.list", "parameters": {"path": "."}}, {"function": "fs.read", "args": "{\"path\": \"a\"}"}]"#;
+        let calls = textual_tool_calls(array);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].1["path"], "a");
+
+        assert!(textual_tool_calls("solo prosa, sin JSON").is_empty());
+        assert!(textual_tool_calls("```rust\nfn x() {}\n```").is_empty());
     }
 }

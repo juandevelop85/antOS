@@ -41,6 +41,8 @@ pub struct FakeProvider {
     /// Prompt de sistema y objetivo con los que arrancó (para aserciones).
     pub system_seen: String,
     pub goal_seen: String,
+    /// Recordatorios recibidos del runtime.
+    pub nudges: u32,
 }
 
 impl FakeProvider {
@@ -51,6 +53,7 @@ impl FakeProvider {
             received: Vec::new(),
             system_seen: String::new(),
             goal_seen: String::new(),
+            nudges: 0,
         }
     }
 
@@ -63,11 +66,9 @@ impl FakeProvider {
 
     fn next_turn(&mut self) -> Turn {
         let Some(scripted) = self.script.pop_front() else {
-            // Guion agotado: el «modelo» deja de pedir herramientas.
-            return Turn {
-                text: "(guion agotado)".into(),
-                ..Default::default()
-            };
+            // Guion agotado: el «modelo» deja de pedir herramientas, sin
+            // texto (así el resumen del run conserva lo último que dijo).
+            return Turn::default();
         };
         let calls = scripted
             .calls
@@ -103,6 +104,10 @@ impl AgentProvider for FakeProvider {
     }
     fn continue_with(&mut self, results: &[ToolResult], _tools: &[ToolSpec]) -> Result<Turn> {
         self.received.extend(results.iter().cloned());
+        Ok(self.next_turn())
+    }
+    fn nudge(&mut self, _text: &str, _tools: &[ToolSpec]) -> Result<Turn> {
+        self.nudges += 1;
         Ok(self.next_turn())
     }
 }

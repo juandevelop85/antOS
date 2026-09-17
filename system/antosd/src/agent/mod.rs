@@ -56,6 +56,12 @@ use tools::FINISH_TOOL;
 const MAX_TOOL_OUTPUT: usize = 24_000;
 /// Máximo de caracteres del `output_preview` de un evento (para la barra).
 const MAX_PREVIEW: usize = 400;
+/// Recordatorios que se envían a un modelo que responde sin herramientas
+/// antes de darlo por parado (`ModelStopped`).
+const MAX_NUDGES: u32 = 1;
+const NUDGE_TEXT: &str = "Recuerda: solo puedes actuar llamando a las herramientas disponibles, \
+    no describiendo lo que harías. Si el objetivo ya está cumplido y verificado, llama a \
+    `finalizar` con el resumen; si no, llama a la siguiente herramienta.";
 
 /// Configuración de un run.
 #[derive(Debug, Clone)]
@@ -133,9 +139,10 @@ pub fn system_prompt() -> String {
      comandos arbitrarios; si algo no se puede hacer con las herramientas, dilo.\n\
      Método: orienta primero (fs.list, fs.read, memory.search), cambia lo mínimo con \
      fs.patch (bloques exactos, únicos), verifica con test.run, y corrige lo que falle. \
-     Cuando el objetivo esté cumplido y verificado —o cuando no puedas cumplirlo— llama a \
-     `finalizar` con un resumen honesto. No repitas herramientas sin motivo: cada paso \
-     consume presupuesto."
+     Nunca modifiques un test para que pase: arregla el código que prueba. \
+     En cuanto test.run esté en verde y el objetivo cumplido, llama a `finalizar` \
+     inmediatamente con un resumen honesto; también si no puedes cumplirlo. No repitas \
+     herramientas sin motivo: cada paso consume presupuesto."
         .to_string()
 }
 
@@ -172,6 +179,8 @@ pub fn run(
     };
 
     let mut turn = provider.start(&system, &user, &tool_specs);
+    let mut nudges = 0u32;
+    let mut last_text = String::new();
     let (stop_reason, summary, error) = loop {
         let current = match turn {
             Ok(t) => t,
@@ -186,14 +195,19 @@ pub fn run(
         state.tokens += current.tokens;
         if !current.text.trim().is_empty() {
             handler.on_note(current.text.trim())?;
+            last_text = current.text.trim().to_string();
         }
         if current.calls.is_empty() {
-            // El modelo respondió con texto y sin herramientas: se acabó.
-            break (
-                AgentStopReason::ModelStopped,
-                current.text.trim().to_string(),
-                None,
-            );
+            // El modelo respondió en prosa sin herramientas. Un modelo pequeño
+            // hace esto a menudo aunque le quede trabajo (o aunque haya
+            // terminado, sin llamar a `finalizar`): un recordatorio, y solo
+            // uno, antes de darlo por parado.
+            if nudges < MAX_NUDGES && !handler.should_stop() {
+                nudges += 1;
+                turn = provider.nudge(NUDGE_TEXT, &tool_specs);
+                continue;
+            }
+            break (AgentStopReason::ModelStopped, last_text.clone(), None);
         }
 
         let mut results = Vec::with_capacity(current.calls.len());

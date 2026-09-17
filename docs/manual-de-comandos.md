@@ -928,6 +928,31 @@ están en rojo, ya no termina con `finished`, o sube un 30 % en pasos o
 tokens. Flujo recomendado: `antos eval agent --live` → cambiar el prompt o
 el modelo del rol → `antos eval agent --live` → `antos eval diff`.
 
+**Modelos locales con Ollama (gratis).** Probado en un Mac de 18 GB con
+`qwen2.5-coder:7b` (4,7 GB, soporta herramientas):
+
+```bash
+ollama pull qwen2.5-coder:7b
+antos llm use ollama --model qwen2.5-coder:7b
+for r in architect coder qa auditor; do antos agent config --role $r --llm ollama:qwen2.5-coder:7b; done
+antos -y agent do "haz que pase el test sums de src/lib.rs"
+antos -y agent run T99.1 --auto
+antos eval agent --live
+```
+
+Medido (2026-09-16): el pipeline de roles completo en ~33 s, un run suelto
+en 25–75 s. Fiabilidad de un 7B en el escenario «arregla un test en rojo»:
+2 de 5 ejecuciones terminan bien; el resto se queda dando vueltas sin
+llamar a `finalizar`, «termina» sin arreglar nada, o responde en prosa. El
+runtime lo cubre en lo que puede: rescata llamadas escritas como texto
+(```` ```json {"name": …} ```` ````), envía un recordatorio antes de dar al
+modelo por parado, y el presupuesto y `files_allowed` (evaluación) cazan
+los bucles y los atajos como «editar el test para que pase». Para más
+fiabilidad, un modelo mayor (`qwen2.5-coder:14b` cabe en 18 GB) o un
+proveedor remoto para el rol Coder; la evaluación `--live` es la forma de
+comparar sin adivinar. Por ejecución, no por promedio: repite varias veces
+antes de sacar conclusiones.
+
 Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
 configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
 inventa correcciones: al aprobar un incidente lanza un run de Coder con el

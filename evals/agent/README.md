@@ -22,6 +22,7 @@ fixture = "rust-red-test"           # se copia a un workspace temporal
 goal = "haz que pase el test sums"
 budget_steps = 10
 requires = ["cargo"]                # binarios necesarios; si faltan, se omite
+live = true                         # false: contrato del runtime, solo con fake
 script = '''[ ...turnos del proveedor fake... ]'''
 
 [expect]
