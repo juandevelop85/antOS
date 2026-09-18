@@ -171,6 +171,10 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 33** | [T33.3](T33.3-roles-antflow-reales-sobre-el-runtime-de-agente.md) | Roles antFlow Reales sobre el Runtime de Agente | ✅ Completado |
 | **Fase 33** | [T33.4](T33.4-la-barra-como-puesto-de-mando-pasos-en-vivo-aprobaciones-inline-y-tablero-real.md) | La Barra como Puesto de Mando: Pasos en Vivo, Aprobaciones Inline y Tablero Real | ✅ Completado |
 | **Fase 33** | [T33.5](T33.5-evaluacion-reproducible-de-agentes-smoke-determinista-y-metricas.md) | Evaluación Reproducible de Agentes: Smoke Determinista y Métricas | ✅ Completado |
+| **Fase 34** | [T34.1](T34.1-servicios-efimeros-reales-nix-sistema-y-adopcion-con-ollama-como-primer-caso.md) | Servicios Efímeros Reales: Backends Nix / Sistema / Adopción, con Ollama como Primer Caso | ⏳ Pendiente |
+| **Fase 34** | [T34.2](T34.2-ollama-como-motor-de-primera-clase-contexto-ciclo-de-vida-de-modelos-y-auto-local.md) | Ollama como Motor de Primera Clase: Contexto, Ciclo de Vida de Modelos y `auto` Local | ⏳ Pendiente |
+| **Fase 34** | [T34.3](T34.3-ollama-de-serie-en-la-imagen-nixos-services-ollama-solo-loopback.md) | Ollama de Serie en la Imagen NixOS: `services.antos.llm` sobre `services.ollama`, Solo Loopback | ⏳ Pendiente |
+| **Fase 34** | [T34.4](T34.4-perfiles-local-hybrid-cloud-y-fiabilidad-de-los-roles-con-modelos-pequenos.md) | Perfiles `local` / `hybrid` / `cloud` y Fiabilidad de los Roles con Modelos Pequeños | ⏳ Pendiente |
 
 ---
 
@@ -473,3 +477,52 @@ de un modelo con presupuesto y supervisión.
 
 Orden sugerido de ataque: ~~T33.1~~ → ~~T33.2~~ → ~~T33.3~~ → ~~T33.4~~ → ~~T33.5~~. Fase 33 completa.
 
+---
+
+## Fase 34 · Modelos Locales de Serie (September 2026)
+
+Revisión hecha el 2026-09-17 a partir de una pregunta simple: ¿puede un
+antOS recién instalado, sin ninguna clave de API, hacer todo lo que la
+Fase 33 promete usando solo modelos gratuitos en la propia máquina?
+
+**Lo que ya hay:** proveedores Ollama (`/api/chat`) y OpenAI-compatible
+(llama.cpp / OpenCode) para planificador y runtime de agentes, `LlmConfig`
+con modelo por rol, detección de Ollama al arrancar (`ctx.local_llm`), y la
+primera sesión real con `qwen2.5-coder:7b` (T33.5 §3): pipeline completo
+en 33 s, fiabilidad 2/5.
+
+**Los huecos, contrastados con el código:**
+
+- `antos service up postgres|redis` **no arranca nada**: `service::
+  start_service` escribe un `service.json` con `status: running` y
+  `pid: None` e inyecta en el `.env` una URL a un puerto vacío. Es una
+  maqueta sin marcar (T31.14), y es justo el mecanismo por el que Ollama
+  debería ser «un servicio más».
+- Ollama **no está en la imagen** NixOS pese al título de T19.3; la receta
+  antpkg es solo `arm64`, 0.5.7, con firma de relleno.
+- `OllamaAgentProvider` no envía `num_ctx`: Ollama corta la conversación a
+  4096 tokens **por el principio** (prompt de sistema y herramientas), lo
+  que explica parte del 2/5.
+- Los modelos por rol por defecto apuntan a OpenRouter y Groq; `auto` hace
+  `bail!` para agentes. Sin claves, no hay pipeline.
+
+- **T34.1** — servicios efímeros reales: `ServiceKind` con backends
+  `External` (adopta lo que ya escucha), `System` (binario en `PATH`) y
+  `Nix` (`nix run nixpkgs#…`, argumentos como vector), PID, log, sonda de
+  salud y `backend`/`healthy` explícitos. Ollama, PostgreSQL y Redis
+  verificados; el `.env` solo se toca cuando la sonda pasa.
+- **T34.2** — Ollama de primera clase: `num_ctx`/`temperature`/`keep_alive`
+  y tokens reales en el proveedor de agente; `antos llm pull|rm|doctor`
+  por la API HTTP; `setup` que arranca el servicio y descarga el modelo
+  recomendado por RAM; `auto` → Ollama cuando está sano.
+- **T34.3** — `services.antos.llm` en la imagen NixOS sobre
+  `services.ollama` de nixpkgs (cero dependencias nuevas), solo loopback,
+  sin descargas en la activación; la receta antpkg deja de fingir.
+- **T34.4** — perfiles `local` (por defecto en instalación limpia) /
+  `hybrid` / `cloud`; `format` con JSON Schema para plan y veredicto,
+  toolsets compactos para modelos pequeños, reintento dirigido ante
+  argumentos malformados; `eval --live --repeat N` y job nocturno para
+  medir con n>1 antes de tocar prompts.
+
+Orden sugerido de ataque: T34.1 → T34.2 → T34.4 → T34.3 (la imagen se
+verifica solo en CI/VM; lo demás se prueba en el Mac con Ollama.app).
