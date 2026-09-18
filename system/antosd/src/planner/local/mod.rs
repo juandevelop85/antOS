@@ -274,8 +274,9 @@ impl Planner for LocalPlanner {
             )]));
         }
 
-        // Intenciones de servicios efímeros (T5.1)
+        // Intenciones de servicios efímeros (T5.1; Ollama desde T34.1)
         if lower.contains("servicio")
+            || lower.contains("ollama")
             || lower.contains("postgres")
             || lower.contains("postgresql")
             || lower.contains("redis")
@@ -286,7 +287,9 @@ impl Planner for LocalPlanner {
             || lower.contains("base de datos")
             || words.iter().any(|w| w == "db")
         {
-            let svc = if lower.contains("redis") {
+            let svc = if lower.contains("ollama") {
+                "ollama"
+            } else if lower.contains("redis") {
                 "redis"
             } else if lower.contains("mariadb") || lower.contains("mysql") {
                 "mariadb"

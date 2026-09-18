@@ -114,6 +114,20 @@ fn test_plan_servicios_locales() {
         Some("6379")
     );
 
+    // T34.1: Ollama es un servicio más.
+    let p_ollama = planner
+        .plan("levanta ollama en el puerto 11500", &catalog)
+        .expect("debe planificar ollama");
+    assert_eq!(p_ollama.steps[0].capability, "env.service_up");
+    assert_eq!(
+        p_ollama.steps[0].args.get("service").map(String::as_str),
+        Some("ollama")
+    );
+    assert_eq!(
+        p_ollama.steps[0].args.get("port").map(String::as_str),
+        Some("11500")
+    );
+
     let p_down = planner
         .plan("apaga el servicio postgres", &catalog)
         .expect("debe planificar down");

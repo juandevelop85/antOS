@@ -82,26 +82,49 @@ pub fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
             let db = args.get(3).map(String::as_str);
 
             println!(
-                "\n{} Aprovisionando servicio efímero «{}»...",
+                "\n{} Arrancando servicio efímero «{}»...",
                 paint("⚡", BOLD),
                 paint(svc, YELLOW)
             );
             let info = crate::service::start_service(svc, port, db, &ctx.state, &ctx.workspace)?;
+            let origin = match info.backend {
+                crate::service::ServiceBackend::External => {
+                    "adoptado: ya escuchaba antes; antOS no lo arrancó y no lo parará"
+                }
+                crate::service::ServiceBackend::System => "binario de la máquina",
+                crate::service::ServiceBackend::Nix => "nix shell nixpkgs#…",
+                crate::service::ServiceBackend::Unknown => "desconocido",
+            };
             println!(
                 "  {} Servicio:      {}",
                 paint("●", GREEN),
                 paint(&info.name, BOLD)
             );
             println!(
-                "  {} Puerto:        {}",
+                "  {} Escucha en:    127.0.0.1:{}  ({})",
                 paint("●", GREEN),
-                paint(&info.port.to_string(), YELLOW)
+                paint(&info.port.to_string(), YELLOW),
+                paint(
+                    match info.health {
+                        crate::service::Health::Healthy => "sano",
+                        crate::service::Health::Unhealthy => "sin respuesta",
+                        crate::service::Health::Unknown => "sin sondear",
+                    },
+                    GREEN
+                )
             );
             println!(
-                "  {} Estado:        {}",
+                "  {} Origen:        {} — {}",
                 paint("●", GREEN),
-                paint(&info.status, GREEN)
+                paint(info.backend.label(), BOLD),
+                paint(origin, DIM)
             );
+            if let Some(pid) = info.pid {
+                println!("  {} PID:           {}", paint("●", GREEN), pid);
+            }
+            if let Some(cmd) = &info.command {
+                println!("  {} Comando:       {}", paint("●", GREEN), paint(cmd, DIM));
+            }
             println!(
                 "  {} Variable .env: {}={}",
                 paint("●", GREEN),
@@ -109,23 +132,63 @@ pub fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&info.env_var_value, CYAN)
             );
             println!(
-                "  {} Almacenamiento: {}\n",
+                "  {} Datos:         {}",
                 paint("●", GREEN),
                 paint(&info.data_dir, DIM)
             );
+            if let Some(log) = &info.log_path {
+                println!(
+                    "  {} Log:           {}  (antos service logs {})\n",
+                    paint("●", GREEN),
+                    paint(log, DIM),
+                    info.name
+                );
+            } else {
+                println!();
+            }
         }
         "down" | "stop" => {
+            use crate::service::StopOutcome;
             let svc = args.get(1).ok_or_else(|| {
                 anyhow::anyhow!(
                     "debes especificar el nombre del servicio (ej. antos service down postgres)"
                 )
             })?;
-            crate::service::stop_service(svc, &ctx.state)?;
+            let msg = match crate::service::stop_service(svc, &ctx.state)? {
+                StopOutcome::Terminated { pid, forced: false } => {
+                    format!("detenido (PID {pid}). Los datos se conservan en $STATE/services/.")
+                }
+                StopOutcome::Terminated { pid, forced: true } => format!(
+                    "detenido con SIGKILL (PID {pid} no atendió SIGTERM en 10 s). Los datos se conservan."
+                ),
+                StopOutcome::AlreadyGone => {
+                    "ya no estaba corriendo; registro actualizado.".to_string()
+                }
+                StopOutcome::ExternalUnregistered => {
+                    "era externo: se retira el registro; el proceso sigue porque antOS no lo arrancó."
+                        .to_string()
+                }
+            };
             println!(
-                "\n{} Servicio «{}» detenido y limpiado.\n",
+                "\n{} Servicio «{}» {msg}\n",
                 paint("✓", GREEN),
                 paint(svc, BOLD)
             );
+        }
+        "logs" | "log" => {
+            let svc = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!("debes especificar el servicio (ej. antos service logs ollama)")
+            })?;
+            let n = args
+                .get(2)
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or(40);
+            let tail = crate::service::service_logs(svc, &ctx.state, n)?;
+            if tail.trim().is_empty() {
+                println!("\n  (el log de «{svc}» está vacío)\n");
+            } else {
+                println!("\n{tail}\n");
+            }
         }
         _ => {
             let svc_filter = if sub != "status" && sub != "list" {
@@ -137,42 +200,64 @@ pub fn cmd_services(ctx: &Ctx, args: &[String]) -> Result<()> {
             let services = crate::service::get_service_status(svc_filter, &ctx.state)?;
             println!(
                 "\n{}",
-                paint(
-                    "antOS · Servicios Locales Efímeros de Desarrollo (T5.1)",
-                    BOLD
-                )
+                paint("antOS · Servicios Locales Efímeros de Desarrollo", BOLD)
             );
             if services.is_empty() {
-                println!("  No hay servicios efímeros aprovisionados.");
+                println!("  No hay servicios efímeros registrados.");
                 println!(
-                    "  Inicia uno con: antos service up <postgres|redis|mariadb|meilisearch>\n"
+                    "  Arranca uno con: antos service up <ollama|postgres|redis|meilisearch>\n"
                 );
             } else {
-                println!("  ┌────────────────┬────────┬───────────┬─────────────────────────────────────────────────────────┐");
-                println!(
-                    "  │ {:<14} │ {:<6} │ {:<9} │ {:<55} │",
-                    paint("SERVICIO", BOLD),
-                    paint("PUERTO", BOLD),
-                    paint("ESTADO", BOLD),
-                    paint("VARIABLE DE ENTORNO (.env)", BOLD)
-                );
-                println!("  ├────────────────┼────────┼───────────┼─────────────────────────────────────────────────────────┤");
-                for s in services {
-                    let st_fmt = if s.status == "running" {
-                        paint("● running", GREEN)
+                // Se rellena ANTES de colorear: los códigos ANSI no ocupan
+                // columnas pero `{:<n}` los cuenta y descuadra la tabla.
+                let cell = |text: &str, width: usize, color: &str| {
+                    let padded = format!("{text:<width$}");
+                    if color.is_empty() {
+                        padded
                     } else {
-                        paint("○ stopped", DIM)
+                        paint(&padded, color)
+                    }
+                };
+                let bar = "  ├────────────────┼────────┼─────────────┼──────────┼───────┼────────┼──────────────────────────────────────────┤";
+                println!("  ┌────────────────┬────────┬─────────────┬──────────┬───────┬────────┬──────────────────────────────────────────┐");
+                println!(
+                    "  │ {} │ {} │ {} │ {} │ {} │ {} │ {} │",
+                    cell("SERVICIO", 14, BOLD),
+                    cell("PUERTO", 6, BOLD),
+                    cell("ESTADO", 11, BOLD),
+                    cell("ORIGEN", 8, BOLD),
+                    cell("SALUD", 5, BOLD),
+                    cell("PID", 6, BOLD),
+                    cell("VARIABLE DE ENTORNO (.env)", 40, BOLD)
+                );
+                println!("{bar}");
+                for s in services {
+                    let (st_txt, st_color) = match s.status.as_str() {
+                        "running" => ("● running", GREEN),
+                        "external" => ("● external", CYAN),
+                        "unhealthy" => ("▲ unhealthy", YELLOW),
+                        _ => ("○ stopped", DIM),
                     };
+                    let hcolor = match s.health {
+                        crate::service::Health::Healthy => GREEN,
+                        crate::service::Health::Unhealthy => DIM,
+                        crate::service::Health::Unknown => YELLOW,
+                    };
+                    let health = s.health.label();
+                    let pid = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+                    let var = format!("{}={}", s.env_var_key, ellipsis(&s.env_var_value, 40));
                     println!(
-                        "  │ {:<14} │ {:<6} │ {:<20} │ {}={} │",
+                        "  │ {:<14} │ {:<6} │ {} │ {:<8} │ {} │ {:<6} │ {} │",
                         s.name,
                         s.port,
-                        st_fmt,
-                        paint(&s.env_var_key, BOLD),
-                        ellipsis(&s.env_var_value, 38)
+                        cell(st_txt, 11, st_color),
+                        s.backend.label(),
+                        cell(health, 5, hcolor),
+                        pid,
+                        cell(&ellipsis(&var, 40), 40, "")
                     );
                 }
-                println!("  └────────────────┴────────┴───────────┴─────────────────────────────────────────────────────────┘\n");
+                println!("  └────────────────┴────────┴─────────────┴──────────┴───────┴────────┴──────────────────────────────────────────┘\n");
             }
         }
     }

@@ -134,6 +134,21 @@ jobs:
       - name: Run host workspace tests
         run: cargo test --workspace
 
+      # T34.1: los servicios efímeros arrancan procesos reales. Estos tests
+      # van `#[ignore]` porque necesitan los binarios; aquí se instalan
+      # (Debian deja `postgres`/`initdb` en /usr/lib/postgresql/<v>/bin, fuera
+      # de PATH: el backend `System` los busca ahí) y se ejecutan de verdad.
+      # El demonio de postgres del paquete se para para que no sea él quien
+      # escuche en 5432 y el test adopte en vez de arrancar.
+      - name: Install real services for the ephemeral-service tests
+        run: |
+          sudo apt-get install -y --no-install-recommends redis-server postgresql
+          sudo systemctl stop redis-server postgresql || true
+          sudo systemctl disable redis-server postgresql || true
+
+      - name: Ephemeral services · real Redis and PostgreSQL round trips
+        run: cargo test -p antosd -- --ignored real_redis_roundtrip real_postgres_roundtrip
+
   # ──────────────────────────────────────────────── Test on macOS
   test-macos:
     name: "Test · macOS (Apple Silicon)"

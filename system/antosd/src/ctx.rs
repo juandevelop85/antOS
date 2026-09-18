@@ -47,6 +47,21 @@ pub struct LocalLlmStatus {
     pub ollama_available: bool,
     pub opencode_available: bool,
     pub preferred_local_endpoint: Option<String>,
+    /// De dónde salió el endpoint de Ollama (T34.1).
+    pub source: LocalLlmSource,
+}
+
+/// Cómo se supo que hay un Ollama: por el registro de `antos service up`
+/// (puede estar en un puerto distinto del habitual) o por sondear el puerto
+/// por defecto sin saber quién lo atiende.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LocalLlmSource {
+    #[default]
+    None,
+    /// `$STATE/services/ollama/service.json` existe y su puerto responde.
+    Registered,
+    /// Nadie lo registró; `127.0.0.1:11434` acepta conexiones.
+    Probed,
 }
 
 impl Ctx {
@@ -141,8 +156,8 @@ impl Ctx {
         // ── Step 6: detect active project ───────────────────────────────────
         let current_project = detect_current_project(&workspace, &state);
 
-        // ── Step 7: probe local LLM availability (T19.3) ────────────────────
-        let local_llm = Self::probe_local_llm();
+        // ── Step 7: probe local LLM availability (T19.3 / T34.1) ────────────
+        let local_llm = Self::probe_local_llm_in(&state);
 
         Ok(Ctx {
             workspace,
@@ -157,7 +172,13 @@ impl Ctx {
 
     /// Probes local LLM daemon endpoints with a non-blocking TCP connect check (50ms timeout).
     pub fn probe_local_llm() -> LocalLlmStatus {
-        probe_local_llm_endpoints()
+        probe_local_llm_endpoints(None)
+    }
+
+    /// Como `probe_local_llm`, pero mira antes el Ollama registrado por
+    /// `antos service up` en este directorio de estado (T34.1).
+    pub fn probe_local_llm_in(state_dir: &Path) -> LocalLlmStatus {
+        probe_local_llm_endpoints(Some(state_dir))
     }
 
     pub fn snapshots_dir(&self) -> PathBuf {
@@ -253,35 +274,49 @@ fn detect_project_from_cwd(workspace: &Path) -> Option<PathBuf> {
     }
 }
 
-fn probe_local_llm_endpoints() -> LocalLlmStatus {
+fn probe_local_llm_endpoints(state_dir: Option<&Path>) -> LocalLlmStatus {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
     use std::time::Duration;
 
     let timeout = Duration::from_millis(50);
     let localhost = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
+    // 0. El Ollama que arrancó (o adoptó) `antos service up`, si responde:
+    //    manda sobre el puerto por defecto, porque puede estar en otro.
+    let registered = state_dir.and_then(|s| crate::service::registered_endpoint(s, "ollama"));
+
     // T31.7: built directly, not parsed from a string literal — a
     // constant address has no failure mode to `.unwrap()` away.
     // 1. Probe Ollama (default 127.0.0.1:11434)
     let ollama_addr = SocketAddr::new(localhost, 11434);
-    let ollama_available = TcpStream::connect_timeout(&ollama_addr, timeout).is_ok();
+    let ollama_probed = TcpStream::connect_timeout(&ollama_addr, timeout).is_ok();
+    let ollama_available = registered.is_some() || ollama_probed;
 
     // 2. Probe OpenCode / llama.cpp (default 127.0.0.1:8080)
     let opencode_addr = SocketAddr::new(localhost, 8080);
     let opencode_available = TcpStream::connect_timeout(&opencode_addr, timeout).is_ok();
 
-    let preferred_local_endpoint = if ollama_available {
-        Some("http://127.0.0.1:11434".to_string())
+    let (preferred_local_endpoint, source) = if let Some(ep) = registered {
+        (Some(ep), LocalLlmSource::Registered)
+    } else if ollama_probed {
+        (
+            Some("http://127.0.0.1:11434".to_string()),
+            LocalLlmSource::Probed,
+        )
     } else if opencode_available {
-        Some("http://127.0.0.1:8080/v1".to_string())
+        (
+            Some("http://127.0.0.1:8080/v1".to_string()),
+            LocalLlmSource::None,
+        )
     } else {
-        None
+        (None, LocalLlmSource::None)
     };
 
     LocalLlmStatus {
         ollama_available,
         opencode_available,
         preferred_local_endpoint,
+        source,
     }
 }
 

@@ -72,6 +72,8 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
                 }
                 if let Some(e) = custom_endpoint {
                     o.endpoint = e.to_string();
+                } else if let Some(ep) = registered_ollama_endpoint(ctx) {
+                    o.endpoint = ep;
                 }
                 Ok(Box::new(o))
             }
@@ -120,7 +122,10 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
     if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
         return Ok(Box::new(p));
     }
-    if let Ok(o) = OllamaPlanner::from_env() {
+    if let Ok(mut o) = OllamaPlanner::from_env() {
+        if let Some(ep) = registered_ollama_endpoint(ctx) {
+            o.endpoint = ep;
+        }
         if o.is_available() {
             return Ok(Box::new(o));
         }
@@ -131,6 +136,18 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
         }
     }
     Ok(Box::new(LocalPlanner))
+}
+
+/// El Ollama que registró `antos service up` (T34.1), que puede no estar en
+/// el puerto por defecto. Si solo se sondeó `11434`, `from_env` ya apunta ahí
+/// y se devuelve `None`.
+fn registered_ollama_endpoint(ctx: Option<&Ctx>) -> Option<String> {
+    let c = ctx?;
+    if c.local_llm.source == crate::ctx::LocalLlmSource::Registered {
+        c.local_llm.preferred_local_endpoint.clone()
+    } else {
+        None
+    }
 }
 
 #[allow(dead_code)]

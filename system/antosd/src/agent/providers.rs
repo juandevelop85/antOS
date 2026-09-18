@@ -578,8 +578,13 @@ pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dy
         }
         "ollama" | "local-llm" | "local_llm" => {
             let p = crate::planner::ollama::OllamaPlanner::from_env()?;
+            // Prioridad: configuración explícita → el Ollama que registró
+            // `antos service up` (T34.1, puede no estar en 11434) → entorno.
+            let endpoint = endpoint_override
+                .or_else(|| crate::service::registered_endpoint(state_dir, "ollama"))
+                .unwrap_or(p.endpoint);
             Ok(Box::new(OllamaAgentProvider::new(
-                endpoint_override.unwrap_or(p.endpoint),
+                endpoint,
                 model_override.unwrap_or(p.model),
             )))
         }

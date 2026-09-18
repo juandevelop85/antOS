@@ -260,9 +260,12 @@ antos secret get GITHUB_TOKEN
 antos revoke secret.GITHUB_TOKEN
 ```
 
-### 9. Servicios Locales Efímeros (PostgreSQL / Redis / MariaDB)
+### 9. Servicios Locales Efímeros (Ollama / PostgreSQL / Redis)
 ```bash
-# Levantar PostgreSQL local efímero
+# Ollama: adopta el que ya corre en 11434 o arranca uno propio (binario o nix)
+antos service up ollama
+
+# Levantar PostgreSQL local efímero (proceso real, initdb la primera vez)
 antos service up postgres
 
 # Consultar servicios activos y variables inyectadas (.env)
@@ -409,9 +412,9 @@ antos llm test
 | `git.worktree_merge` | Fusión de ramas de trabajo de agentes a la rama base | `confirm` |
 | `diag.port_status` | Diagnóstico de puertos TCP de desarrollo y procesos en escucha | `auto` (Lectura) |
 | `diag.port_kill` | Liberación controlada de puertos en conflicto (SIGTERM/SIGKILL) | `confirm` |
-| `env.service_up` | Aprovisionamiento declarativo de servicios locales (Postgres, Redis) | `confirm` |
-| `env.service_down` | Detención y limpieza de servicios locales efímeros | `confirm` |
-| `env.service_status` | Consulta del estado de servicios locales aprovisionados | `auto` (Lectura) |
+| `env.service_up` | Arranca (o adopta si ya escucha) un servicio local real en loopback: Ollama, Postgres, Redis, Meilisearch | `confirm` |
+| `env.service_down` | Detiene un servicio arrancado por antOS (los datos se conservan) o retira el registro de uno adoptado | `confirm` |
+| `env.service_status` | Estado real de los servicios registrados: PID y sonda del puerto | `auto` (Lectura) |
 | `secret.set` | Almacenamiento seguro de secretos en la bóveda con cifrado/0600 | `confirm` |
 | `secret.get` / `secret.read` | Lectura de credenciales protegida por el sistema de concesiones | `grant` |
 | `secret.grant` | Concesión explícita temporal de acceso a un secreto o `.env` | `grant` |

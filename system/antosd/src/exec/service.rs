@@ -1,4 +1,8 @@
-//! Ephemeral nix services and port diagnostics/management.
+//! Servicios efímeros (`env.service_*`) y diagnóstico de puertos.
+//!
+//! Los servicios los arranca `crate::service` de verdad (T34.1): cuando esta
+//! función corre dentro del ejecutor confinado, el proceso del servicio
+//! hereda el recinto y sobrevive al ejecutor porque se separa de sesión.
 
 use super::Change;
 use crate::ctx::Ctx;
@@ -62,6 +66,10 @@ pub fn changes_for(
     }
 }
 
+fn services_had_unknown_health(lines: &[String]) -> bool {
+    lines.iter().any(|l| l.contains("| salud ?"))
+}
+
 pub fn apply(change: &Change) -> Result<Option<String>> {
     match change {
         Change::PortStatus { port } => {
@@ -117,26 +125,64 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
                 state_dir,
                 workspace,
             )?;
+            let verb = match info.backend {
+                crate::service::ServiceBackend::External => "adoptado (ya escuchaba)",
+                _ => "arrancado",
+            };
+            let pid = info.pid.map(|p| format!(" PID {p} ·")).unwrap_or_default();
             Ok(Some(format!(
-                "servicio «{}» arrancado en puerto {} | {}={}",
-                info.name, info.port, info.env_var_key, info.env_var_value
+                "servicio «{}» {verb} en 127.0.0.1:{} ({}) ·{pid} sano | {}={}",
+                info.name,
+                info.port,
+                info.backend.label(),
+                info.env_var_key,
+                info.env_var_value
             )))
         }
         Change::ServiceDown { service, state_dir } => {
-            crate::service::stop_service(service, state_dir)?;
-            Ok(Some(format!("servicio «{service}» detenido y limpiado")))
+            use crate::service::StopOutcome;
+            let msg = match crate::service::stop_service(service, state_dir)? {
+                StopOutcome::Terminated { pid, forced: false } => {
+                    format!("servicio «{service}» detenido (PID {pid}); los datos se conservan")
+                }
+                StopOutcome::Terminated { pid, forced: true } => format!(
+                    "servicio «{service}» detenido con SIGKILL (PID {pid} no atendió SIGTERM); los datos se conservan"
+                ),
+                StopOutcome::AlreadyGone => {
+                    format!("servicio «{service}» ya no estaba corriendo; registro actualizado")
+                }
+                StopOutcome::ExternalUnregistered => format!(
+                    "servicio «{service}» era externo: antOS retira el registro y no toca el proceso"
+                ),
+            };
+            Ok(Some(msg))
         }
         Change::ServiceStatus { service, state_dir } => {
             let services = crate::service::get_service_status(service.as_deref(), state_dir)?;
             if services.is_empty() {
-                Ok(Some("no hay servicios efímeros aprovisionados".into()))
+                Ok(Some("no hay servicios efímeros registrados".into()))
             } else {
                 let mut lines = Vec::new();
                 for s in services {
+                    let pid = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
                     lines.push(format!(
-                        "servicio {:<12} | puerto {:<5} | estado {:<8} | {}={}",
-                        s.name, s.port, s.status, s.env_var_key, s.env_var_value
+                        "servicio {:<12} | puerto {:<5} | {:<9} | {:<8} | salud {:<3} | PID {:<6} | {}={}",
+                        s.name,
+                        s.port,
+                        s.status,
+                        s.backend.label(),
+                        s.health.label(),
+                        pid,
+                        s.env_var_key,
+                        s.env_var_value
                     ));
+                }
+                if services_had_unknown_health(&lines) {
+                    lines.push(
+                        "(salud «?»: la sonda de loopback no está disponible en este recinto; \
+                         el estado se basa solo en el PID)"
+                            .into(),
+                    );
                 }
                 Ok(Some(lines.join("\n")))
             }

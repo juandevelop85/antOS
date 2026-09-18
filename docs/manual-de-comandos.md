@@ -1237,27 +1237,66 @@ antos revoke secret.STRIPE_API_KEY
 
 ### 4.11 Servicios Locales Efímeros (`antos service` / `services`)
 
-Aprovisionamiento bajo demanda de servicios de apoyo en `$STATE/services/` con inyección de variables de conexión:
+`antos service up <svc>` arranca un **proceso real** que escucha en
+`127.0.0.1`, registra PID, log y salud en `$STATE/services/<svc>/` e inyecta
+la variable de conexión en el `.env` del workspace — solo cuando la sonda de
+salud ha pasado. Servicios conocidos: `ollama`, `postgres`, `redis`,
+`meilisearch` (con plan de arranque) y `mariadb`, `rabbitmq` (solo adopción:
+si ya escuchan, antOS los registra; arrancarlos es un ticket aparte).
+
+De dónde sale el proceso lo dice la columna **ORIGEN** (T34.1):
+
+| Origen | Qué pasó | `service down` |
+| :--- | :--- | :--- |
+| `external` | El puerto ya respondía (Ollama.app, `services.ollama` de NixOS, un postgres del sistema). antOS lo **adopta**. | Retira el registro; **no** mata el proceso. |
+| `system` | Binario encontrado en `PATH` o en los directorios habituales (`/usr/lib/postgresql/*/bin`, Homebrew, Postgres.app…). | `SIGTERM` al proceso; `SIGKILL` si no atiende en 10 s. |
+| `nix` | Sin binario pero con `nix`: `nix shell nixpkgs#<pkg> -c …`. | Igual que `system`. |
+
+Si no aplica ninguno, `service up` falla nombrando los tres caminos y **no
+escribe nada** (ni registro ni `.env`). La columna **SALUD** es el resultado
+de la sonda (`sí` / `no` / `?` cuando no se pudo sondear, p. ej. desde un
+recinto sin red); **ESTADO** combina PID y sonda: `running`, `external`,
+`unhealthy` (vivo pero no responde) o `stopped`. Antes de señalar un PID se
+comprueba que sigue siendo el proceso arrancado (un PID reutilizado por otro
+programa cuenta como `stopped` y no se toca).
 
 ```bash
-# Levantar una base de datos PostgreSQL local
+# Ollama: adopta el que ya corre en 11434, o arranca uno propio
+antos service up ollama
+antos service up ollama 11500          # segundo Ollama, con sus propios modelos en $STATE/services/ollama/data
+
+# PostgreSQL (initdb la primera vez; usuario antos, auth trust en loopback)
 antos service up postgres
-antos service up postgres 5432
+antos service up postgres 5433 mi_db   # puerto y nombre de base de datos
 
-# Levantar una instancia de Redis
+# Redis
 antos service up redis
-antos service up redis 6379
 
-# Levantar MariaDB / MySQL
-antos service up mariadb 3306
-
-# Consultar la tabla de servicios activos y cadenas de conexión inyectadas
+# Tabla de servicios: puerto, estado, origen, salud, PID y variable inyectada
 antos services
 
-# Detener y liberar los recursos de un servicio
+# Últimas líneas del log de un servicio arrancado por antOS
+antos service logs ollama
+antos service logs postgres 100
+
+# Detener (los datos en $STATE/services/<svc>/data se conservan siempre)
 antos service down postgres
-antos service down redis
+antos service down ollama              # si era external, solo retira el registro
 ```
+
+Por intención (pasa por el recinto: `env.service_up` declara escrituras en
+`$STATE/services/<svc>/` y red en `127.0.0.1`, `tier confirm`):
+
+```bash
+antos "levanta ollama en el puerto 11500"
+antos "estado del servicio ollama"
+antos "detén el servicio ollama"
+```
+
+El proceso se separa de la sesión (`setsid`), así que sobrevive al CLI, a la
+terminal y al ejecutor confinado que lo lanzó; no sobrevive a un reinicio
+(eso es de la imagen, T34.3). Su entorno es mínimo: `PATH`, un `HOME` propio
+en `$STATE/services/<svc>/home`, y ninguna credencial del usuario.
 
 ---
 
