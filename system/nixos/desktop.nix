@@ -467,6 +467,18 @@ in
       description = "Navegador incluido de fábrica (`null` para no incluir ninguno).";
     };
 
+    toolchains = lib.mkOption {
+      type = lib.types.listOf (lib.types.enum [ "node" "python" "rust" "go" ]);
+      default = [ ];
+      example = [ "node" "python" ];
+      description = ''
+        Toolchains de proyecto en la imagen (T35.2). Vacío a propósito: por
+        defecto `antos "crea un proyecto …"` trae el toolchain por proyecto
+        con `nix shell nixpkgs#…` según el stack, y la imagen no engorda.
+        Quien prefiera `node`/`cargo`/`uv`/`go` globales los declara aquí.
+      '';
+    };
+
     outputScale = lib.mkOption {
       type = lib.types.either (lib.types.enum [ "auto" ]) lib.types.number;
       default = "auto";
@@ -722,6 +734,15 @@ in
       wget
       curl
     ] ++ lib.optional (cfg.browser != null) cfg.browser;
+  })
+
+  # ── Toolchains globales opcionales (T35.2) ────────────────────────────
+  (lib.mkIf (cfg.toolchains != [ ]) {
+    environment.systemPackages =
+      lib.optionals (builtins.elem "node" cfg.toolchains) [ pkgs.nodejs_22 ]
+      ++ lib.optionals (builtins.elem "python" cfg.toolchains) [ pkgs.python312 pkgs.uv ]
+      ++ lib.optionals (builtins.elem "rust" cfg.toolchains) [ pkgs.cargo pkgs.rustc ]
+      ++ lib.optionals (builtins.elem "go" cfg.toolchains) [ pkgs.go ];
   })
 
   # ── Escritorio tradicional sobre Labwc (T30.6) ────────────────────────

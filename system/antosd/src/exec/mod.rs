@@ -3,6 +3,7 @@
 
 pub mod fs;
 pub mod git;
+pub mod project;
 pub mod sandbox;
 pub mod service;
 
@@ -37,6 +38,9 @@ pub fn changes_for(
         return Ok(c);
     }
     if let Some(c) = service::changes_for(cap.name.as_str(), a, ctx)? {
+        return Ok(c);
+    }
+    if let Some(c) = project::changes_for(cap.name.as_str(), a, ctx, pending)? {
         return Ok(c);
     }
     match cap.name.as_str() {
@@ -1040,6 +1044,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
             continue;
         }
         if let Some(res) = service::apply(change)? {
+            if !res.is_empty() {
+                output.push(res);
+            }
+            continue;
+        }
+        if let Some(res) = project::apply(change)? {
             if !res.is_empty() {
                 output.push(res);
             }

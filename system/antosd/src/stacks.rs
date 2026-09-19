@@ -152,6 +152,7 @@ impl Stack {
                 port: self.commands.port,
             },
             toolchain: self.toolchain.clone(),
+            network: self.network.clone(),
             created_by: format!("antos project.scaffold (T35.1) · stack {}", self.id),
         };
         let body = toml::to_string_pretty(&manifest).context("serializando project.toml")?;
@@ -246,6 +247,10 @@ pub struct ProjectManifest {
     pub commands: Commands,
     #[serde(default)]
     pub toolchain: Toolchain,
+    /// Destinos de red que declara el stack (T35.2 los muestra; el recinto
+    /// no filtra por dominio).
+    #[serde(default)]
+    pub network: Network,
     #[serde(default)]
     pub created_by: String,
 }

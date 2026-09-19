@@ -68,7 +68,88 @@ impl Planner for LocalPlanner {
                 if !framework.is_empty() {
                     args.push(("framework", framework.as_str()));
                 }
-                return Ok(Proposal::only_steps(vec![step("project.scaffold", &args)]));
+                // T35.2: crear = andamio + instalar dependencias, dos pasos
+                // en la misma propuesta (una confirmación, la red a la vista).
+                // «sin instalar» / «solo el andamio» deja el primero.
+                let mut steps = vec![step("project.scaffold", &args)];
+                let skip_install = lower.contains("sin instalar")
+                    || lower.contains("solo el andamio")
+                    || lower.contains("sin dependencias");
+                let has_install = stack
+                    .map(|s| !s.commands.install.is_empty())
+                    .unwrap_or(true);
+                if !skip_install && has_install {
+                    steps.push(step(
+                        "project.run",
+                        &[("project", name.as_str()), ("command", "install")],
+                    ));
+                }
+                return Ok(Proposal::only_steps(steps));
+            }
+        }
+
+        // T35.2: comandos del stack de un proyecto existente.
+        //   «instala las dependencias de shop» · «prueba el proyecto shop» ·
+        //   «compila el proyecto shop» · «ejecuta los tests de shop»
+        {
+            let command = if lower.contains("instala") && lower.contains("dependencia") {
+                Some("install")
+            } else if lower.contains("compila")
+                || lower.contains("construye")
+                || lower.contains("build")
+            {
+                Some("build")
+            } else if lower.contains("prueba")
+                || lower.contains("test")
+                || lower.contains("verifica")
+            {
+                Some("test")
+            } else {
+                None
+            };
+            // «del proyecto shop»: la palabra útil es la primera tras una
+            // clave que no sea otra clave ni un artículo.
+            let stop = |w: &str| {
+                matches!(
+                    w,
+                    "el" | "la"
+                        | "los"
+                        | "las"
+                        | "proyecto"
+                        | "tests"
+                        | "test"
+                        | "dependencias"
+                        | "de"
+                        | "del"
+                        | "en"
+                )
+            };
+            let target = words
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| matches!(w.as_str(), "de" | "del" | "proyecto" | "en"))
+                .find_map(|(i, _)| {
+                    words[i + 1..]
+                        .iter()
+                        .find(|w| !stop(w) && !w.is_empty())
+                        .cloned()
+                });
+            if let (Some(command), Some(project)) = (command, target) {
+                // Solo si es un proyecto del workspace con manifiesto: si
+                // no, la frase es de otra regla («ejecuta los tests» a
+                // secas es `test.run`).
+                let is_project = crate::git::detect_antos_root()
+                    .map(|root| root.join("workspace").join(&project))
+                    .or_else(|| std::env::current_dir().ok().map(|d| d.join(&project)))
+                    .map(|p| p.join(".antos").join("project.toml").is_file())
+                    .unwrap_or(false)
+                    || lower.contains("proyecto");
+                if is_project && !project.is_empty() {
+                    return Ok(Proposal::only_steps(vec![step(
+                        "project.run",
+                        &[("project", &project), ("command", command)],
+                    )]));
+                }
             }
         }
 

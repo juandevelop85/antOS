@@ -294,7 +294,19 @@ fn is_executable(path: &Path) -> bool {
 
 /// Generates a valid Nix flake content for the given profile.
 fn generate_flake_nix(profile: EnvProfile) -> String {
-    let pkgs = profile.nixpkgs_names().join(" ");
+    render_flake_nix(profile.as_str(), &profile.nixpkgs_names())
+}
+
+/// El `flake.nix` de un proyecto para una lista de paquetes de nixpkgs.
+/// Público porque `project.scaffold` (T35.2) lo escribe con el toolchain
+/// del stack, sin pasar por `EnvProfile`.
+pub fn render_flake_nix<S: AsRef<str>>(label: &str, nix_packages: &[S]) -> String {
+    let pkgs = nix_packages
+        .iter()
+        .map(|p| p.as_ref().to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let profile_name = label;
     format!(
         r#"{{
   description = "antOS declarative development environment profile for {profile_name}";
@@ -323,9 +335,34 @@ fn generate_flake_nix(profile: EnvProfile) -> String {
     );
 }}
 "#,
-        profile_name = profile.as_str(),
+        profile_name = profile_name,
         pkgs = pkgs
     )
+}
+
+/// `devbox.json` para una lista de paquetes (mismo formato que `init_profile`).
+pub fn render_devbox_json<S: AsRef<str>>(label: &str, packages: &[S]) -> Result<String> {
+    let packages: Vec<String> = packages.iter().map(|p| p.as_ref().to_string()).collect();
+    let devbox_json = serde_json::json!({
+        "$schema": "https://raw.githubusercontent.com/jetpack-io/devbox/0.12.0/.schema/devbox.schema.json",
+        "packages": packages,
+        "shell": {
+            "init_hook": [
+                format!("echo 'antOS · Perfil [{label}] cargado correctamente.'")
+            ]
+        }
+    });
+    serde_json::to_string_pretty(&devbox_json).context("failed to serialize devbox.json")
+}
+
+/// `.antos/env.toml` para un perfil y sus paquetes.
+pub fn render_env_toml<S: AsRef<str>>(label: &str, packages: &[S]) -> Result<String> {
+    let config = ProjectEnvConfig {
+        profile: label.to_string(),
+        packages: packages.iter().map(|p| p.as_ref().to_string()).collect(),
+        env_vars: BTreeMap::new(),
+    };
+    toml::to_string_pretty(&config).context("failed to serialize env config")
 }
 
 #[cfg(test)]

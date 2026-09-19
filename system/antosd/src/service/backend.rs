@@ -159,7 +159,7 @@ pub fn find_nix() -> Option<PathBuf> {
     locate_in(&dirs, "nix")
 }
 
-fn path_dirs() -> Vec<PathBuf> {
+pub(crate) fn path_dirs() -> Vec<PathBuf> {
     std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default()
@@ -176,7 +176,7 @@ fn search_dirs(kind: ServiceKind) -> Vec<PathBuf> {
 /// Expande un patrón con como mucho un componente `*` (p. ej.
 /// `/usr/lib/postgresql/*/bin`). Las coincidencias van de mayor a menor por
 /// nombre, para preferir la versión más alta. Sin `*`, devuelve el path.
-fn expand_single_wildcard(pattern: &Path) -> Vec<PathBuf> {
+pub(crate) fn expand_single_wildcard(pattern: &Path) -> Vec<PathBuf> {
     let components: Vec<_> = pattern.components().collect();
     let Some(star) = components
         .iter()
@@ -201,7 +201,7 @@ fn expand_single_wildcard(pattern: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn locate_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+pub(crate) fn locate_in(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
     dirs.iter().find_map(|d| executable_at(&d.join(name)))
 }
 

@@ -885,11 +885,60 @@ repetidos, rutas con `..`, comandos vacíos o fuera de la lista blanca de
 programas), y dentro del árbol de antOS o con `ANTOS_STACKS=<dir>` se ve sin
 recompilar.
 
-**Lo que todavía no hace antOS** (T35.2): ejecutar el `install`/`test`. Hoy,
-tras el andamio: `cd workspace/antostest && npm install && npm test`.
-Verificado el 2026-09-19 en el Mac: NestJS 2/2, Express 2/2, FastAPI 2/2,
-Axum 2/2, Next.js 1/1 (con Node ≥ 22.6 por `--experimental-strip-types`,
-que también usa el `typescript` base). Go sin verificar (sin toolchain).
+**Instalar, probar y compilar sin shell (`project.run`, T35.2).** Crear un
+proyecto propone **dos pasos** en una sola confirmación: `project.scaffold`
+y `project.run command=install`; después, los verbos sobre el proyecto:
+
+```bash
+antos "crea un proyecto en nestjs llamado antostest"     # andamio + npm install
+antos "crea un proyecto en nestjs llamado api sin instalar"
+antos "instala las dependencias del proyecto antostest"
+antos "prueba el proyecto antostest"                     # npm test → TESTS EN VERDE/ROJO
+antos "compila el proyecto antostest"
+```
+
+Cada comando sale del `.antos/project.toml` del proyecto (es decir, del
+stack), **nunca** del texto que escribiste: el programa tiene que estar en la
+lista blanca (`npm`, `npx`, `pnpm`, `yarn`, `node`, `cargo`, `python3`,
+`uv`, `pip`, `pytest`, `go`, `dotnet`, `make`) y ningún argumento puede
+llevar metacaracteres de shell — se comprueba al cargar el catálogo y otra
+vez al ejecutar, porque el manifiesto es un fichero editable. Corre dentro
+del recinto con cuota de 15 min, `cwd` en el proyecto y un entorno mínimo
+sin credenciales en el que **todo lo que un gestor escribe fuera del
+proyecto va dentro de él**: `.antos/cache/{npm,cargo,uv,go,…}`, `HOME` en
+`.antos/home`, temporales en `.antos/tmp`, log completo en
+`.antos/logs/<comando>.log` (todo ello en el `.gitignore`). `node_modules/`,
+`target/`, `.venv/` y las cachés son artefactos declarados: no se confirman
+como escrituras ni se fotografían; `antos undo` tras crear el proyecto lo
+elimina entero.
+
+Dos cosas que hay que saber:
+
+- **La red del recinto es todo o nada.** `project.run` la abre para el paso
+  y la previsualización dice a dónde va según el stack (`registry.npmjs.org`,
+  `crates.io`, `pypi.org`…), pero no filtra por dominio: con la red abierta,
+  el comando —y los scripts del proyecto que ejecute— pueden hablar con
+  cualquier host. Un filtro por dominio es otro ticket.
+- **Toolchain.** Se usa el binario de la máquina (`PATH`, Homebrew,
+  `~/.cargo/bin`, `~/.local/bin`, nvm); si no está pero hay `nix`,
+  `nix shell nixpkgs#<toolchain del stack> -c <programa>` — así la imagen de
+  antOS Linux no necesita traer `node`/`cargo`/`uv`. El andamio deja además
+  `flake.nix`, `devbox.json` y `.antos/env.toml` con ese toolchain. Quien
+  prefiera toolchains globales en la imagen:
+  `services.antos.desktop.toolchains = [ "node" "python" "rust" "go" ]`.
+  Rust por `rustup` bajo Landlock no funciona (`~/.rustup` no es legible desde
+  el recinto, límite conocido de T33.2); con `cargo` de nixpkgs sí.
+
+`dev` (el servidor en marcha) no se ejecuta con `project.run` a propósito:
+un proceso que no termina no cabe en un paso con cuota; será un servicio
+(`env.service_up` para proyectos) en la fase siguiente.
+
+Verificado el 2026-09-19 en el Mac, **por el recinto Seatbelt**: NestJS
+(566 paquetes, 24 s) 2/2, Express 2/2, FastAPI (`uv sync`) 2/2, Axum
+(`cargo fetch`, índice del registro dentro del proyecto) 2/2; `~/.npm`
+intacto; `antos undo` elimina el proyecto. Next.js necesita Node ≥ 22.6.
+Go sin verificar (sin toolchain). El camino `nix shell` solo se verificó por
+construcción del comando: la máquina de desarrollo no tiene `nix`.
 
 ---
 

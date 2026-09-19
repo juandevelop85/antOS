@@ -62,6 +62,11 @@ pub struct Effects {
 pub struct Policy {
     pub tier: Tier,
     pub reversible: Reversible,
+    /// Tiempo máximo del paso en el recinto, en segundos (T35.2). Sin él,
+    /// la cuota por defecto (`quota::DEFAULT_TIMEOUT_SECS`, 120 s): un
+    /// `npm install` no cabe ahí y lo declara.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

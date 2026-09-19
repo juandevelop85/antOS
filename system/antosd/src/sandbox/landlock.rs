@@ -63,6 +63,10 @@ const NET_CONNECT_TCP: u64 = 1 << 1;
 /// aquí ni declarado por una capacidad queda ilegible — incluido `/home`.
 const SYSTEM_READ_ROOTS: &[&str] = &[
     "/usr", "/lib", "/lib64", "/bin", "/sbin", "/etc", "/proc", "/dev", "/sys",
+    // T35.2: el almacén de Nix es software inmutable y legible por todos,
+    // como `/usr`; sin él ni `nix shell` (toolchains por proyecto) ni los
+    // binarios de un NixOS (que viven ahí) existen dentro del recinto.
+    "/nix",
 ];
 
 #[repr(C)]

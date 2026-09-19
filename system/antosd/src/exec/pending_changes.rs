@@ -49,6 +49,7 @@ impl PendingChanges {
             | Change::Patch { .. }
             | Change::ListDir { .. }
             | Change::TestRun { .. }
+            | Change::StackCommand { .. }
             | Change::GitStatus { .. }
             | Change::GitCommit { .. }
             | Change::GitBranch { .. }

@@ -25,6 +25,38 @@ pub fn render(ctx: &Ctx, changes: &[Change]) -> Vec<Line> {
                     ctx.display(path)
                 )));
             }
+            Change::StackCommand {
+                project,
+                command,
+                argv,
+                hosts,
+                toolchain_nix,
+                ..
+            } => {
+                out.push(Line::Info(format!(
+                    "ejecuta   {command} en «{project}»: {}",
+                    argv.join(" ")
+                )));
+                out.push(Line::Info(format!(
+                    "          red: permitida durante el comando; destino declarado: {}",
+                    if hosts.is_empty() {
+                        "ninguno".to_string()
+                    } else {
+                        hosts.join(", ")
+                    }
+                )));
+                if !toolchain_nix.is_empty() {
+                    out.push(Line::Info(format!(
+                        "          toolchain: {} (o nix shell nixpkgs#{} si falta)",
+                        argv.first().map(String::as_str).unwrap_or("?"),
+                        toolchain_nix.join(" nixpkgs#")
+                    )));
+                }
+                out.push(Line::Info(
+                    "          artefactos (node_modules, target, .venv, cachés) dentro del proyecto; no se fotografían"
+                        .to_string(),
+                ));
+            }
             Change::TestRun { workspace, filter } => {
                 out.push(Line::Info(format!(
                     "tests     {}{}",

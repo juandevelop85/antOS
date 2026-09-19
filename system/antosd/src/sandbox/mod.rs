@@ -67,13 +67,19 @@ impl Policy {
         writes.extend(blast.scratch.iter().cloned());
         let mut dirs: Vec<PathBuf> = blast.dirs.iter().cloned().collect();
         dirs.extend(blast.scratch_dirs.iter().cloned());
+        // Un paso que declara `timeout_secs` (T35.2) lleva su propia cuota;
+        // el resto de límites siguen siendo los por defecto.
+        let quota = blast.timeout_secs.map(|t| quota::ResourceQuota {
+            timeout_secs: t,
+            ..quota::ResourceQuota::default()
+        });
         Policy {
             writes,
             reads: blast.reads.iter().cloned().collect(),
             dirs,
             network: !blast.network.is_empty(),
             allowed_secrets: Vec::new(),
-            quota: None,
+            quota,
         }
     }
 

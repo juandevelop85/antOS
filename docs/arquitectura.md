@@ -424,7 +424,15 @@ toolchain (paquetes nix) y red. El cargador (`system/antosd/src/stacks.rs`)
 valida al leer: alias sin colisiones, rutas relativas sin `..`, comandos
 con programa de una lista blanca y sin metacaracteres de shell — la
 condición para que T35.2 los ejecute sin abrir un intérprete (T31.4).
-El andamio deja `.antos/project.toml` como fuente de verdad del stack; lo
-que aún no existe (T35.2/T35.3): ejecutar esos comandos por el recinto,
-toolchains por proyecto vía `nix shell`, y `test.run`/`ci`/agente leyendo el
-manifiesto en vez de adivinar.
+El andamio deja `.antos/project.toml` como fuente de verdad del stack.
+`project.run` (T35.2, `exec/project.rs`) ejecuta `install`/`test`/`build`
+leyendo ese manifiesto: programa de la lista blanca, argumentos literales,
+`cwd` en el proyecto, entorno mínimo con todas las cachés de los gestores
+redirigidas a `.antos/` dentro del proyecto (declarado como `scratch`: se
+escribe en el recinto, no se confirma ni se fotografía), cuota propia
+(`policy.timeout_secs = 900`, que `Blast` propaga a la `Policy` del
+recinto), y toolchain por `PATH` o por `nix shell nixpkgs#…`. La red del
+recinto sigue siendo todo o nada: se abre para el paso y se muestra el
+destino declarado. Lo que aún no existe (T35.3): `test.run`/`ci`/agente
+leyendo el manifiesto en vez de adivinar, y la verificación automática del
+andamio.

@@ -93,7 +93,6 @@ fn test_plan_proyecto_por_stack() {
     let planner = LocalPlanner;
     let args_of = |intent: &str| {
         let p = planner.plan(intent, &catalog).expect(intent);
-        assert_eq!(p.steps.len(), 1);
         assert_eq!(p.steps[0].capability, "project.scaffold");
         p.steps[0].args.clone()
     };
@@ -119,6 +118,33 @@ fn test_plan_proyecto_por_stack() {
     let a = args_of("crea un proyecto llamado demo");
     assert_eq!(a["language"], "rust");
     assert!(!a.contains_key("framework"));
+
+    // T35.2: crear = andamio + install en la misma propuesta; «sin instalar»
+    // deja solo el andamio; los verbos sobre un proyecto → project.run.
+    let p = planner
+        .plan("crea un proyecto en express llamado shop", &catalog)
+        .unwrap();
+    assert_eq!(p.steps.len(), 2);
+    assert_eq!(p.steps[1].capability, "project.run");
+    assert_eq!(p.steps[1].args["project"], "shop");
+    assert_eq!(p.steps[1].args["command"], "install");
+    let p = planner
+        .plan(
+            "crea un proyecto en express llamado shop sin instalar",
+            &catalog,
+        )
+        .unwrap();
+    assert_eq!(p.steps.len(), 1);
+    for (intent, command) in [
+        ("instala las dependencias del proyecto shop", "install"),
+        ("prueba el proyecto shop", "test"),
+        ("compila el proyecto shop", "build"),
+    ] {
+        let p = planner.plan(intent, &catalog).expect(intent);
+        assert_eq!(p.steps[0].capability, "project.run", "{intent}");
+        assert_eq!(p.steps[0].args["project"], "shop", "{intent}");
+        assert_eq!(p.steps[0].args["command"], command, "{intent}");
+    }
 
     // Sin nombre: pregunta.
     let msg = match planner.plan("crea un proyecto en nestjs", &catalog) {

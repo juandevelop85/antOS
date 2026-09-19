@@ -97,6 +97,24 @@ pub fn changes_for(
                 path: root.join(".antos").join("project.toml"),
                 content: stack.project_manifest(name)?,
             });
+            // T35.2: el perfil de entorno del stack (lo que `env.init` haría
+            // a mano), con el toolchain que el stack declara. Con `nix`, es
+            // lo que trae node/cargo/uv aunque la imagen no los lleve.
+            if !stack.toolchain.nix.is_empty() {
+                let label = stack.id.as_str();
+                changes.push(Change::Write {
+                    path: root.join("flake.nix"),
+                    content: crate::env::render_flake_nix(label, &stack.toolchain.nix),
+                });
+                changes.push(Change::Write {
+                    path: root.join("devbox.json"),
+                    content: crate::env::render_devbox_json(label, &stack.toolchain.nix)?,
+                });
+                changes.push(Change::Write {
+                    path: root.join(".antos").join("env.toml"),
+                    content: crate::env::render_env_toml(label, &stack.toolchain.nix)?,
+                });
+            }
             // T17.3: project.scaffold now also emits a ProjectGitInit change so every
             // newly scaffolded project starts with a clean, isolated Git repository.
             changes.push(Change::ProjectGitInit {

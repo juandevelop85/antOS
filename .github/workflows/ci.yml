@@ -149,6 +149,12 @@ jobs:
       - name: Ephemeral services · real Redis and PostgreSQL round trips
         run: cargo test -p antosd -- --ignored real_redis_roundtrip real_postgres_roundtrip
 
+      # T35.2: andamio + `npm install` + `npm test` del stack `express`, en
+      # proceso (el runner trae node/npm). El mismo flujo por el recinto
+      # Landlock, con el binario real, va en el job `antos-linux-desktop`.
+      - name: Projects · scaffold + install + test (express, in-process)
+        run: cargo test -p antosd -- --ignored real_express_scaffold_install_and_test
+
   # ──────────────────────────────────────────────── Test on macOS
   test-macos:
     name: "Test · macOS (Apple Silicon)"
@@ -463,6 +469,23 @@ jobs:
         run: |
           export ANTOS_STATE="$(mktemp -d)"
           "$PWD/target/release/antos" eval agent
+
+      # T35.2: «crea un proyecto en express llamado shop» de punta a punta
+      # con el binario real y el recinto Landlock: andamio, `npm install`
+      # (red abierta para el paso; caché de npm dentro del proyecto) y
+      # «prueba el proyecto shop». Si Landlock deniega algo (HOME, cachés,
+      # temporales) se ve aquí y no en la máquina de un usuario.
+      - name: Projects · scaffold + install + test under Landlock (express)
+        run: |
+          export ANTOS_STATE="$(mktemp -d)"
+          export ANTOS_WORKSPACE="$(mktemp -d)"
+          ANTOS="$PWD/target/release/antos"
+          "$ANTOS" --planner local -y "crea un proyecto en express llamado shop"
+          test -d "$ANTOS_WORKSPACE/shop/node_modules/express"
+          test -d "$ANTOS_WORKSPACE/shop/.antos/cache/npm"
+          test ! -d "$HOME/.npm/_cacache" || echo "aviso: ~/.npm/_cacache existe (¿de otro paso?)"
+          "$ANTOS" --planner local -y "prueba el proyecto shop" | tee /tmp/shop-test.txt
+          grep -q "TESTS EN VERDE" /tmp/shop-test.txt
 
   # ──────────────────────────────────────────────── Lint · clippy (barra)
   # T31.10: `system/barra` had no quality gate at all beyond compiling in

@@ -36,6 +36,9 @@ pub struct Blast {
     pub scratch_dirs: BTreeSet<PathBuf>,
     pub declared_tier: Tier,
     pub irreversible: bool,
+    /// El mayor `policy.timeout_secs` declarado por los pasos (T35.2), o
+    /// `None` para la cuota por defecto.
+    pub timeout_secs: Option<u64>,
 }
 
 impl Blast {
@@ -58,6 +61,9 @@ impl Blast {
             b.declared_tier = b.declared_tier.max(cap.policy.tier);
             if cap.policy.reversible == Reversible::Never {
                 b.irreversible = true;
+            }
+            if let Some(t) = cap.policy.timeout_secs {
+                b.timeout_secs = Some(b.timeout_secs.map_or(t, |cur| cur.max(t)));
             }
 
             b.network.extend(cap.effects.network.iter().cloned());
@@ -295,6 +301,7 @@ mod tests {
             policy: Policy {
                 tier: Tier::Auto,
                 reversible: Reversible::Unnecessary,
+                timeout_secs: None,
             },
         };
         let mut caps = BTreeMap::new();
@@ -319,6 +326,7 @@ mod tests {
             policy: Policy {
                 tier: Tier::Auto,
                 reversible: Reversible::Unnecessary,
+                timeout_secs: None,
             },
         };
         let mut caps = BTreeMap::new();

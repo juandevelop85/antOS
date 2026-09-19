@@ -43,6 +43,21 @@ pub enum Change {
         workspace: PathBuf,
         filter: Option<String>,
     },
+    /// Un comando declarado por el stack de un proyecto (`project.run`,
+    /// T35.2): `argv` viene del catálogo, nunca del usuario ni del modelo;
+    /// corre en el recinto con las cachés del gestor dentro del proyecto.
+    StackCommand {
+        project_dir: PathBuf,
+        project: String,
+        command: String,
+        argv: Vec<String>,
+        /// Paquetes de nixpkgs para `nix shell` si el programa no está en
+        /// la máquina.
+        toolchain_nix: Vec<String>,
+        /// Destinos de red que el stack declara (informativo: el recinto
+        /// abre la red entera para el paso).
+        hosts: Vec<String>,
+    },
     GitStatus {
         repo_root: PathBuf,
     },

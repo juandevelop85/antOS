@@ -355,6 +355,16 @@ pub fn init_project_git_repo(
             .with_context(|| format!("escribiendo {}", gitignore_path.display()))?;
         gitignore_created = true;
     }
+    // T35.2: lo que `project.run` deja en `.antos/` (cachés de npm/cargo/uv,
+    // logs, HOME y temporales del comando) no se versiona; `project.toml`
+    // y `env.toml` sí. Se añade tanto al .gitignore recién creado como al
+    // que trajo el stack.
+    let ignore_block = "\n# antOS (T35.2): artefactos de `project.run`\n.antos/cache/\n.antos/logs/\n.antos/tmp/\n.antos/home/\n";
+    let current = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
+    if !current.contains(".antos/cache/") {
+        std::fs::write(&gitignore_path, format!("{current}{ignore_block}"))
+            .with_context(|| format!("escribiendo {}", gitignore_path.display()))?;
+    }
 
     // 2. Initialize Git if .git is missing
     let git_dir = project_dir.join(".git");
