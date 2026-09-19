@@ -36,20 +36,40 @@ impl Planner for LocalPlanner {
             })
             .collect();
 
-        if lower.contains("proyecto") && (lower.contains("cre") || lower.contains("nuev")) {
-            let language = if lower.contains("typescript") || lower.contains(" ts ") {
-                "typescript"
-            } else if lower.contains("python") || lower.contains(" py ") {
-                "python"
-            } else {
-                "rust"
-            };
-            let name = after(&words, &["llamado", "llamada", "nombre"])
-                .unwrap_or_else(|| words.last().cloned().unwrap_or_default());
-            return Ok(Proposal::only_steps(vec![step(
-                "project.scaffold",
-                &[("language", language), ("name", &name)],
-            )]));
+        // Proyecto nuevo (T35.1): el stack sale del catálogo por sus alias
+        // («nestjs», «fastapi», «axum», «go»…), en cualquier posición. Un
+        // «proyecto» sin tecnología reconocible es Rust, como siempre; «api»,
+        // «servicio» o «app» solo cuentan si nombran una tecnología, para no
+        // pisar «levanta el servicio postgres».
+        let wants_new = lower.contains("cre") || lower.contains("nuev") || lower.contains("inicia");
+        let names_project = lower.contains("proyecto");
+        let names_thing = names_project
+            || lower.contains("api")
+            || lower.contains("servicio")
+            || lower.contains("aplicaci")
+            || words.iter().any(|w| w == "app");
+        if wants_new && names_thing {
+            let catalog =
+                crate::stacks::StackCatalog::load(crate::git::detect_antos_root().as_deref())?;
+            let stack = catalog.find_by_alias_in(&words);
+            if stack.is_some() || names_project {
+                let (language, framework) = match stack {
+                    Some(s) => (s.language.clone(), s.framework.clone()),
+                    None => ("rust".to_string(), String::new()),
+                };
+                let Some(name) = after(&words, &["llamado", "llamada", "nombre", "name"]) else {
+                    bail!(
+                        "¿cómo se llama el proyecto? Dímelo con «llamado <nombre>», p. ej. \
+                         «crea un proyecto en {} llamado demo»",
+                        stack.map(|s| s.label()).unwrap_or_else(|| "rust".into())
+                    );
+                };
+                let mut args = vec![("language", language.as_str()), ("name", name.as_str())];
+                if !framework.is_empty() {
+                    args.push(("framework", framework.as_str()));
+                }
+                return Ok(Proposal::only_steps(vec![step("project.scaffold", &args)]));
+            }
         }
 
         // El sistema se comprueba ANTES que el proyecto: "declara htop en el

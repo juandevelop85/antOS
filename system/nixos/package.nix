@@ -14,9 +14,10 @@ rustPlatform.buildRustPackage {
   # `builder` entra solo por su manifiesto: es miembro del workspace, así que
   # cargo necesita poder leerlo aunque no se compile.
   #
-  # `recipes/`, `system/desktop/rc.xml` y `system/llm/models.toml` NO son
-  # opcionales: `antosd` los embebe con `include_str!` (`pkg/recipes.rs`,
-  # `desktop.rs`, `llm/doctor.rs`), así que sin ellos en el conjunto el
+  # `recipes/`, `system/desktop/rc.xml`, `system/llm/models.toml` y
+  # `system/stacks/` NO son opcionales: `antosd` los embebe con `include_str!`
+  # (`pkg/recipes.rs`, `desktop.rs`, `llm/doctor.rs`, `stacks.rs`), así que
+  # sin ellos en el conjunto el
   # binario no compila dentro del recinto de Nix. Los dos primeros se
   # quedaron fuera al pasar de `src = ../..` al conjunto explícito (T31.12);
   # el tercero al añadirlo T34.2 sin tocar esta lista — `cargo` en el
@@ -32,6 +33,7 @@ rustPlatform.buildRustPackage {
       ../../system/capabilities
       ../../system/desktop/rc.xml
       ../../system/llm
+      ../../system/stacks
       ../../recipes
       ../../builder/Cargo.toml
       ../../builder/src
@@ -51,6 +53,9 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     mkdir -p $out/share/antos
     cp -r system/capabilities $out/share/antos/capabilities
+    # El catálogo de stacks (T35.1) también viaja: embebido en el binario y
+    # legible aquí para quien quiera ver o copiar una plantilla.
+    cp -r system/stacks $out/share/antos/stacks
   '';
 
   meta = {

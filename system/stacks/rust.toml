@@ -1,0 +1,36 @@
+# Stack base de Rust: un binario mínimo. Reproduce exactamente lo que
+# `project.scaffold language=rust` escribía antes de T35.1.
+id = "rust"
+language = "rust"
+framework = ""
+aliases = ["rust", "cargo"]
+summary = "Binario Rust mínimo (cargo)"
+
+[toolchain]
+nix = ["cargo", "rustc"]
+binaries = ["cargo"]
+
+[commands]
+install = ["cargo", "fetch"]
+test = ["cargo", "test", "--quiet"]
+dev = ["cargo", "run"]
+
+[network]
+hosts = ["crates.io", "static.crates.io", "index.crates.io"]
+
+[[file]]
+path = "Cargo.toml"
+content = '''[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+'''
+
+[[file]]
+path = "src/main.rs"
+content = '''fn main() {
+    println!("{{name}} en marcha");
+}
+'''

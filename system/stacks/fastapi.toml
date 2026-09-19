@@ -1,0 +1,90 @@
+# FastAPI con `uv` (entorno y dependencias en `.venv/`). El test usa el
+# `TestClient` de Starlette (httpx) contra la app en memoria.
+id = "fastapi"
+language = "python"
+framework = "fastapi"
+aliases = ["fastapi", "fast-api"]
+summary = "API HTTP con FastAPI (Python, uv, pytest)"
+
+[toolchain]
+nix = ["python312", "uv"]
+binaries = ["uv"]
+
+[commands]
+install = ["uv", "sync"]
+test = ["uv", "run", "pytest", "-q", "-p", "no:cacheprovider"]
+dev = ["uv", "run", "fastapi", "dev", "app/main.py"]
+port = 8000
+
+[network]
+hosts = ["pypi.org", "files.pythonhosted.org"]
+
+[[file]]
+path = "pyproject.toml"
+content = '''[project]
+name = "{{name}}"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+'''
+
+[[file]]
+path = ".gitignore"
+content = '''.venv/
+__pycache__/
+'''
+
+[[file]]
+path = "app/__init__.py"
+content = ''''''
+
+[[file]]
+path = "app/main.py"
+content = '''from fastapi import FastAPI
+
+app = FastAPI(title="{{name}}")
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"message": "{{name}} en marcha"}
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+'''
+
+[[file]]
+path = "tests/__init__.py"
+content = ''''''
+
+[[file]]
+path = "tests/test_main.py"
+content = '''from fastapi.testclient import TestClient
+
+from app.main import app
+
+client = TestClient(app)
+
+
+def test_root_greets_with_project_name() -> None:
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json() == {"message": "{{name}} en marcha"}
+
+
+def test_health() -> None:
+    assert client.get("/health").json() == {"status": "ok"}
+'''

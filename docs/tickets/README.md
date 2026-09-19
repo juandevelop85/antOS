@@ -176,7 +176,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 34** | [T34.3](T34.3-ollama-de-serie-en-la-imagen-nixos-services-ollama-solo-loopback.md) | Ollama de Serie en la Imagen NixOS: `services.antos.llm` sobre `services.ollama`, Solo Loopback | ✅ Completado |
 | **Fase 34** | [T34.4](T34.4-perfiles-local-hybrid-cloud-y-fiabilidad-de-los-roles-con-modelos-pequenos.md) | Perfiles `local` / `hybrid` / `cloud` y Fiabilidad de los Roles con Modelos Pequeños | ✅ Completado |
 | **Fase 34** | [T34.5](T34.5-honestidad-de-antpkg-firmas-de-relleno-y-manifiestos-inventados.md) | Honestidad de antpkg: Firmas de Relleno y Manifiestos Inventados | ⏳ Pendiente |
-| **Fase 35** | [T35.1](T35.1-catalogo-declarativo-de-stacks-y-project-scaffold-con-framework.md) | Catálogo Declarativo de Stacks y `project.scaffold` con `framework` | ⏳ Pendiente |
+| **Fase 35** | [T35.1](T35.1-catalogo-declarativo-de-stacks-y-project-scaffold-con-framework.md) | Catálogo Declarativo de Stacks y `project.scaffold` con `framework` | ✅ Completado |
 | **Fase 35** | [T35.2](T35.2-ejecutor-confinado-de-comandos-de-stack-y-toolchains-por-proyecto-via-nix.md) | Ejecutor Confinado de Comandos de Stack y Toolchains por Proyecto vía Nix | ⏳ Pendiente |
 | **Fase 35** | [T35.3](T35.3-test-run-por-stack-verificacion-del-andamio-y-scaffold-en-el-toolset-del-agente.md) | `test.run` por Stack, Verificación del Andamio y `project.scaffold` en el Toolset del Agente | ⏳ Pendiente |
 
@@ -569,7 +569,7 @@ exige cinco piezas, repartidas en tres tickets:
   stack, `project.*` en el toolset completo del agente («crea un proyecto
   fastapi y añade /health» en un run) y un caso de evaluación.
 
-Orden: T35.1 → T35.2 → T35.3. T35.1 y T35.3 se prueban en el Mac; el camino
+Orden: ~~T35.1~~ → T35.2 → T35.3. T35.1 y T35.3 se prueban en el Mac; el camino
 `Launcher::Nix` de T35.2 en la VM de antOS. Nada de esto necesita un modelo
 grande: el andamio lo produce el catálogo, no el modelo; extender el proyecto
 después sí (7B como mínimo, T34.4).

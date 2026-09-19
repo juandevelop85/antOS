@@ -62,6 +62,7 @@ pub mod service;
 pub mod session;
 pub mod snapshot;
 pub mod spec;
+pub mod stacks;
 pub mod terminal;
 pub mod time_machine;
 pub mod util;

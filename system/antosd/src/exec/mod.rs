@@ -2861,6 +2861,83 @@ mod tests {
         );
     }
 
+    /// T35.1: con `framework` los ficheros salen del stack, se escribe
+    /// `.antos/project.toml`, y un framework desconocido es un error que
+    /// nombra los disponibles.
+    #[test]
+    fn project_scaffold_renders_the_framework_stack_and_manifest() {
+        let ctx = Ctx::discover().expect("ctx");
+        let catalog = crate::capability::Catalog::load(&ctx.caps_dir).expect("catalog");
+        let pending = PendingChanges::default();
+        let cap = catalog
+            .get("project.scaffold")
+            .expect("cap project.scaffold");
+
+        let mut args = BTreeMap::new();
+        args.insert("name".into(), "antostest".into());
+        args.insert("language".into(), "typescript".into());
+        args.insert("framework".into(), "nestjs".into());
+        let step = Step {
+            capability: "project.scaffold".into(),
+            args,
+        };
+        let changes = changes_for(&step, cap, &ctx, &pending).expect("changes");
+        let written: Vec<(String, String)> = changes
+            .iter()
+            .filter_map(|c| match c {
+                Change::Write { path, content } => Some((
+                    path.strip_prefix(ctx.workspace.join("antostest"))
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                    content.clone(),
+                )),
+                _ => None,
+            })
+            .collect();
+        let paths: Vec<&str> = written.iter().map(|(p, _)| p.as_str()).collect();
+        for expected in [
+            "package.json",
+            "src/main.ts",
+            "src/app.module.ts",
+            "src/app.controller.spec.ts",
+            ".antos/project.toml",
+        ] {
+            assert!(paths.contains(&expected), "falta {expected}: {paths:?}");
+        }
+        let pkg = &written.iter().find(|(p, _)| p == "package.json").unwrap().1;
+        assert!(pkg.contains("\"name\": \"antostest\""));
+        assert!(pkg.contains("@nestjs/core"));
+        let manifest = &written
+            .iter()
+            .find(|(p, _)| p == ".antos/project.toml")
+            .unwrap()
+            .1;
+        let parsed: crate::stacks::ProjectManifest = toml::from_str(manifest).unwrap();
+        assert_eq!(parsed.stack, "nestjs");
+        assert_eq!(parsed.commands.test, vec!["npm", "test", "--silent"]);
+        assert!(changes
+            .iter()
+            .any(|c| matches!(c, Change::ProjectGitInit { .. })));
+
+        let mut bad = BTreeMap::new();
+        bad.insert("name".into(), "x".into());
+        bad.insert("language".into(), "typescript".into());
+        bad.insert("framework".into(), "angular".into());
+        let err = changes_for(
+            &Step {
+                capability: "project.scaffold".into(),
+                args: bad,
+            },
+            cap,
+            &ctx,
+            &pending,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("angular") && msg.contains("nestjs"), "{msg}");
+    }
+
     #[test]
     fn un_paso_ve_lo_que_decidio_el_anterior() {
         let mut pending = PendingChanges::default();

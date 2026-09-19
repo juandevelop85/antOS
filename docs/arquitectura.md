@@ -411,3 +411,20 @@ Lo que **no** hay: antpkg ya no tiene receta de Ollama (llevaba firma de
 relleno; `antos pkg install ollama` remite a la imagen, a `service up` o al
 instalador oficial), y las capacidades `llm.*` del catálogo siguen sin
 ejecutor (deuda anotada en T34.2).
+
+## 10. Proyectos por Intención (Fase 35)
+
+`antos "crea un proyecto en nestjs llamado api"` no pide nada a un modelo:
+el planificador reconoce la tecnología por los alias del **catálogo de
+stacks** (`system/stacks/*.toml`, embebido en el binario e instalado en
+`share/antos/stacks`) y propone `project.scaffold language=… framework=…
+name=…`. El stack declara lenguaje, framework, alias, plantillas con un
+test que pasa, comandos como vectores (`install`/`test`/`dev`/`build`),
+toolchain (paquetes nix) y red. El cargador (`system/antosd/src/stacks.rs`)
+valida al leer: alias sin colisiones, rutas relativas sin `..`, comandos
+con programa de una lista blanca y sin metacaracteres de shell — la
+condición para que T35.2 los ejecute sin abrir un intérprete (T31.4).
+El andamio deja `.antos/project.toml` como fuente de verdad del stack; lo
+que aún no existe (T35.2/T35.3): ejecutar esos comandos por el recinto,
+toolchains por proyecto vía `nix shell`, y `test.run`/`ci`/agente leyendo el
+manifiesto en vez de adivinar.

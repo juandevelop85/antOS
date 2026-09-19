@@ -857,6 +857,40 @@ antos -p ollama -m qwen2.5-coder:7b "analiza la seguridad de los endpoints en ap
 antos -p claude "refactoriza la gestión de errores usando thiserror"
 ```
 
+#### Proyectos nuevos por tecnología (`project.scaffold`, T35.1)
+
+La tecnología, el lenguaje y el framework de un proyecto nuevo son **datos**:
+el catálogo de stacks de [`system/stacks/`](../system/stacks/README.md).
+Basta nombrar la tecnología en cualquier posición; el nombre va tras
+«llamado» / «llamada» / «nombre» (sin nombre, antOS pregunta, no inventa):
+
+```bash
+antos "crea un proyecto en nestjs llamado antostest"     # typescript/nestjs
+antos "nueva api fastapi llamada catalogo"               # python/fastapi
+antos "crea un servicio axum llamado core"               # rust/axum
+antos "crea una api con express llamada shop"            # javascript/express
+antos "crea una app next llamada web"                    # typescript/nextjs
+antos "crea un proyecto en go llamado svc"               # go
+antos "crea un proyecto llamado demo"                    # rust base, como siempre
+```
+
+Cada stack deja el proyecto **listo para instalar**: sus ficheros, un test
+que pasa tras `install`, `.gitignore`, repositorio Git inicializado
+(T17.3) y `.antos/project.toml` con el stack, los comandos (`install`,
+`test`, `dev`, `build`), el puerto y el toolchain — la fuente de verdad que
+`test.run`, `ci` y los agentes leerán (T35.3). Stacks incluidos: `rust`,
+`axum`, `typescript`, `nestjs`, `nextjs`, `javascript/express`, `python`,
+`fastapi`, `go`. Añadir uno es escribir un TOML (el cargador rechaza alias
+repetidos, rutas con `..`, comandos vacíos o fuera de la lista blanca de
+programas), y dentro del árbol de antOS o con `ANTOS_STACKS=<dir>` se ve sin
+recompilar.
+
+**Lo que todavía no hace antOS** (T35.2): ejecutar el `install`/`test`. Hoy,
+tras el andamio: `cd workspace/antostest && npm install && npm test`.
+Verificado el 2026-09-19 en el Mac: NestJS 2/2, Express 2/2, FastAPI 2/2,
+Axum 2/2, Next.js 1/1 (con Node ≥ 22.6 por `--experimental-strip-types`,
+que también usa el `typescript` base). Go sin verificar (sin toolchain).
+
 ---
 
 ### 4.2 Orquestación Multi-Agente (`antos agent`)

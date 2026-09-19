@@ -1,0 +1,98 @@
+# Axum (Rust, tokio). El test es unitario sobre los manejadores, sin levantar
+# el servidor ni añadir `tower`/`http-body-util` solo para probar.
+id = "axum"
+language = "rust"
+framework = "axum"
+aliases = ["axum"]
+summary = "API HTTP con Axum (Rust, tokio)"
+
+[toolchain]
+nix = ["cargo", "rustc"]
+binaries = ["cargo"]
+
+[commands]
+install = ["cargo", "fetch"]
+test = ["cargo", "test", "--quiet"]
+dev = ["cargo", "run"]
+build = ["cargo", "build", "--release"]
+port = 3000
+
+[network]
+hosts = ["crates.io", "static.crates.io", "index.crates.io"]
+
+[[file]]
+path = "Cargo.toml"
+content = '''[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+'''
+
+[[file]]
+path = ".gitignore"
+content = '''target/
+'''
+
+[[file]]
+path = "src/main.rs"
+content = '''use axum::{routing::get, Json, Router};
+use serde::Serialize;
+
+#[derive(Serialize, PartialEq, Debug)]
+pub struct Greeting {
+    pub message: String,
+}
+
+#[derive(Serialize, PartialEq, Debug)]
+pub struct Health {
+    pub status: &'static str,
+}
+
+pub async fn root() -> Json<Greeting> {
+    Json(Greeting {
+        message: "{{name}} en marcha".to_string(),
+    })
+}
+
+pub async fn health() -> Json<Health> {
+    Json(Health { status: "ok" })
+}
+
+pub fn app() -> Router {
+    Router::new()
+        .route("/", get(root))
+        .route("/health", get(health))
+}
+
+#[tokio::main]
+async fn main() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
+        .await
+        .expect("no se pudo abrir 127.0.0.1:3000");
+    println!("{{name}} escuchando en http://127.0.0.1:3000");
+    axum::serve(listener, app()).await.expect("servidor caído");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn root_greets_with_project_name() {
+        let Json(greeting) = root().await;
+        assert_eq!(greeting.message, "{{name}} en marcha");
+    }
+
+    #[tokio::test]
+    async fn health_is_ok() {
+        let Json(h) = health().await;
+        assert_eq!(h, Health { status: "ok" });
+    }
+}
+'''

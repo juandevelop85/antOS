@@ -1,0 +1,49 @@
+# Stack base de TypeScript: un script con Node ≥ 22 (`--experimental-strip-types`).
+# Reproduce exactamente lo que `project.scaffold language=typescript` escribía
+# antes de T35.1.
+id = "typescript"
+language = "typescript"
+framework = ""
+aliases = ["typescript", "ts"]
+summary = "Script TypeScript mínimo (Node 22, sin transpilar)"
+
+[toolchain]
+nix = ["nodejs_22"]
+binaries = ["node", "npm"]
+
+[commands]
+install = ["npm", "install"]
+test = ["npm", "test", "--silent"]
+dev = ["npm", "start"]
+
+[network]
+hosts = ["registry.npmjs.org"]
+
+[[file]]
+path = "package.json"
+content = '''{
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts"
+  }
+}
+'''
+
+[[file]]
+path = "tsconfig.json"
+content = '''{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true
+  }
+}
+'''
+
+[[file]]
+path = "src/index.ts"
+content = '''console.log("{{name}} en marcha");
+'''

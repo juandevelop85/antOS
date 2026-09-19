@@ -1,0 +1,38 @@
+# Stack base de Python. Reproduce exactamente lo que
+# `project.scaffold language=python` escribía antes de T35.1.
+id = "python"
+language = "python"
+framework = ""
+aliases = ["python", "py", "python3"]
+summary = "Script Python mínimo (pyproject)"
+
+[toolchain]
+nix = ["python312", "uv"]
+binaries = ["python3"]
+
+[commands]
+install = ["uv", "sync"]
+test = ["pytest", "-q", "-p", "no:cacheprovider"]
+dev = ["python3", "main.py"]
+
+[network]
+hosts = ["pypi.org", "files.pythonhosted.org"]
+
+[[file]]
+path = "pyproject.toml"
+content = '''[project]
+name = "{{name}}"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+'''
+
+[[file]]
+path = "main.py"
+content = '''def main() -> None:
+    print("{{name}} en marcha")
+
+
+if __name__ == "__main__":
+    main()
+'''

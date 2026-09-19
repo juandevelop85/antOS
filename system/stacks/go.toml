@@ -1,0 +1,104 @@
+# Go con la biblioteca estándar: `net/http` y `testing`, sin módulos externos.
+id = "go"
+language = "go"
+framework = ""
+aliases = ["go", "golang"]
+summary = "Servicio HTTP en Go (net/http, sin dependencias)"
+
+[toolchain]
+nix = ["go"]
+binaries = ["go"]
+
+[commands]
+install = ["go", "mod", "tidy"]
+test = ["go", "test", "./..."]
+dev = ["go", "run", "."]
+build = ["go", "build", "-o", "bin/{{name}}", "."]
+port = 8080
+
+[network]
+hosts = ["proxy.golang.org", "sum.golang.org"]
+
+[[file]]
+path = "go.mod"
+content = '''module {{name}}
+
+go 1.23
+'''
+
+[[file]]
+path = ".gitignore"
+content = '''bin/
+'''
+
+[[file]]
+path = "main.go"
+content = '''package main
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+)
+
+func newMux() *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]string{"message": "{{name}} en marcha"})
+	})
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]string{"status": "ok"})
+	})
+	return mux
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func main() {
+	log.Println("{{name}} escuchando en http://127.0.0.1:8080")
+	log.Fatal(http.ListenAndServe("127.0.0.1:8080", newMux()))
+}
+'''
+
+[[file]]
+path = "main_test.go"
+content = '''package main
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func get(t *testing.T, path string) map[string]string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	newMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s: código %d", path, rec.Code)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("%s: JSON inválido: %v", path, err)
+	}
+	return body
+}
+
+func TestRootGreetsWithProjectName(t *testing.T) {
+	if got := get(t, "/")["message"]; got != "{{name}} en marcha" {
+		t.Fatalf("mensaje inesperado: %q", got)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	if got := get(t, "/health")["status"]; got != "ok" {
+		t.Fatalf("estado inesperado: %q", got)
+	}
+}
+'''

@@ -1,0 +1,129 @@
+# Next.js (App Router, TypeScript). El test es unitario sobre `lib/` con el
+# runner de Node y `--experimental-strip-types`: sin Jest ni Babel, que en
+# Next son media hora de configuración que el usuario añade si los quiere.
+id = "nextjs"
+language = "typescript"
+framework = "nextjs"
+aliases = ["next", "nextjs", "next.js"]
+summary = "Aplicación web con Next.js (App Router, TypeScript)"
+
+[toolchain]
+nix = ["nodejs_22"]
+binaries = ["node", "npm"]
+
+[commands]
+install = ["npm", "install"]
+test = ["npm", "test", "--silent"]
+dev = ["npm", "run", "dev"]
+build = ["npm", "run", "build"]
+port = 3000
+
+[network]
+hosts = ["registry.npmjs.org"]
+
+[[file]]
+path = "package.json"
+content = '''{
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
+'''
+
+[[file]]
+path = "tsconfig.json"
+content = '''{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+'''
+
+[[file]]
+path = "next.config.mjs"
+content = '''/** @type {import('next').NextConfig} */
+const nextConfig = {};
+
+export default nextConfig;
+'''
+
+[[file]]
+path = ".gitignore"
+content = '''node_modules/
+.next/
+out/
+next-env.d.ts
+'''
+
+[[file]]
+path = "lib/greeting.ts"
+content = '''export function greeting(project: string): string {
+  return `${project} en marcha`;
+}
+'''
+
+[[file]]
+path = "app/layout.tsx"
+content = '''export const metadata = { title: "{{name}}" };
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="es">
+      <body>{children}</body>
+    </html>
+  );
+}
+'''
+
+[[file]]
+path = "app/page.tsx"
+content = '''import { greeting } from "@/lib/greeting";
+
+export default function Home() {
+  return <main>{greeting("{{name}}")}</main>;
+}
+'''
+
+[[file]]
+path = "test/greeting.test.ts"
+content = '''import { test } from "node:test";
+import assert from "node:assert/strict";
+import { greeting } from "../lib/greeting.ts";
+
+test("greeting nombra el proyecto", () => {
+  assert.equal(greeting("{{name}}"), "{{name}} en marcha");
+});
+'''

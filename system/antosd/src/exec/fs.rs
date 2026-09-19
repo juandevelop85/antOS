@@ -59,16 +59,46 @@ pub fn changes_for(
         "project.scaffold" => {
             let name = &a["name"];
             let language = &a["language"];
+            let framework = a.get("framework").map(String::as_str).unwrap_or("");
             let root = ctx.workspace.join(name);
-            // T17.3: project.scaffold now also emits a ProjectGitInit change so every
-            // newly scaffolded project starts with a clean, isolated Git repository.
-            let mut changes: Vec<Change> = scaffold(language, name)
+            // T35.1: el stack viene del catálogo (`system/stacks/*.toml`),
+            // no de un `match`. Un framework desconocido es un error que
+            // nombra los disponibles, no un proyecto a medias.
+            let catalog = crate::stacks::StackCatalog::load(ctx.antos_root.as_deref())?;
+            let stack = catalog.find(language, framework).ok_or_else(|| {
+                let available = catalog.frameworks_for(language);
+                if framework.is_empty() {
+                    anyhow::anyhow!(
+                        "no hay stack base para el lenguaje «{language}»; los conocidos son: {}",
+                        catalog.languages().join(", ")
+                    )
+                } else if available.is_empty() {
+                    anyhow::anyhow!(
+                        "no conozco ningún framework para «{language}» (pedido: «{framework}»)"
+                    )
+                } else {
+                    anyhow::anyhow!(
+                        "no conozco el framework «{framework}» para «{language}»; disponibles: {}",
+                        available.join(", ")
+                    )
+                }
+            })?;
+            let mut changes: Vec<Change> = stack
+                .render(name)
                 .into_iter()
                 .map(|(rel, content)| Change::Write {
                     path: root.join(rel),
                     content,
                 })
                 .collect();
+            // La fuente de verdad del stack para `test.run`, `ci` y los
+            // agentes (T35.3): qué es este proyecto y cómo se prueba.
+            changes.push(Change::Write {
+                path: root.join(".antos").join("project.toml"),
+                content: stack.project_manifest(name)?,
+            });
+            // T17.3: project.scaffold now also emits a ProjectGitInit change so every
+            // newly scaffolded project starts with a clean, isolated Git repository.
             changes.push(Change::ProjectGitInit {
                 project_dir: root,
                 branch: "main".into(),
@@ -333,35 +363,6 @@ fn read_with_pending(path: &Path, pending: &PendingChanges) -> String {
     pending
         .read(path)
         .unwrap_or_else(|| std::fs::read_to_string(path).unwrap_or_default())
-}
-
-/// Los ficheros que produce un proyecto nuevo, por lenguaje.
-pub fn scaffold(language: &str, name: &str) -> Vec<(&'static str, String)> {
-    match language {
-        "rust" => vec![
-            ("Cargo.toml", format!(
-                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n"
-            )),
-            ("src/main.rs", format!(
-                "fn main() {{\n    println!(\"{name} en marcha\");\n}}\n"
-            )),
-        ],
-        "typescript" => vec![
-            ("package.json", format!(
-                "{{\n  \"name\": \"{name}\",\n  \"version\": \"0.1.0\",\n  \"type\": \"module\",\n  \"scripts\": {{\n    \"start\": \"node --experimental-strip-types src/index.ts\"\n  }}\n}}\n"
-            )),
-            ("tsconfig.json",
-                "{\n  \"compilerOptions\": {\n    \"target\": \"es2022\",\n    \"module\": \"esnext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true\n  }\n}\n".to_string()),
-            ("src/index.ts", format!("console.log(\"{name} en marcha\");\n")),
-        ],
-        "python" => vec![
-            ("pyproject.toml", format!(
-                "[project]\nname = \"{name}\"\nversion = \"0.1.0\"\nrequires-python = \">=3.11\"\ndependencies = []\n"
-            )),
-            ("main.py", format!("def main() -> None:\n    print(\"{name} en marcha\")\n\n\nif __name__ == \"__main__\":\n    main()\n")),
-        ],
-        _ => Vec::new(),
-    }
 }
 
 const NIX_HEADER: &str = "\

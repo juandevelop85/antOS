@@ -1,0 +1,98 @@
+# Express en JavaScript (ESM). Sin transpilar; el test usa el runner de Node
+# (`node --test`) contra la app en memoria, sin dependencias de test.
+id = "express"
+language = "javascript"
+framework = "express"
+aliases = ["express", "expressjs", "express.js"]
+summary = "API HTTP con Express (JavaScript ESM, node --test)"
+
+[toolchain]
+nix = ["nodejs_22"]
+binaries = ["node", "npm"]
+
+[commands]
+install = ["npm", "install"]
+test = ["npm", "test", "--silent"]
+dev = ["npm", "start"]
+port = 3000
+
+[network]
+hosts = ["registry.npmjs.org"]
+
+[[file]]
+path = "package.json"
+content = '''{
+  "name": "{{name}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
+'''
+
+[[file]]
+path = ".gitignore"
+content = '''node_modules/
+'''
+
+[[file]]
+path = "src/app.js"
+content = '''import express from "express";
+
+export function createApp() {
+  const app = express();
+  app.use(express.json());
+  app.get("/", (_req, res) => res.json({ message: "{{name}} en marcha" }));
+  app.get("/health", (_req, res) => res.json({ status: "ok" }));
+  return app;
+}
+'''
+
+[[file]]
+path = "src/index.js"
+content = '''import { createApp } from "./app.js";
+
+const port = Number(process.env.PORT ?? 3000);
+createApp().listen(port, () => {
+  console.log(`{{name}} escuchando en http://127.0.0.1:${port}`);
+});
+'''
+
+[[file]]
+path = "test/app.test.js"
+content = '''import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createApp } from "../src/app.js";
+
+async function withServer(fn) {
+  const server = createApp().listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    await fn(base);
+  } finally {
+    server.close();
+  }
+}
+
+test("GET / saluda con el nombre del proyecto", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { message: "{{name}} en marcha" });
+  });
+});
+
+test("GET /health responde ok", async () => {
+  await withServer(async (base) => {
+    const res = await fetch(`${base}/health`);
+    assert.deepEqual(await res.json(), { status: "ok" });
+  });
+});
+'''

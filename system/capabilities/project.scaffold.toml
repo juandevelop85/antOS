@@ -1,9 +1,11 @@
 name = "project.scaffold"
-summary = "Crea un proyecto nuevo con su estructura inicial"
+summary = "Crea un proyecto nuevo en el workspace desde el catálogo de stacks (system/stacks/): lenguaje base o framework (nestjs, express, nextjs, fastapi, axum, go…), con test y .antos/project.toml"
 
 [params]
-language = { type = "enum", of = ["rust", "typescript", "python"] }
+language = { type = "enum", of = ["rust", "typescript", "javascript", "python", "go"] }
 name = { type = "slug", max = 64 }
+framework = { type = "slug", max = 32, optional = true }
+package_manager = { type = "enum", of = ["npm", "pnpm", "yarn", "uv", "pip", "cargo", "go"], optional = true }
 
 [effects]
 writes = ["$WORKSPACE/{name}/"]

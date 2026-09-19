@@ -84,6 +84,54 @@ fn test_plan_port_diagnose_and_release() {
     assert_eq!(p_estado.steps[0].capability, "diag.port_status");
 }
 
+/// T35.1: la tecnología sale del catálogo de stacks por sus alias, en
+/// cualquier posición; sin nombre se pregunta, no se inventa.
+#[test]
+fn test_plan_proyecto_por_stack() {
+    let ctx = Ctx::discover().expect("ctx");
+    let catalog = Catalog::load(&ctx.caps_dir).expect("catalog");
+    let planner = LocalPlanner;
+    let args_of = |intent: &str| {
+        let p = planner.plan(intent, &catalog).expect(intent);
+        assert_eq!(p.steps.len(), 1);
+        assert_eq!(p.steps[0].capability, "project.scaffold");
+        p.steps[0].args.clone()
+    };
+
+    let a = args_of("crea un proyecto en nestjs llamado antostest");
+    assert_eq!(a["language"], "typescript");
+    assert_eq!(a["framework"], "nestjs");
+    assert_eq!(a["name"], "antostest");
+
+    let a = args_of("api fastapi llamada demo, nueva");
+    assert_eq!(a["language"], "python");
+    assert_eq!(a["framework"], "fastapi");
+    assert_eq!(a["name"], "demo");
+
+    let a = args_of("crea un servicio axum nombre core");
+    assert_eq!(a["language"], "rust");
+    assert_eq!(a["framework"], "axum");
+
+    let a = args_of("nuevo proyecto typescript con nest llamado web");
+    assert_eq!(a["framework"], "nestjs", "el framework gana al base");
+
+    // Sin tecnología: Rust base, como siempre; y sin `framework` en los args.
+    let a = args_of("crea un proyecto llamado demo");
+    assert_eq!(a["language"], "rust");
+    assert!(!a.contains_key("framework"));
+
+    // Sin nombre: pregunta.
+    let msg = match planner.plan("crea un proyecto en nestjs", &catalog) {
+        Ok(_) => panic!("sin nombre debe preguntar"),
+        Err(e) => e.to_string(),
+    };
+    assert!(msg.contains("llamado"), "{msg}");
+
+    // «inicia el servicio ollama» no es un proyecto.
+    let p = planner.plan("inicia el servicio ollama", &catalog).unwrap();
+    assert_eq!(p.steps[0].capability, "env.service_up");
+}
+
 #[test]
 fn test_plan_servicios_locales() {
     let ctx = Ctx::discover().expect("ctx");
