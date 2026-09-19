@@ -426,3 +426,288 @@ fn a_stop_request_ends_the_run_before_the_next_tool() {
         .contains("a * b"));
     let _ = std::fs::remove_dir_all(temp);
 }
+
+// ───────────────────────────────────────────────── T34.4 · modelos pequeños
+
+/// Un modelo pequeño recibe el toolset compacto: `fs.write` no existe para
+/// él, y el run lo anota.
+#[test]
+fn a_small_model_gets_the_compact_toolset() {
+    let (ctx, temp) = test_ctx("compact");
+    fixture_crate(&ctx.workspace);
+    let catalog = Catalog::load(&ctx.caps_dir).unwrap();
+    let script = vec![
+        ScriptedTurn {
+            calls: vec![call(
+                "fs.write",
+                json!({"path": "src/new.rs", "content": "// nada"}),
+            )],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "fin"}))],
+            ..Default::default()
+        },
+    ];
+    let mut provider = FakeProvider::new(script);
+    provider.scale = super::providers::ModelScale::Small;
+    let mut handler = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    let cfg = in_process("crea un fichero");
+    let report = run(&ctx, &catalog, &mut provider, &cfg, &mut handler).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Finished);
+    assert!(provider.received[0].is_error);
+    assert!(provider.received[0].content.contains("no disponible"));
+    assert!(!ctx.workspace.join("src/new.rs").exists());
+    assert!(handler.notes.iter().any(|n| n.contains("toolset compacto")));
+
+    // Un modelo grande (o desconocido) conserva el toolset completo.
+    let mut big = FakeProvider::new(vec![
+        ScriptedTurn {
+            calls: vec![call(
+                "fs.write",
+                json!({"path": "src/new.rs", "content": "// nada"}),
+            )],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "fin"}))],
+            ..Default::default()
+        },
+    ]);
+    let mut handler2 = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    run(&ctx, &catalog, &mut big, &cfg, &mut handler2).unwrap();
+    assert!(!big.received[0].is_error, "{:?}", big.received[0]);
+    let _ = std::fs::remove_dir_all(temp);
+}
+
+/// Prosa, recordatorio, prosa otra vez → cierre estructurado: el run termina
+/// con `Finished` y el JSON tipado, no con `ModelStopped`.
+#[test]
+fn prose_after_the_nudge_becomes_a_structured_finish() {
+    let (ctx, temp) = test_ctx("structured");
+    let catalog = Catalog::load(&ctx.caps_dir).unwrap();
+    let mut provider = FakeProvider::new(vec![
+        ScriptedTurn {
+            text: "El plan es tocar src/lib.rs.".into(),
+            ..Default::default()
+        },
+        ScriptedTurn {
+            text: "Como decía, src/lib.rs.".into(),
+            ..Default::default()
+        },
+        // Respuesta a `finish_structured`: el JSON del cierre.
+        ScriptedTurn {
+            text: r#"{"resumen": "plan entregado", "files_to_touch": ["src/lib.rs"]}"#.into(),
+            ..Default::default()
+        },
+    ]);
+    let mut handler = RecordingHandler::default();
+    let cfg = in_process("planifica");
+    let report = run(&ctx, &catalog, &mut provider, &cfg, &mut handler).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Finished);
+    assert_eq!(report.summary, "plan entregado");
+    assert_eq!(provider.nudges, 1);
+    assert_eq!(provider.structured_requests, 1);
+    let json: serde_json::Value = serde_json::from_str(&report.result_json.unwrap()).unwrap();
+    assert_eq!(json["files_to_touch"][0], "src/lib.rs");
+    assert_eq!(report.steps, 1);
+    assert!(handler
+        .steps
+        .iter()
+        .any(|s| s.outcome == AgentStepOutcome::Finished));
+
+    // Si el cierre estructurado tampoco sale (guion agotado), ModelStopped
+    // como antes.
+    let mut stubborn = FakeProvider::new(vec![
+        ScriptedTurn {
+            text: "bla".into(),
+            ..Default::default()
+        },
+        ScriptedTurn {
+            text: "bla bla".into(),
+            ..Default::default()
+        },
+    ]);
+    let mut handler2 = RecordingHandler::default();
+    let report = run(&ctx, &catalog, &mut stubborn, &cfg, &mut handler2).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::ModelStopped);
+    let _ = std::fs::remove_dir_all(temp);
+}
+
+/// Argumentos malformados: el primer rechazo de cada herramienta devuelve el
+/// esquema y no consume paso; el segundo sí. Un rechazo de política (fuera
+/// del toolset) no tiene reintento gratuito.
+#[test]
+fn malformed_arguments_get_one_free_retry_with_the_schema() {
+    let (ctx, temp) = test_ctx("retry");
+    fixture_crate(&ctx.workspace);
+    let catalog = Catalog::load(&ctx.caps_dir).unwrap();
+    let script = vec![
+        ScriptedTurn {
+            calls: vec![call("fs.read", json!({}))],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call("fs.read", json!({}))],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call("fs.delete", json!({"path": "x"}))],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call("fs.read", json!({"path": "src/lib.rs"}))],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "fin"}))],
+            ..Default::default()
+        },
+    ];
+    let mut provider = FakeProvider::new(script);
+    let mut handler = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    let cfg = in_process("lee");
+    let report = run(&ctx, &catalog, &mut provider, &cfg, &mut handler).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Finished);
+    let first = &provider.received[0];
+    assert!(first.is_error);
+    assert!(
+        first.content.contains("Esquema de entrada de fs.read"),
+        "{}",
+        first.content
+    );
+    assert!(first.content.contains("no consume presupuesto"));
+    let second = &provider.received[1];
+    assert!(second.is_error);
+    assert!(
+        !second.content.contains("Esquema de entrada"),
+        "solo un reintento gratis"
+    );
+    let policy = &provider.received[2];
+    assert!(policy.content.contains("no disponible"));
+    assert!(!policy.content.contains("Esquema"));
+    // Pasos contados: 2.º fs.read malformado (1) + fs.delete rechazado (1) +
+    // fs.read bueno (1) + finalizar (1) = 4; el primero fue gratis.
+    assert_eq!(report.steps, 4);
+    let _ = std::fs::remove_dir_all(temp);
+}
+
+#[test]
+fn model_scale_is_read_from_names_and_parameter_sizes() {
+    use super::providers::{scale_from_name_or_params, ModelScale};
+    assert_eq!(
+        scale_from_name_or_params("qwen2.5-coder:7b", None),
+        ModelScale::Small
+    );
+    assert_eq!(
+        scale_from_name_or_params("qwen2.5-coder:1.5b", None),
+        ModelScale::Small
+    );
+    assert_eq!(
+        scale_from_name_or_params("qwen2.5-coder:14b", None),
+        ModelScale::Large
+    );
+    assert_eq!(
+        scale_from_name_or_params("llama3.1:70b-instruct-q4_K_M", None),
+        ModelScale::Large
+    );
+    assert_eq!(
+        scale_from_name_or_params("qwen2.5-coder:latest", None),
+        ModelScale::Unknown
+    );
+    assert_eq!(
+        scale_from_name_or_params("qwen2.5-coder:latest", Some("7.6B")),
+        ModelScale::Small
+    );
+    assert_eq!(
+        scale_from_name_or_params("x:latest", Some("494.03M")),
+        ModelScale::Small
+    );
+    assert_eq!(
+        scale_from_name_or_params("x:latest", Some("32.8B")),
+        ModelScale::Large
+    );
+}
+
+/// La misma llamada fallida tres veces seguidas corta el run (`Looping`);
+/// a la segunda el modelo recibe la advertencia.
+#[test]
+fn identical_failing_calls_stop_the_run_as_looping() {
+    let (ctx, temp) = test_ctx("looping");
+    fixture_crate(&ctx.workspace);
+    let catalog = Catalog::load(&ctx.caps_dir).unwrap();
+    let bad_patch = || {
+        call(
+            "fs.patch",
+            json!({"path": "src/lib.rs", "old": "// no existe\n", "new": "// x\n"}),
+        )
+    };
+    let script = vec![
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "no debería llegar"}))],
+            ..Default::default()
+        },
+    ];
+    let mut provider = FakeProvider::new(script);
+    let mut handler = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    let cfg = in_process("parchea");
+    let report = run(&ctx, &catalog, &mut provider, &cfg, &mut handler).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Looping);
+    assert_eq!(report.steps, 3);
+    assert!(provider.received[0].is_error);
+    assert!(!provider.received[0].content.contains("No la repitas"));
+    assert!(provider.received[1].content.contains("No la repitas"));
+    // Fallos distintos entre sí no cuentan como bucle.
+    let mut varied = FakeProvider::new(vec![
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(
+                "fs.patch",
+                json!({"path": "src/lib.rs", "old": "// tampoco\n", "new": "// y\n"}),
+            )],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "fin"}))],
+            ..Default::default()
+        },
+    ]);
+    let mut handler2 = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    let report = run(&ctx, &catalog, &mut varied, &cfg, &mut handler2).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Finished);
+    let _ = std::fs::remove_dir_all(temp);
+}

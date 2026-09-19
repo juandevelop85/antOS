@@ -491,7 +491,7 @@ fn render_agent_report(content: &GtkBox, report: &antos_protocol::AgentReport, i
     sheet.add_css_class("hoja");
     sheet.add_css_class(match report.stop_reason {
         R::Finished => "auto",
-        R::Stopped | R::Declined | R::BudgetExhausted | R::ModelStopped => "confirm",
+        R::Stopped | R::Declined | R::BudgetExhausted | R::ModelStopped | R::Looping => "confirm",
         R::Error => "grant",
     });
     sheet.append(&make_label("AGENTE · INFORME", "etiqueta"));

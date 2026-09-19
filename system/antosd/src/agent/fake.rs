@@ -43,6 +43,10 @@ pub struct FakeProvider {
     pub goal_seen: String,
     /// Recordatorios recibidos del runtime.
     pub nudges: u32,
+    /// Peticiones de cierre estructurado recibidas (T34.4).
+    pub structured_requests: u32,
+    /// Escala que declara (por defecto `Unknown`; los tests la fijan).
+    pub scale: super::providers::ModelScale,
 }
 
 impl FakeProvider {
@@ -54,6 +58,8 @@ impl FakeProvider {
             system_seen: String::new(),
             goal_seen: String::new(),
             nudges: 0,
+            structured_requests: 0,
+            scale: super::providers::ModelScale::Unknown,
         }
     }
 
@@ -109,5 +115,20 @@ impl AgentProvider for FakeProvider {
     fn nudge(&mut self, _text: &str, _tools: &[ToolSpec]) -> Result<Turn> {
         self.nudges += 1;
         Ok(self.next_turn())
+    }
+    fn model_scale(&self) -> super::providers::ModelScale {
+        self.scale
+    }
+    /// El siguiente turno del guion debe traer en `text` el JSON del cierre;
+    /// si no hay más guion o no es JSON, el fake «no sabe» (`None`).
+    fn finish_structured(
+        &mut self,
+        _text: &str,
+        _schema: &serde_json::Value,
+        _tools: &[ToolSpec],
+    ) -> Option<Result<serde_json::Value>> {
+        self.structured_requests += 1;
+        let turn = self.next_turn();
+        serde_json::from_str(&turn.text).ok().map(Ok)
     }
 }

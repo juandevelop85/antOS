@@ -26,6 +26,11 @@ pub const DEFAULT_TOOLSET: &[&str] = &[
     "memory.search",
 ];
 
+/// Toolset reducido para modelos pequeños (T34.4): un 7B con siete
+/// herramientas confunde `fs.write` con `fs.patch` y se pierde en
+/// `git.status`/`memory.search`. Lo justo para leer, corregir y verificar.
+pub const DEFAULT_TOOLSET_COMPACT: &[&str] = &["fs.read", "fs.list", "fs.patch", "test.run"];
+
 /// Una herramienta tal como la ve el proveedor (esquema neutro; cada
 /// proveedor lo envuelve en su formato).
 #[derive(Debug, Clone, PartialEq)]
@@ -110,6 +115,12 @@ fn spec_for(cap: &Capability) -> ToolSpec {
             "required": required,
         }),
     }
+}
+
+/// El esquema de `finalizar` sin rol (solo `resumen`), para el cierre
+/// estructurado de T34.4.
+pub fn default_finish_schema() -> Value {
+    finish_spec().input_schema
 }
 
 fn finish_spec() -> ToolSpec {

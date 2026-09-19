@@ -82,6 +82,11 @@ pub enum AgentStopReason {
     Stopped,
     /// Error del proveedor o del runtime.
     Error,
+    /// El modelo repitió exactamente la misma llamada fallida varias veces
+    /// seguidas y el runtime cortó el run antes de agotar el presupuesto
+    /// (T34.4: un 7B a temperatura baja se queda clavado en un `fs.patch`
+    /// cuyo `old` no existe).
+    Looping,
 }
 
 /// Informe final de un run: lo que el CLI imprime y la barra resume.

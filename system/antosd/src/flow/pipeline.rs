@@ -113,6 +113,7 @@ impl FlowEngine {
             "Planifica la implementación del ticket {ticket_upper}"
         ));
         cfg.toolset = arch.toolset.clone();
+        cfg.toolset_compact = Some(arch.toolset_compact.clone());
         cfg.system_prompt = Some(arch.system_prompt.clone());
         cfg.budget = arch.budget.clone();
         cfg.finish = Some(arch.finish.clone());
@@ -174,6 +175,7 @@ impl FlowEngine {
             };
             let mut cfg = RunConfig::new(coder_goal.clone());
             cfg.toolset = coder.toolset.clone();
+            cfg.toolset_compact = Some(coder.toolset_compact.clone());
             cfg.system_prompt = Some(coder.system_prompt.clone());
             cfg.budget = coder.budget.clone();
             cfg.finish = Some(coder.finish.clone());
@@ -247,6 +249,7 @@ impl FlowEngine {
             };
             let mut cfg = RunConfig::new(format!("Audita el diff del ticket {ticket_upper}"));
             cfg.toolset = auditor.toolset.clone();
+            cfg.toolset_compact = Some(auditor.toolset_compact.clone());
             cfg.system_prompt = Some(auditor.system_prompt.clone());
             cfg.budget = auditor.budget.clone();
             cfg.finish = Some(auditor.finish.clone());

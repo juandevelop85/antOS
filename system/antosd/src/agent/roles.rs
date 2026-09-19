@@ -15,12 +15,16 @@ use serde_json::json;
 pub struct RoleSpec {
     pub role: AgentRole,
     pub toolset: Vec<String>,
+    /// Toolset para modelos pequeños (T34.4): menos herramientas, menos
+    /// confusión. El runtime lo elige si el proveedor declara `Small`.
+    pub toolset_compact: Vec<String>,
     pub system_prompt: String,
     pub budget: AgentBudget,
     pub finish: FinishSpec,
 }
 
 const READ_ONLY: &[&str] = &["fs.read", "fs.list", "memory.search"];
+const READ_ONLY_COMPACT: &[&str] = &["fs.read", "fs.list"];
 const EDITING: &[&str] = &[
     "fs.read",
     "fs.list",
@@ -29,6 +33,13 @@ const EDITING: &[&str] = &[
     "test.run",
     "git.status",
 ];
+/// Coder con un 7B: leer, parchear, probar. Sin `fs.write` (lo confunde
+/// con `fs.patch` y pisa ficheros enteros) ni `git.status`/`memory.search`.
+const EDITING_COMPACT: &[&str] = &["fs.read", "fs.list", "fs.patch", "test.run"];
+
+fn names(list: &[&str]) -> Vec<String> {
+    list.iter().map(|s| s.to_string()).collect()
+}
 
 /// Presupuesto en pasos por rol si `llm_config.json` no dice otra cosa.
 pub fn default_steps(role: AgentRole) -> u32 {
@@ -49,7 +60,8 @@ pub fn spec_for(role: AgentRole, max_steps: u32) -> RoleSpec {
     match role {
         AgentRole::Architect => RoleSpec {
             role,
-            toolset: READ_ONLY.iter().map(|s| s.to_string()).collect(),
+            toolset: names(READ_ONLY),
+            toolset_compact: names(READ_ONLY_COMPACT),
             system_prompt: include_str!("prompts/architect.txt").to_string(),
             budget,
             finish: FinishSpec {
@@ -72,7 +84,8 @@ pub fn spec_for(role: AgentRole, max_steps: u32) -> RoleSpec {
         },
         AgentRole::Coder => RoleSpec {
             role,
-            toolset: EDITING.iter().map(|s| s.to_string()).collect(),
+            toolset: names(EDITING),
+            toolset_compact: names(EDITING_COMPACT),
             system_prompt: include_str!("prompts/coder.txt").to_string(),
             budget,
             finish: FinishSpec {
@@ -91,6 +104,7 @@ pub fn spec_for(role: AgentRole, max_steps: u32) -> RoleSpec {
         AgentRole::QA | AgentRole::VisualQA => RoleSpec {
             role,
             toolset: vec!["test.run".into()],
+            toolset_compact: vec!["test.run".into()],
             system_prompt: String::new(),
             budget,
             finish: FinishSpec {
@@ -100,7 +114,8 @@ pub fn spec_for(role: AgentRole, max_steps: u32) -> RoleSpec {
         },
         AgentRole::Auditor => RoleSpec {
             role,
-            toolset: READ_ONLY.iter().map(|s| s.to_string()).collect(),
+            toolset: names(READ_ONLY),
+            toolset_compact: vec!["fs.read".into()],
             system_prompt: include_str!("prompts/auditor.txt").to_string(),
             budget,
             finish: FinishSpec {

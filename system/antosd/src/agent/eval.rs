@@ -91,6 +91,75 @@ pub struct CaseResult {
     pub seconds: u64,
     pub tests_green: Option<bool>,
     pub files_written: Vec<String>,
+    /// Veces que se ejecutó el caso (`--repeat`, T34.4). 0 en JSON anterior
+    /// a T34.4 = 1.
+    #[serde(default)]
+    pub repeat: u32,
+    /// Ejecuciones que pasaron. `None` en JSON anterior (= `passed`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub successes: Option<u32>,
+}
+
+impl CaseResult {
+    pub fn runs(&self) -> u32 {
+        self.repeat.max(1)
+    }
+
+    pub fn successes(&self) -> u32 {
+        self.successes.unwrap_or(u32::from(self.passed))
+    }
+
+    /// Tasa de éxito en [0, 1].
+    pub fn success_rate(&self) -> f64 {
+        f64::from(self.successes()) / f64::from(self.runs())
+    }
+}
+
+/// Agrega `n` ejecuciones del mismo caso (T34.4): tasa de éxito, mediana
+/// de pasos/tokens/segundos, y los fallos y herramientas de la última
+/// ejecución fallida (o de la última, si todas pasaron). `passed` solo si
+/// pasaron todas.
+pub fn aggregate(runs: Vec<CaseResult>) -> CaseResult {
+    fn median(mut v: Vec<u64>) -> u64 {
+        if v.is_empty() {
+            return 0;
+        }
+        v.sort_unstable();
+        v[v.len() / 2]
+    }
+    let n = runs.len() as u32;
+    let successes = runs.iter().filter(|r| r.passed).count() as u32;
+    let representative = runs
+        .iter()
+        .rev()
+        .find(|r| !r.passed)
+        .or_else(|| runs.last())
+        .cloned();
+    let Some(mut out) = representative else {
+        return CaseResult {
+            name: String::new(),
+            skipped: Some("sin ejecuciones".into()),
+            passed: false,
+            failures: Vec::new(),
+            tools: Vec::new(),
+            rejected: 0,
+            stop_reason: String::new(),
+            steps: 0,
+            tokens: 0,
+            seconds: 0,
+            tests_green: None,
+            files_written: Vec::new(),
+            repeat: 0,
+            successes: None,
+        };
+    };
+    out.steps = median(runs.iter().map(|r| u64::from(r.steps)).collect()) as u32;
+    out.tokens = median(runs.iter().map(|r| r.tokens).collect());
+    out.seconds = median(runs.iter().map(|r| r.seconds).collect());
+    out.repeat = n;
+    out.successes = Some(successes);
+    out.passed = successes == n;
+    out
 }
 
 /// Una ejecución completa, tal como se guarda en `.antos/evals/`.
@@ -218,6 +287,8 @@ pub(crate) fn run_case(
         seconds: 0,
         tests_green: None,
         files_written: Vec::new(),
+        repeat: 1,
+        successes: None,
     };
     if let Some(bin) = missing_requirement(case) {
         result.skipped = Some(format!("falta `{bin}` en el PATH"));
@@ -228,9 +299,14 @@ pub(crate) fn run_case(
         return Ok(result);
     }
 
-    // Workspace temporal propio, con el fixture copiado.
+    // Workspace temporal propio, con el fixture copiado. Contador atómico
+    // además del reloj: dos ejecuciones del mismo caso en el mismo
+    // milisegundo (los tests en paralelo) compartían directorio y una
+    // borraba el fixture que la otra estaba copiando.
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     let temp = std::env::temp_dir().join(format!(
-        "antos_eval_{}_{}_{}",
+        "antos_eval_{}_{}_{}_{seq}",
         case.name,
         std::process::id(),
         chrono::Local::now().format("%H%M%S%3f")
@@ -336,7 +412,21 @@ fn stop_reason_name(r: &AgentStopReason) -> &'static str {
         AgentStopReason::ModelStopped => "model_stopped",
         AgentStopReason::Stopped => "stopped",
         AgentStopReason::Error => "error",
+        AgentStopReason::Looping => "looping",
     }
+}
+
+/// Cómo ejecutar los casos (`run_all`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RunOptions<'a> {
+    /// Solo el caso con este nombre.
+    pub only: Option<&'a str>,
+    /// Contra el proveedor real en vez del guion `fake`.
+    pub live: bool,
+    pub provider_spec: Option<&'a str>,
+    pub executor: Executor,
+    /// Ejecuciones por caso (T34.4); 1 = sin agregación.
+    pub repeat: u32,
 }
 
 /// Ejecuta todos los casos (o uno) y devuelve la ejecución.
@@ -344,11 +434,15 @@ pub(crate) fn run_all(
     base_ctx: &Ctx,
     catalog: &Catalog,
     cases_dir: &Path,
-    only: Option<&str>,
-    live: bool,
-    provider_spec: Option<&str>,
-    executor: Executor,
+    opts: RunOptions<'_>,
 ) -> Result<EvalRun> {
+    let RunOptions {
+        only,
+        live,
+        provider_spec,
+        executor,
+        repeat,
+    } = opts;
     let cases = load_cases(cases_dir)?;
     let fixtures = cases_dir.join("fixtures");
     let provider_name = if live {
@@ -369,16 +463,30 @@ pub(crate) fn run_all(
         }
     };
     let mut results = Vec::new();
+    let repeat = repeat.max(1);
     for case in cases.iter().filter(|c| only.is_none_or(|o| o == c.name)) {
-        results.push(run_case(
-            base_ctx,
-            catalog,
-            &fixtures,
-            case,
-            live,
-            &mut provider_for,
-            executor,
-        )?);
+        let mut runs = Vec::with_capacity(repeat as usize);
+        for _ in 0..repeat {
+            let r = run_case(
+                base_ctx,
+                catalog,
+                &fixtures,
+                case,
+                live,
+                &mut provider_for,
+                executor,
+            )?;
+            let skipped = r.skipped.is_some();
+            runs.push(r);
+            if skipped {
+                break;
+            }
+        }
+        results.push(if repeat == 1 {
+            runs.remove(0)
+        } else {
+            aggregate(runs)
+        });
     }
     if results.is_empty() {
         bail!("ningún caso coincide con «{}»", only.unwrap_or(""));
@@ -431,9 +539,19 @@ pub struct Regression {
     pub what: String,
 }
 
+/// Margen por defecto de caída de la tasa de éxito que cuenta como regresión
+/// cuando alguna de las dos ejecuciones se repitió (T34.4): con n=5 una
+/// ejecución de diferencia es ruido.
+pub const DEFAULT_RATE_MARGIN: f64 = 0.2;
+
 /// Compara dos ejecuciones: tests que pasaban y ya no, casos que
-/// terminaban y ya no, y +30 % de pasos o de tokens.
+/// terminaban y ya no, y +30 % de pasos o de tokens. Con repeticiones
+/// (`--repeat`), la tasa de éxito manda: regresión si cae más de `margin`.
 pub fn diff(before: &EvalRun, after: &EvalRun) -> Vec<Regression> {
+    diff_with_margin(before, after, DEFAULT_RATE_MARGIN)
+}
+
+pub fn diff_with_margin(before: &EvalRun, after: &EvalRun, margin: f64) -> Vec<Regression> {
     let mut out = Vec::new();
     for b in &before.cases {
         let Some(a) = after.cases.iter().find(|c| c.name == b.name) else {
@@ -446,23 +564,44 @@ pub fn diff(before: &EvalRun, after: &EvalRun) -> Vec<Regression> {
         if a.skipped.is_some() || b.skipped.is_some() {
             continue;
         }
-        if b.passed && !a.passed {
-            out.push(Regression {
-                case: b.name.clone(),
-                what: format!("pasaba y ahora falla: {}", a.failures.join("; ")),
-            });
-        }
-        if b.tests_green == Some(true) && a.tests_green == Some(false) {
-            out.push(Regression {
-                case: b.name.clone(),
-                what: "los tests pasaban y ahora están en rojo".into(),
-            });
-        }
-        if b.stop_reason == "finished" && a.stop_reason != "finished" {
-            out.push(Regression {
-                case: b.name.clone(),
-                what: format!("terminaba con `finished` y ahora `{}`", a.stop_reason),
-            });
+        let repeated = a.runs() > 1 || b.runs() > 1;
+        if repeated {
+            // Con varias ejecuciones lo que importa es la tasa; una
+            // ejecución suelta que falle no es una regresión.
+            let drop = b.success_rate() - a.success_rate();
+            if drop > margin {
+                out.push(Regression {
+                    case: b.name.clone(),
+                    what: format!(
+                        "tasa de éxito: {}/{} → {}/{} (cae {:.0} % > margen {:.0} %)",
+                        b.successes(),
+                        b.runs(),
+                        a.successes(),
+                        a.runs(),
+                        drop * 100.0,
+                        margin * 100.0
+                    ),
+                });
+            }
+        } else {
+            if b.passed && !a.passed {
+                out.push(Regression {
+                    case: b.name.clone(),
+                    what: format!("pasaba y ahora falla: {}", a.failures.join("; ")),
+                });
+            }
+            if b.tests_green == Some(true) && a.tests_green == Some(false) {
+                out.push(Regression {
+                    case: b.name.clone(),
+                    what: "los tests pasaban y ahora están en rojo".into(),
+                });
+            }
+            if b.stop_reason == "finished" && a.stop_reason != "finished" {
+                out.push(Regression {
+                    case: b.name.clone(),
+                    what: format!("terminaba con `finished` y ahora `{}`", a.stop_reason),
+                });
+            }
         }
         if grew_30_percent(b.steps as u64, a.steps as u64) {
             out.push(Regression {
@@ -521,10 +660,13 @@ mod tests {
             &ctx,
             &catalog,
             &repo_cases_dir(),
-            None,
-            false,
-            None,
-            Executor::InProcess,
+            RunOptions {
+                only: None,
+                live: false,
+                provider_spec: None,
+                executor: Executor::InProcess,
+                repeat: 1,
+            },
         )
         .unwrap();
         for c in &run.cases {
@@ -595,6 +737,8 @@ mod tests {
             seconds: 5,
             tests_green: Some(true),
             files_written: vec![],
+            repeat: 1,
+            successes: None,
         };
         let before = EvalRun {
             at: "a".into(),
@@ -629,6 +773,73 @@ mod tests {
             ..before.clone()
         };
         assert_eq!(diff(&before, &gone).len(), 1);
+    }
+
+    /// T34.4: con repeticiones se comparan tasas; 5/5 → 4/5 es ruido, 5/5 →
+    /// 2/5 es regresión. Y `aggregate` calcula medianas y la tasa.
+    #[test]
+    fn repeated_runs_compare_rates_with_a_margin() {
+        let one = |passed: bool, steps: u32, seconds: u64| CaseResult {
+            name: "c".into(),
+            skipped: None,
+            passed,
+            failures: if passed { vec![] } else { vec!["rojo".into()] },
+            tools: vec![],
+            rejected: 0,
+            stop_reason: if passed {
+                "finished"
+            } else {
+                "budget_exhausted"
+            }
+            .into(),
+            steps,
+            tokens: 100,
+            seconds,
+            tests_green: Some(passed),
+            files_written: vec![],
+            repeat: 1,
+            successes: None,
+        };
+        let agg = aggregate(vec![
+            one(true, 5, 18),
+            one(false, 10, 30),
+            one(true, 5, 23),
+            one(true, 5, 20),
+            one(false, 10, 39),
+        ]);
+        assert_eq!(agg.repeat, 5);
+        assert_eq!(agg.successes, Some(3));
+        assert!((agg.success_rate() - 0.6).abs() < 1e-9);
+        assert_eq!(agg.steps, 5, "mediana de pasos");
+        assert_eq!(agg.seconds, 23, "mediana de segundos");
+        assert!(!agg.passed, "solo pasa si pasan todas");
+        assert_eq!(agg.failures, vec!["rojo".to_string()]);
+
+        let run = |succ: u32| EvalRun {
+            at: "t".into(),
+            provider: "ollama".into(),
+            live: true,
+            cases: vec![CaseResult {
+                repeat: 5,
+                successes: Some(succ),
+                passed: succ == 5,
+                ..one(true, 5, 20)
+            }],
+        };
+        assert!(diff(&run(5), &run(4)).is_empty(), "una ejecución es ruido");
+        let regressions = diff(&run(5), &run(2));
+        assert_eq!(regressions.len(), 1, "{regressions:?}");
+        assert!(regressions[0].what.contains("5/5 → 2/5"));
+        assert!(diff_with_margin(&run(5), &run(4), 0.1).len() == 1);
+
+        // JSON anterior a T34.4 (sin `repeat`/`successes`) sigue leyéndose.
+        let legacy: CaseResult = serde_json::from_str(
+            r#"{"name":"c","skipped":null,"passed":true,"failures":[],"tools":[],"rejected":0,
+                "stop_reason":"finished","steps":4,"tokens":1,"seconds":1,"tests_green":true,"files_written":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.runs(), 1);
+        assert_eq!(legacy.successes(), 1);
     }
 
     #[test]

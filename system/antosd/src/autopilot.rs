@@ -399,6 +399,7 @@ impl AutopilotEngine {
             inc.file_path, inc.error_message
         ));
         cfg.toolset = coder.toolset;
+        cfg.toolset_compact = Some(coder.toolset_compact);
         cfg.system_prompt = Some(coder.system_prompt);
         cfg.budget = coder.budget;
         cfg.finish = Some(coder.finish);

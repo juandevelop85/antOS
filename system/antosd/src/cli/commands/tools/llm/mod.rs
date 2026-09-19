@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 mod doctor;
 mod models;
+mod profile;
 mod setup;
 
 pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn Planner>> {
@@ -173,6 +174,10 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
         }
         "doctor" => {
             doctor::cmd_doctor(ctx, &config)?;
+            return Ok(());
+        }
+        "profile" | "perfil" => {
+            profile::cmd_profile(ctx, &mut config, &args[1..])?;
             return Ok(());
         }
         "pull" | "download" => {
@@ -608,7 +613,8 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
             );
             println!("    antos llm pull|rm <modelo>   Descarga o borra un modelo de Ollama");
             println!("    antos llm ctx <tokens>       Ventana de contexto pedida a Ollama");
-            println!("    antos llm temperature <t>    Temperatura del agente con Ollama\n");
+            println!("    antos llm temperature <t>    Temperatura del agente con Ollama");
+            println!("    antos llm profile <p>        Roles antFlow: local | hybrid | cloud\n");
         }
     }
 

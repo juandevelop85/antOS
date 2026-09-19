@@ -1261,7 +1261,22 @@ mod tests {
 
     // ---------------------------------------------------------------- T31.2
 
+    /// Un puerto libre que NO sea el siguiente efímero del kernel: macOS
+    /// los reparte en orden, y otro test que haga `bind(:0)` en paralelo
+    /// (los de servicios y proveedores, T34.x) recibía justo el que este
+    /// acababa de soltar. Se prueba un puerto alto pseudoaleatorio.
     fn t31_2_free_local_port() -> u16 {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        for attempt in 0..64u32 {
+            let candidate =
+                40_000 + ((nanos.wrapping_add(attempt.wrapping_mul(7919))) % 20_000) as u16;
+            if TcpListener::bind(("127.0.0.1", candidate)).is_ok() {
+                return candidate;
+            }
+        }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap().port()
     }

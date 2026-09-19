@@ -45,6 +45,57 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+/// Tamaño del modelo, para adaptar el run (T34.4): un 7B local confunde
+/// `fs.write` con `fs.patch` si le das doce herramientas; un modelo grande
+/// no necesita esa ayuda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelScale {
+    /// ≤ 9B de parámetros (o nombre `:7b`, `:3b`, `:1.5b`…).
+    Small,
+    Large,
+    Unknown,
+}
+
+/// Deduce la escala del nombre de un modelo de Ollama (`qwen2.5-coder:7b`,
+/// `llama3.1:70b-instruct-q4`) o de `parameter_size` de `/api/show`
+/// (`7.6B`, `494.03M`). `Unknown` si no hay número que leer.
+pub fn scale_from_name_or_params(name: &str, parameter_size: Option<&str>) -> ModelScale {
+    fn billions(text: &str) -> Option<f64> {
+        let lower = text.to_ascii_lowercase();
+        // Busca el primer número seguido de `b` o `m` (parámetros).
+        let bytes = lower.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i].is_ascii_digit() {
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                let num: f64 = lower[start..i].parse().ok()?;
+                match bytes.get(i) {
+                    Some(b'b') => return Some(num),
+                    Some(b'm') => return Some(num / 1000.0),
+                    _ => {}
+                }
+            } else {
+                i += 1;
+            }
+        }
+        None
+    }
+    let from_params = parameter_size.and_then(billions);
+    let from_name = name
+        .split(':')
+        .nth(1)
+        .and_then(billions)
+        .or_else(|| billions(name));
+    match from_params.or(from_name) {
+        Some(b) if b <= 9.0 => ModelScale::Small,
+        Some(_) => ModelScale::Large,
+        None => ModelScale::Unknown,
+    }
+}
+
 pub trait AgentProvider {
     fn name(&self) -> String;
     fn model(&self) -> String;
@@ -64,6 +115,23 @@ pub trait AgentProvider {
     }
     /// Por qué la ventana efectiva no es la pedida, si se acotó.
     fn context_note(&self) -> Option<String> {
+        None
+    }
+    /// Escala del modelo (T34.4). `Unknown` si el proveedor no lo sabe.
+    fn model_scale(&self) -> ModelScale {
+        ModelScale::Unknown
+    }
+    /// Pide al modelo que responda con un JSON que cumpla `schema` (la
+    /// entrada de `finalizar`), en vez de con herramientas. Lo usa el
+    /// runtime cuando el modelo responde en prosa y ya no quedan
+    /// recordatorios: convierte «lo tengo pero no llamé a finalizar» en un
+    /// cierre tipado. `None` = el proveedor no sabe forzar formato.
+    fn finish_structured(
+        &mut self,
+        _text: &str,
+        _schema: &Value,
+        _tools: &[ToolSpec],
+    ) -> Option<Result<Value>> {
         None
     }
 }
@@ -257,6 +325,7 @@ pub struct OllamaAgentProvider {
     options: OllamaOptions,
     messages: Vec<Value>,
     next_id: u32,
+    scale: ModelScale,
 }
 
 impl OllamaAgentProvider {
@@ -265,13 +334,60 @@ impl OllamaAgentProvider {
     }
 
     pub fn with_options(endpoint: String, model: String, options: OllamaOptions) -> Self {
+        let scale = scale_from_name_or_params(&model, None);
         Self {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             model,
             options,
             messages: Vec::new(),
             next_id: 0,
+            scale,
         }
+    }
+
+    /// Escala conocida por `/api/show` (`parameter_size`), más fiable que el
+    /// nombre.
+    pub fn with_scale(mut self, scale: ModelScale) -> Self {
+        if scale != ModelScale::Unknown {
+            self.scale = scale;
+        }
+        self
+    }
+
+    /// Un turno con `format: <schema>` (Ollama ≥ 0.5): el contenido de la
+    /// respuesta es JSON que cumple el esquema. Sin `tools`, para que el
+    /// modelo no intente llamar a nada.
+    fn structured_request(&mut self, schema: &Value) -> Result<Value> {
+        let body = json!({
+            "model": self.model,
+            "messages": self.messages,
+            "stream": false,
+            "format": schema,
+            "keep_alive": self.options.keep_alive,
+            "options": {
+                "num_ctx": self.options.num_ctx,
+                "temperature": self.options.temperature,
+            },
+        });
+        let url = format!("{}/api/chat", self.endpoint);
+        let mut resp = http_agent()
+            .post(&url)
+            .header("content-type", "application/json")
+            .send_json(&body)
+            .with_context(|| format!("no pude contactar con Ollama en {url}"))?;
+        let v = read_body(&mut resp, "Ollama")?;
+        let message = v.get("message").cloned().unwrap_or(Value::Null);
+        self.messages.push(message.clone());
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        serde_json::from_str(content).with_context(|| {
+            format!(
+                "Ollama no devolvió un JSON válido con `format`: {}",
+                content.chars().take(200).collect::<String>()
+            )
+        })
     }
 
     /// El cuerpo de `/api/chat`. Separado para poder comprobar en un test
@@ -386,6 +502,18 @@ impl AgentProvider for OllamaAgentProvider {
     fn context_note(&self) -> Option<String> {
         self.options.context_note.clone()
     }
+    fn model_scale(&self) -> ModelScale {
+        self.scale
+    }
+    fn finish_structured(
+        &mut self,
+        text: &str,
+        schema: &Value,
+        _tools: &[ToolSpec],
+    ) -> Option<Result<Value>> {
+        self.messages.push(json!({"role": "user", "content": text}));
+        Some(self.structured_request(schema))
+    }
 }
 
 // ───────────────────────── OpenAI-compatible ──────────────────────
@@ -417,14 +545,7 @@ impl OpenAiCompatAgentProvider {
         }
     }
 
-    fn request(&mut self, tools: &[ToolSpec]) -> Result<Turn> {
-        let tool_defs: Vec<Value> = tools.iter().map(openai_style_tool).collect();
-        let body = json!({
-            "model": self.model,
-            "messages": self.messages,
-            "tools": tool_defs,
-            "tool_choice": "auto",
-        });
+    fn post(&self, body: &Value) -> Result<Value> {
         let url = format!("{}/chat/completions", self.endpoint);
         let mut req = http_agent()
             .post(&url)
@@ -436,9 +557,50 @@ impl OpenAiCompatAgentProvider {
             req = req.header(k.as_str(), v.as_str());
         }
         let mut resp = req
-            .send_json(&body)
+            .send_json(body)
             .with_context(|| format!("no pude contactar con {} en {url}", self.provider_id))?;
-        let v = read_body(&mut resp, &self.provider_id)?;
+        read_body(&mut resp, &self.provider_id)
+    }
+
+    /// `response_format: json_schema` (OpenAI, Groq, OpenRouter, llama.cpp
+    /// reciente). El contenido de la respuesta es el JSON.
+    fn structured_request(&mut self, schema: &Value) -> Result<Value> {
+        let body = json!({
+            "model": self.model,
+            "messages": self.messages,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "finalizar", "schema": schema}
+            },
+        });
+        let v = self.post(&body)?;
+        let message = v
+            .pointer("/choices/0/message")
+            .cloned()
+            .unwrap_or(Value::Null);
+        self.messages.push(message.clone());
+        let content = message
+            .get("content")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        serde_json::from_str(content).with_context(|| {
+            format!(
+                "{} no devolvió un JSON válido con response_format: {}",
+                self.provider_id,
+                content.chars().take(200).collect::<String>()
+            )
+        })
+    }
+
+    fn request(&mut self, tools: &[ToolSpec]) -> Result<Turn> {
+        let tool_defs: Vec<Value> = tools.iter().map(openai_style_tool).collect();
+        let body = json!({
+            "model": self.model,
+            "messages": self.messages,
+            "tools": tool_defs,
+            "tool_choice": "auto",
+        });
+        let v = self.post(&body)?;
         let message = v
             .pointer("/choices/0/message")
             .cloned()
@@ -521,6 +683,18 @@ impl AgentProvider for OpenAiCompatAgentProvider {
     fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn> {
         self.messages.push(json!({"role": "user", "content": text}));
         self.request(tools)
+    }
+    fn model_scale(&self) -> ModelScale {
+        scale_from_name_or_params(&self.model, None)
+    }
+    fn finish_structured(
+        &mut self,
+        text: &str,
+        schema: &Value,
+        _tools: &[ToolSpec],
+    ) -> Option<Result<Value>> {
+        self.messages.push(json!({"role": "user", "content": text}));
+        Some(self.structured_request(schema))
     }
 }
 
@@ -679,6 +853,7 @@ fn ollama_provider(
     let requested = config.requested_num_ctx(role);
     let client = OllamaClient::new(endpoint.clone());
     let mut model_max = None;
+    let mut scale = ModelScale::Unknown;
     if client.is_available() {
         match client.show(&model) {
             Ok(show) => {
@@ -706,6 +881,7 @@ fn ollama_provider(
                     );
                 }
                 model_max = show.context_length;
+                scale = scale_from_name_or_params(&model, Some(&show.details.parameter_size));
             }
             Err(e) => bail!(
                 "Ollama responde en {endpoint} pero no conoce «{model}»: {e:#}\n  \
@@ -729,7 +905,7 @@ fn ollama_provider(
             .unwrap_or_else(|| crate::llm::DEFAULT_OLLAMA_KEEP_ALIVE.to_string()),
         context_note,
     };
-    Ok(OllamaAgentProvider::with_options(endpoint, model, options))
+    Ok(OllamaAgentProvider::with_options(endpoint, model, options).with_scale(scale))
 }
 
 /// Como `resolve`, con el rol (architect, coder, qa, auditor) para aplicar
@@ -766,12 +942,14 @@ pub fn resolve_for_role(
         },
         None => config.active_provider.clone(),
     };
-    let (provider, model_override) = match spec.split_once(':') {
+    let (provider, explicit_model) = match spec.split_once(':') {
         Some((p, m)) if !m.is_empty() => (p.to_string(), Some(m.to_string())),
         _ => (spec.clone(), None),
     };
     let settings = config.get_provider_settings(&provider);
-    let model_override = model_override.or_else(|| settings.and_then(|s| s.model.clone()));
+    let model_override = explicit_model
+        .clone()
+        .or_else(|| settings.and_then(|s| s.model.clone()));
     let endpoint_override = settings.and_then(|s| s.endpoint.clone());
 
     match provider.as_str() {
@@ -784,16 +962,29 @@ pub fn resolve_for_role(
             )))
         }
         "ollama" | "local-llm" | "local_llm" => {
-            let p = crate::planner::ollama::OllamaPlanner::from_env()?;
             // Prioridad: `auto` ya resolvió uno → configuración explícita →
             // el Ollama que registró `antos service up` (T34.1) → entorno.
             let endpoint = ollama_endpoint(state_dir, auto_endpoint.or(endpoint_override));
-            Ok(Box::new(ollama_provider(
-                &config,
-                role,
-                endpoint,
-                model_override.unwrap_or(p.model),
-            )?))
+            // Sin modelo en el spec (`get_role_model` devuelve `ollama` a
+            // secas en una instalación limpia, T34.4): el configurado si
+            // está descargado; si no, el mejor candidato local con `tools`.
+            let model = match explicit_model {
+                Some(m) => m,
+                None => {
+                    let configured = settings.and_then(|s| s.model.clone());
+                    match local_ollama_candidate(state_dir, &config) {
+                        Some((_, m)) => m,
+                        None => configured
+                            .or_else(|| {
+                                crate::planner::ollama::OllamaPlanner::from_env()
+                                    .ok()
+                                    .map(|p| p.model)
+                            })
+                            .unwrap_or_else(|| "qwen2.5-coder:7b".to_string()),
+                    }
+                }
+            };
+            Ok(Box::new(ollama_provider(&config, role, endpoint, model)?))
         }
         "groq" | "openrouter" | "gemini" | "opencode" | "openai" => {
             let p = crate::planner::openai_compat::OpenAiCompatPlanner::from_preset(&provider)?;

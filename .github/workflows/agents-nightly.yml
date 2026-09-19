@@ -1,0 +1,103 @@
+# T34.4 · Evaluación nocturna de agentes con un modelo local real.
+#
+# No bloquea PRs: es la serie histórica contra la que se mira antes de tocar
+# un prompt, un toolset o el modelo de un rol. Ejecuta los casos `live` de
+# `evals/agent/` cinco veces cada uno contra Ollama con `qwen2.5-coder:7b`
+# (CPU; un runner de 4 núcleos tarda minutos por ejecución) y sube el JSON de
+# métricas como artefacto. `antos eval diff` entre dos artefactos dice si una
+# tasa de éxito cayó más del margen.
+#
+# Ollama se instala con su instalador oficial (el runner no tiene `nix`); el
+# demonio lo arranca `antos service up ollama` (backend `system`, T34.1) y el
+# modelo lo descarga `antos llm pull` por la API. Los modelos se cachean por
+# nombre entre ejecuciones (son ~4,7 GB).
+name: agents-nightly
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: "Ejecuciones por caso"
+        required: false
+        default: "5"
+      model:
+        description: "Modelo de Ollama"
+        required: false
+        default: "qwen2.5-coder:7b"
+
+jobs:
+  live-eval:
+    name: "Agentes · eval --live · Ollama (${{ inputs.model || 'qwen2.5-coder:7b' }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      MODEL: ${{ inputs.model || 'qwen2.5-coder:7b' }}
+      REPEAT: ${{ inputs.repeat || '5' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: agents-nightly-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: agents-nightly-
+
+      - name: Build antos
+        run: cargo build -p antosd --release
+
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama --version
+          # El instalador deja un servicio systemd escuchando en 11434; se
+          # para para que sea antOS quien lo arranque y quien elija el
+          # directorio de modelos (cacheable).
+          sudo systemctl stop ollama || true
+          sudo systemctl disable ollama || true
+
+      - name: Prepare state
+        run: |
+          echo "ANTOS_STATE=$RUNNER_TEMP/antos-state" >> "$GITHUB_ENV"
+          echo "ANTOS_WORKSPACE=$RUNNER_TEMP/antos-ws" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/antos-state" "$RUNNER_TEMP/antos-ws"
+
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/antos-state/services/ollama/data
+          key: ollama-models-${{ env.MODEL }}
+
+      - name: Start Ollama through antOS and pull the model
+        run: |
+          ANTOS=target/release/antos
+          $ANTOS service up ollama
+          $ANTOS llm pull "$MODEL"
+          $ANTOS llm use ollama --model "$MODEL"
+          $ANTOS llm doctor
+
+      - name: Live evaluation (repeat ${{ env.REPEAT }})
+        # No falla el job por una tasa < 100 %: el veredicto es el diff
+        # contra la ejecución anterior, no un umbral absoluto.
+        run: |
+          target/release/antos eval agent --live --provider ollama --repeat "$REPEAT" || true
+          ls -la "$ANTOS_STATE/evals"
+
+      - name: Upload metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-eval-${{ github.run_id }}
+          path: ${{ runner.temp }}/antos-state/evals/*.json
+          retention-days: 90
+
+      - name: Stop Ollama
+        if: always()
+        run: target/release/antos service down ollama || true

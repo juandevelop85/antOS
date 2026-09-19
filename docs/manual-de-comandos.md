@@ -961,15 +961,80 @@ envía `keep_alive` (10 min) para que el modelo no se descargue entre pasos.
 (`fs.list`/`fs.read` hasta agotar el presupuesto). Medido en el Mac de 18 GB,
 escenario «arregla un test en rojo», 5 ejecuciones por valor (2026-09-18,
 con 16k de contexto): 0.0 → 0/5 · 0.3 → 3/5 · 0.7 → 2/5. El valor por
-defecto es 0.3. Con n=5 esto es ruido en buena parte; el ritual sigue siendo
-`eval --live` → cambiar → `eval --live` → `eval diff`, y T34.4 añade
-`--repeat`.
+defecto es 0.3.
+
+**Perfiles de roles (T34.4).** `antos llm profile local | hybrid | cloud`
+escribe los modelos de los cuatro roles de antFlow de un golpe, con los
+modelos del tier de RAM de la máquina (`system/llm/models.toml`):
+
+| Perfil | Arquitecto | Coder | QA | Auditor | Requiere |
+|---|---|---|---|---|---|
+| `local` | Ollama, modelo «grande» del tier | Ollama, «código» | Ollama, «rápido» | Ollama, «grande» | solo Ollama |
+| `hybrid` | nube gratuita con clave (OpenRouter / Groq / Gemini / Claude) | Ollama | Ollama | nube | Ollama + una clave; sin clave avisa y aplica `local` |
+| `cloud` | OpenRouter | Ollama | Groq | Groq | claves (el reparto anterior a T34.4) |
+
+Una instalación limpia **es `local` sin pedirlo**: con `active_provider =
+auto` y sin `role_models`, cada rol resuelve a `ollama` y el runtime elige
+el modelo descargado con `tools` (el configurado, si no el recomendado por
+RAM). `antos llm profile` sin argumento muestra el reparto vigente.
+
+**Lo que el runtime hace por un modelo pequeño (T34.4).** Cuando el
+proveedor declara ≤ 9B (por el nombre `:7b` o por `parameter_size` de
+`/api/show`):
+
+- **Toolset compacto**: Coder = `fs.read`, `fs.list`, `fs.patch`,
+  `test.run`; Arquitecto = `fs.read`, `fs.list`; Auditor = `fs.read`;
+  `agent do` = `fs.read`, `fs.list`, `fs.patch`, `test.run`. Sin `fs.write`
+  (lo confunde con `fs.patch` y pisa ficheros enteros). Se anota al empezar
+  el run. Un modelo grande conserva el toolset completo.
+- **Cierre estructurado**: si tras el recordatorio sigue respondiendo en
+  prosa, se le pide el JSON de `finalizar` con `format` (Ollama) o
+  `response_format` (OpenAI-compat) y el run termina `Finished` con el
+  cierre tipado, no `ModelStopped`.
+- **Reintento gratuito**: la primera llamada con argumentos malformados de
+  cada herramienta devuelve el esquema de entrada y no consume paso; los
+  rechazos de política (fuera del toolset, fuera del workspace) no tienen
+  reintento.
+- **Corte de bucle**: la misma llamada (herramienta + argumentos) fallando
+  tres veces seguidas termina el run como `Looping`; a la segunda el modelo
+  recibe «no la repitas: lee el fichero y usa el texto exacto».
+
+Los prompts (genérico, Coder, Arquitecto, Auditor) se reescribieron para un
+7B: la regla más violada en las medidas —«nunca pidas el fichero al usuario:
+léelo con fs.read»— va la primera, con un ejemplo de llamada.
+
+**Medido (2026-09-18, Mac de 18 GB, `qwen2.5-coder:7b`, contexto 16k,
+temperatura 0.3, 5 ejecuciones por fila):**
+
+| Cambio | Rust «arregla el test» | Node «haz que pase test.js» |
+|---|---|---|
+| T34.2 (contexto + temperatura) | 3/5 | — |
+| + toolset compacto, reintento, cierre estructurado, corte de bucle | 2/5 | — |
+| + prompts para 7B | **5/5** (y 5/5 al repetir: 10/10) | 0/5 |
+
+El caso Node sigue en 0/5 por un motivo concreto: el objetivo nombra el
+fichero de test y el 7B empieza editándolo (añade un mensaje al `assert`,
+lo quita…) antes de mirar `sum.js`; con presupuesto de 10 pasos llega a
+corregir `sum.js` en el paso 9 y no le queda sitio para `test.run` y
+`finalizar`, o «termina» antes con la suite en rojo. Es un fallo de
+seguimiento de instrucción («nunca modifiques un test»), no del runtime, y
+queda anotado como la siguiente medida a atacar.
+
+**Medir con repeticiones.** `antos eval agent --live --repeat 5` ejecuta
+cada caso cinco veces y guarda tasa de éxito y medianas de pasos, tokens y
+segundos (`✓ rust-fix-failing-test 5 pasos · 5171 tokens · 7 s · 5/5 ok`).
+`antos eval diff [--margin 0.2]` compara tasas y solo señala regresión si la
+caída supera el margen: 5/5 → 4/5 es ruido; 5/5 → 2/5 no. El job
+[`agents-nightly.yml`](../.github/workflows/agents-nightly.yml) hace esto
+cada noche contra Ollama en un runner (o a mano con *Run workflow*) y sube
+el JSON como artefacto: la serie histórica contra la que se mira antes de
+tocar un prompt.
 
 Un modelo que declara no soportar `tools` se rechaza al resolverlo para un
 agente (el error sugiere uno descargado que sí). Para más fiabilidad, un
 modelo mayor (`qwen2.5-coder:14b` cabe en 32 GB con 16k de contexto) o un
-proveedor remoto para el rol Coder; la evaluación `--live` es la forma de
-comparar sin adivinar.
+proveedor remoto para el rol Coder; la evaluación `--live --repeat` es la
+forma de comparar sin adivinar.
 
 Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
 configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
@@ -1389,6 +1454,11 @@ antos llm ctx 8192 --role architect  # solo un rol
 
 # Temperatura del agente (0.3 por defecto; el planificador va a 0.0)
 antos llm temperature 0.7
+
+# Reparto de roles antFlow: todo local, híbrido (nube con clave para Arquitecto/Auditor) o el reparto en nube
+antos llm profile                    # ver
+antos llm profile local
+antos llm profile hybrid
 ```
 
 `doctor` y `setup` eligen el modelo por la RAM de la máquina según

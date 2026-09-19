@@ -62,6 +62,64 @@ pub struct LlmConfig {
     /// Arquitecto puede ir a 8k; el Coder necesita 16k–32k.
     #[serde(default)]
     pub role_num_ctx: BTreeMap<String, u32>,
+    /// Perfil aplicado por `antos llm profile` (T34.4), solo informativo:
+    /// lo que manda son los `role_models` que escribió.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<Profile>,
+}
+
+/// Cómo se reparten los roles entre local y nube (T34.4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Profile {
+    /// Todo en Ollama, con modelos por tamaño de RAM. El de una instalación
+    /// limpia.
+    Local,
+    /// Arquitecto y Auditor en un proveedor de nube gratuito con clave;
+    /// Coder y QA en Ollama.
+    Hybrid,
+    /// El reparto anterior a T34.4 (OpenRouter / Ollama / Groq / Groq).
+    Cloud,
+}
+
+impl Profile {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "local" => Some(Self::Local),
+            "hybrid" | "hibrido" | "híbrido" => Some(Self::Hybrid),
+            "cloud" | "nube" => Some(Self::Cloud),
+            _ => None,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Hybrid => "hybrid",
+            Self::Cloud => "cloud",
+        }
+    }
+}
+
+/// Los modelos que cada perfil asigna, ya resueltos contra la máquina.
+/// `large`/`code`/`fast` vienen del tier de RAM (`doctor`); `cloud` es el
+/// `proveedor:modelo` de nube con clave presente, si lo hay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileInputs {
+    pub local_large: String,
+    pub local_code: String,
+    pub local_fast: String,
+    pub cloud: Option<String>,
+}
+
+/// Reparto de roles del perfil `cloud` (el de T19.4, sin cambios).
+pub fn cloud_role_model(role: &str) -> Option<&'static str> {
+    match role {
+        "architect" | "arquitecto" => Some("openrouter:deepseek/deepseek-r1:free"),
+        "coder" => Some("ollama:qwen2.5-coder:latest"),
+        "qa" | "tester" | "auditor" => Some("groq:llama-3.3-70b-versatile"),
+        _ => None,
+    }
 }
 
 impl Default for LlmConfig {
@@ -119,6 +177,7 @@ impl Default for LlmConfig {
             role_models: BTreeMap::new(),
             role_steps: BTreeMap::new(),
             role_num_ctx: BTreeMap::new(),
+            profile: None,
         }
     }
 }
@@ -180,19 +239,59 @@ impl LlmConfig {
         self.providers.get(&provider.to_lowercase())
     }
 
-    /// Returns the assigned model for an antFlow role, or default recommendation (T19.4).
+    /// Modelo de un rol de antFlow (T19.4, T34.4).
+    ///
+    /// Con `role_models` explícitos, esos. Si no: una instalación limpia
+    /// (`active_provider` = `auto`/`ollama`/`local`) es **local**: `ollama`
+    /// sin modelo, y `providers::resolve` elige el descargado con `tools`
+    /// (el configurado, si no el recomendado por RAM). Con un proveedor de
+    /// nube activo se usa ese para todos los roles. El reparto antiguo
+    /// (OpenRouter / Groq) solo se obtiene pidiéndolo: `antos llm profile
+    /// cloud`.
     pub fn get_role_model(&self, role: &str) -> String {
         let role_clean = role.to_lowercase();
         if let Some(m) = self.role_models.get(&role_clean) {
             return m.clone();
         }
-        match role_clean.as_str() {
-            "architect" | "arquitecto" => "openrouter:deepseek/deepseek-r1:free".to_string(),
-            "coder" => "ollama:qwen2.5-coder:latest".to_string(),
-            "qa" | "tester" => "groq:llama-3.3-70b-versatile".to_string(),
-            "auditor" => "groq:llama-3.3-70b-versatile".to_string(),
-            _ => self.active_provider.clone(),
+        match self.active_provider.as_str() {
+            "auto" | "ollama" | "local" | "local-llm" | "local_llm" => "ollama".to_string(),
+            other => other.to_string(),
         }
+    }
+
+    /// Escribe los `role_models` de un perfil (T34.4). Devuelve qué modelo
+    /// quedó en cada rol, para contarlo.
+    pub fn apply_profile(
+        &mut self,
+        profile: Profile,
+        inputs: &ProfileInputs,
+    ) -> BTreeMap<String, String> {
+        let local = |m: &str| format!("ollama:{m}");
+        let mut assigned = BTreeMap::new();
+        for role in ["architect", "coder", "qa", "auditor"] {
+            let model = match profile {
+                Profile::Local => match role {
+                    "coder" => local(&inputs.local_code),
+                    "qa" => local(&inputs.local_fast),
+                    _ => local(&inputs.local_large),
+                },
+                Profile::Hybrid => match role {
+                    "architect" | "auditor" => inputs
+                        .cloud
+                        .clone()
+                        .unwrap_or_else(|| local(&inputs.local_large)),
+                    "coder" => local(&inputs.local_code),
+                    _ => local(&inputs.local_fast),
+                },
+                Profile::Cloud => cloud_role_model(role)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| local(&inputs.local_code)),
+            };
+            self.role_models.insert(role.to_string(), model.clone());
+            assigned.insert(role.to_string(), model);
+        }
+        self.profile = Some(profile);
+        assigned
     }
 
     /// Ventana de contexto pedida para Ollama: por rol si hay, si no la del
@@ -293,14 +392,13 @@ mod tests {
     #[test]
     fn test_role_models_configuration() {
         let mut config = LlmConfig::default();
-        assert_eq!(
-            config.get_role_model("architect"),
-            "openrouter:deepseek/deepseek-r1:free"
-        );
-        assert_eq!(
-            config.get_role_model("coder"),
-            "ollama:qwen2.5-coder:latest"
-        );
+        // T34.4: una instalación limpia es local para todos los roles.
+        assert_eq!(config.get_role_model("architect"), "ollama");
+        assert_eq!(config.get_role_model("coder"), "ollama");
+        // Con un proveedor de nube activo, ese para todos.
+        config.active_provider = "groq".into();
+        assert_eq!(config.get_role_model("auditor"), "groq");
+        config.active_provider = "auto".into();
 
         config.set_role_model("coder", "groq:qwen2.5-coder");
         assert_eq!(config.get_role_model("coder"), "groq:qwen2.5-coder");
@@ -311,6 +409,42 @@ mod tests {
         assert!(roles.contains_key("coder"));
         assert!(roles.contains_key("qa"));
         assert!(roles.contains_key("auditor"));
+    }
+
+    /// T34.4: los tres perfiles escriben `role_models` a partir del tier de
+    /// RAM y de la clave de nube disponible; `hybrid` sin clave cae a local.
+    #[test]
+    fn profiles_assign_roles_from_tier_and_cloud_key() {
+        let inputs = ProfileInputs {
+            local_large: "qwen2.5-coder:7b".into(),
+            local_code: "qwen2.5-coder:7b".into(),
+            local_fast: "qwen2.5-coder:3b".into(),
+            cloud: Some("groq:llama-3.3-70b-versatile".into()),
+        };
+        let mut c = LlmConfig::default();
+        let local = c.apply_profile(Profile::Local, &inputs);
+        assert_eq!(local["architect"], "ollama:qwen2.5-coder:7b");
+        assert_eq!(local["qa"], "ollama:qwen2.5-coder:3b");
+        assert_eq!(c.profile, Some(Profile::Local));
+        assert_eq!(c.get_role_model("coder"), "ollama:qwen2.5-coder:7b");
+
+        let hybrid = c.apply_profile(Profile::Hybrid, &inputs);
+        assert_eq!(hybrid["architect"], "groq:llama-3.3-70b-versatile");
+        assert_eq!(hybrid["auditor"], "groq:llama-3.3-70b-versatile");
+        assert_eq!(hybrid["coder"], "ollama:qwen2.5-coder:7b");
+
+        let no_key = ProfileInputs {
+            cloud: None,
+            ..inputs.clone()
+        };
+        let hybrid_local = c.apply_profile(Profile::Hybrid, &no_key);
+        assert_eq!(hybrid_local["architect"], "ollama:qwen2.5-coder:7b");
+
+        let cloud = c.apply_profile(Profile::Cloud, &inputs);
+        assert_eq!(cloud["architect"], "openrouter:deepseek/deepseek-r1:free");
+        assert_eq!(cloud["coder"], "ollama:qwen2.5-coder:latest");
+        assert_eq!(Profile::parse("Híbrido"), Some(Profile::Hybrid));
+        assert_eq!(Profile::parse("x"), None);
     }
 
     /// T34.2: rol → proveedor → 16k por defecto; y el JSON anterior sigue

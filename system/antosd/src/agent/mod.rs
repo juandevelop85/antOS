@@ -63,6 +63,21 @@ const NUDGE_TEXT: &str = "Recuerda: solo puedes actuar llamando a las herramient
     no describiendo lo que harías. Si el objetivo ya está cumplido y verificado, llama a \
     `finalizar` con el resumen; si no, llama a la siguiente herramienta.";
 
+/// Petición de cierre estructurado (T34.4), tras agotar los recordatorios.
+const STRUCTURED_FINISH_TEXT: &str = "No has llamado a ninguna herramienta. Da la tarea por \
+    terminada ahora: responde ÚNICAMENTE con el JSON de `finalizar` según el esquema, con un \
+    `resumen` honesto de lo hecho y de lo que no pudiste hacer.";
+
+/// Prefijo de los rechazos por argumentos (el reintento gratuito de T34.4
+/// distingue así un argumento mal formado de una denegación de política).
+pub(crate) const ARGS_REJECT_PREFIX: &str = "argumentos rechazados";
+
+/// Veces seguidas que la MISMA llamada (herramienta + argumentos) puede
+/// fallar antes de cortar el run como `Looping` (T34.4). A la segunda se le
+/// dice al modelo, con claridad, que cambie de estrategia; a la tercera se
+/// para: gastar 18 pasos en el mismo `fs.patch` no arregla nada.
+const MAX_IDENTICAL_FAILURES: u32 = 3;
+
 /// Configuración de un run.
 #[derive(Debug, Clone)]
 pub struct RunConfig {
@@ -79,6 +94,9 @@ pub struct RunConfig {
     pub context: Option<String>,
     /// Esquema tipado de `finalizar` (T33.3); `None` → solo `resumen`.
     pub finish: Option<tools::FinishSpec>,
+    /// Toolset alternativo cuando el proveedor declara un modelo pequeño
+    /// (`ModelScale::Small`, T34.4). `None` → siempre `toolset`.
+    pub toolset_compact: Option<Vec<String>>,
     /// Cómo se ejecutan los cambios. Siempre `Confined` salvo en los tests
     /// del propio runtime: el ejecutor confinado relanza el binario de
     /// `antos`, que no existe dentro de un binario de `cargo test`.
@@ -108,6 +126,12 @@ impl RunConfig {
             system_prompt: None,
             context: None,
             finish: None,
+            toolset_compact: Some(
+                tools::DEFAULT_TOOLSET_COMPACT
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            ),
             executor: Executor::Confined,
         }
     }
@@ -132,17 +156,26 @@ pub trait AgentHandler {
 }
 
 /// Prompt de sistema genérico. Los roles de T33.3 traen el suyo.
+///
+/// Redactado para que también lo siga un modelo de 7B (T34.4): frases
+/// cortas, un ejemplo de llamada, y la regla más violada en las medidas
+/// («no pidas el fichero al usuario: léelo») en primera posición.
 pub fn system_prompt() -> String {
-    "Eres un agente de antOS que trabaja sobre un espacio de trabajo de software.\n\
-     Solo puedes actuar con las herramientas que se te ofrecen: cada una es una capacidad \
-     declarada del sistema, validada y confinada. No existe ninguna forma de ejecutar \
-     comandos arbitrarios; si algo no se puede hacer con las herramientas, dilo.\n\
-     Método: orienta primero (fs.list, fs.read, memory.search), cambia lo mínimo con \
-     fs.patch (bloques exactos, únicos), verifica con test.run, y corrige lo que falle. \
-     Nunca modifiques un test para que pase: arregla el código que prueba. \
-     En cuanto test.run esté en verde y el objetivo cumplido, llama a `finalizar` \
-     inmediatamente con un resumen honesto; también si no puedes cumplirlo. No repitas \
-     herramientas sin motivo: cada paso consume presupuesto."
+    "Eres un agente de antOS. Trabajas sobre un repositorio de software al que tienes acceso \
+     con herramientas. Actúas SOLO llamando a herramientas; nunca pidas al usuario que te \
+     pegue un fichero ni preguntes nada: si necesitas ver un fichero, llámalo tú con fs.read.\n\
+     Ejemplo de llamada: fs.read con {\"path\": \"src/lib.rs\"}.\n\
+     Método, en este orden:\n\
+     1. fs.read del fichero que nombra el objetivo (y fs.list si no sabes dónde está).\n\
+     2. fs.patch con un cambio pequeño: `old` es un fragmento EXACTO del fichero que acabas de \
+     leer (copia el texto tal cual, con su sangría), `new` es el texto nuevo.\n\
+     3. test.run para verificar.\n\
+     4. Si test.run falla, vuelve a leer y corrige. Si pasa, llama a `finalizar` con un \
+     resumen honesto.\n\
+     Reglas: nunca modifiques un test para que pase (arregla el código que prueba); no repitas \
+     una llamada que ya falló igual; cada paso consume presupuesto. En cuanto test.run esté en \
+     verde, `finalizar` inmediatamente. Si no puedes cumplir el objetivo, `finalizar` diciendo \
+     por qué."
         .to_string()
 }
 
@@ -157,8 +190,25 @@ pub fn run(
 ) -> Result<AgentReport> {
     let started = Instant::now();
     let run_id = format!("agent-{}", plan::new_id());
-    let tool_specs = tools::build_toolset(catalog, &cfg.toolset, cfg.finish.as_ref())?;
-    let allowed: BTreeSet<&str> = cfg.toolset.iter().map(String::as_str).collect();
+    // Modelo pequeño → toolset compacto (T34.4), si el run lo define.
+    let toolset: &[String] = match (&cfg.toolset_compact, provider.model_scale()) {
+        (Some(compact), providers::ModelScale::Small) => compact,
+        _ => &cfg.toolset,
+    };
+    if toolset.len() != cfg.toolset.len() {
+        handler.on_note(&format!(
+            "modelo pequeño ({}): toolset compacto [{}]",
+            provider.model(),
+            toolset.join(", ")
+        ))?;
+    }
+    let tool_specs = tools::build_toolset(catalog, toolset, cfg.finish.as_ref())?;
+    let allowed: BTreeSet<&str> = toolset.iter().map(String::as_str).collect();
+    // Herramientas que ya tuvieron su reintento gratuito por argumentos
+    // malformados (uno por herramienta y run, T34.4).
+    let mut retried_args: BTreeSet<String> = BTreeSet::new();
+    // Última llamada fallida y cuántas veces seguidas se ha repetido igual.
+    let mut last_failure: Option<(String, u32)> = None;
     let grants = Grants::load(&ctx.grants_path()).unwrap_or_default();
     let jail = sandbox::for_host();
 
@@ -207,6 +257,38 @@ pub fn run(
                 turn = provider.nudge(NUDGE_TEXT, &tool_specs);
                 continue;
             }
+            // Último recurso (T34.4): si el proveedor sabe forzar formato, se
+            // le pide el cierre como JSON del esquema de `finalizar`. Un
+            // modelo pequeño que «tiene» el plan pero lo cuenta en prosa
+            // termina así con un cierre tipado en vez de `ModelStopped`.
+            if !handler.should_stop() {
+                let schema = cfg
+                    .finish
+                    .as_ref()
+                    .map(|f| f.input_schema.clone())
+                    .unwrap_or_else(tools::default_finish_schema);
+                if let Some(Ok(value)) =
+                    provider.finish_structured(STRUCTURED_FINISH_TEXT, &schema, &tool_specs)
+                {
+                    let summary = value
+                        .get("resumen")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("(sin resumen)")
+                        .to_string();
+                    finish_input = Some(value.to_string());
+                    state.steps += 1;
+                    handler.on_step(&AgentStepEvent {
+                        run_id: run_id.clone(),
+                        step: state.steps,
+                        tool: FINISH_TOOL.into(),
+                        args_summary: preview_text(&summary, MAX_PREVIEW),
+                        outcome: AgentStepOutcome::Finished,
+                        output_preview: "(cierre estructurado)".into(),
+                        tokens_used: state.tokens,
+                    })?;
+                    break (AgentStopReason::Finished, summary, None);
+                }
+            }
             break (AgentStopReason::ModelStopped, last_text.clone(), None);
         }
 
@@ -214,6 +296,7 @@ pub fn run(
         let mut finished: Option<String> = None;
         let mut declined = false;
         let mut stopped = false;
+        let mut looping = false;
         for call in &current.calls {
             if finished.is_some() || declined || stopped {
                 // Ya no se ejecuta nada más de este turno; pero cada llamada
@@ -275,10 +358,49 @@ pub fn run(
                 continue;
             }
             state.steps += 1;
-            let (result, outcome, declined_now) = execute_tool(
+            let (mut result, outcome, declined_now) = execute_tool(
                 ctx, catalog, &allowed, &grants, &*jail, cfg, &mut state, call, handler,
             )?;
             declined = declined_now;
+            // La misma llamada fallando una y otra vez (T34.4).
+            let failed = matches!(
+                outcome,
+                AgentStepOutcome::Failed | AgentStepOutcome::Rejected
+            );
+            if failed {
+                let key = format!("{}:{}", call.name, call.input);
+                let count = match &last_failure {
+                    Some((k, n)) if *k == key => n + 1,
+                    _ => 1,
+                };
+                last_failure = Some((key, count));
+                if count >= MAX_IDENTICAL_FAILURES {
+                    looping = true;
+                } else if count == 2 {
+                    result.content.push_str(
+                        "\nYa has hecho exactamente esta misma llamada y ha fallado igual. \
+                         No la repitas: lee el fichero con fs.read y usa el texto EXACTO que \
+                         contiene, o cambia de enfoque.",
+                    );
+                }
+            } else {
+                last_failure = None;
+            }
+            // Argumentos malformados (no política): la primera vez por
+            // herramienta se devuelve el esquema y no cuenta como paso, para
+            // que un modelo pequeño corrija sin pagar presupuesto (T34.4).
+            if outcome == AgentStepOutcome::Rejected
+                && result.content.starts_with(ARGS_REJECT_PREFIX)
+                && retried_args.insert(call.name.clone())
+            {
+                state.steps -= 1;
+                if let Some(spec) = tool_specs.iter().find(|t| t.name == call.name) {
+                    result.content.push_str(&format!(
+                        "\nEsquema de entrada de {}: {}\nCorrige los argumentos y vuelve a llamar (este intento no consume presupuesto).",
+                        call.name, spec.input_schema
+                    ));
+                }
+            }
             handler.on_step(&AgentStepEvent {
                 run_id: run_id.clone(),
                 step: state.steps,
@@ -307,6 +429,15 @@ pub fn run(
             break (
                 AgentStopReason::Stopped,
                 "detenido por el usuario".to_string(),
+                None,
+            );
+        }
+        if looping {
+            break (
+                AgentStopReason::Looping,
+                format!(
+                    "el modelo repitió {MAX_IDENTICAL_FAILURES} veces seguidas la misma llamada fallida; run cortado"
+                ),
                 None,
             );
         }
@@ -440,11 +571,11 @@ fn execute_tool(
     // 2 · Argumentos validados por el catálogo (como un paso de intención).
     let mut args = match tools::args_from_input(&call.input) {
         Ok(a) => a,
-        Err(e) => return Ok(reject(format!("{e:#}"))),
+        Err(e) => return Ok(reject(format!("{ARGS_REJECT_PREFIX}: {e:#}"))),
     };
     if let Err(e) = catalog.validate(cap, &mut args) {
         return Ok(reject(format!(
-            "argumentos rechazados por el catálogo: {e:#}"
+            "{ARGS_REJECT_PREFIX} por el catálogo: {e:#}"
         )));
     }
     let step = Step {

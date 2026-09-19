@@ -34,3 +34,13 @@ files_allowed = ["src/lib.rs"]      # cualquier otra escritura es fallo
 
 Con `--live` no se exige el orden de herramientas (es del modelo); sí
 `tests_green`, `files_allowed` y `stop_reason`.
+
+## Repeticiones (T34.4)
+
+Un modelo real no es determinista: una ejecución no mide nada. `antos eval
+agent --live --repeat 5` ejecuta cada caso cinco veces y guarda **tasa de
+éxito** (`successes`/`repeat`) y **medianas** de pasos, tokens y segundos;
+`passed` solo si pasaron todas. `antos eval diff [--margin 0.2]` compara
+tasas entre las dos últimas ejecuciones y solo señala regresión si la caída
+supera el margen (5/5 → 4/5 es ruido; 5/5 → 2/5 no). El job
+`agents-nightly.yml` corre esto cada noche contra Ollama y sube el JSON.
