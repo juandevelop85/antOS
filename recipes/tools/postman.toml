@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://dl.pstmn.io/download/version/11.10.0/linux64"
 sha256 = "6c45da6eb50bb08018e6a17bfa4dc962f928a2a81fa6d07d1cf434e349cae203"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

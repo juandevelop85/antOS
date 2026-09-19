@@ -40,8 +40,6 @@ fn test_parse_recipe_toml() {
         [source]
         url = "https://github.com/BurntSushi/ripgrep/archive/14.1.0.tar.gz"
         sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
         [build]
         dependencies = ["pcre2"]
@@ -57,10 +55,8 @@ fn test_parse_recipe_toml() {
 }
 
 /// T34.3: Ollama dejó de ser una receta antpkg (llevaba firma de relleno);
-/// lo trae la imagen o lo arranca `antos service up ollama`. Nota: el brazo
-/// genérico de `resolve_manifest` sigue inventando un manifiesto `1.0.0`
-/// para CUALQUIER nombre (deuda de T16.2, anotada en T34.5), así que aquí
-/// solo se comprueba el catálogo oficial; el CLI intercepta `ollama` antes.
+/// lo trae la imagen o lo arranca `antos service up ollama`. Desde T34.5
+/// `resolve_manifest` ya no inventa manifiestos, así que además falla.
 #[test]
 fn ollama_is_no_longer_a_package_recipe() {
     assert!(!PackageEngine::OFFICIAL_RECIPES
@@ -70,6 +66,94 @@ fn ollama_is_no_longer_a_package_recipe() {
         .unwrap()
         .iter()
         .any(|m| m.name == "ollama"));
+    assert!(PackageEngine::resolve_manifest("ollama").is_err());
+}
+
+/// T34.5: un nombre que no es fichero, receta ni utilidad conocida es un
+/// error con sugerencia, no un paquete «1.0.0» inventado.
+#[test]
+fn unknown_package_names_are_errors_not_inventions() {
+    let err = PackageEngine::resolve_manifest("loquesea-inexistente")
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(err.contains("no conozco el paquete"), "{err}");
+    assert!(err.contains("antos pkg search"), "{err}");
+    // Las utilidades de la tabla siguen resolviendo, sin fuente ni firma.
+    let jq = PackageEngine::resolve_manifest("jq").unwrap();
+    assert_eq!(jq.binaries, vec!["jq".to_string()]);
+    assert!(jq.signature.is_none() && jq.source_url.is_none());
+}
+
+/// T34.5: la firma se verifica de verdad. Una receta firmada con una clave
+/// real instala como `Ed25519`; la misma receta con el sha256 cambiado (o
+/// la firma tocada) no instala; sin firma instala como `Unsigned`, y el
+/// informe dice que la fuente no se descargó.
+#[test]
+fn signatures_are_really_verified_and_reports_are_honest() {
+    let temp = std::env::temp_dir().join(format!("antos_pkg_sig_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&temp);
+    fs::create_dir_all(&temp).unwrap();
+    let key = crate::crypto::Ed25519Keypair::generate().unwrap();
+    let sha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    let msg = crypto::signing_message("firmado", "1.2.3", Some(sha));
+    let sig = key.sign(&msg);
+    let recipe = |sha: &str, sig: &str| {
+        format!(
+            "[package]\nname = \"firmado\"\nversion = \"1.2.3\"\ndescription = \"x\"\nbinaries = [\"firmado\"]\n\n\
+             [source]\nurl = \"https://example.invalid/f.tgz\"\nsha256 = \"{sha}\"\nsignature = \"{sig}\"\nsigner_public_key = \"{}\"\n",
+            key.public_hex()
+        )
+    };
+    let good = temp.join("good.toml");
+    fs::write(&good, recipe(sha, &sig)).unwrap();
+    let rep = PackageEngine::install(&temp, good.to_str().unwrap(), true).unwrap();
+    assert_eq!(rep.signature, PackageSignatureStatus::Ed25519);
+    assert!(rep.signature_verified);
+    assert!(!rep.checksum_verified && !rep.source_fetched);
+    assert!(rep.message.contains("no se descarga"), "{}", rep.message);
+
+    // sha256 manipulado: la firma ataba nombre:versión:sha256 → no verifica.
+    let tampered = temp.join("tampered.toml");
+    fs::write(&tampered, recipe(&sha.replace('e', "f"), &sig)).unwrap();
+    let err = PackageEngine::install(&temp, tampered.to_str().unwrap(), true)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(err.contains("no verifica"), "{err}");
+
+    // Firma de relleno (hexadecimal válido): antes «verificaba»; ya no.
+    let filler = temp.join("filler.toml");
+    fs::write(&filler, recipe(sha, &"0123456789abcdef".repeat(8))).unwrap();
+    assert!(PackageEngine::install(&temp, filler.to_str().unwrap(), true).is_err());
+
+    // Sin firma: instala, pero lo dice.
+    let unsigned = temp.join("unsigned.toml");
+    fs::write(
+        &unsigned,
+        "[package]\nname = \"libre\"\nversion = \"0.1.0\"\ndescription = \"x\"\nbinaries = [\"libre\"]\n",
+    )
+    .unwrap();
+    let rep = PackageEngine::install(&temp, unsigned.to_str().unwrap(), false).unwrap();
+    assert_eq!(rep.signature, PackageSignatureStatus::Unsigned);
+    assert!(!rep.signature_verified);
+    assert!(rep.message.contains("sin firma"), "{}", rep.message);
+
+    // Media firma: error de receta.
+    let half = temp.join("half.toml");
+    fs::write(
+        &half,
+        format!(
+            "[package]\nname = \"medio\"\nversion = \"0.1.0\"\ndescription = \"x\"\nbinaries = [\"m\"]\n\n[source]\nsignature = \"{sig}\"\n"
+        ),
+    )
+    .unwrap();
+    let err = PackageEngine::install(&temp, half.to_str().unwrap(), true)
+        .err()
+        .map(|e| e.to_string())
+        .unwrap_or_default();
+    assert!(err.contains("o las dos o ninguna"), "{err}");
+    let _ = fs::remove_dir_all(&temp);
 }
 
 #[test]

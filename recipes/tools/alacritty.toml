@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://github.com/alacritty/alacritty/releases/download/v0.13.2/Alacritty-v0.13.2-ubuntu_20_04_amd64.tar.gz"
 sha256 = "1f7bf57fbc4eb47794db5a5fbc40d25c6130be2ec29b0ecda51bc6d78ef8a571"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

@@ -11,8 +11,6 @@ binaries = ["opencode", "llama-server"]
 [source]
 url = "https://packages.antos.dev/sources/opencode-1.0.0.tar.gz"
 sha256 = "c9a40e67b2d5f3089d53f86e3f4db05634d546282fa2dc3dc37a0910f5407be4"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

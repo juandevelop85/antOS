@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://download-installer.cdn.mozilla.net/pub/firefox/releases/130.0/linux-x86_64/en-US/firefox-130.0.tar.bz2"
 sha256 = "c6a1e1bf88ff842d0fa5716df166412be8fbeeeae397c88b2eb60980df94a9a0"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

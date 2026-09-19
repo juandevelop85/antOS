@@ -684,6 +684,20 @@ pub struct PackageSummary {
     pub icons_linked: Vec<String>,
 }
 
+/// Qué se comprobó criptográficamente de una receta al instalarla (T34.5).
+/// Antes `signature_verified` era `true` con una firma de relleno que solo
+/// se validaba por formato; ahora el estado es explícito.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageSignatureStatus {
+    /// La receta no trae firma. antpkg lo dice; no lo disfraza.
+    #[default]
+    Unsigned,
+    /// Firma Ed25519 verificada con `ed25519-dalek` sobre
+    /// `nombre:versión:sha256` con la clave pública de la receta.
+    Ed25519,
+}
+
 /// Installation or compilation report for an immutable package (T16.2 / T25.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageInstallReport {
@@ -696,8 +710,18 @@ pub struct PackageInstallReport {
     pub desktop_entries_linked: Vec<String>,
     #[serde(default)]
     pub icons_linked: Vec<String>,
+    /// `true` solo si se descargó la fuente y su SHA-256 coincidió con la
+    /// receta. Hoy antpkg no descarga nada (T34.5): siempre `false`.
     pub checksum_verified: bool,
+    /// `true` solo con `signature == Ed25519`.
     pub signature_verified: bool,
+    /// Estado de la firma, explícito (T34.5).
+    #[serde(default)]
+    pub signature: PackageSignatureStatus,
+    /// `true` cuando el binario del store es el real. Hoy antpkg escribe un
+    /// envoltorio simulado (T34.5): siempre `false`.
+    #[serde(default)]
+    pub source_fetched: bool,
     pub success: bool,
     pub message: String,
 }

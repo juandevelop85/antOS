@@ -346,186 +346,71 @@ impl PackageEngine {
             return Self::parse_recipe(content);
         }
 
-        // Built-in recipes for standard developer utilities and desktop applications
-        let (version, desc, bins, app_type, desktop_entry, icons) = match recipe_path_or_name {
-            "firefox" => (
-                "130.0",
-                "Mozilla Firefox Web Browser",
-                vec!["firefox".to_string()],
-                PackageAppType::Gui,
-                Some(DesktopEntryManifest {
-                    name: "Firefox".to_string(),
-                    generic_name: Some("Web Browser".to_string()),
-                    comment: Some("Navegador web libre y seguro".to_string()),
-                    exec: "firefox %u".to_string(),
-                    icon: Some("firefox".to_string()),
-                    categories: vec!["Network".to_string(), "WebBrowser".to_string()],
-                    mime_types: vec![
-                        "text/html".to_string(),
-                        "application/xhtml+xml".to_string(),
-                        "x-scheme-handler/http".to_string(),
-                        "x-scheme-handler/https".to_string(),
-                    ],
-                    terminal: false,
-                    startup_wm_class: Some("firefox".to_string()),
-                }),
-                vec![IconAsset {
-                    resolution: "scalable".to_string(),
-                    format: "svg".to_string(),
-                    path: "share/icons/hicolor/scalable/apps/firefox.svg".to_string(),
-                }],
-            ),
-            "code" | "vscode" => (
-                "1.93.0",
-                "Visual Studio Code Editor",
-                vec!["code".to_string()],
-                PackageAppType::Gui,
-                Some(DesktopEntryManifest {
-                    name: "Visual Studio Code".to_string(),
-                    generic_name: Some("Code Editor".to_string()),
-                    comment: Some("Editor de código extensible".to_string()),
-                    exec: "code %F".to_string(),
-                    icon: Some("code".to_string()),
-                    categories: vec!["Development".to_string(), "IDE".to_string()],
-                    mime_types: vec!["text/plain".to_string()],
-                    terminal: false,
-                    startup_wm_class: Some("Code".to_string()),
-                }),
-                vec![IconAsset {
-                    resolution: "scalable".to_string(),
-                    format: "svg".to_string(),
-                    path: "share/icons/hicolor/scalable/apps/code.svg".to_string(),
-                }],
-            ),
-            "alacritty" => (
-                "0.13.2",
-                "GPU-accelerated terminal emulator",
-                vec!["alacritty".to_string()],
-                PackageAppType::Gui,
-                Some(DesktopEntryManifest {
-                    name: "Alacritty".to_string(),
-                    generic_name: Some("Terminal".to_string()),
-                    comment: Some("Emulador de terminal acelerado por GPU".to_string()),
-                    exec: "alacritty".to_string(),
-                    icon: Some("alacritty".to_string()),
-                    categories: vec!["System".to_string(), "TerminalEmulator".to_string()],
-                    mime_types: Vec::new(),
-                    terminal: false,
-                    startup_wm_class: Some("Alacritty".to_string()),
-                }),
-                vec![IconAsset {
-                    resolution: "scalable".to_string(),
-                    format: "svg".to_string(),
-                    path: "share/icons/hicolor/scalable/apps/alacritty.svg".to_string(),
-                }],
-            ),
-            "opencode" => (
-                "1.0.0",
-                "Local OpenAI-compatible inference server",
-                vec!["opencode".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "ripgrep" | "rg" => (
-                "14.1.0",
-                "Fast line-oriented search tool",
-                vec!["rg".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "fd" => (
-                "9.0.0",
-                "Fast user-friendly find alternative",
-                vec!["fd".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "bat" => (
-                "0.24.0",
-                "Cat clone with syntax highlighting and git integration",
-                vec!["bat".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "jq" => (
-                "1.7.1",
-                "Command-line JSON processor",
-                vec!["jq".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "git" => (
-                "2.44.0",
-                "Fast, scalable, distributed revision control system",
-                vec!["git".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "curl" => (
-                "8.6.0",
-                "Command line tool for transferring data with URLs",
-                vec!["curl".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "tree" => (
-                "2.1.1",
-                "Recursive directory indentation listing program",
-                vec!["tree".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "htop" => (
-                "3.3.0",
-                "Interactive process viewer and process manager",
-                vec!["htop".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            "neovim" | "nvim" => (
-                "0.10.0",
-                "Vim-fork focused on extensibility and usability",
-                vec!["nvim".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
-            name => (
-                "1.0.0",
-                "antOS declarative package",
-                vec![name.to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
-            ),
+        // Utilidades conocidas sin receta TOML (T34.5): una tabla cerrada,
+        // sin fuente, sin sha256, sin firma — lo que son. Lo que no está aquí
+        // ni es receta es un error, no un paquete «1.0.0» inventado.
+        let Some((_, version, desc, bins)) = Self::BUILTIN_PACKAGES
+            .iter()
+            .find(|(name, ..)| *name == recipe_path_or_name)
+        else {
+            let known: Vec<&str> = Self::OFFICIAL_RECIPES
+                .iter()
+                .map(|(n, _)| *n)
+                .chain(Self::BUILTIN_PACKAGES.iter().map(|(n, ..)| *n))
+                .collect();
+            bail!(
+                "no conozco el paquete «{recipe_path_or_name}»: no es un fichero .toml, ni una \
+                 receta de recipes/, ni una receta oficial, ni una utilidad conocida ({}). \
+                 Busca con `antos pkg search <texto>`",
+                known.join(", ")
+            );
         };
-
-        let manifest = PackageManifest {
+        Ok(PackageManifest {
             name: recipe_path_or_name.to_string(),
-            version: version.to_string(),
-            description: desc.to_string(),
-            homepage: Some(format!("https://antos.dev/packages/{recipe_path_or_name}")),
-            license: Some("MIT".to_string()),
-            source_url: Some(format!("https://packages.antos.dev/sources/{recipe_path_or_name}-{version}.tar.gz")),
-            sha256: Some(crypto::sha256(format!("{recipe_path_or_name}:{version}").as_bytes())),
-            signature: Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()),
-            signer_public_key: Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string()),
+            version: (*version).to_string(),
+            description: (*desc).to_string(),
+            homepage: None,
+            license: None,
+            source_url: None,
+            sha256: None,
+            signature: None,
+            signer_public_key: None,
             dependencies: Vec::new(),
-            build_script: Some("true".to_string()),
-            binaries: bins,
-            app_type,
-            desktop_entry,
-            icons,
-        };
-        Ok(manifest)
+            build_script: None,
+            binaries: bins.iter().map(|b| b.to_string()).collect(),
+            app_type: PackageAppType::Cli,
+            desktop_entry: None,
+            icons: Vec::new(),
+        })
     }
+
+    /// Utilidades de línea de comandos que antpkg conoce por nombre sin
+    /// receta TOML: `(nombre, versión, descripción, binarios)`. Sin fuente
+    /// ni firma; se instalan como envoltorio simulado y `Unsigned`.
+    pub const BUILTIN_PACKAGES: &[(&str, &str, &str, &[&str])] = &[
+        (
+            "ripgrep",
+            "14.1.0",
+            "Fast line-oriented search tool",
+            &["rg"],
+        ),
+        ("rg", "14.1.0", "Fast line-oriented search tool", &["rg"]),
+        ("fd", "10.2.0", "Simple, fast alternative to find", &["fd"]),
+        (
+            "bat",
+            "0.24.0",
+            "cat clone with syntax highlighting",
+            &["bat"],
+        ),
+        ("jq", "1.7.1", "Command-line JSON processor", &["jq"]),
+        (
+            "git",
+            "2.46.0",
+            "Distributed version control system",
+            &["git"],
+        ),
+        ("curl", "8.9.1", "URL transfer tool", &["curl"]),
+        ("tree", "2.1.1", "Recursive directory listing", &["tree"]),
+        ("htop", "3.3.0", "Interactive process viewer", &["htop"]),
+    ];
 }

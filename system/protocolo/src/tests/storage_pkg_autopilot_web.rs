@@ -131,8 +131,10 @@ fn test_package_types_serialization() {
         binaries_linked: vec!["rg".into()],
         desktop_entries_linked: Vec::new(),
         icons_linked: Vec::new(),
-        checksum_verified: true,
+        checksum_verified: false,
         signature_verified: true,
+        signature: crate::PackageSignatureStatus::Ed25519,
+        source_fetched: false,
         success: true,
         message: "Installed successfully".into(),
     };

@@ -61,6 +61,27 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&rep.generation.to_string(), CYAN)
             );
             println!("  Almacén:       {}", rep.store_path);
+            // T34.5: lo que se comprobó, sin adornos.
+            println!(
+                "  Firma:         {}",
+                match rep.signature {
+                    antos_protocol::PackageSignatureStatus::Ed25519 =>
+                        paint("Ed25519 verificada", GREEN),
+                    antos_protocol::PackageSignatureStatus::Unsigned =>
+                        paint("sin firma en la receta", YELLOW),
+                }
+            );
+            println!(
+                "  Fuente:        {}",
+                if rep.source_fetched && rep.checksum_verified {
+                    paint("descargada y SHA-256 comprobado", GREEN)
+                } else {
+                    paint(
+                        "NO descargada (simulación: el binario del store es un envoltorio)",
+                        YELLOW,
+                    )
+                }
+            );
             if !rep.binaries_linked.is_empty() {
                 println!("  Binarios:      {}", rep.binaries_linked.join(", "));
             }
@@ -420,15 +441,18 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!();
         }
         "verify" | "check" => {
+            // T34.5: esto comprueba que los directorios y binarios del store
+            // existen; no hashes ni firmas (no hay fuente descargada que
+            // hashear). El texto lo dice.
             println!(
-                "\n{} Verificando integridad criptográfica y sumas SHA-256...",
+                "\n{} Comprobando que el store tiene lo que el perfil declara (existencia, no hashes)...",
                 paint("antOS antpkg ·", BOLD)
             );
             let (all_valid, count, details) = crate::pkg::PackageEngine::verify(&ctx.state)?;
             let badge = if all_valid {
-                paint("INTEGRIDAD VERIFICADA", GREEN)
+                paint("STORE COMPLETO", GREEN)
             } else {
-                paint("FALLO DE INTEGRIDAD", RED)
+                paint("FALTAN ENTRADAS EN EL STORE", RED)
             };
             println!("  Estado: {} ({} paquetes comprobados)", badge, count);
             for d in &details {
@@ -469,7 +493,7 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos pkg apps                                     Lista aplicaciones de escritorio XDG");
             println!("    antos pkg validate <archivo.desktop>               Valida sintaxis de archivo .desktop");
             println!("    antos pkg rollback [generacion]                    Restaura una generación previa");
-            println!("    antos pkg verify                                   Verifica hashes y firmas ed25519");
+            println!("    antos pkg verify                                   Comprueba que el store tiene lo que el perfil declara");
             println!("    antos pkg status                                   Muestra estado del almacén\n");
         }
     }

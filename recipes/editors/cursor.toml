@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://download.todesktop.com/230313mzl4w4u92/cursor-0.40.4-build-24090525wqud6s8-x86_64.AppImage"
 sha256 = "5f25a74e50d75949d211b6ffae6488349fa861448b30e03e7e8b83939634f19b"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

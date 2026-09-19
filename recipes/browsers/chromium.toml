@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://download-chromium.appspot.com/dl/Linux_x64?type=snapshots"
 sha256 = "9e107d9d372bb6826bd81d3542a419d6ec4395ee130450b41a9f134502d6cbd8"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

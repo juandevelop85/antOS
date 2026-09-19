@@ -2060,7 +2060,7 @@ antos pkg apps
 # Validar un archivo .desktop contra la especificación Freedesktop (T25.1)
 antos pkg validate ~/.local/share/applications/code.desktop
 
-# Verificar integridad criptográfica (SHA-256 / ed25519) del almacén
+# Comprobar que el store tiene lo que el perfil declara (existencia; no hashes ni firmas)
 antos pkg verify
 
 # Desinstalar un paquete del perfil activo
@@ -2072,6 +2072,27 @@ antos pkg rollback 1
 
 # Estado general del almacén y del perfil activo
 antos pkg status
+```
+
+**Lo que antpkg hace y lo que no (T34.5).** El store por generaciones, el
+`rollback` y las entradas XDG son reales. **No se descarga ninguna fuente**:
+`source.url`/`source.sha256` de una receta son declaraciones que nada
+comprueba contra bytes reales, y el binario que queda en el store es un
+envoltorio simulado que imprime «antpkg wrapper …». El informe de `install`
+lo dice en dos líneas (`Firma:` y `Fuente:`) y `checksum_verified` es
+siempre `false`. La **firma sí se verifica de verdad**: Ed25519 con
+`ed25519-dalek` sobre `nombre:versión:sha256` con la `signer_public_key`
+de la receta; una receta firmada que no verifica no se instala, y una sin
+firma se instala como `sin firma en la receta` (ninguna de las recetas del
+repo va firmada: llevaban una firma de relleno que solo se comprobaba por
+formato, y se retiró). Los nombres que no son fichero, receta ni utilidad
+conocida (`ripgrep`, `fd`, `bat`, `jq`, `git`, `curl`, `tree`, `htop`) son
+un error con sugerencia, no un paquete inventado. Para firmar una receta:
+
+```bash
+# mensaje = "<name>:<version>:<sha256>"; clave y firma en hexadecimal
+signature = "<ed25519 sobre el mensaje>"
+signer_public_key = "<clave pública, 64 hex>"
 ```
 
 ---

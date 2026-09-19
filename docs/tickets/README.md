@@ -175,7 +175,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 34** | [T34.2](T34.2-ollama-como-motor-de-primera-clase-contexto-ciclo-de-vida-de-modelos-y-auto-local.md) | Ollama como Motor de Primera Clase: Contexto, Ciclo de Vida de Modelos y `auto` Local | ✅ Completado |
 | **Fase 34** | [T34.3](T34.3-ollama-de-serie-en-la-imagen-nixos-services-ollama-solo-loopback.md) | Ollama de Serie en la Imagen NixOS: `services.antos.llm` sobre `services.ollama`, Solo Loopback | ✅ Completado |
 | **Fase 34** | [T34.4](T34.4-perfiles-local-hybrid-cloud-y-fiabilidad-de-los-roles-con-modelos-pequenos.md) | Perfiles `local` / `hybrid` / `cloud` y Fiabilidad de los Roles con Modelos Pequeños | ✅ Completado |
-| **Fase 34** | [T34.5](T34.5-honestidad-de-antpkg-firmas-de-relleno-y-manifiestos-inventados.md) | Honestidad de antpkg: Firmas de Relleno y Manifiestos Inventados | ⏳ Pendiente |
+| **Fase 34** | [T34.5](T34.5-honestidad-de-antpkg-firmas-de-relleno-y-manifiestos-inventados.md) | Honestidad de antpkg: Firmas de Relleno y Manifiestos Inventados | ✅ Completado |
 | **Fase 35** | [T35.1](T35.1-catalogo-declarativo-de-stacks-y-project-scaffold-con-framework.md) | Catálogo Declarativo de Stacks y `project.scaffold` con `framework` | ✅ Completado |
 | **Fase 35** | [T35.2](T35.2-ejecutor-confinado-de-comandos-de-stack-y-toolchains-por-proyecto-via-nix.md) | Ejecutor Confinado de Comandos de Stack y Toolchains por Proyecto vía Nix | ✅ Completado |
 | **Fase 35** | [T35.3](T35.3-test-run-por-stack-verificacion-del-andamio-y-scaffold-en-el-toolset-del-agente.md) | `test.run` por Stack, Verificación del Andamio y `project.scaffold` en el Toolset del Agente | ✅ Completado |
@@ -533,7 +533,7 @@ en 33 s, fiabilidad 2/5.
   marcarlo, firmar de verdad con `ed25519-dalek` (ya en el árbol) o retirar,
   y no resolver nombres inexistentes.
 
-Orden sugerido de ataque: ~~T34.1~~ → ~~T34.2~~ → ~~T34.4~~ → ~~T34.3~~ → T34.5.
+Orden sugerido de ataque: ~~T34.1~~ → ~~T34.2~~ → ~~T34.4~~ → ~~T34.3~~ → ~~T34.5~~. Fase 34 completa.
 Los cuatro primeros verificados en el Mac con Ollama.app; T34.3 además por
 `nix eval` en CI (la imagen no se construye en macOS).
 

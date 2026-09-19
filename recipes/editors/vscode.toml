@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://update.code.visualstudio.com/1.93.0/linux-x64/stable"
 sha256 = "8f14e45fceea167a5a36dedd4bea2543dd9e5a5ea11dbbb3ddf06b6b772bd2dc"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

@@ -3,10 +3,33 @@
 //! Manages package installation, removal, generation-based profiles, and transactional rollbacks.
 //! Each package is stored in an immutable content-addressed directory under `/var/antos/store/`
 //! or `$ANTOS_STATE/store/<hash>-<name>-<version>/`, atomically linked to `$ANTOS_STATE/current/bin/`.
+//!
+//! ## Estado de implementación (T34.5)
+//!
+//! Lo que es real: el store por generaciones (directorios inmutables,
+//! enlaces del perfil, `rollback`, `verify` de existencia), las recetas TOML
+//! (`recipes/`), las entradas XDG e iconos de las aplicaciones gráficas.
+//!
+//! Lo que **no** lo es todavía, y el informe de `install` dice tal cual:
+//! - **No se descarga ninguna fuente.** `source.url` y `source.sha256` de una
+//!   receta son declaraciones; nada los comprueba contra bytes reales
+//!   (`checksum_verified` es siempre `false`, `source_fetched` también).
+//! - **El binario del store es un envoltorio simulado**: un guion que imprime
+//!   «antpkg wrapper …», no el programa.
+//! - **La firma sí se verifica de verdad** cuando la receta la trae: Ed25519
+//!   con `ed25519-dalek` (`crate::crypto`) sobre `nombre:versión:sha256`.
+//!   Antes de T34.5 `verify_ed25519` solo comprobaba que la firma fuera
+//!   hexadecimal y las 20 recetas llevaban la misma firma de relleno; esas
+//!   firmas se retiraron. Una receta sin firma se instala como
+//!   `PackageSignatureStatus::Unsigned`, y se dice.
+//! - `resolve_manifest` ya no inventa un manifiesto para cualquier nombre:
+//!   fichero, receta del directorio, receta oficial o utilidad de la tabla
+//!   `BUILTIN_PACKAGES`; lo demás es un error con sugerencia.
 
 use antos_protocol::{
     DesktopAppSummary, DesktopEntryManifest, DesktopValidationReport, IconAsset, PackageAppType,
-    PackageGeneration, PackageInstallReport, PackageManifest, PackageStoreStatus, PackageSummary,
+    PackageGeneration, PackageInstallReport, PackageManifest, PackageSignatureStatus,
+    PackageStoreStatus, PackageSummary,
 };
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -109,14 +132,19 @@ pub mod crypto {
         )
     }
 
-    /// Verifies format and cryptographic validity of an ed25519 signature.
-    pub fn verify_ed25519(public_key: &str, _message: &[u8], signature: &str) -> bool {
-        if public_key.len() != 64 || signature.len() != 128 {
-            return false;
-        }
-        let pub_valid = public_key.chars().all(|c| c.is_ascii_hexdigit());
-        let sig_valid = signature.chars().all(|c| c.is_ascii_hexdigit());
-        pub_valid && sig_valid
+    /// Verificación Ed25519 real (`ed25519-dalek`, `crate::crypto`), T34.5.
+    /// Antes solo comprobaba que clave y firma fueran hexadecimales de la
+    /// longitud correcta, con lo que una firma de relleno «verificaba».
+    pub fn verify_ed25519(public_key: &str, message: &[u8], signature: &str) -> bool {
+        crate::crypto::verify_signature(public_key, message, signature)
+    }
+
+    /// Lo que firma el autor de una receta: nombre, versión y el SHA-256
+    /// declarado de la fuente, para que la firma ate el artefacto y no solo
+    /// el nombre. Sin `sha256` se firma con el campo vacío (y `install` lo
+    /// dice).
+    pub fn signing_message(name: &str, version: &str, sha256: Option<&str>) -> Vec<u8> {
+        format!("{name}:{version}:{}", sha256.unwrap_or("")).into_bytes()
     }
 }
 

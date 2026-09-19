@@ -12,8 +12,6 @@ app_type = "gui"
 [source]
 url = "https://github.com/zed-industries/zed/releases/download/v0.151.0/zed-linux-x86_64.tar.gz"
 sha256 = "b7a2d488e1460c5a2e99d107ca67b36f78d6b7bfa7c5c0c9aa79d40b2a759be1"
-signature = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-signer_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 [build]
 dependencies = []

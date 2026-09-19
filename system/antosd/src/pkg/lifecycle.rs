@@ -11,18 +11,38 @@ impl PackageEngine {
     ) -> Result<PackageInstallReport> {
         let manifest = Self::resolve_manifest(recipe_path_or_name)?;
 
-        // Verify ed25519 signature if provided
-        let mut sig_ok = true;
-        if let (Some(sig), Some(pubkey)) = (&manifest.signature, &manifest.signer_public_key) {
-            let msg = format!("{}:{}", manifest.name, manifest.version);
-            sig_ok = crypto::verify_ed25519(pubkey, msg.as_bytes(), sig);
-            if !sig_ok {
-                bail!(
-                    "Cryptographic signature verification failed for package «{}»",
-                    manifest.name
+        // Firma (T34.5): Ed25519 real si la receta la trae; media firma
+        // (clave sin firma o firma sin clave) es un error de receta; sin
+        // firma se instala como `Unsigned` y se dice.
+        let signature = match (&manifest.signature, &manifest.signer_public_key) {
+            (Some(sig), Some(pubkey)) => {
+                let msg = crypto::signing_message(
+                    &manifest.name,
+                    &manifest.version,
+                    manifest.sha256.as_deref(),
                 );
+                if !crypto::verify_ed25519(pubkey, &msg, sig) {
+                    bail!(
+                        "la firma Ed25519 de la receta «{}» no verifica con la clave {}… \
+                         (mensaje firmado: nombre:versión:sha256)",
+                        manifest.name,
+                        pubkey.chars().take(12).collect::<String>()
+                    );
+                }
+                PackageSignatureStatus::Ed25519
             }
-        }
+            (None, None) => PackageSignatureStatus::Unsigned,
+            _ => bail!(
+                "la receta «{}» trae `signature` sin `signer_public_key` (o al revés): \
+                 o las dos o ninguna",
+                manifest.name
+            ),
+        };
+        let sig_ok = signature == PackageSignatureStatus::Ed25519;
+        let signature_note = match signature {
+            PackageSignatureStatus::Ed25519 => "firma Ed25519 verificada",
+            PackageSignatureStatus::Unsigned => "receta sin firma",
+        };
 
         // Calculate store hash
         let hash_input = format!(
@@ -55,10 +75,14 @@ impl PackageEngine {
                 binaries_linked: manifest.binaries,
                 desktop_entries_linked: dt_linked,
                 icons_linked: ic_linked,
-                checksum_verified: true,
+                checksum_verified: false,
                 signature_verified: sig_ok,
+                signature,
+                source_fetched: false,
                 success: true,
-                message: "Dry run: package verified and build simulated successfully".to_string(),
+                message: format!(
+                    "Simulación: {signature_note}; no se descarga la fuente ni se comprueba su SHA-256 (antpkg todavía no lo hace)"
+                ),
             });
         }
 
@@ -180,11 +204,14 @@ impl PackageEngine {
             binaries_linked,
             desktop_entries_linked,
             icons_linked,
-            checksum_verified: true,
+            checksum_verified: false,
             signature_verified: sig_ok,
+            signature,
+            source_fetched: false,
             success: true,
             message: format!(
-                "Package installed into store [{store_prefix}] at generation {new_gen}"
+                "Registrado en el store [{store_prefix}], generación {new_gen} · {signature_note} · \
+                 el binario es un envoltorio simulado: antpkg no descarga la fuente todavía"
             ),
         })
     }
@@ -221,8 +248,10 @@ impl PackageEngine {
             binaries_linked: Vec::new(),
             desktop_entries_linked: Vec::new(),
             icons_linked: Vec::new(),
-            checksum_verified: true,
-            signature_verified: true,
+            checksum_verified: false,
+            signature_verified: false,
+            signature: PackageSignatureStatus::Unsigned,
+            source_fetched: false,
             success: true,
             message: format!(
                 "Package «{}» removed from profile. Advanced to generation {new_gen}",
@@ -338,8 +367,10 @@ impl PackageEngine {
                 .collect(),
             desktop_entries_linked: all_dt,
             icons_linked: all_ic,
-            checksum_verified: true,
-            signature_verified: true,
+            checksum_verified: false,
+            signature_verified: false,
+            signature: PackageSignatureStatus::Unsigned,
+            source_fetched: false,
             success: true,
             message: format!(
                 "Successfully rolled back profile from generation {current_gen} to {target}"
