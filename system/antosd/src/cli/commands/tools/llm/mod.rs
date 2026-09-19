@@ -147,10 +147,11 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
 /// y se devuelve `None`.
 fn registered_ollama_endpoint(ctx: Option<&Ctx>) -> Option<String> {
     let c = ctx?;
-    if c.local_llm.source == crate::ctx::LocalLlmSource::Registered {
-        c.local_llm.preferred_local_endpoint.clone()
-    } else {
-        None
+    match c.local_llm.source {
+        crate::ctx::LocalLlmSource::Registered | crate::ctx::LocalLlmSource::Managed => {
+            c.local_llm.preferred_local_endpoint.clone()
+        }
+        _ => None,
     }
 }
 

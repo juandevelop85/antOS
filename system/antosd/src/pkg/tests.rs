@@ -56,11 +56,20 @@ fn test_parse_recipe_toml() {
     assert!(manifest.sha256.is_some());
 }
 
+/// T34.3: Ollama dejó de ser una receta antpkg (llevaba firma de relleno);
+/// lo trae la imagen o lo arranca `antos service up ollama`. Nota: el brazo
+/// genérico de `resolve_manifest` sigue inventando un manifiesto `1.0.0`
+/// para CUALQUIER nombre (deuda de T16.2, anotada en T34.5), así que aquí
+/// solo se comprueba el catálogo oficial; el CLI intercepta `ollama` antes.
 #[test]
-fn test_parse_ollama_recipe() {
-    let manifest = PackageEngine::resolve_manifest("ollama").expect("should resolve ollama recipe");
-    assert_eq!(manifest.name, "ollama");
-    assert_eq!(manifest.binaries, vec!["ollama".to_string()]);
+fn ollama_is_no_longer_a_package_recipe() {
+    assert!(!PackageEngine::OFFICIAL_RECIPES
+        .iter()
+        .any(|(name, _)| *name == "ollama"));
+    assert!(!PackageEngine::get_all_official_manifests()
+        .unwrap()
+        .iter()
+        .any(|m| m.name == "ollama"));
 }
 
 #[test]
@@ -317,9 +326,10 @@ fn test_gui_package_lifecycle_install_rollback_and_remove() {
 fn test_all_official_recipes_validation() {
     let all =
         PackageEngine::get_all_official_manifests().expect("should load all official recipes");
+    // 9 desde T34.3 (Ollama dejó de ser receta).
     assert!(
-        all.len() >= 10,
-        "Expected at least 10 official recipes, got {}",
+        all.len() >= 9,
+        "Expected at least 9 official recipes, got {}",
         all.len()
     );
 
@@ -382,5 +392,9 @@ fn test_search_catalog() {
 
     // Query wildcard / all
     let all = PackageEngine::search_catalog("*").expect("should search all");
-    assert!(all.len() >= 10);
+    assert!(
+        all.len() >= 9,
+        "9 recetas oficiales desde T34.3: {}",
+        all.len()
+    );
 }

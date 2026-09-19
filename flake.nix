@@ -24,6 +24,7 @@
       nucleo = [
         self.nixosModules.default
         self.nixosModules.desktop
+        self.nixosModules.llm
         { nixpkgs.overlays = [ overlayAntos ]; }
       ];
 
@@ -67,6 +68,9 @@
 
       nixosModules.default = import ./system/nixos/module.nix;
       nixosModules.desktop = import ./system/nixos/desktop.nix;
+      # El motor de modelos locales (T34.3): `services.antos.llm` sobre
+      # `services.ollama` de nixpkgs, solo loopback.
+      nixosModules.llm = import ./system/nixos/llm.nix;
 
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior

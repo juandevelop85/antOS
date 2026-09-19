@@ -325,6 +325,20 @@ impl ServiceKind {
         self.binaries()
     }
 
+    /// Unidad systemd con la que la imagen NixOS puede traer este servicio
+    /// de serie (T34.3). Si está activa y no hay registro propio, `antos
+    /// services` lo lista como externo gestionado por systemd.
+    pub fn systemd_unit(self) -> Option<&'static str> {
+        match self {
+            Self::Ollama => Some("ollama"),
+            Self::Postgres => Some("postgresql"),
+            Self::Redis => Some("redis"),
+            Self::MariaDb => Some("mariadb"),
+            Self::Meilisearch => Some("meilisearch"),
+            Self::RabbitMq => Some("rabbitmq"),
+        }
+    }
+
     /// Los binarios auxiliares que el plan usa, para localizarlos junto al
     /// principal (Debian pone `initdb` y `createdb` en el mismo `bin/`).
     pub fn helper_binaries(self) -> &'static [&'static str] {

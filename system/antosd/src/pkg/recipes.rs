@@ -174,7 +174,9 @@ impl PackageEngine {
             include_str!("../../../../recipes/tools/alacritty.toml"),
         ),
         ("neovim", include_str!("../../../../recipes/neovim.toml")),
-        ("ollama", include_str!("../../../../recipes/ollama.toml")),
+        // `ollama` ya no es una receta (T34.3): en NixOS lo trae la imagen
+        // (`services.antos.llm`) y en cualquier máquina lo arranca `antos
+        // service up ollama`; la receta llevaba una firma de relleno.
         (
             "opencode",
             include_str!("../../../../recipes/opencode.toml"),
@@ -416,14 +418,6 @@ impl PackageEngine {
                     format: "svg".to_string(),
                     path: "share/icons/hicolor/scalable/apps/alacritty.svg".to_string(),
                 }],
-            ),
-            "ollama" => (
-                "0.5.7",
-                "Local LLM inference daemon for CPUs and GPUs",
-                vec!["ollama".to_string()],
-                PackageAppType::Cli,
-                None,
-                Vec::new(),
             ),
             "opencode" => (
                 "1.0.0",

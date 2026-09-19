@@ -372,3 +372,42 @@ graph TD
    - Soporte nativo de instantáneas atómicas CoW (`FICLONE` / reflink) en sistemas Linux con Btrfs o XFS, acelerando la creación de snapshots de workspace de segundos a sub-milisegundos.
    - Paralelización de etapas independientes de integración continua local (`antos ci`) con `std::thread::scope`.
 
+
+---
+
+## 9. Modelos Locales de Serie (Fase 34)
+
+antOS trata un modelo de lenguaje local igual que una base de datos de
+desarrollo: un servicio de la máquina, en dos capas que comparten puerto y
+protocolo.
+
+1. **La imagen** (`system/nixos/llm.nix`, T34.3): `services.antos.llm` activa
+   `services.ollama` de nixpkgs en el escritorio antOS Linux. Ollama escucha
+   en `127.0.0.1:11434` desde el arranque, como unidad de systemd endurecida
+   (`ProtectHome`), **sin modelos** (la descarga es una decisión del usuario:
+   `antos llm setup`). Solo loopback por defecto: otro `host` evalúa con una
+   advertencia. La máquina headless (`antos-vm`) y la ISO en vivo no lo traen;
+   CI comprueba las tres cosas por `nix eval`.
+2. **El servicio efímero** (`system/antosd/src/service/`, T34.1): `antos
+   service up ollama` arranca un proceso real (binario del sistema o `nix
+   shell nixpkgs#ollama`) con PID, log y sonda de salud, o **adopta** el que
+   ya escucha — el de la imagen incluido — sin arrancar un segundo demonio ni
+   pararlo nunca. `antos services` lista el de systemd como `external ·
+   systemd: ollama.service`; `service down` remite a `systemctl`.
+
+Sobre esas capas, el demonio resuelve el modelo (T34.2, T34.4): `auto` elige
+el Ollama sano con un modelo que soporte `tools` (el configurado, si no el
+recomendado por RAM según `system/llm/models.toml`), pide siempre `num_ctx`
+(16k por defecto, acotado al máximo del modelo y al tier de RAM) y
+`keep_alive`, rechaza modelos sin `tools`, y adapta el run a un modelo
+pequeño: toolset compacto, cierre estructurado con `format`, reintento
+gratuito ante argumentos malformados y corte de bucle (`Looping`). Los
+perfiles `local` / `hybrid` / `cloud` reparten los roles de antFlow; una
+instalación limpia es `local` sin pedirlo. La detección en `ctx.local_llm`
+distingue de dónde sale el endpoint: `Registered` (service up), `Managed`
+(systemd de la imagen) o `Probed` (algo escucha en 11434).
+
+Lo que **no** hay: antpkg ya no tiene receta de Ollama (llevaba firma de
+relleno; `antos pkg install ollama` remite a la imagen, a `service up` o al
+instalador oficial), y las capacidades `llm.*` del catálogo siguen sin
+ejecutor (deuda anotada en T34.2).

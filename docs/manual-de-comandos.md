@@ -1461,6 +1461,18 @@ antos llm profile local
 antos llm profile hybrid
 ```
 
+**En antOS Linux, Ollama ya viene en la imagen** (T34.3): el escritorio
+activa `services.antos.llm` (sobre `services.ollama` de nixpkgs), que deja el
+demonio en `127.0.0.1:11434` desde el arranque, sin modelos. `antos services`
+lo muestra como `external · systemd: ollama.service`; `antos service up
+ollama` lo adopta en vez de arrancar otro; `antos service down ollama` te
+remite a `systemctl stop ollama`. Para quitarlo de la imagen:
+`services.antos.llm.enable = false;` en `/etc/nixos`; para exponerlo fuera de
+loopback (no recomendado: no tiene autenticación) `services.antos.llm.host`,
+que avisa al evaluar. `models = [ "qwen2.5-coder:7b" ]` lo preinstala en la
+activación si lo quieres declarado. La ISO en vivo no lo trae (corre desde
+RAM). `antos pkg install ollama` ya no existe como receta: apunta a esto.
+
 `doctor` y `setup` eligen el modelo por la RAM de la máquina según
 [`system/llm/models.toml`](../system/llm/models.toml) (editable sin
 recompilar; el binario lleva una copia de respaldo). El Ollama al que hablan

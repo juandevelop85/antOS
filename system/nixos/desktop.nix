@@ -543,6 +543,12 @@ in
     # la sesión Wayland (T31.18).
     services.antos.user = lib.mkDefault cfg.autologinUser;
 
+    # El escritorio trae el motor de modelos locales de serie (T34.3):
+    # Ollama en loopback desde el arranque, sin modelos hasta que el usuario
+    # los pida (`antos llm setup`). `services.antos.llm.enable = false` lo
+    # quita de la imagen.
+    services.antos.llm.enable = lib.mkDefault true;
+
     environment.systemPackages = [
       cfg.barra
       cfg.terminal

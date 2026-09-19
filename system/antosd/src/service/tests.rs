@@ -433,3 +433,19 @@ fn real_postgres_roundtrip() {
 fn real_ollama_roundtrip() {
     roundtrip_real("ollama", "OLLAMA_HOST");
 }
+
+/// T34.3: la detección por systemd nunca inventa: una unidad inexistente es
+/// `false` en cualquier plataforma, y sin registro ni unidad activa no hay
+/// entrada sintética en `antos services`.
+#[test]
+fn systemd_detection_never_invents_a_service() {
+    assert!(!backend::systemd_unit_active("antos-unidad-que-no-existe"));
+    let base = temp_base("managed");
+    let state = base.join(".antos");
+    let listed = get_service_status(Some("rabbitmq"), &state).unwrap();
+    assert!(
+        listed.is_empty(),
+        "sin registro ni rabbitmq.service activo no se lista nada: {listed:?}"
+    );
+    let _ = fs::remove_dir_all(&base);
+}

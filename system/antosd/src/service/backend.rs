@@ -290,6 +290,25 @@ pub fn log_tail(log_path: &Path, n: usize) -> String {
     lines[from..].join("\n")
 }
 
+// ---------------------------------------------------------------- systemd
+
+/// ¿Gestiona systemd una unidad con este nombre y está activa? (T34.3: el
+/// `services.ollama` de la imagen NixOS.) Solo tiene sentido en Linux con
+/// systemd corriendo; en cualquier otro caso, `false` sin ejecutar nada.
+pub fn systemd_unit_active(unit: &str) -> bool {
+    if !Path::new("/run/systemd/system").is_dir() {
+        return false;
+    }
+    Command::new("systemctl")
+        .args(["is-active", "--quiet", unit])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 // --------------------------------------------------------------- procesos
 
 pub fn pid_alive(pid: u32) -> bool {

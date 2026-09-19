@@ -542,6 +542,25 @@ jobs:
       - name: nix flake check (evaluación)
         run: nix flake check --no-build --show-trace
 
+      # T34.3: el escritorio trae Ollama de serie y SOLO en loopback; la
+      # máquina headless y la ISO no lo traen. Se comprueba por evaluación,
+      # sin construir: si alguien abre el puerto o lo quita del escritorio,
+      # este paso lo dice.
+      - name: Motor local de serie (services.antos.llm) · aserciones
+        run: |
+          set -eu
+          # `--json` para que booleanos, enteros y cadenas salgan sin ambigüedad.
+          eval_cfg() { nix eval --json ".#nixosConfigurations.$1.config.$2"; }
+          test "$(eval_cfg antos-desktop services.ollama.enable)" = "true"
+          test "$(eval_cfg antos-desktop services.ollama.host)" = '"127.0.0.1"'
+          test "$(eval_cfg antos-desktop services.ollama.port)" = "11434"
+          test "$(eval_cfg antos-desktop-vm services.ollama.enable)" = "true"
+          test "$(eval_cfg antos-vm services.ollama.enable)" = "false"
+          test "$(eval_cfg antos-iso services.ollama.enable)" = "false"
+          # Sin modelos en la activación: la descarga es del usuario.
+          test "$(eval_cfg antos-desktop services.ollama.loadModels)" = "[]"
+          echo "services.antos.llm: escritorio sí (127.0.0.1:11434, sin modelos), headless e ISO no"
+
       - name: Build · antosd
         run: nix build .#antosd --print-build-logs
 

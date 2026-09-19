@@ -24,6 +24,21 @@ pub fn cmd_pkg(ctx: &Ctx, args: &[String]) -> Result<()> {
                 anyhow::anyhow!("Uso: antos pkg install <paquete|receta.toml> [--dry-run]")
             })?;
             let dry_run = args.iter().any(|a| a == "--dry-run" || a == "-d");
+            if pkg_or_recipe.trim_end_matches(".toml") == "ollama"
+                || pkg_or_recipe.ends_with("recipes/ollama.toml")
+            {
+                // T34.3: no hay receta. Decirlo es mejor que «verificar» una
+                // firma de relleno.
+                println!(
+                    "\n{} Ollama no se instala con antpkg.\n  \
+                     • En antOS Linux ya viene en la imagen: services.antos.llm (escucha en 127.0.0.1:11434).\n  \
+                     • En cualquier máquina con `ollama` o `nix`: antos service up ollama\n  \
+                     • Instalador oficial para otros sistemas: https://ollama.com/download\n  \
+                     Después: antos llm setup\n",
+                    paint("antOS antpkg ·", BOLD)
+                );
+                return Ok(());
+            }
 
             println!(
                 "\n{} Instalando paquete en el almacén inmutable...",

@@ -60,6 +60,9 @@ pub enum LocalLlmSource {
     None,
     /// `$STATE/services/ollama/service.json` existe y su puerto responde.
     Registered,
+    /// Lo trae la imagen: `ollama.service` de systemd está activo y responde
+    /// (`services.antos.llm`, T34.3). Se para con `systemctl`, no con antOS.
+    Managed,
     /// Nadie lo registró; `127.0.0.1:11434` acepta conexiones.
     Probed,
 }
@@ -284,13 +287,19 @@ fn probe_local_llm_endpoints(state_dir: Option<&Path>) -> LocalLlmStatus {
     // 0. El Ollama que arrancó (o adoptó) `antos service up`, si responde:
     //    manda sobre el puerto por defecto, porque puede estar en otro.
     let registered = state_dir.and_then(|s| crate::service::registered_endpoint(s, "ollama"));
+    // 0b. El de la imagen (systemd, T34.3), si no hay registro propio.
+    let managed = if registered.is_none() {
+        crate::service::managed_endpoint("ollama")
+    } else {
+        None
+    };
 
     // T31.7: built directly, not parsed from a string literal — a
     // constant address has no failure mode to `.unwrap()` away.
     // 1. Probe Ollama (default 127.0.0.1:11434)
     let ollama_addr = SocketAddr::new(localhost, 11434);
     let ollama_probed = TcpStream::connect_timeout(&ollama_addr, timeout).is_ok();
-    let ollama_available = registered.is_some() || ollama_probed;
+    let ollama_available = registered.is_some() || managed.is_some() || ollama_probed;
 
     // 2. Probe OpenCode / llama.cpp (default 127.0.0.1:8080)
     let opencode_addr = SocketAddr::new(localhost, 8080);
@@ -298,6 +307,8 @@ fn probe_local_llm_endpoints(state_dir: Option<&Path>) -> LocalLlmStatus {
 
     let (preferred_local_endpoint, source) = if let Some(ep) = registered {
         (Some(ep), LocalLlmSource::Registered)
+    } else if let Some(ep) = managed {
+        (Some(ep), LocalLlmSource::Managed)
     } else if ollama_probed {
         (
             Some("http://127.0.0.1:11434".to_string()),

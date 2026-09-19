@@ -19,6 +19,11 @@
   # la Fase 30 (T30.2); el módulo y sus opciones están en `desktop.nix`.
   # services.antos.desktop.enable = true;
 
+  # El motor de modelos locales (T34.3): Ollama en 127.0.0.1:11434 desde el
+  # arranque. El escritorio lo activa solo; en una máquina headless se pide
+  # aquí (los modelos se descargan después con `antos llm setup`).
+  # services.antos.llm.enable = true;
+
   # La consola en el puerto serie: es lo que permite ver el arranque entero
   # sin ventana gráfica, igual que hacemos con el kernel de la Vía B.
   boot.kernelParams = [ "console=ttyAMA0,115200" ];

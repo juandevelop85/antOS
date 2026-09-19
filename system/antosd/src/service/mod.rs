@@ -304,6 +304,17 @@ pub fn stop_service(service: &str, state_dir: &Path) -> Result<StopOutcome> {
     let kind = parse_kind(service)?;
     let dir = service_dir(state_dir, kind);
     let Some(mut info) = read_record(&dir) else {
+        if let Some(unit) = kind
+            .systemd_unit()
+            .filter(|u| backend::systemd_unit_active(u))
+        {
+            bail!(
+                "«{}» lo gestiona systemd ({unit}.service), no antOS: se para con \
+                 `systemctl stop {unit}` (y se quita de la imagen con \
+                 `services.antos.llm.enable = false` si es el Ollama de serie)",
+                kind.canonical_name()
+            );
+        }
         bail!(
             "no se encontró servicio registrado «{}» en {}",
             kind.canonical_name(),
@@ -344,33 +355,72 @@ pub fn get_service_status(
     service_filter: Option<&str>,
     state_dir: &Path,
 ) -> Result<Vec<ServiceInfo>> {
-    let base_dir = state_dir.join("services");
-    let Ok(read_dir) = fs::read_dir(&base_dir) else {
-        return Ok(Vec::new());
-    };
     let filter_kind = match service_filter {
         Some(f) => Some(parse_kind(f)?),
         None => None,
     };
-
     let mut list = Vec::new();
-    for entry in read_dir.flatten() {
-        let Some(mut info) = read_record(&entry.path()) else {
-            continue;
-        };
-        let Some(kind) = ServiceKind::parse(&info.name) else {
-            continue;
-        };
-        if let Some(fk) = filter_kind {
-            if fk != kind {
+    let base_dir = state_dir.join("services");
+    if let Ok(read_dir) = fs::read_dir(&base_dir) {
+        for entry in read_dir.flatten() {
+            let Some(mut info) = read_record(&entry.path()) else {
                 continue;
+            };
+            let Some(kind) = ServiceKind::parse(&info.name) else {
+                continue;
+            };
+            if let Some(fk) = filter_kind {
+                if fk != kind {
+                    continue;
+                }
             }
+            refresh(&mut info, kind);
+            list.push(info);
         }
-        refresh(&mut info, kind);
-        list.push(info);
+    }
+    // Servicios que trae la imagen por systemd sin que antOS los haya
+    // registrado (T34.3): se listan como externos gestionados, para que
+    // `antos services` diga la verdad de lo que escucha en la máquina.
+    for kind in ServiceKind::ALL {
+        if filter_kind.is_some_and(|fk| fk != kind) {
+            continue;
+        }
+        if list.iter().any(|i| i.name == kind.canonical_name()) {
+            continue;
+        }
+        if let Some(info) = managed_by_systemd(kind) {
+            list.push(info);
+        }
     }
     list.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(list)
+}
+
+/// El registro sintético de un servicio que systemd mantiene activo en su
+/// puerto por defecto (`services.ollama` de la imagen, T34.3).
+fn managed_by_systemd(kind: ServiceKind) -> Option<ServiceInfo> {
+    let unit = kind.systemd_unit()?;
+    if !backend::systemd_unit_active(unit) {
+        return None;
+    }
+    let port = kind.default_port();
+    let (env_var_key, env_var_value) = kind.connection(port, "antos_dev");
+    let mut info = ServiceInfo {
+        name: kind.canonical_name().into(),
+        port,
+        status: "external".into(),
+        env_var_key,
+        env_var_value,
+        pid: None,
+        data_dir: String::new(),
+        backend: ServiceBackend::External,
+        health: Health::Unknown,
+        log_path: None,
+        started_at: None,
+        command: Some(format!("systemd: {unit}.service")),
+    };
+    refresh(&mut info, kind);
+    Some(info)
 }
 
 /// Últimas `lines` líneas del log de un servicio arrancado por antOS.
@@ -396,6 +446,18 @@ pub fn service_logs(service: &str, state_dir: &Path, lines: usize) -> Result<Str
 pub fn registered_endpoint(state_dir: &Path, service: &str) -> Option<String> {
     let kind = ServiceKind::parse(service)?;
     let info = read_record(&service_dir(state_dir, kind))?;
+    healthy_http_endpoint(kind, &info)
+}
+
+/// Como `registered_endpoint`, para el servicio que systemd trae de serie
+/// (T34.3) cuando antOS no lo ha registrado.
+pub fn managed_endpoint(service: &str) -> Option<String> {
+    let kind = ServiceKind::parse(service)?;
+    let info = managed_by_systemd(kind)?;
+    healthy_http_endpoint(kind, &info)
+}
+
+fn healthy_http_endpoint(kind: ServiceKind, info: &ServiceInfo) -> Option<String> {
     let healthy = backend::probe_once(&kind.probe(), info.port, Duration::from_millis(300));
     if !healthy {
         return None;
