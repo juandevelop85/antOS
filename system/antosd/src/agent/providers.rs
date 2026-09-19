@@ -159,6 +159,33 @@ fn read_body(resp: &mut ureq::http::Response<ureq::Body>, who: &str) -> Result<V
     serde_json::from_str(&text).with_context(|| format!("la respuesta de {who} no es JSON"))
 }
 
+/// Traduce el error más opaco de Ollama a algo accionable. Cuando el kernel
+/// mata al proceso del modelo por falta de memoria (OOM), Ollama responde
+/// `HTTP 500 {"error":"llama-server process has terminated: signal:
+/// killed"}` — nada ahí dice «memoria». Con la RAM de la máquina, el modelo
+/// y el contexto pedido se puede decir qué pasó y qué probar. Los errores
+/// que no son eso pasan tal cual.
+pub(crate) fn explain_ollama_error(err: anyhow::Error, model: &str, num_ctx: u32) -> anyhow::Error {
+    let text = format!("{err:#}");
+    let killed = text.contains("signal: killed")
+        || text.contains("process has terminated")
+        || text.contains("out of memory");
+    if !killed {
+        return err;
+    }
+    let ram = crate::llm::doctor::SystemResources::detect()
+        .map(|r| format!("{:.1} GB", r.total_ram_gb()))
+        .unwrap_or_else(|| "desconocida".into());
+    let smaller_ctx = (num_ctx / 2).max(1024);
+    anyhow::anyhow!(
+        "Ollama perdió el proceso del modelo «{model}» — casi siempre el kernel lo mató por falta \
+         de memoria (RAM de esta máquina: {ram}; contexto pedido: {num_ctx} tokens; en una ISO en \
+         vivo el propio sistema ocupa RAM). Prueba, por orden: `antos llm ctx {smaller_ctx}` (menos \
+         caché KV), un modelo menor (`antos llm pull qwen2.5-coder:0.5b` y `antos llm use ollama \
+         --model qwen2.5-coder:0.5b`), o más memoria para la máquina/VM. Detalle: {text}"
+    )
+}
+
 // ───────────────────────────── Claude ─────────────────────────────
 
 pub struct ClaudeAgentProvider {
@@ -375,7 +402,8 @@ impl OllamaAgentProvider {
             .header("content-type", "application/json")
             .send_json(&body)
             .with_context(|| format!("no pude contactar con Ollama en {url}"))?;
-        let v = read_body(&mut resp, "Ollama")?;
+        let v = read_body(&mut resp, "Ollama")
+            .map_err(|e| explain_ollama_error(e, &self.model, self.options.num_ctx))?;
         let message = v.get("message").cloned().unwrap_or(Value::Null);
         self.messages.push(message.clone());
         let content = message
@@ -415,7 +443,8 @@ impl OllamaAgentProvider {
             .header("content-type", "application/json")
             .send_json(&body)
             .with_context(|| format!("no pude contactar con Ollama en {url}"))?;
-        let v = read_body(&mut resp, "Ollama")?;
+        let v = read_body(&mut resp, "Ollama")
+            .map_err(|e| explain_ollama_error(e, &self.model, self.options.num_ctx))?;
         let message = v.get("message").cloned().unwrap_or(Value::Null);
         self.messages.push(message.clone());
         let mut turn = Turn {
@@ -1067,6 +1096,33 @@ mod tests {
         assert_eq!(body["keep_alive"], "1h");
         assert_eq!(custom.context_window(), Some(8192));
         assert_eq!(custom.context_note().as_deref(), Some("acotado"));
+    }
+
+    /// El OOM de Ollama llega como un 500 opaco; el usuario debe leer
+    /// «memoria», la RAM, el contexto y qué probar. Otros errores, intactos.
+    #[test]
+    fn ollama_oom_is_explained_with_ram_context_and_next_steps() {
+        let raw = anyhow::anyhow!(
+            "{}",
+            r#"Ollama devolvió HTTP 500: {"error":"llama-server process has terminated: signal: killed"}"#
+        );
+        let msg = format!(
+            "{:#}",
+            explain_ollama_error(raw, "qwen2.5-coder:1.5b", 4096)
+        );
+        assert!(msg.contains("falta de memoria"), "{msg}");
+        assert!(msg.contains("qwen2.5-coder:1.5b"));
+        assert!(msg.contains("4096 tokens"));
+        assert!(msg.contains("antos llm ctx 2048"));
+        assert!(msg.contains("qwen2.5-coder:0.5b"));
+        assert!(
+            msg.contains("signal: killed"),
+            "conserva el detalle original"
+        );
+
+        let other = anyhow::anyhow!("Ollama devolvió HTTP 404: model not found");
+        let same = format!("{:#}", explain_ollama_error(other, "m", 4096));
+        assert_eq!(same, "Ollama devolvió HTTP 404: model not found");
     }
 
     // ------------------------------------------------ Ollama simulado

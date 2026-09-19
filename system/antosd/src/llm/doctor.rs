@@ -12,6 +12,10 @@ use serde::Deserialize;
 use std::path::Path;
 
 const EMBEDDED_TABLE: &str = include_str!("../../../llm/models.toml");
+/// Por debajo de esto `doctor` avisa: el sistema (más aún una ISO en vivo,
+/// que corre desde RAM) y el modelo compiten por la memoria y el kernel
+/// mata al proceso de Ollama.
+pub const LOW_RAM_GB: f64 = 6.0;
 pub const TABLE_RELATIVE_PATH: &str = "system/llm/models.toml";
 
 /// Memoria de la máquina, en bytes.
@@ -259,13 +263,22 @@ impl DoctorReport {
                 .unwrap_or_default()
         ));
         match self.resources {
-            Some(r) => out.push(format!(
-                "RAM               {:.1} GB{}",
-                r.total_ram_gb(),
-                r.available_ram
-                    .map(|a| format!(" ({} libres)", human_size(a)))
-                    .unwrap_or_default()
-            )),
+            Some(r) => {
+                out.push(format!(
+                    "RAM               {:.1} GB{}",
+                    r.total_ram_gb(),
+                    r.available_ram
+                        .map(|a| format!(" ({} libres)", human_size(a)))
+                        .unwrap_or_default()
+                ));
+                if r.total_ram_gb() < LOW_RAM_GB {
+                    out.push(format!(
+                        "                  ⚠ con menos de {LOW_RAM_GB:.0} GB el kernel puede matar al modelo \
+                         (Ollama responde «signal: killed»); en una ISO en vivo el sistema entero \
+                         ocupa RAM. Modelo pequeño, contexto corto (antos llm ctx 2048) o más memoria."
+                    ));
+                }
+            }
             None => out.push("RAM               no se pudo leer".into()),
         }
         match &self.tier {
