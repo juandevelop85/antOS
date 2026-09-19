@@ -176,6 +176,9 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 34** | [T34.3](T34.3-ollama-de-serie-en-la-imagen-nixos-services-ollama-solo-loopback.md) | Ollama de Serie en la Imagen NixOS: `services.antos.llm` sobre `services.ollama`, Solo Loopback | ✅ Completado |
 | **Fase 34** | [T34.4](T34.4-perfiles-local-hybrid-cloud-y-fiabilidad-de-los-roles-con-modelos-pequenos.md) | Perfiles `local` / `hybrid` / `cloud` y Fiabilidad de los Roles con Modelos Pequeños | ✅ Completado |
 | **Fase 34** | [T34.5](T34.5-honestidad-de-antpkg-firmas-de-relleno-y-manifiestos-inventados.md) | Honestidad de antpkg: Firmas de Relleno y Manifiestos Inventados | ⏳ Pendiente |
+| **Fase 35** | [T35.1](T35.1-catalogo-declarativo-de-stacks-y-project-scaffold-con-framework.md) | Catálogo Declarativo de Stacks y `project.scaffold` con `framework` | ⏳ Pendiente |
+| **Fase 35** | [T35.2](T35.2-ejecutor-confinado-de-comandos-de-stack-y-toolchains-por-proyecto-via-nix.md) | Ejecutor Confinado de Comandos de Stack y Toolchains por Proyecto vía Nix | ⏳ Pendiente |
+| **Fase 35** | [T35.3](T35.3-test-run-por-stack-verificacion-del-andamio-y-scaffold-en-el-toolset-del-agente.md) | `test.run` por Stack, Verificación del Andamio y `project.scaffold` en el Toolset del Agente | ⏳ Pendiente |
 
 ---
 
@@ -533,3 +536,40 @@ en 33 s, fiabilidad 2/5.
 Orden sugerido de ataque: ~~T34.1~~ → ~~T34.2~~ → ~~T34.4~~ → ~~T34.3~~ → T34.5.
 Los cuatro primeros verificados en el Mac con Ollama.app; T34.3 además por
 `nix eval` en CI (la imagen no se construye en macOS).
+
+---
+
+## Fase 35 · Proyectos por Intención (September 2026)
+
+Origen: la primera prueba en la ISO en vivo (2026-09-18), `antos agent do
+"crea un proyecto en nestjs llamado antostest"`. No podía funcionar, y no
+por el modelo: el agente no tiene shell por diseño (T31.4) y el andamio de
+proyectos que sí existe (`antos "crea un proyecto typescript llamado x"` →
+`project.scaffold`) es un `match` en Rust con dos ficheros por lenguaje,
+sin frameworks, sin instalar nada, y **la imagen de antOS Linux no trae
+`node`, `python3` ni `cargo`**. Que «iniciar un proyecto en determinada
+tecnología, lenguaje y framework con solo indicarlo» funcione de verdad
+exige cinco piezas, repartidas en tres tickets:
+
+- **T35.1** — los stacks como datos: `system/stacks/<id>.toml` (lenguaje,
+  framework, alias, plantillas con un test que pasa, comandos como vectores,
+  toolchain nix, red declarada); `project.scaffold` con `framework`;
+  el planificador reconoce los alias («nestjs», «fastapi», «axum»…). Sin
+  red: plantillas correctas listas para instalar.
+- **T35.2** — ejecutar lo que el stack declara sin abrir una shell:
+  `project.run` (`install|test|dev|build`) por el recinto, lista blanca de
+  programas, argumentos solo del catálogo, cachés de los gestores dentro
+  del proyecto; toolchains por proyecto con `nix shell nixpkgs#…`
+  (`Launcher::Nix` de T34.1) para que la imagen no engorde. Con la verdad
+  por delante: la red del recinto es todo o nada; el host declarado se
+  muestra, no filtra.
+- **T35.3** — cerrar el ciclo: `.antos/project.toml` como fuente de verdad
+  del stack (adiós a los tres `if Cargo.toml/package.json/pyproject.toml`
+  de `fs.rs`, `ci.rs` y `env.rs`), verificación del andamio con el test del
+  stack, `project.*` en el toolset completo del agente («crea un proyecto
+  fastapi y añade /health» en un run) y un caso de evaluación.
+
+Orden: T35.1 → T35.2 → T35.3. T35.1 y T35.3 se prueban en el Mac; el camino
+`Launcher::Nix` de T35.2 en la VM de antOS. Nada de esto necesita un modelo
+grande: el andamio lo produce el catálogo, no el modelo; extender el proyecto
+después sí (7B como mínimo, T34.4).
