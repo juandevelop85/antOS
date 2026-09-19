@@ -928,30 +928,48 @@ están en rojo, ya no termina con `finished`, o sube un 30 % en pasos o
 tokens. Flujo recomendado: `antos eval agent --live` → cambiar el prompt o
 el modelo del rol → `antos eval agent --live` → `antos eval diff`.
 
-**Modelos locales con Ollama (gratis).** Probado en un Mac de 18 GB con
-`qwen2.5-coder:7b` (4,7 GB, soporta herramientas):
+**Modelos locales con Ollama (gratis).** Desde T34.2 una instalación sin
+ninguna clave llega a un agente en tres comandos; `auto` (el proveedor por
+defecto) elige el Ollama local si responde y tiene un modelo con `tools`,
+y nunca llama a un proveedor de red que no hayas configurado:
 
 ```bash
-ollama pull qwen2.5-coder:7b
-antos llm use ollama --model qwen2.5-coder:7b
-for r in architect coder qa auditor; do antos agent config --role $r --llm ollama:qwen2.5-coder:7b; done
+antos llm setup            # arranca/adopta Ollama, diagnostica, descarga el modelo recomendado por RAM, lo fija
 antos -y agent do "haz que pase el test sums de src/lib.rs"
 antos -y agent run T99.1 --auto
-antos eval agent --live
+antos eval agent --live    # mide antes de tocar prompts o modelos
 ```
 
-Medido (2026-09-16): el pipeline de roles completo en ~33 s, un run suelto
-en 25–75 s. Fiabilidad de un 7B en el escenario «arregla un test en rojo»:
-2 de 5 ejecuciones terminan bien; el resto se queda dando vueltas sin
-llamar a `finalizar`, «termina» sin arreglar nada, o responde en prosa. El
-runtime lo cubre en lo que puede: rescata llamadas escritas como texto
-(```` ```json {"name": …} ```` ````), envía un recordatorio antes de dar al
-modelo por parado, y el presupuesto y `files_allowed` (evaluación) cazan
-los bucles y los atajos como «editar el test para que pase». Para más
-fiabilidad, un modelo mayor (`qwen2.5-coder:14b` cabe en 18 GB) o un
+`setup` pregunta en cada paso (`-y` responde que sí). Por piezas:
+`antos llm doctor` (RAM, tier, modelos con tamaño/cuantización/`tools`/
+contexto máximo, contexto efectivo), `antos llm pull|rm <modelo>` (por la
+API HTTP de Ollama, sin necesitar el binario), `antos llm ctx <tokens>
+[--role coder]`, `antos llm temperature <t>`.
+
+**Contexto.** Ollama usa **4096 tokens** si no se le pide otra cosa y, al
+superarlos, recorta la conversación **por el principio**: el prompt de
+sistema y las herramientas. Un `fs.read` de dos ficheros medianos basta. El
+proveedor de agente pide siempre `num_ctx` (16 384 por defecto; por rol con
+`antos llm ctx 8192 --role architect`), acotado al máximo del modelo
+(`/api/show`) y al techo del tier de RAM (`system/llm/models.toml`: 8 GB →
+8k, 16 GB → 16k, 32 GB+ → 32k). Si se acota, el informe del run lo dice
+(`contexto: 8192 tokens (contexto pedido 16384, efectivo 8192: …)`). También
+envía `keep_alive` (10 min) para que el modelo no se descargue entre pasos.
+
+**Temperatura.** El planificador va a 0.0; el agente **no**: con
+`qwen2.5-coder:7b` a 0.0 el 7B entra en un bucle determinista
+(`fs.list`/`fs.read` hasta agotar el presupuesto). Medido en el Mac de 18 GB,
+escenario «arregla un test en rojo», 5 ejecuciones por valor (2026-09-18,
+con 16k de contexto): 0.0 → 0/5 · 0.3 → 3/5 · 0.7 → 2/5. El valor por
+defecto es 0.3. Con n=5 esto es ruido en buena parte; el ritual sigue siendo
+`eval --live` → cambiar → `eval --live` → `eval diff`, y T34.4 añade
+`--repeat`.
+
+Un modelo que declara no soportar `tools` se rechaza al resolverlo para un
+agente (el error sugiere uno descargado que sí). Para más fiabilidad, un
+modelo mayor (`qwen2.5-coder:14b` cabe en 32 GB con 16k de contexto) o un
 proveedor remoto para el rol Coder; la evaluación `--live` es la forma de
-comparar sin adivinar. Por ejecución, no por promedio: repite varias veces
-antes de sacar conclusiones.
+comparar sin adivinar.
 
 Presupuesto en pasos por rol: 8 / 30 / 8 (Arquitecto / Coder / Auditor),
 configurable en `llm_config.json` (`role_steps`). **Autopilot** (T16.3) ya no
@@ -1335,28 +1353,50 @@ antos llm free
 antos llm use groq --model llama-3.3-70b-versatile
 antos llm use openrouter --model deepseek/deepseek-r1:free
 antos llm use gemini --model gemini-2.0-flash
-antos llm use ollama --model qwen2.5-coder:latest
+antos llm use ollama --model qwen2.5-coder:7b
 antos llm use opencode --endpoint http://127.0.0.1:8080/v1
 antos llm use local               # Planificador determinista local offline
 
-# Restablecer selección automática inteligente
+# Restablecer selección automática (local primero: Ollama → OpenCode → claves → determinista)
 antos llm use --clear
 
 # Prueba interactiva de inferencia y Tool Calling con el motor activo
 antos llm test
 antos llm test --prompt "crea un microservicio en rust"
-
-# Asistente de configuración guiada y recomendaciones de modelos de desarrollo
-antos llm setup
-antos llm setup --model qwen2.5-coder:7b
-
-# Instalar el motor Ollama mediante antpkg y receta declarativa
-antos pkg install recipes/ollama.toml
-antos pkg install ollama
-
-# Listar modelos configurados y modelos locales descargados
-antos llm list
 ```
+
+**Motor local con Ollama (T34.2).** Todo por la API HTTP de Ollama en
+loopback, así que funciona aunque el binario `ollama` no esté en `PATH`
+(backend `nix` de `antos service up ollama`):
+
+```bash
+# De cero a agente sin claves: servicio → diagnóstico → modelo → configuración
+antos llm setup                      # pregunta en cada paso
+antos -y llm setup --model qwen2.5-coder:14b
+
+# RAM, tier recomendado, modelos (tamaño, params, cuantización, tools, ctx), contexto efectivo
+antos llm doctor
+
+# Modelos: descargar con progreso, listar, borrar
+antos llm pull qwen2.5-coder:7b
+antos llm list
+antos llm rm qwen2.5-coder:0.5b      # pide confirmación (-y para scripts)
+
+# Ventana de contexto pedida a Ollama (por defecto 16384; Ollama solo usaría 4096)
+antos llm ctx                        # ver
+antos llm ctx 32768                  # para todos los roles
+antos llm ctx 8192 --role architect  # solo un rol
+
+# Temperatura del agente (0.3 por defecto; el planificador va a 0.0)
+antos llm temperature 0.7
+```
+
+`doctor` y `setup` eligen el modelo por la RAM de la máquina según
+[`system/llm/models.toml`](../system/llm/models.toml) (editable sin
+recompilar; el binario lleva una copia de respaldo). El Ollama al que hablan
+es, por orden: el `endpoint` configurado con `antos llm use ollama
+--endpoint …`, el registrado por `antos service up ollama` (aunque esté en
+otro puerto), `OLLAMA_HOST`, `127.0.0.1:11434`.
 
 ---
 

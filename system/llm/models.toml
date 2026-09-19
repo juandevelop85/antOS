@@ -1,0 +1,51 @@
+# Recomendación de modelos locales según la RAM de la máquina (T34.2).
+#
+# La lee `antos llm doctor` y `antos llm setup` en tiempo de ejecución desde
+# el árbol de antOS (con una copia embebida en el binario como respaldo), para
+# poder revisarla sin recompilar. Los tiers se recorren de mayor a menor
+# `min_ram_gb`; gana el primero que la máquina alcanza.
+#
+# `max_num_ctx` es el techo de contexto que se pide a Ollama en ese tier:
+# la caché KV crece con el contexto y en 8 GB un 7B con 32k no cabe.
+# `code`, `large` y `fast` son los papeles que T34.4 asigna a los roles;
+# hoy `setup` usa `code`.
+
+[[tier]]
+name = "≥ 48 GB"
+min_ram_gb = 48
+max_num_ctx = 32768
+code = "qwen2.5-coder:32b"
+large = "qwen2.5-coder:32b"
+fast = "qwen2.5-coder:7b"
+
+[[tier]]
+name = "32–47 GB"
+min_ram_gb = 32
+max_num_ctx = 32768
+code = "qwen2.5-coder:14b"
+large = "qwen2.5-coder:14b"
+fast = "qwen2.5-coder:7b"
+
+[[tier]]
+name = "16–31 GB"
+min_ram_gb = 16
+max_num_ctx = 16384
+code = "qwen2.5-coder:7b"
+large = "qwen2.5-coder:7b"
+fast = "qwen2.5-coder:3b"
+
+[[tier]]
+name = "8–15 GB"
+min_ram_gb = 8
+max_num_ctx = 8192
+code = "qwen2.5-coder:3b"
+large = "qwen2.5-coder:3b"
+fast = "qwen2.5-coder:1.5b"
+
+[[tier]]
+name = "< 8 GB"
+min_ram_gb = 0
+max_num_ctx = 4096
+code = "qwen2.5-coder:1.5b"
+large = "qwen2.5-coder:1.5b"
+fast = "qwen2.5-coder:0.5b"

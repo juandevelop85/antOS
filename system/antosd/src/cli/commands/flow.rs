@@ -183,7 +183,7 @@ pub fn cmd_agent(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> R
                         _ => "qa",
                     };
                     let spec = llm_config.get_role_model(key);
-                    crate::agent::providers::resolve(&state, Some(&spec))
+                    crate::agent::providers::resolve_for_role(&state, Some(&spec), Some(key))
                 };
                 let mut terminal = crate::terminal::Terminal::new(opts.assume_yes);
                 engine.run_agent_pipeline(

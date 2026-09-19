@@ -16,6 +16,10 @@ use crate::terminal::{ellipsis, paint, tier_color, BLUE, BOLD, CYAN, DIM, GREEN,
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
+mod doctor;
+mod models;
+mod setup;
+
 pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn Planner>> {
     // 1. Si el usuario solicitó explícitamente un planificador por CLI/flag (--planner):
     if let Some(target) = nombre {
@@ -104,24 +108,11 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
         }
     }
 
-    // 3. Jerarquía de fallback automático (modo "auto"):
-    // 1. Proveedores en la nube con free tiers o claves configuradas.
-    // 2. Claude si hay clave de API configurada.
-    // 3. Ollama local si está disponible en la máquina.
-    // 4. OpenCode / llama.cpp local si está disponible en puerto 8080.
-    // 5. Planificador local determinista sin dependencias externas.
-    if let Ok(p) = OpenAiCompatPlanner::from_preset("groq") {
-        return Ok(Box::new(p));
-    }
-    if let Ok(p) = OpenAiCompatPlanner::from_preset("openrouter") {
-        return Ok(Box::new(p));
-    }
-    if let Ok(p) = ClaudePlanner::from_env() {
-        return Ok(Box::new(p));
-    }
-    if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
-        return Ok(Box::new(p));
-    }
+    // 3. Jerarquía automática (modo "auto", T34.2): local primero.
+    // 1. Ollama local si responde (el registrado por `service up` manda).
+    // 2. OpenCode / llama.cpp local si está disponible en puerto 8080.
+    // 3. Proveedores de red solo si hay clave configurada.
+    // 4. Planificador local determinista sin dependencias externas.
     if let Ok(mut o) = OllamaPlanner::from_env() {
         if let Some(ep) = registered_ollama_endpoint(ctx) {
             o.endpoint = ep;
@@ -134,6 +125,18 @@ pub fn pick_planner(ctx: Option<&Ctx>, nombre: Option<&str>) -> Result<Box<dyn P
         if oc.is_available() {
             return Ok(Box::new(oc));
         }
+    }
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("groq") {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("openrouter") {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = ClaudePlanner::from_env() {
+        return Ok(Box::new(p));
+    }
+    if let Ok(p) = OpenAiCompatPlanner::from_preset("gemini") {
+        return Ok(Box::new(p));
     }
     Ok(Box::new(LocalPlanner))
 }
@@ -157,95 +160,123 @@ pub fn pick_planner_by_name(nombre: Option<&str>) -> Result<Box<dyn Planner>> {
 
 // ------------------------------------------------------------------ llm (T19.2)
 
-pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
+/// `assume_yes` es la bandera global `-y`/`--yes`, que el parser de opciones
+/// retira de los argumentos antes de llegar aquí.
+pub fn cmd_llm(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
     let sub = args.first().map(String::as_str).unwrap_or("status");
     let mut config = crate::llm::LlmConfig::load_from_state(&ctx.state);
 
     match sub {
         "setup" | "init" => {
-            println!(
-                "\n{}",
-                paint(
-                    "antOS · Asistente de Configuración de Motor LLM Local (T19.3)",
-                    BOLD
+            setup::cmd_setup(ctx, &mut config, &args[1..], assume_yes)?;
+            return Ok(());
+        }
+        "doctor" => {
+            doctor::cmd_doctor(ctx, &config)?;
+            return Ok(());
+        }
+        "pull" | "download" => {
+            let model = args.get(1).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "uso: antos llm pull <modelo>  (ej. antos llm pull qwen2.5-coder:7b)"
                 )
-            );
-            println!("  Este asistente verifica y prepara el motor local Ollama/OpenCode para desarrollo sin conexión.\n");
-
-            // 1. Verificar si Ollama o OpenCode está escuchando
-            let status = &ctx.local_llm;
-            let target_model = args
-                .iter()
-                .position(|a| a == "--model" || a == "-m")
-                .and_then(|i| args.get(i + 1))
-                .map(String::as_str)
-                .unwrap_or("qwen2.5-coder:latest");
-
-            println!("  [1/3] Detección de servicios locales:");
-            if status.ollama_available {
-                println!(
-                    "    ✓ Ollama detectado y respondiendo en {}",
-                    paint("http://127.0.0.1:11434", GREEN)
-                );
-            } else if status.opencode_available {
-                println!(
-                    "    ✓ OpenCode detectado y respondiendo en {}",
-                    paint("http://127.0.0.1:8080/v1", GREEN)
-                );
-            } else {
-                println!("    ○ Ningún motor local está corriendo actualmente.");
-                println!(
-                    "      • Para instalar Ollama con antpkg ejecuta: {}",
-                    paint("antos pkg install recipes/ollama.toml", YELLOW)
-                );
-                println!(
-                    "      • O inicia el servicio si ya lo tienes:     {}",
-                    paint("ollama serve &", CYAN)
-                );
-                println!("      • O descarga Ollama directamente desde:     https://ollama.com\n");
+            })?;
+            models::cmd_pull(ctx, &config, model)?;
+            return Ok(());
+        }
+        "rm" | "remove" | "delete" => {
+            let model = args
+                .get(1)
+                .ok_or_else(|| anyhow::anyhow!("uso: antos llm rm <modelo> [--yes]"))?;
+            models::cmd_rm(ctx, &config, model, assume_yes)?;
+            return Ok(());
+        }
+        "temperature" | "temp" => {
+            // antos llm temperature [<valor>]
+            let value = args.get(1).and_then(|a| a.parse::<f32>().ok());
+            match value {
+                Some(t) => {
+                    if !(0.0..=2.0).contains(&t) {
+                        bail!("la temperatura debe estar entre 0.0 y 2.0");
+                    }
+                    config
+                        .providers
+                        .entry("ollama".into())
+                        .or_default()
+                        .temperature = Some(t);
+                    config.save_to_state(&ctx.state)?;
+                    println!(
+                        "\n{} Temperatura del agente con Ollama: {t}\n",
+                        paint("✓", GREEN)
+                    );
+                }
+                None => {
+                    let current = config
+                        .providers
+                        .get("ollama")
+                        .and_then(|p| p.temperature)
+                        .unwrap_or(crate::llm::DEFAULT_OLLAMA_TEMPERATURE);
+                    println!(
+                        "\n  Temperatura del agente con Ollama: {current} (por defecto {}; el planificador va a 0.0)",
+                        crate::llm::DEFAULT_OLLAMA_TEMPERATURE
+                    );
+                    println!("  Cambiar: antos llm temperature 0.7\n");
+                }
             }
-
-            // 2. Recomendaciones de modelos de desarrollo
-            println!("  [2/3] Modelos recomendados para antOS antFlow:");
-            println!(
-                "    • {} (Recomendado: balance perfecto velocidad y sintaxis de código)",
-                paint("qwen2.5-coder:7b", GREEN)
-            );
-            println!(
-                "    • {} (Especializado en refactorización y depuración)",
-                paint("deepseek-coder:6.7b", CYAN)
-            );
-            println!(
-                "    • {} (Ultraligero para portátiles sin GPU dedicada)",
-                paint("qwen2.5-coder:1.5b", DIM)
-            );
-
-            // 3. Configuración persistente del motor
-            println!("\n  [3/3] Aplicando configuración:");
-            config.set_active_provider("ollama", Some(target_model), None);
-            config.save_to_state(&ctx.state)?;
-
-            println!(
-                "    ✓ Motor predeterminado fijado en: {}",
-                paint("ollama", GREEN)
-            );
-            println!(
-                "    ✓ Modelo de código seleccionado:  {}",
-                paint(target_model, CYAN)
-            );
-            println!("\n  Pasos siguientes:");
-            println!(
-                "    1. Si aún no tienes el modelo descargado, ejecuta: {}",
-                paint(&format!("ollama pull {target_model}"), YELLOW)
-            );
-            println!(
-                "    2. Verifica la inferencia con:                    {}",
-                paint("antos llm test", CYAN)
-            );
-            println!(
-                "    3. Explora alternativas gratuitas con:            {}\n",
-                paint("antos llm free", CYAN)
-            );
+            return Ok(());
+        }
+        "ctx" | "context" => {
+            // antos llm ctx [<tokens>] [--role <rol>]
+            let role = args
+                .iter()
+                .position(|a| a == "--role" || a == "-r")
+                .and_then(|i| args.get(i + 1))
+                .map(String::as_str);
+            let value = args.iter().skip(1).find_map(|a| a.parse::<u32>().ok());
+            match value {
+                Some(n) => {
+                    if !(1024..=1_048_576).contains(&n) {
+                        bail!("el contexto debe estar entre 1024 y 1048576 tokens");
+                    }
+                    match role {
+                        Some(r) => config.set_role_num_ctx(r, n),
+                        None => {
+                            config.providers.entry("ollama".into()).or_default().num_ctx = Some(n);
+                        }
+                    }
+                    config.save_to_state(&ctx.state)?;
+                    println!(
+                        "\n{} Contexto pedido a Ollama{}: {} tokens (se acota al máximo del modelo y a la RAM al arrancar un agente)\n",
+                        paint("✓", GREEN),
+                        role.map(|r| format!(" para el rol {r}")).unwrap_or_default(),
+                        paint(&n.to_string(), CYAN)
+                    );
+                }
+                None => {
+                    println!(
+                        "\n{}",
+                        paint("antOS · Ventana de contexto pedida a Ollama", BOLD)
+                    );
+                    println!(
+                        "  Por defecto: {} tokens{}",
+                        config.requested_num_ctx(None),
+                        if config
+                            .providers
+                            .get("ollama")
+                            .and_then(|p| p.num_ctx)
+                            .is_some()
+                        {
+                            " (configurado)"
+                        } else {
+                            " (valor de antOS; Ollama solo usaría 4096)"
+                        }
+                    );
+                    for (r, n) in &config.role_num_ctx {
+                        println!("  Rol {r:<10} {n} tokens");
+                    }
+                    println!("  Cambiar: antos llm ctx 32768 [--role coder]\n");
+                }
+            }
             return Ok(());
         }
         "use" | "set" | "select" => {
@@ -424,20 +455,20 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
                 paint(&config.active_provider, GREEN)
             );
 
-            // Intentar listar modelos de Ollama si está disponible
-            if let Ok(ollama) = crate::planner::ollama::OllamaPlanner::from_env() {
-                if ollama.is_available() {
-                    if let Ok(models) = ollama.list_models() {
-                        println!(
-                            "  ● Modelos descargados en Ollama local ({}):",
-                            models.len()
-                        );
-                        for m in models {
-                            println!("    • {}", paint(&m, CYAN));
-                        }
-                        println!();
-                    }
+            // Modelos de Ollama con lo que un agente necesita saber (T34.2).
+            let client = models::client_for(ctx, &config);
+            if client.is_available() {
+                let active = config
+                    .get_provider_settings("ollama")
+                    .and_then(|s| s.model.clone());
+                if let Err(e) = models::print_local_models(&client, active.as_deref()) {
+                    println!("  ○ No pude listar los modelos de Ollama: {e:#}\n");
                 }
+            } else {
+                println!(
+                    "  ○ Ollama no responde en {} (arráncalo: antos service up ollama)\n",
+                    client.endpoint()
+                );
             }
 
             println!("  ● Proveedores preconfigurados en antOS:");
@@ -570,7 +601,14 @@ pub fn cmd_llm(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos llm free               Explora modelos y servicios 100% gratuitos");
             println!("    antos llm use <proveedor>    Cambia el motor activo");
             println!("    antos llm test               Prueba interactiva del motor en uso");
-            println!("    antos llm list               Lista modelos descargados y configurados\n");
+            println!("    antos llm list               Lista modelos descargados y configurados");
+            println!("    antos llm setup              Deja Ollama listo para agentes sin claves");
+            println!(
+                "    antos llm doctor             RAM, tier, modelos, tools y contexto efectivo"
+            );
+            println!("    antos llm pull|rm <modelo>   Descarga o borra un modelo de Ollama");
+            println!("    antos llm ctx <tokens>       Ventana de contexto pedida a Ollama");
+            println!("    antos llm temperature <t>    Temperatura del agente con Ollama\n");
         }
     }
 

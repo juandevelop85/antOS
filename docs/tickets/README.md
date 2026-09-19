@@ -172,7 +172,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 33** | [T33.4](T33.4-la-barra-como-puesto-de-mando-pasos-en-vivo-aprobaciones-inline-y-tablero-real.md) | La Barra como Puesto de Mando: Pasos en Vivo, Aprobaciones Inline y Tablero Real | ✅ Completado |
 | **Fase 33** | [T33.5](T33.5-evaluacion-reproducible-de-agentes-smoke-determinista-y-metricas.md) | Evaluación Reproducible de Agentes: Smoke Determinista y Métricas | ✅ Completado |
 | **Fase 34** | [T34.1](T34.1-servicios-efimeros-reales-nix-sistema-y-adopcion-con-ollama-como-primer-caso.md) | Servicios Efímeros Reales: Backends Nix / Sistema / Adopción, con Ollama como Primer Caso | ✅ Completado |
-| **Fase 34** | [T34.2](T34.2-ollama-como-motor-de-primera-clase-contexto-ciclo-de-vida-de-modelos-y-auto-local.md) | Ollama como Motor de Primera Clase: Contexto, Ciclo de Vida de Modelos y `auto` Local | ⏳ Pendiente |
+| **Fase 34** | [T34.2](T34.2-ollama-como-motor-de-primera-clase-contexto-ciclo-de-vida-de-modelos-y-auto-local.md) | Ollama como Motor de Primera Clase: Contexto, Ciclo de Vida de Modelos y `auto` Local | ✅ Completado |
 | **Fase 34** | [T34.3](T34.3-ollama-de-serie-en-la-imagen-nixos-services-ollama-solo-loopback.md) | Ollama de Serie en la Imagen NixOS: `services.antos.llm` sobre `services.ollama`, Solo Loopback | ⏳ Pendiente |
 | **Fase 34** | [T34.4](T34.4-perfiles-local-hybrid-cloud-y-fiabilidad-de-los-roles-con-modelos-pequenos.md) | Perfiles `local` / `hybrid` / `cloud` y Fiabilidad de los Roles con Modelos Pequeños | ⏳ Pendiente |
 
@@ -524,5 +524,5 @@ en 33 s, fiabilidad 2/5.
   argumentos malformados; `eval --live --repeat N` y job nocturno para
   medir con n>1 antes de tocar prompts.
 
-Orden sugerido de ataque: ~~T34.1~~ → T34.2 → T34.4 → T34.3 (la imagen se
+Orden sugerido de ataque: ~~T34.1~~ → ~~T34.2~~ → T34.4 → T34.3 (la imagen se
 verifica solo en CI/VM; lo demás se prueba en el Mac con Ollama.app).

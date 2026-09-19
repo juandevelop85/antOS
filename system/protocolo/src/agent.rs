@@ -111,6 +111,14 @@ pub struct AgentReport {
     /// crate que evita dependencias a propósito.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_json: Option<String>,
+    /// Ventana de contexto efectiva pedida al modelo, cuando el proveedor la
+    /// controla (Ollama, T34.2). `None` = la decide el servicio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
+    /// Por qué la ventana efectiva no es la configurada, si se acotó (al
+    /// máximo del modelo o a la RAM de la máquina).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_note: Option<String>,
 }
 
 /// Resumen de un run de agente adjunto a una transición de antFlow (T33.3).

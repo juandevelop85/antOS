@@ -362,6 +362,8 @@ pub fn run(
         files_written: state.files_written.iter().map(|p| ctx.display(p)).collect(),
         error,
         result_json: finish_input,
+        context_window: provider.context_window(),
+        context_note: provider.context_note(),
     };
     handler.on_done(&report)?;
     Ok(report)

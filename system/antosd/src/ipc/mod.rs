@@ -241,7 +241,7 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                         _ => "qa",
                     };
                     let spec = llm_config.get_role_model(key);
-                    crate::agent::providers::resolve(&state, Some(&spec))
+                    crate::agent::providers::resolve_for_role(&state, Some(&spec), Some(key))
                 };
                 let mut handler = SocketHandler {
                     writer: &mut writer,
@@ -1365,6 +1365,12 @@ pub fn format_agent_report(r: &antos_protocol::AgentReport) -> String {
     }
     if let Some(e) = &r.error {
         out.push_str(&format!("\n  error: {e}"));
+    }
+    if let Some(ctx) = r.context_window {
+        out.push_str(&format!("\n  contexto: {ctx} tokens"));
+        if let Some(n) = &r.context_note {
+            out.push_str(&format!(" ({n})"));
+        }
     }
     out
 }

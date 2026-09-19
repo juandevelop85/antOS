@@ -10,7 +10,21 @@ use std::path::{Path, PathBuf};
 
 pub const LLM_CONFIG_FILE: &str = "llm_config.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Ventana de contexto por defecto para Ollama en runs de agente (T34.2).
+/// Ollama usa 4096 si no se le dice nada y recorta la conversación por el
+/// principio — el prompt de sistema y las herramientas — en cuanto se
+/// supera; un `fs.read` de dos ficheros medianos basta.
+pub const DEFAULT_OLLAMA_NUM_CTX: u32 = 16_384;
+/// Cuánto mantiene Ollama el modelo cargado entre pasos de un run.
+pub const DEFAULT_OLLAMA_KEEP_ALIVE: &str = "10m";
+/// Temperatura por defecto del proveedor de agente. No es 0.0 como la del
+/// planificador: medido en T34.2 con `qwen2.5-coder:7b` en el escenario
+/// «arregla un test en rojo», con 0.0 el 7B entra en un bucle determinista
+/// (`fs.list`/`fs.read` hasta agotar el presupuesto, 0/5); con 0.3, 3/5;
+/// con 0.7 (≈ el 0.8 por defecto de Ollama), 2/5.
+pub const DEFAULT_OLLAMA_TEMPERATURE: f32 = 0.3;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ProviderSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
@@ -18,6 +32,17 @@ pub struct ProviderSettings {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Ventana de contexto pedida (`options.num_ctx` en Ollama). Se acota
+    /// al máximo del modelo y a la RAM de la máquina al resolver.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_ctx: Option<u32>,
+    /// Temperatura del proveedor de agente; `DEFAULT_OLLAMA_TEMPERATURE` si
+    /// no se indica (el planificador sigue a 0.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    /// `keep_alive` de Ollama (p. ej. `10m`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -33,6 +58,10 @@ pub struct LlmConfig {
     /// Presupuesto en pasos por rol para el pipeline de agentes (T33.3).
     #[serde(default)]
     pub role_steps: BTreeMap<String, u32>,
+    /// Ventana de contexto por rol (T34.2): un rol de un turno como el
+    /// Arquitecto puede ir a 8k; el Coder necesita 16k–32k.
+    #[serde(default)]
+    pub role_num_ctx: BTreeMap<String, u32>,
 }
 
 impl Default for LlmConfig {
@@ -44,6 +73,7 @@ impl Default for LlmConfig {
                 endpoint: Some("http://127.0.0.1:11434".into()),
                 model: Some("qwen2.5-coder:latest".into()),
                 api_key: None,
+                ..Default::default()
             },
         );
         providers.insert(
@@ -52,6 +82,7 @@ impl Default for LlmConfig {
                 endpoint: Some("https://api.groq.com/openai/v1".into()),
                 model: Some("llama-3.3-70b-versatile".into()),
                 api_key: None,
+                ..Default::default()
             },
         );
         providers.insert(
@@ -60,6 +91,7 @@ impl Default for LlmConfig {
                 endpoint: Some("https://openrouter.ai/api/v1".into()),
                 model: Some("deepseek/deepseek-r1:free".into()),
                 api_key: None,
+                ..Default::default()
             },
         );
         providers.insert(
@@ -68,6 +100,7 @@ impl Default for LlmConfig {
                 endpoint: Some("https://generativelanguage.googleapis.com/v1beta/openai".into()),
                 model: Some("gemini-2.0-flash".into()),
                 api_key: None,
+                ..Default::default()
             },
         );
         providers.insert(
@@ -76,6 +109,7 @@ impl Default for LlmConfig {
                 endpoint: Some("http://127.0.0.1:8080/v1".into()),
                 model: Some("qwen2.5-coder".into()),
                 api_key: None,
+                ..Default::default()
             },
         );
 
@@ -84,6 +118,7 @@ impl Default for LlmConfig {
             providers,
             role_models: BTreeMap::new(),
             role_steps: BTreeMap::new(),
+            role_num_ctx: BTreeMap::new(),
         }
     }
 }
@@ -127,11 +162,7 @@ impl LlmConfig {
         let entry = self
             .providers
             .entry(self.active_provider.clone())
-            .or_insert_with(|| ProviderSettings {
-                endpoint: None,
-                model: None,
-                api_key: None,
-            });
+            .or_default();
 
         if let Some(m) = model {
             entry.model = Some(m.to_string());
@@ -162,6 +193,18 @@ impl LlmConfig {
             "auditor" => "groq:llama-3.3-70b-versatile".to_string(),
             _ => self.active_provider.clone(),
         }
+    }
+
+    /// Ventana de contexto pedida para Ollama: por rol si hay, si no la del
+    /// proveedor, si no `DEFAULT_OLLAMA_NUM_CTX` (T34.2).
+    pub fn requested_num_ctx(&self, role: Option<&str>) -> u32 {
+        role.and_then(|r| self.role_num_ctx.get(&r.to_lowercase()).copied())
+            .or_else(|| self.providers.get("ollama").and_then(|p| p.num_ctx))
+            .unwrap_or(DEFAULT_OLLAMA_NUM_CTX)
+    }
+
+    pub fn set_role_num_ctx(&mut self, role: &str, num_ctx: u32) {
+        self.role_num_ctx.insert(role.to_lowercase(), num_ctx);
     }
 
     /// Pasos máximos de un rol (T33.3); `default` si no está configurado.
@@ -268,5 +311,27 @@ mod tests {
         assert!(roles.contains_key("coder"));
         assert!(roles.contains_key("qa"));
         assert!(roles.contains_key("auditor"));
+    }
+
+    /// T34.2: rol → proveedor → 16k por defecto; y el JSON anterior sigue
+    /// leyéndose sin los campos nuevos.
+    #[test]
+    fn requested_num_ctx_prefers_role_then_provider_then_default() {
+        let mut config = LlmConfig::default();
+        assert_eq!(config.requested_num_ctx(None), DEFAULT_OLLAMA_NUM_CTX);
+        assert_eq!(
+            config.requested_num_ctx(Some("coder")),
+            DEFAULT_OLLAMA_NUM_CTX
+        );
+        config.providers.get_mut("ollama").unwrap().num_ctx = Some(32_768);
+        assert_eq!(config.requested_num_ctx(Some("coder")), 32_768);
+        config.set_role_num_ctx("Coder", 8_192);
+        assert_eq!(config.requested_num_ctx(Some("coder")), 8_192);
+        assert_eq!(config.requested_num_ctx(Some("qa")), 32_768);
+
+        let legacy = r#"{"active_provider":"ollama","providers":{"ollama":{"endpoint":"http://127.0.0.1:11434","model":"m"}},"role_models":{}}"#;
+        let parsed: LlmConfig = serde_json::from_str(legacy).unwrap();
+        assert_eq!(parsed.requested_num_ctx(None), DEFAULT_OLLAMA_NUM_CTX);
+        assert!(parsed.providers["ollama"].keep_alive.is_none());
     }
 }

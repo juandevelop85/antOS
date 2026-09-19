@@ -44,7 +44,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "secrets" | "secret" => commands::tools::cmd_secrets(ctx, &rest[1..]),
         "agent" | "agents" | "flow" => commands::flow::cmd_agent(ctx, &rest[1..], &opts),
         "panel" | "board" => commands::flow::cmd_panel(ctx, &rest[1..]),
-        "llm" | "models" | "model" => commands::tools::cmd_llm(ctx, &rest[1..]),
+        "llm" | "models" | "model" => commands::tools::cmd_llm(ctx, &rest[1..], opts.assume_yes),
         "memory" | "memoria" | "search" => commands::tools::cmd_memory(ctx, &rest[1..]),
         "env" | "perfil" => commands::tools::cmd_env(ctx, &rest[1..]),
         "quota" | "cuota" | "cuotas" | "limits" => commands::tools::cmd_quota(ctx, &rest[1..]),

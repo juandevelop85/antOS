@@ -57,6 +57,15 @@ pub trait AgentProvider {
     /// que el runtime envía cuando el modelo responde en prosa sin llamar a
     /// nada (T33.5, modelos locales pequeños).
     fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn>;
+    /// Ventana de contexto efectiva que se está pidiendo al modelo, si el
+    /// proveedor la controla (Ollama, T34.2). `None` = la decide el servicio.
+    fn context_window(&self) -> Option<u32> {
+        None
+    }
+    /// Por qué la ventana efectiva no es la pedida, si se acotó.
+    fn context_note(&self) -> Option<String> {
+        None
+    }
 }
 
 fn http_agent() -> ureq::Agent {
@@ -219,31 +228,71 @@ impl AgentProvider for ClaudeAgentProvider {
 
 // ───────────────────────────── Ollama ─────────────────────────────
 
+/// Parámetros que Ollama no fija solo (T34.2). Sin `num_ctx` usa 4096 y
+/// recorta la conversación por el principio; sin `keep_alive` descarga el
+/// modelo a los 5 min y el siguiente paso paga la carga otra vez.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OllamaOptions {
+    pub num_ctx: u32,
+    pub temperature: f32,
+    pub keep_alive: String,
+    /// Si `num_ctx` se acotó respecto a lo pedido, por qué.
+    pub context_note: Option<String>,
+}
+
+impl Default for OllamaOptions {
+    fn default() -> Self {
+        Self {
+            num_ctx: crate::llm::DEFAULT_OLLAMA_NUM_CTX,
+            temperature: crate::llm::DEFAULT_OLLAMA_TEMPERATURE,
+            keep_alive: crate::llm::DEFAULT_OLLAMA_KEEP_ALIVE.to_string(),
+            context_note: None,
+        }
+    }
+}
+
 pub struct OllamaAgentProvider {
     endpoint: String,
     model: String,
+    options: OllamaOptions,
     messages: Vec<Value>,
     next_id: u32,
 }
 
 impl OllamaAgentProvider {
     pub fn new(endpoint: String, model: String) -> Self {
+        Self::with_options(endpoint, model, OllamaOptions::default())
+    }
+
+    pub fn with_options(endpoint: String, model: String, options: OllamaOptions) -> Self {
         Self {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             model,
+            options,
             messages: Vec::new(),
             next_id: 0,
         }
     }
 
-    fn request(&mut self, tools: &[ToolSpec]) -> Result<Turn> {
+    /// El cuerpo de `/api/chat`. Separado para poder comprobar en un test
+    /// que `options` y `keep_alive` van siempre.
+    pub(crate) fn request_body(&self, tools: &[ToolSpec]) -> Value {
         let tool_defs: Vec<Value> = tools.iter().map(openai_style_tool).collect();
-        let body = json!({
+        json!({
             "model": self.model,
             "messages": self.messages,
             "tools": tool_defs,
             "stream": false,
-        });
+            "keep_alive": self.options.keep_alive,
+            "options": {
+                "num_ctx": self.options.num_ctx,
+                "temperature": self.options.temperature,
+            },
+        })
+    }
+
+    fn request(&mut self, tools: &[ToolSpec]) -> Result<Turn> {
+        let body = self.request_body(tools);
         let url = format!("{}/api/chat", self.endpoint);
         let mut resp = http_agent()
             .post(&url)
@@ -330,6 +379,12 @@ impl AgentProvider for OllamaAgentProvider {
     fn nudge(&mut self, text: &str, tools: &[ToolSpec]) -> Result<Turn> {
         self.messages.push(json!({"role": "user", "content": text}));
         self.request(tools)
+    }
+    fn context_window(&self) -> Option<u32> {
+        Some(self.options.num_ctx)
+    }
+    fn context_note(&self) -> Option<String> {
+        self.options.context_note.clone()
     }
 }
 
@@ -542,8 +597,151 @@ fn openai_style_tool(t: &ToolSpec) -> Value {
 /// `llm_config.json` si no se indica ninguno. Reutiliza los constructores
 /// de los planificadores para leer claves y endpoints.
 pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dyn AgentProvider>> {
+    resolve_for_role(state_dir, spec, None)
+}
+
+/// Endpoint de Ollama a usar cuando no hay uno explícito: el registrado por
+/// `antos service up` (T34.1) manda sobre el del entorno/por defecto.
+fn ollama_endpoint(state_dir: &std::path::Path, explicit: Option<String>) -> String {
+    explicit
+        .or_else(|| crate::service::registered_endpoint(state_dir, "ollama"))
+        .or_else(|| {
+            crate::planner::ollama::OllamaPlanner::from_env()
+                .ok()
+                .map(|p| p.endpoint)
+        })
+        .unwrap_or_else(|| crate::llm::ollama_api::DEFAULT_ENDPOINT.to_string())
+}
+
+/// Con `active_provider = auto`: el Ollama local si responde y tiene un
+/// modelo con `tools`. Devuelve `(endpoint, modelo)`; `None` si no hay nada
+/// utilizable (y entonces `auto` falla con un mensaje que apunta a `setup`).
+pub fn local_ollama_candidate(
+    state_dir: &std::path::Path,
+    config: &crate::llm::LlmConfig,
+) -> Option<(String, String)> {
+    use crate::llm::ollama_api::OllamaClient;
+    let endpoint = ollama_endpoint(
+        state_dir,
+        config
+            .get_provider_settings("ollama")
+            .and_then(|s| s.endpoint.clone()),
+    );
+    let client = OllamaClient::new(endpoint.clone());
+    if !client.is_available() {
+        return None;
+    }
+    let tags = client.tags().ok()?;
+    let capable = |name: &str| -> bool {
+        client
+            .show(name)
+            .ok()
+            .and_then(|s| s.supports_tools())
+            .unwrap_or(true)
+    };
+    // 1. El modelo configurado para Ollama, si está descargado y sirve.
+    if let Some(m) = config
+        .get_provider_settings("ollama")
+        .and_then(|s| s.model.clone())
+    {
+        if tags.iter().any(|t| t.name == m) && capable(&m) {
+            return Some((endpoint, m));
+        }
+    }
+    // 2. El recomendado por RAM, si está descargado.
+    let table = crate::llm::doctor::ModelTable::load(None);
+    let recommended = crate::llm::doctor::SystemResources::detect()
+        .and_then(|r| table.tier_for(r.total_ram_gb()).map(|t| t.code.clone()));
+    if let Some(rec) = recommended {
+        if tags.iter().any(|t| t.name == rec) && capable(&rec) {
+            return Some((endpoint, rec));
+        }
+    }
+    // 3. El primero que declare `tools` (o del que no se sepa).
+    tags.iter()
+        .find(|t| capable(&t.name))
+        .map(|t| (endpoint, t.name.clone()))
+}
+
+/// Construye el proveedor de Ollama con el contexto efectivo (T34.2):
+/// pedido (rol → proveedor → 16k) acotado al máximo del modelo y al techo
+/// del tier de RAM. Rechaza un modelo que declara no soportar `tools`.
+fn ollama_provider(
+    config: &crate::llm::LlmConfig,
+    role: Option<&str>,
+    endpoint: String,
+    model: String,
+) -> Result<OllamaAgentProvider> {
+    use crate::llm::doctor::{effective_num_ctx, ModelTable, SystemResources};
+    use crate::llm::ollama_api::OllamaClient;
+
+    let settings = config.get_provider_settings("ollama");
+    let requested = config.requested_num_ctx(role);
+    let client = OllamaClient::new(endpoint.clone());
+    let mut model_max = None;
+    if client.is_available() {
+        match client.show(&model) {
+            Ok(show) => {
+                if show.supports_tools() == Some(false) {
+                    let alternative = client
+                        .tags()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|t| {
+                            t.name != model
+                                && client
+                                    .show(&t.name)
+                                    .ok()
+                                    .and_then(|s| s.supports_tools())
+                                    .unwrap_or(false)
+                        })
+                        .map(|t| format!(" Descargado con `tools`: {}.", t.name))
+                        .unwrap_or_else(|| {
+                            " Descarga uno con `antos llm pull` (p. ej. qwen2.5-coder:7b)."
+                                .to_string()
+                        });
+                    bail!(
+                        "el modelo «{model}» no soporta llamadas a herramienta y un agente \
+                         no puede usarlo.{alternative}"
+                    );
+                }
+                model_max = show.context_length;
+            }
+            Err(e) => bail!(
+                "Ollama responde en {endpoint} pero no conoce «{model}»: {e:#}\n  \
+                 Descárgalo con `antos llm pull {model}` o elige otro con `antos llm list`."
+            ),
+        }
+    }
+    let ram_cap = SystemResources::detect().and_then(|r| {
+        ModelTable::load(None)
+            .tier_for(r.total_ram_gb())
+            .map(|t| t.max_num_ctx)
+    });
+    let (num_ctx, context_note) = effective_num_ctx(requested, model_max, ram_cap);
+    let options = OllamaOptions {
+        num_ctx,
+        temperature: settings
+            .and_then(|s| s.temperature)
+            .unwrap_or(crate::llm::DEFAULT_OLLAMA_TEMPERATURE),
+        keep_alive: settings
+            .and_then(|s| s.keep_alive.clone())
+            .unwrap_or_else(|| crate::llm::DEFAULT_OLLAMA_KEEP_ALIVE.to_string()),
+        context_note,
+    };
+    Ok(OllamaAgentProvider::with_options(endpoint, model, options))
+}
+
+/// Como `resolve`, con el rol (architect, coder, qa, auditor) para aplicar
+/// su ventana de contexto (`LlmConfig::role_num_ctx`).
+pub fn resolve_for_role(
+    state_dir: &std::path::Path,
+    spec: Option<&str>,
+    role: Option<&str>,
+) -> Result<Box<dyn AgentProvider>> {
     let config = crate::llm::LlmConfig::load_from_state(state_dir);
     let no_active = config.active_provider == "auto" || config.active_provider == "local";
+    let mut auto_endpoint = None;
     let spec = match spec {
         Some(s) => s.to_string(),
         // Afordancia de pruebas (smoke de la barra, T33.4): con un guion
@@ -552,11 +750,20 @@ pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dy
         None if no_active && std::env::var_os("ANTOS_AGENT_FAKE_SCRIPT").is_some() => {
             "fake".to_string()
         }
-        None if no_active => bail!(
-            "no hay proveedor de modelo activo para un agente: elige uno con \
-             `antos llm use <proveedor>` o pásalo con --provider (claude, ollama, \
-             groq, openrouter, gemini, opencode, openai)"
-        ),
+        // `auto` (T34.2): local primero. Nunca se llama a un proveedor de
+        // red sin que el usuario lo haya elegido con `antos llm use`.
+        None if no_active => match local_ollama_candidate(state_dir, &config) {
+            Some((endpoint, model)) => {
+                auto_endpoint = Some(endpoint);
+                format!("ollama:{model}")
+            }
+            None => bail!(
+                "no hay proveedor de modelo activo para un agente y no hay un Ollama local \
+                 con un modelo que soporte herramientas: ejecuta `antos llm setup`, elige \
+                 uno con `antos llm use <proveedor>` o pásalo con --provider (claude, \
+                 ollama, groq, openrouter, gemini, opencode, openai)"
+            ),
+        },
         None => config.active_provider.clone(),
     };
     let (provider, model_override) = match spec.split_once(':') {
@@ -578,15 +785,15 @@ pub fn resolve(state_dir: &std::path::Path, spec: Option<&str>) -> Result<Box<dy
         }
         "ollama" | "local-llm" | "local_llm" => {
             let p = crate::planner::ollama::OllamaPlanner::from_env()?;
-            // Prioridad: configuración explícita → el Ollama que registró
-            // `antos service up` (T34.1, puede no estar en 11434) → entorno.
-            let endpoint = endpoint_override
-                .or_else(|| crate::service::registered_endpoint(state_dir, "ollama"))
-                .unwrap_or(p.endpoint);
-            Ok(Box::new(OllamaAgentProvider::new(
+            // Prioridad: `auto` ya resolvió uno → configuración explícita →
+            // el Ollama que registró `antos service up` (T34.1) → entorno.
+            let endpoint = ollama_endpoint(state_dir, auto_endpoint.or(endpoint_override));
+            Ok(Box::new(ollama_provider(
+                &config,
+                role,
                 endpoint,
                 model_override.unwrap_or(p.model),
-            )))
+            )?))
         }
         "groq" | "openrouter" | "gemini" | "opencode" | "openai" => {
             let p = crate::planner::openai_compat::OpenAiCompatPlanner::from_preset(&provider)?;
@@ -634,5 +841,231 @@ mod tests {
 
         assert!(textual_tool_calls("solo prosa, sin JSON").is_empty());
         assert!(textual_tool_calls("```rust\nfn x() {}\n```").is_empty());
+    }
+
+    /// T34.2: el cuerpo de `/api/chat` lleva SIEMPRE `options.num_ctx`,
+    /// `options.temperature` y `keep_alive`. Sin ellos Ollama usa 4096 y
+    /// recorta el prompt de sistema por el principio.
+    #[test]
+    fn ollama_request_body_always_carries_context_options() {
+        let p = OllamaAgentProvider::new("http://127.0.0.1:1".into(), "m".into());
+        let body = p.request_body(&[]);
+        assert_eq!(
+            body["options"]["num_ctx"],
+            crate::llm::DEFAULT_OLLAMA_NUM_CTX
+        );
+        assert_eq!(
+            body["options"]["temperature"],
+            crate::llm::DEFAULT_OLLAMA_TEMPERATURE
+        );
+        assert_eq!(body["keep_alive"], crate::llm::DEFAULT_OLLAMA_KEEP_ALIVE);
+        assert_eq!(body["stream"], false);
+
+        let custom = OllamaAgentProvider::with_options(
+            "http://127.0.0.1:1".into(),
+            "m".into(),
+            OllamaOptions {
+                num_ctx: 8192,
+                temperature: 0.3,
+                keep_alive: "1h".into(),
+                context_note: Some("acotado".into()),
+            },
+        );
+        let body = custom.request_body(&[]);
+        assert_eq!(body["options"]["num_ctx"], 8192);
+        assert_eq!(body["keep_alive"], "1h");
+        assert_eq!(custom.context_window(), Some(8192));
+        assert_eq!(custom.context_note().as_deref(), Some("acotado"));
+    }
+
+    // ------------------------------------------------ Ollama simulado
+
+    /// Un Ollama de mentira en loopback: responde `/api/tags` y `/api/show`
+    /// con lo que se le diga. Suficiente para probar `resolve` sin red.
+    fn fake_ollama(
+        models: Vec<(&'static str, Vec<&'static str>, u64)>,
+    ) -> (u16, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        listener.set_nonblocking(false).unwrap();
+        let handle = std::thread::spawn(move || {
+            // Atiende peticiones hasta que el test termine (el hilo muere con
+            // el proceso de tests); cada conexión es una petición.
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                // Cabeceras y cuerpo pueden llegar en segmentos distintos:
+                // se lee hasta tener `content-length` bytes de cuerpo.
+                let mut raw = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    let n = stream.read(&mut chunk).unwrap_or(0);
+                    if n == 0 {
+                        break;
+                    }
+                    raw.extend_from_slice(&chunk[..n]);
+                    let text = String::from_utf8_lossy(&raw).to_string();
+                    if let Some(idx) = text.find("\r\n\r\n") {
+                        let want: usize = text
+                            .lines()
+                            .find_map(|l| {
+                                l.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .and_then(|v| v.trim().parse().ok())
+                            })
+                            .unwrap_or(0);
+                        if raw.len() - (idx + 4) >= want {
+                            break;
+                        }
+                    }
+                }
+                let req = String::from_utf8_lossy(&raw).to_string();
+                let path = req.split_whitespace().nth(1).unwrap_or("");
+                let body = if path.starts_with("/api/tags") {
+                    let list: Vec<Value> = models
+                        .iter()
+                        .map(|(name, _, ctx)| json!({"name": name, "size": ctx * 1000, "details": {}}))
+                        .collect();
+                    json!({"models": list}).to_string()
+                } else if path.starts_with("/api/show") {
+                    let wanted = req
+                        .rsplit("\r\n\r\n")
+                        .next()
+                        .and_then(|b| serde_json::from_str::<Value>(b.trim_end_matches('\0')).ok())
+                        .and_then(|v| v["model"].as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    match models.iter().find(|(name, _, _)| *name == wanted) {
+                        Some((_, caps, ctx)) => json!({
+                            "capabilities": caps,
+                            "model_info": {"qwen2.context_length": ctx}
+                        })
+                        .to_string(),
+                        None => {
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 404 Not Found\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    "{}".to_string()
+                };
+                let _ = stream.write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+        (port, handle)
+    }
+
+    fn state_with_ollama(port: u16, config: &crate::llm::LlmConfig) -> std::path::PathBuf {
+        // Contador atómico además del reloj: varios tests arrancan en el
+        // mismo microsegundo y compartían directorio (y se pisaban el
+        // `llm_config.json` a medio escribir).
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let state = std::env::temp_dir().join(format!(
+            "antos_resolve_{}_{seq}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&state).unwrap();
+        let mut config = config.clone();
+        config
+            .providers
+            .entry("ollama".into())
+            .or_default()
+            .endpoint = Some(format!("http://127.0.0.1:{port}"));
+        config.save_to_state(&state).unwrap();
+        state
+    }
+
+    #[test]
+    fn auto_resolves_to_a_local_model_with_tools_and_caps_the_context() {
+        let (port, _srv) = fake_ollama(vec![
+            ("chat-only:latest", vec!["completion"], 32_768),
+            ("coder:7b", vec!["completion", "tools"], 8_192),
+        ]);
+        let mut config = crate::llm::LlmConfig {
+            active_provider: "auto".into(),
+            ..Default::default()
+        };
+        // El modelo configurado no está descargado: `auto` debe saltárselo.
+        config.providers.get_mut("ollama").unwrap().model = Some("no-existe".into());
+        let state = state_with_ollama(port, &config);
+
+        let p = resolve(&state, None).expect("auto debe resolver al Ollama local");
+        assert_eq!(p.name(), "ollama");
+        assert_eq!(p.model(), "coder:7b", "salta el que no tiene tools");
+        // 16k pedidos, el modelo admite 8k: se acota y se explica.
+        assert_eq!(p.context_window(), Some(8_192));
+        assert!(p.context_note().unwrap().contains("el modelo admite 8192"));
+        let _ = std::fs::remove_dir_all(&state);
+    }
+
+    #[test]
+    fn a_model_without_tools_is_rejected_with_an_alternative() {
+        let (port, _srv) = fake_ollama(vec![
+            ("chat-only:latest", vec!["completion"], 32_768),
+            ("coder:7b", vec!["completion", "tools"], 32_768),
+        ]);
+        let state = state_with_ollama(port, &crate::llm::LlmConfig::default());
+        let msg = match resolve(&state, Some("ollama:chat-only:latest")) {
+            Ok(_) => panic!("un modelo sin tools no debe resolver"),
+            Err(e) => format!("{e:#}"),
+        };
+        assert!(msg.contains("no soporta llamadas a herramienta"), "{msg}");
+        assert!(msg.contains("coder:7b"), "sugiere el que sí: {msg}");
+
+        let msg = match resolve(&state, Some("ollama:inexistente")) {
+            Ok(_) => panic!("un modelo no descargado no debe resolver"),
+            Err(e) => format!("{e:#}"),
+        };
+        assert!(msg.contains("antos llm pull inexistente"), "{msg}");
+        let _ = std::fs::remove_dir_all(&state);
+    }
+
+    #[test]
+    fn role_context_overrides_provider_context() {
+        let (port, _srv) = fake_ollama(vec![("coder:7b", vec!["tools"], 131_072)]);
+        let mut config = crate::llm::LlmConfig::default();
+        config.providers.get_mut("ollama").unwrap().num_ctx = Some(12_000);
+        config.set_role_num_ctx("architect", 6_000);
+        let state = state_with_ollama(port, &config);
+
+        let coder = resolve_for_role(&state, Some("ollama:coder:7b"), Some("coder")).unwrap();
+        let architect =
+            resolve_for_role(&state, Some("ollama:coder:7b"), Some("architect")).unwrap();
+        assert_eq!(coder.context_window(), Some(12_000));
+        assert_eq!(architect.context_window(), Some(6_000));
+        let _ = std::fs::remove_dir_all(&state);
+    }
+
+    #[test]
+    fn auto_without_a_usable_local_model_points_to_setup() {
+        let (port, _srv) = fake_ollama(vec![("chat-only:latest", vec!["completion"], 4_096)]);
+        let config = crate::llm::LlmConfig {
+            active_provider: "auto".into(),
+            ..Default::default()
+        };
+        let state = state_with_ollama(port, &config);
+        // Sin guion `fake` en el entorno este test no puede confundirse con
+        // la afordancia de la barra.
+        if std::env::var_os("ANTOS_AGENT_FAKE_SCRIPT").is_some() {
+            return;
+        }
+        let msg = match resolve(&state, None) {
+            Ok(_) => panic!("sin modelo con tools, auto no debe resolver"),
+            Err(e) => format!("{e:#}"),
+        };
+        assert!(msg.contains("antos llm setup"), "{msg}");
+        let _ = std::fs::remove_dir_all(&state);
     }
 }
