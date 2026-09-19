@@ -124,10 +124,18 @@ fn test_plan_proyecto_por_stack() {
     let p = planner
         .plan("crea un proyecto en express llamado shop", &catalog)
         .unwrap();
-    assert_eq!(p.steps.len(), 2);
+    assert_eq!(p.steps.len(), 3, "andamio + install + verify (T35.3)");
     assert_eq!(p.steps[1].capability, "project.run");
     assert_eq!(p.steps[1].args["project"], "shop");
     assert_eq!(p.steps[1].args["command"], "install");
+    assert_eq!(p.steps[2].args["command"], "verify");
+    let p = planner
+        .plan(
+            "crea un proyecto en express llamado shop sin verificar",
+            &catalog,
+        )
+        .unwrap();
+    assert_eq!(p.steps.len(), 2);
     let p = planner
         .plan(
             "crea un proyecto en express llamado shop sin instalar",

@@ -668,7 +668,9 @@ fn cmd_agent_do(ctx: &Ctx, args: &[String], opts: &crate::cli::args::Opts) -> Re
     let mut prov = crate::agent::providers::resolve(&ctx.state, provider.as_deref())?;
     let mut cfg = crate::agent::RunConfig::new(goal);
     if let Some(t) = tools {
+        // `--tools` explícito: decisión del usuario, sin toolset compacto.
         cfg.toolset = t;
+        cfg.toolset_compact = None;
     }
     cfg.budget = budget;
     cfg.dry_run = dry_run;

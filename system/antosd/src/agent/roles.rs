@@ -32,10 +32,19 @@ const EDITING: &[&str] = &[
     "fs.write",
     "test.run",
     "git.status",
+    "project.scaffold",
+    "project.run",
 ];
 /// Coder con un 7B: leer, parchear, probar. Sin `fs.write` (lo confunde
 /// con `fs.patch` y pisa ficheros enteros) ni `git.status`/`memory.search`.
-const EDITING_COMPACT: &[&str] = &["fs.read", "fs.list", "fs.patch", "test.run"];
+const EDITING_COMPACT: &[&str] = &[
+    "fs.read",
+    "fs.list",
+    "fs.patch",
+    "test.run",
+    "project.scaffold",
+    "project.run",
+];
 
 fn names(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| s.to_string()).collect()
@@ -157,6 +166,14 @@ mod tests {
         assert!(coder.toolset.iter().any(|t| t == "fs.patch"));
         assert!(coder.toolset.iter().any(|t| t == "test.run"));
         assert_eq!(coder.budget.max_steps, 5);
+        // T35.3: crear proyectos también con modelos pequeños — medido con
+        // el 7B: 10/10 en `scaffold-and-extend` y sin regresión en el caso
+        // Rust (5/5) con `project.*` en el toolset compacto.
+        assert!(coder.toolset.iter().any(|t| t == "project.scaffold"));
+        assert!(coder.toolset_compact.iter().any(|t| t == "project.run"));
+        assert!(crate::agent::tools::DEFAULT_TOOLSET_COMPACT.contains(&"project.scaffold"));
+        // Y siguen sin `fs.write`: la razón de ser del compacto.
+        assert!(!coder.toolset_compact.iter().any(|t| t == "fs.write"));
     }
 
     #[test]

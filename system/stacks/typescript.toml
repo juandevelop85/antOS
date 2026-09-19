@@ -14,6 +14,7 @@ binaries = ["node", "npm"]
 [commands]
 install = ["npm", "install"]
 test = ["npm", "test", "--silent"]
+test_filter = ["--", "{{filter}}"]
 dev = ["npm", "start"]
 
 [network]

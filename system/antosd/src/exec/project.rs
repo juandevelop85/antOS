@@ -92,9 +92,9 @@ pub fn changes_for(
     let manifest = read_manifest(&project_dir, pending)?;
     let argv = match command.as_str() {
         "install" => manifest.commands.install.clone(),
-        "test" => manifest.commands.test.clone(),
+        "test" | "verify" => manifest.commands.test.clone(),
         "build" => manifest.commands.build.clone(),
-        other => bail!("comando «{other}» no soportado (install | test | build)"),
+        other => bail!("comando «{other}» no soportado (install | test | verify | build)"),
     };
     if argv.is_empty() {
         bail!(
@@ -297,6 +297,21 @@ pub fn apply(change: &Change) -> Result<Option<String>> {
             },
             log_path.display()
         ))),
+        // `verify` (T35.3): el andamio no se da por bueno con la suite en
+        // rojo; el fallo del paso deja el snapshot para `antos undo`.
+        "verify" => {
+            if !out.status.success() {
+                bail!(
+                    "el proyecto «{project}» no pasa su propia suite ({shown}, código {code}; log en {}):\n{tail}",
+                    log_path.display()
+                );
+            }
+            Ok(Some(format!(
+                "proyecto «{project}» verificado: {shown} en verde · log en {}\n{}",
+                log_path.display(),
+                lines[lines.len().saturating_sub(6)..].join("\n")
+            )))
+        }
         _ => {
             if !out.status.success() {
                 bail!(
@@ -453,6 +468,47 @@ mod tests {
             "{outputs:?}"
         );
         let _ = std::fs::remove_dir_all(&temp);
+    }
+
+    /// T35.3: `test.run` usa `commands.test` del manifiesto en vez de
+    /// adivinar por ficheros (un directorio sin Cargo.toml/package.json que
+    /// aun así sabe probarse), y rechaza un manifiesto con un programa fuera
+    /// de la lista blanca.
+    #[test]
+    fn test_run_uses_the_manifest_command() {
+        let dir = std::env::temp_dir().join(format!("antos_trun_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".antos")).unwrap();
+        let program =
+            if crate::service::backend::locate_in(&crate::service::backend::path_dirs(), "node")
+                .is_some()
+            {
+                ("node", vec!["-e", "process.exit(0)"])
+            } else {
+                ("python3", vec!["-c", "raise SystemExit(0)"])
+            };
+        let stack = crate::stacks::StackCatalog::embedded()
+            .unwrap()
+            .get("rust")
+            .unwrap()
+            .clone();
+        let mut manifest: crate::stacks::ProjectManifest =
+            toml::from_str(&stack.project_manifest("x").unwrap()).unwrap();
+        manifest.commands.test = std::iter::once(program.0.to_string())
+            .chain(program.1.iter().map(|a| a.to_string()))
+            .collect();
+        manifest.save(&dir).unwrap();
+        let out = crate::exec::fs::run_tests(&dir, None).expect("run_tests con manifiesto");
+        assert!(out.starts_with("TESTS EN VERDE"), "{out}");
+
+        manifest.commands.test = vec!["sh".into(), "-c".into(), "true".into()];
+        manifest.save(&dir).unwrap();
+        let err = crate::exec::fs::run_tests(&dir, None)
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default();
+        assert!(err.contains("lista blanca"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

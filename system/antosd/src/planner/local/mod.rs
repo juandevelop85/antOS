@@ -83,6 +83,15 @@ impl Planner for LocalPlanner {
                         "project.run",
                         &[("project", name.as_str()), ("command", "install")],
                     ));
+                    // T35.3: el andamio se verifica con el test del stack;
+                    // en rojo, el paso falla y el proyecto se deshace.
+                    let has_test = stack.map(|s| !s.commands.test.is_empty()).unwrap_or(true);
+                    if has_test && !lower.contains("sin verificar") {
+                        steps.push(step(
+                            "project.run",
+                            &[("project", name.as_str()), ("command", "verify")],
+                        ));
+                    }
                 }
                 return Ok(Proposal::only_steps(steps));
             }

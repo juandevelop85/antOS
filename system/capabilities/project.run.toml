@@ -1,9 +1,12 @@
 name = "project.run"
-summary = "Ejecuta un comando declarado por el stack de un proyecto del workspace (install | test | build) sin shell, dentro del recinto, con las cachés del gestor dentro del proyecto"
+summary = "Ejecuta un comando declarado por el stack de un proyecto del workspace (install | test | verify | build) sin shell, dentro del recinto, con las cachés del gestor dentro del proyecto"
 
 [params]
 project = { type = "slug", max = 64 }
-command = { type = "enum", of = ["install", "test", "build"] }
+# `test` devuelve el resultado como texto (VERDE/ROJO) para que un agente
+# pueda leerlo; `verify` es el mismo comando pero un rojo es un fallo del
+# paso: es lo que cierra «crea un proyecto…» (T35.3).
+command = { type = "enum", of = ["install", "test", "verify", "build"] }
 
 [effects]
 # Todo lo que el comando toca es artefacto de construcción (node_modules,

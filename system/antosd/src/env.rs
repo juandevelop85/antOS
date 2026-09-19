@@ -94,19 +94,13 @@ pub struct EnvEngine;
 impl EnvEngine {
     /// Detects project tech stack based on existing files in workspace.
     pub fn detect_stack(workspace: &Path) -> Option<EnvProfile> {
-        if workspace.join("Cargo.toml").exists() {
-            Some(EnvProfile::Rust)
-        } else if workspace.join("package.json").exists() {
-            Some(EnvProfile::Node)
-        } else if workspace.join("pyproject.toml").exists()
-            || workspace.join("requirements.txt").exists()
-        {
-            Some(EnvProfile::Python)
-        } else if workspace.join("go.mod").exists() {
-            Some(EnvProfile::Go)
-        } else {
-            None
-        }
+        // T35.3: el manifiesto del proyecto primero; la heurística por
+        // ficheros vive en `stacks::detect_language_by_files`.
+        let language = match crate::stacks::ProjectManifest::load(workspace) {
+            Ok(Some(m)) => m.language,
+            _ => crate::stacks::detect_language_by_files(workspace)?.to_string(),
+        };
+        EnvProfile::from_str_loose(&language)
     }
 
     /// Initializes a declarative dev profile creating .antos/env.toml, devbox.json and flake.nix.

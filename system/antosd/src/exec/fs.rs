@@ -293,7 +293,22 @@ fn list_dir(root: &Path, depth: usize, limit: usize) -> Result<String> {
 /// acota a las últimas líneas para que quepa en el contexto de un modelo.
 pub(crate) fn run_tests(workspace: &Path, filter: Option<&str>) -> Result<String> {
     const TAIL_LINES: usize = 120;
-    let (program, args): (&str, Vec<String>) = if workspace.join("Cargo.toml").exists() {
+    // T35.3: el manifiesto del proyecto manda. Un proyecto creado o
+    // adoptado por antOS dice cómo se prueba; la detección por ficheros de
+    // abajo queda para los que no lo tienen.
+    let manifest_cmd: Option<(String, Vec<String>)> =
+        match crate::stacks::ProjectManifest::load(workspace) {
+            Ok(Some(m)) if !m.commands.test.is_empty() => {
+                let argv = m.test_argv(filter);
+                crate::exec::project::validate_argv(&argv)?;
+                Some((argv[0].clone(), argv[1..].to_vec()))
+            }
+            Ok(_) => None,
+            Err(e) => bail!("{e:#}"),
+        };
+    let (program, args): (&str, Vec<String>) = if let Some((p, a)) = &manifest_cmd {
+        (p.as_str(), a.clone())
+    } else if workspace.join("Cargo.toml").exists() {
         let mut a = vec!["test".to_string(), "--quiet".to_string()];
         if let Some(f) = filter {
             a.push(f.to_string());
@@ -527,22 +542,16 @@ pub fn scan_workspace_projects(workspace: &std::path::Path) -> Vec<std::path::Pa
     projects
 }
 
-/// Heuristically detects the technology stack of a project directory based on its files.
+/// Lenguaje de un proyecto: el del manifiesto si lo tiene, si no por sus
+/// ficheros (`stacks::detect_language_by_files`, la única copia de la
+/// heurística desde T35.3). `"default"` si no se reconoce.
 pub fn detect_project_language(dir: &Path) -> String {
-    if dir.join("Cargo.toml").exists() {
-        "rust".into()
-    } else if dir.join("package.json").exists() || dir.join("tsconfig.json").exists() {
-        "typescript".into()
-    } else if dir.join("pyproject.toml").exists()
-        || dir.join("requirements.txt").exists()
-        || dir.join("main.py").exists()
-    {
-        "python".into()
-    } else if dir.join("go.mod").exists() {
-        "go".into()
-    } else {
-        "default".into()
+    if let Ok(Some(m)) = crate::stacks::ProjectManifest::load(dir) {
+        return m.language;
     }
+    crate::stacks::detect_language_by_files(dir)
+        .unwrap_or("default")
+        .to_string()
 }
 
 #[cfg(test)]

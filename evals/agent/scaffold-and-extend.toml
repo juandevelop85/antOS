@@ -1,0 +1,23 @@
+# T35.3: el agente crea un proyecto por el catálogo de stacks, instala,
+# lo amplía y deja la suite en verde — todo dentro del proyecto nuevo.
+# Stack `rust` base: `cargo fetch`/`cargo test` funcionan sin red ni
+# dependencias, así que el guion `fake` corre en `cargo test` y en CI.
+name = "scaffold-and-extend"
+fixture = "empty"
+goal = "crea un proyecto rust llamado demo y haz que `cargo test` pase con un test de la función sum"
+budget_steps = 10
+requires = ["cargo", "git"]
+script = '''[
+  {"text": "Creo el proyecto desde el catálogo.", "calls": [{"tool": "project.scaffold", "input": {"language": "rust", "name": "demo"}}], "tokens": 100},
+  {"text": "Dependencias.", "calls": [{"tool": "project.run", "input": {"project": "demo", "command": "install"}}], "tokens": 60},
+  {"text": "Añado sum y su test.", "calls": [{"tool": "fs.patch", "input": {"path": "demo/src/main.rs", "old": "fn main() {\n    println!(\"demo en marcha\");\n}\n", "new": "pub fn sum(a: i32, b: i32) -> i32 {\n    a + b\n}\n\nfn main() {\n    println!(\"demo en marcha: {}\", sum(2, 3));\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn sums() {\n        assert_eq!(super::sum(2, 3), 5);\n    }\n}\n"}}], "tokens": 120},
+  {"text": "Verifico.", "calls": [{"tool": "project.run", "input": {"project": "demo", "command": "test"}}], "tokens": 60},
+  {"calls": [{"tool": "finalizar", "input": {"resumen": "proyecto demo creado con sum y su test en verde"}}], "tokens": 40}
+]'''
+
+[expect]
+tools = ["project.scaffold", "project.run", "fs.patch", "project.run", "finalizar"]
+stop_reason = "finished"
+tests_green = true
+tests_dir = "demo"
+files_allowed = ["demo/"]

@@ -72,8 +72,26 @@ pub struct Expectation {
     #[serde(default)]
     pub tests_green: bool,
     /// Rutas relativas que el run puede escribir; cualquier otra es fallo.
+    /// Una entrada acabada en `/` permite todo lo que cuelgue de ella
+    /// (T35.3: `demo/` para un proyecto recién creado).
     #[serde(default)]
     pub files_allowed: Vec<String>,
+    /// Dónde ejecutar la suite para `tests_green` (relativo al workspace;
+    /// `.` por defecto). Un proyecto creado por el run vive en un
+    /// subdirectorio.
+    #[serde(default)]
+    pub tests_dir: Option<String>,
+}
+
+/// `files_allowed`: igualdad exacta, o prefijo si la entrada acaba en `/`.
+pub fn file_allowed(allowed: &[String], written: &str) -> bool {
+    allowed.iter().any(|a| {
+        if let Some(prefix) = a.strip_suffix('/') {
+            written == prefix || written.starts_with(&format!("{prefix}/"))
+        } else {
+            a == written
+        }
+    })
 }
 
 /// Resultado de un caso: métricas y veredicto.
@@ -333,7 +351,9 @@ pub(crate) fn run_case(
     let mut cfg = RunConfig::new(case.goal.clone());
     cfg.budget.max_steps = case.budget_steps;
     if let Some(t) = &case.toolset {
+        // Un toolset explícito es decisión del operador: sin compacto.
         cfg.toolset = t.clone();
+        cfg.toolset_compact = None;
     }
     cfg.executor = executor;
     let mut provider = provider_for(case)?;
@@ -376,14 +396,18 @@ pub(crate) fn run_case(
         }
     }
     for f in &result.files_written {
-        if !e.files_allowed.iter().any(|a| a == f) {
+        if !file_allowed(&e.files_allowed, f) {
             result
                 .failures
                 .push(format!("escritura fuera de lo permitido: {f}"));
         }
     }
     if e.tests_green {
-        let outcome = crate::exec::fs::run_tests(&ws, None);
+        let tests_dir = match &e.tests_dir {
+            Some(d) => ws.join(d),
+            None => ws.clone(),
+        };
+        let outcome = crate::exec::fs::run_tests(&tests_dir, None);
         let green = outcome
             .as_ref()
             .map(|out| out.starts_with("TESTS EN VERDE"))

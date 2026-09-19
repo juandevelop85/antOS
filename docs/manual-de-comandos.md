@@ -929,6 +929,38 @@ Dos cosas que hay que saber:
   Rust por `rustup` bajo Landlock no funciona (`~/.rustup` no es legible desde
   el recinto, límite conocido de T33.2); con `cargo` de nixpkgs sí.
 
+**Verificación del andamio y fuente de verdad del stack (T35.3).** Crear un
+proyecto son **tres pasos** en una confirmación: `project.scaffold` →
+`project.run install` → `project.run verify` (el test del stack; en rojo el
+paso falla y el proyecto se deshace solo). `.antos/project.toml` es la
+fuente de verdad: `test.run`, `antos ci` y `antos env` lo leen antes de
+adivinar por ficheros, y los proyectos que no creó antOS se adoptan:
+
+```bash
+antos project info antostest        # stack, comandos, puerto, toolchain (y de dónde sale)
+antos project adopt legacy          # deduce el stack por los ficheros y escribe .antos/project.toml
+antos project stacks                # el catálogo y de dónde se cargó
+antos "prueba el proyecto legacy"   # ya usa el comando de test del manifiesto
+```
+
+**El agente crea proyectos.** `project.scaffold` y `project.run` están en el
+toolset del agente, también en el compacto de los modelos pequeños (medido
+con el 7B, ver abajo):
+
+```bash
+antos -y agent do "crea un proyecto rust llamado demo y haz que cargo test pase con un test de la función sum"
+```
+
+Caso de evaluación `scaffold-and-extend` (`evals/agent/`): determinista con
+`fake` en CI; con `--live` y `qwen2.5-coder:7b`, 10/10 (2026-09-19, dos
+tandas de `--repeat 5`, mediana 6 pasos, 10 s) tras dos ajustes del runtime
+que la medida destapó: el corte de bucle cuenta la misma llamada fallida
+aunque haya lecturas en medio (patrón real: `fs.read` → `fs.patch` ✗ →
+`fs.read` → el mismo `fs.patch` ✗…), y antes de cortar se pide el cierre
+tipado (`finalizar` por `format`), porque a menudo el trabajo ya está hecho
+—tests en verde— y el modelo se atasca en un parche que ya no aplica. Sin
+regresión en el caso Rust (5/5).
+
 `dev` (el servidor en marcha) no se ejecuta con `project.run` a propósito:
 un proceso que no termina no cabe en un paso con cuota; será un servicio
 (`env.service_up` para proyectos) en la fase siguiente.

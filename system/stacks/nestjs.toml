@@ -14,6 +14,7 @@ binaries = ["node", "npm"]
 [commands]
 install = ["npm", "install"]
 test = ["npm", "test", "--silent"]
+test_filter = ["--", "-t", "{{filter}}"]
 dev = ["npm", "run", "start:dev"]
 build = ["npm", "run", "build"]
 port = 3000

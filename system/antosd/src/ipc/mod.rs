@@ -134,6 +134,7 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             let mut cfg = crate::agent::RunConfig::new(goal);
             if let Some(t) = toolset {
                 cfg.toolset = t;
+                cfg.toolset_compact = None;
             }
             if let Some(b) = budget {
                 cfg.budget = b;

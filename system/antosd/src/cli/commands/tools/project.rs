@@ -26,6 +26,9 @@ pub fn cmd_project(ctx: &Ctx, args: &[String]) -> Result<()> {
         "list" | "ls" => cmd_project_list(ctx),
         "use" => cmd_use(ctx, &args[1..]),
         "current" => cmd_use(ctx, &[]),
+        "adopt" | "adoptar" => cmd_project_adopt(ctx, &args[1..]),
+        "info" => cmd_project_info(ctx, &args[1..]),
+        "stacks" => cmd_project_stacks(ctx),
         _ => {
             println!(
                 "\n{}\n",
@@ -36,6 +39,9 @@ pub fn cmd_project(ctx: &Ctx, args: &[String]) -> Result<()> {
             println!("    antos use --clear             Limpia la selección del proyecto activo");
             println!("    antos project init <nombre> [--branch <rama>] [--lang <lenguaje>]");
             println!("    antos project list            Lista proyectos en workspace/");
+            println!("    antos project adopt <nombre>  Escribe .antos/project.toml deduciendo el stack (T35.3)");
+            println!("    antos project info <nombre>   Stack, comandos, puerto y toolchain del proyecto");
+            println!("    antos project stacks          Catálogo de stacks disponibles");
             println!("    antos git init [nombre]");
             println!();
             Ok(())
@@ -333,4 +339,143 @@ pub fn cmd_git(ctx: &Ctx, args: &[String]) -> Result<()> {
             Ok(())
         }
     }
+}
+
+// ─────────────────────────────────────────── manifiesto del proyecto (T35.3)
+
+fn project_dir_of(ctx: &Ctx, arg: Option<&String>) -> Result<std::path::PathBuf> {
+    match arg {
+        Some(name) => {
+            let p = std::path::Path::new(name);
+            if p.is_absolute() {
+                Ok(p.to_path_buf())
+            } else {
+                Ok(ctx.workspace.join(name))
+            }
+        }
+        None => ctx
+            .current_project
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("indica el proyecto: antos project adopt <nombre>")),
+    }
+}
+
+/// `antos project adopt <nombre>`: deduce el stack por los ficheros y escribe
+/// `.antos/project.toml` para que `test.run`, `ci`, `env` y los agentes dejen
+/// de adivinar.
+pub fn cmd_project_adopt(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let dir = project_dir_of(ctx, args.first())?;
+    if !dir.is_dir() {
+        anyhow::bail!("no existe el directorio {}", dir.display());
+    }
+    let catalog = crate::stacks::StackCatalog::load(ctx.antos_root.as_deref())?;
+    if let Some(existing) = crate::stacks::ProjectManifest::load(&dir)? {
+        println!(
+            "\n{} «{}» ya tiene manifiesto: stack {} ({}). Nada que hacer.\n",
+            paint("·", DIM),
+            dir.display(),
+            paint(&existing.stack, CYAN),
+            existing.created_by
+        );
+        return Ok(());
+    }
+    let Some(manifest) = crate::stacks::ProjectManifest::detect(&dir, &catalog) else {
+        anyhow::bail!(
+            "no reconozco el stack de {} (busco Cargo.toml, package.json, pyproject.toml, go.mod); \
+             escribe .antos/project.toml a mano tomando uno de `antos project stacks` como modelo",
+            dir.display()
+        );
+    };
+    let path = manifest.save(&dir)?;
+    println!(
+        "\n{} {} escrito: stack {} · test: {}\n",
+        paint("✓", GREEN),
+        paint(&path.display().to_string(), BOLD),
+        paint(&manifest.stack, CYAN),
+        manifest.commands.test.join(" ")
+    );
+    Ok(())
+}
+
+/// `antos project info <nombre>`: lo que el manifiesto (o la detección) dice.
+pub fn cmd_project_info(ctx: &Ctx, args: &[String]) -> Result<()> {
+    let dir = project_dir_of(ctx, args.first())?;
+    let catalog = crate::stacks::StackCatalog::load(ctx.antos_root.as_deref())?;
+    let (manifest, source) = match crate::stacks::ProjectManifest::load(&dir)? {
+        Some(m) => (m, "manifiesto (.antos/project.toml)"),
+        None => match crate::stacks::ProjectManifest::detect(&dir, &catalog) {
+            Some(m) => (
+                m,
+                "detectado por ficheros (sin manifiesto; antos project adopt lo fija)",
+            ),
+            None => anyhow::bail!("no reconozco el stack de {}", dir.display()),
+        },
+    };
+    println!(
+        "\n{}",
+        paint(&format!("antOS · proyecto «{}»", manifest.name), BOLD)
+    );
+    println!("  Origen:     {}", paint(source, DIM));
+    println!(
+        "  Stack:      {} ({}{})",
+        paint(&manifest.stack, CYAN),
+        manifest.language,
+        if manifest.framework.is_empty() {
+            String::new()
+        } else {
+            format!("/{}", manifest.framework)
+        }
+    );
+    let show = |label: &str, v: &[String]| {
+        if !v.is_empty() {
+            println!("  {label:<11} {}", v.join(" "));
+        }
+    };
+    show("install:", &manifest.commands.install);
+    show("test:", &manifest.commands.test);
+    show("build:", &manifest.commands.build);
+    show("dev:", &manifest.commands.dev);
+    if let Some(p) = manifest.commands.port {
+        println!("  Puerto:     {p}");
+    }
+    if !manifest.toolchain.nix.is_empty() {
+        println!(
+            "  Toolchain:  nixpkgs#{}",
+            manifest.toolchain.nix.join(" nixpkgs#")
+        );
+    }
+    if !manifest.network.hosts.is_empty() {
+        println!("  Red:        {}", manifest.network.hosts.join(", "));
+    }
+    println!();
+    Ok(())
+}
+
+/// `antos project stacks`: el catálogo y de dónde se cargó.
+pub fn cmd_project_stacks(ctx: &Ctx) -> Result<()> {
+    let catalog = crate::stacks::StackCatalog::load(ctx.antos_root.as_deref())?;
+    println!(
+        "\n{} {}",
+        paint("antOS · stacks de proyecto", BOLD),
+        paint(
+            &match &catalog.source {
+                crate::stacks::CatalogSource::Env(p) => format!("(ANTOS_STACKS={})", p.display()),
+                crate::stacks::CatalogSource::Tree(p) => format!("({})", p.display()),
+                crate::stacks::CatalogSource::Embedded => "(embebido en el binario)".into(),
+            },
+            DIM
+        )
+    );
+    for s in catalog.stacks() {
+        // Se rellena antes de colorear: los códigos ANSI descuadran `{:<n}`.
+        println!(
+            "  {} {:<22} {}  {}",
+            paint(&format!("{:<12}", s.id), CYAN),
+            s.label(),
+            paint(&format!("[{}]", s.aliases.join(", ")), DIM),
+            s.summary
+        );
+    }
+    println!("\n  Pídelo: antos \"crea un proyecto en <alias> llamado <nombre>\"\n");
+    Ok(())
 }

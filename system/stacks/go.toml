@@ -12,6 +12,7 @@ binaries = ["go"]
 [commands]
 install = ["go", "mod", "tidy"]
 test = ["go", "test", "./..."]
+test_filter = ["-run", "{{filter}}"]
 dev = ["go", "run", "."]
 build = ["go", "build", "-o", "bin/{{name}}", "."]
 port = 8080

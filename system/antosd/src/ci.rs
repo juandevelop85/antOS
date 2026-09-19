@@ -89,6 +89,14 @@ impl CiEngine {
             }
         }
 
+        // T35.3: el manifiesto del proyecto define las etapas: sus comandos
+        // (vectores del stack) se unen con espacios porque las etapas de CI
+        // corren por intérprete — el intérprete ES la funcionalidad aquí
+        // (T31.4) y los comandos vienen del catálogo, no del usuario.
+        if let Ok(Some(m)) = crate::stacks::ProjectManifest::load(workspace) {
+            return Self::pipeline_from_manifest(&m);
+        }
+
         // Auto-detect project tech stack
         if workspace.join("Cargo.toml").exists() {
             Self::default_rust_pipeline()
@@ -100,6 +108,46 @@ impl CiEngine {
             Self::default_python_pipeline()
         } else {
             Self::default_generic_pipeline()
+        }
+    }
+
+    /// Etapas a partir de `.antos/project.toml`: seguridad, `install` (si
+    /// el stack lo declara), `build` (si lo declara) y `test`.
+    pub fn pipeline_from_manifest(m: &crate::stacks::ProjectManifest) -> CiPipelineConfig {
+        let mut stages = vec![StageConfig {
+            name: "security".into(),
+            command: "internal:secret_scanner".into(),
+            parallel: true,
+            fast: true,
+        }];
+        let join = |v: &[String]| v.join(" ");
+        if !m.commands.install.is_empty() {
+            stages.push(StageConfig {
+                name: "install".into(),
+                command: join(&m.commands.install),
+                parallel: false,
+                fast: false,
+            });
+        }
+        if !m.commands.build.is_empty() {
+            stages.push(StageConfig {
+                name: "build".into(),
+                command: join(&m.commands.build),
+                parallel: false,
+                fast: false,
+            });
+        }
+        if !m.commands.test.is_empty() {
+            stages.push(StageConfig {
+                name: "test".into(),
+                command: join(&m.commands.test),
+                parallel: false,
+                fast: false,
+            });
+        }
+        CiPipelineConfig {
+            name: format!("{}-ci", m.stack),
+            stages,
         }
     }
 

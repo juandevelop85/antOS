@@ -46,7 +46,7 @@ use crate::{exec, preview, sandbox, snapshot};
 use antos_protocol::{AgentBudget, AgentReport, AgentStepEvent, AgentStepOutcome, AgentStopReason};
 use anyhow::{Context, Result};
 use providers::{AgentProvider, ToolCall, ToolResult};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Instant;
 use tools::FINISH_TOOL;
@@ -68,14 +68,21 @@ const STRUCTURED_FINISH_TEXT: &str = "No has llamado a ninguna herramienta. Da l
     terminada ahora: responde ÚNICAMENTE con el JSON de `finalizar` según el esquema, con un \
     `resumen` honesto de lo hecho y de lo que no pudiste hacer.";
 
+/// Petición de cierre cuando el modelo repite la misma llamada fallida
+/// (T35.3): que resuma lo hecho en vez de seguir chocando.
+const LOOPING_FINISH_TEXT: &str = "Has repetido varias veces la misma llamada y sigue fallando. \
+    Para aquí. Responde ÚNICAMENTE con el JSON de `finalizar` según el esquema: en `resumen`, \
+    qué conseguiste (por ejemplo, si los tests ya pasan) y qué quedó sin hacer.";
+
 /// Prefijo de los rechazos por argumentos (el reintento gratuito de T34.4
 /// distingue así un argumento mal formado de una denegación de política).
 pub(crate) const ARGS_REJECT_PREFIX: &str = "argumentos rechazados";
 
-/// Veces seguidas que la MISMA llamada (herramienta + argumentos) puede
-/// fallar antes de cortar el run como `Looping` (T34.4). A la segunda se le
-/// dice al modelo, con claridad, que cambie de estrategia; a la tercera se
-/// para: gastar 18 pasos en el mismo `fs.patch` no arregla nada.
+/// Veces que la MISMA llamada (herramienta + argumentos) puede fallar en un
+/// run antes de cortarlo como `Looping` (T34.4; desde T35.3 no hace falta
+/// que sean seguidas). A la segunda se le dice al modelo, con claridad, que
+/// cambie de estrategia; a la tercera se para: gastar 18 pasos en el mismo
+/// `fs.patch` no arregla nada.
 const MAX_IDENTICAL_FAILURES: u32 = 3;
 
 /// Configuración de un run.
@@ -207,8 +214,11 @@ pub fn run(
     // Herramientas que ya tuvieron su reintento gratuito por argumentos
     // malformados (uno por herramienta y run, T34.4).
     let mut retried_args: BTreeSet<String> = BTreeSet::new();
-    // Última llamada fallida y cuántas veces seguidas se ha repetido igual.
-    let mut last_failure: Option<(String, u32)> = None;
+    // Cuántas veces ha fallado cada llamada idéntica (herramienta +
+    // argumentos) en el run. No hace falta que sean seguidas: el patrón
+    // real observado es fs.read → fs.patch (falla) → fs.read → el MISMO
+    // fs.patch…, y una lectura entre medias no lo convierte en progreso.
+    let mut failure_counts: BTreeMap<String, u32> = BTreeMap::new();
     let grants = Grants::load(&ctx.grants_path()).unwrap_or_default();
     let jail = sandbox::for_host();
 
@@ -262,30 +272,16 @@ pub fn run(
             // modelo pequeño que «tiene» el plan pero lo cuenta en prosa
             // termina así con un cierre tipado en vez de `ModelStopped`.
             if !handler.should_stop() {
-                let schema = cfg
-                    .finish
-                    .as_ref()
-                    .map(|f| f.input_schema.clone())
-                    .unwrap_or_else(tools::default_finish_schema);
-                if let Some(Ok(value)) =
-                    provider.finish_structured(STRUCTURED_FINISH_TEXT, &schema, &tool_specs)
-                {
-                    let summary = value
-                        .get("resumen")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("(sin resumen)")
-                        .to_string();
-                    finish_input = Some(value.to_string());
-                    state.steps += 1;
-                    handler.on_step(&AgentStepEvent {
-                        run_id: run_id.clone(),
-                        step: state.steps,
-                        tool: FINISH_TOOL.into(),
-                        args_summary: preview_text(&summary, MAX_PREVIEW),
-                        outcome: AgentStepOutcome::Finished,
-                        output_preview: "(cierre estructurado)".into(),
-                        tokens_used: state.tokens,
-                    })?;
+                if let Some(summary) = structured_finish(
+                    provider,
+                    cfg,
+                    &tool_specs,
+                    STRUCTURED_FINISH_TEXT,
+                    &run_id,
+                    &mut state,
+                    &mut finish_input,
+                    handler,
+                )? {
                     break (AgentStopReason::Finished, summary, None);
                 }
             }
@@ -369,22 +365,17 @@ pub fn run(
             );
             if failed {
                 let key = format!("{}:{}", call.name, call.input);
-                let count = match &last_failure {
-                    Some((k, n)) if *k == key => n + 1,
-                    _ => 1,
-                };
-                last_failure = Some((key, count));
-                if count >= MAX_IDENTICAL_FAILURES {
+                let count = failure_counts.entry(key).or_insert(0);
+                *count += 1;
+                if *count >= MAX_IDENTICAL_FAILURES {
                     looping = true;
-                } else if count == 2 {
+                } else if *count == 2 {
                     result.content.push_str(
                         "\nYa has hecho exactamente esta misma llamada y ha fallado igual. \
-                         No la repitas: lee el fichero con fs.read y usa el texto EXACTO que \
-                         contiene, o cambia de enfoque.",
+                         No la repitas: corrige lo que dice el error (o lee el fichero con \
+                         fs.read y usa el texto EXACTO), o cambia de enfoque.",
                     );
                 }
-            } else {
-                last_failure = None;
             }
             // Argumentos malformados (no política): la primera vez por
             // herramienta se devuelve el esquema y no cuenta como paso, para
@@ -433,10 +424,28 @@ pub fn run(
             );
         }
         if looping {
+            // Antes de cortar, una salida digna (T35.3): a veces el trabajo
+            // ya está hecho (tests en verde) y el modelo se atasca en un
+            // parche que ya no aplica. Se le pide el cierre tipado; si no lo
+            // da, `Looping`.
+            if !handler.should_stop() {
+                if let Some(summary) = structured_finish(
+                    provider,
+                    cfg,
+                    &tool_specs,
+                    LOOPING_FINISH_TEXT,
+                    &run_id,
+                    &mut state,
+                    &mut finish_input,
+                    handler,
+                )? {
+                    break (AgentStopReason::Finished, summary, None);
+                }
+            }
             break (
                 AgentStopReason::Looping,
                 format!(
-                    "el modelo repitió {MAX_IDENTICAL_FAILURES} veces seguidas la misma llamada fallida; run cortado"
+                    "el modelo repitió {MAX_IDENTICAL_FAILURES} veces la misma llamada fallida; run cortado"
                 ),
                 None,
             );
@@ -498,6 +507,47 @@ pub fn run(
     };
     handler.on_done(&report)?;
     Ok(report)
+}
+
+/// Pide al proveedor el JSON de `finalizar` y, si lo da, lo registra como
+/// el paso terminal. `None` si el proveedor no sabe forzar formato o el
+/// modelo no devuelve JSON válido.
+#[allow(clippy::too_many_arguments)]
+fn structured_finish(
+    provider: &mut dyn AgentProvider,
+    cfg: &RunConfig,
+    tool_specs: &[tools::ToolSpec],
+    prompt: &str,
+    run_id: &str,
+    state: &mut RunState,
+    finish_input: &mut Option<String>,
+    handler: &mut dyn AgentHandler,
+) -> Result<Option<String>> {
+    let schema = cfg
+        .finish
+        .as_ref()
+        .map(|f| f.input_schema.clone())
+        .unwrap_or_else(tools::default_finish_schema);
+    let Some(Ok(value)) = provider.finish_structured(prompt, &schema, tool_specs) else {
+        return Ok(None);
+    };
+    let summary = value
+        .get("resumen")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(sin resumen)")
+        .to_string();
+    *finish_input = Some(value.to_string());
+    state.steps += 1;
+    handler.on_step(&AgentStepEvent {
+        run_id: run_id.to_string(),
+        step: state.steps,
+        tool: FINISH_TOOL.into(),
+        args_summary: preview_text(&summary, MAX_PREVIEW),
+        outcome: AgentStepOutcome::Finished,
+        output_preview: "(cierre estructurado)".into(),
+        tokens_used: state.tokens,
+    })?;
+    Ok(Some(summary))
 }
 
 struct RunState {

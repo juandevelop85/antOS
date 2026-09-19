@@ -433,6 +433,10 @@ escribe en el recinto, no se confirma ni se fotografía), cuota propia
 (`policy.timeout_secs = 900`, que `Blast` propaga a la `Policy` del
 recinto), y toolchain por `PATH` o por `nix shell nixpkgs#…`. La red del
 recinto sigue siendo todo o nada: se abre para el paso y se muestra el
-destino declarado. Lo que aún no existe (T35.3): `test.run`/`ci`/agente
-leyendo el manifiesto en vez de adivinar, y la verificación automática del
-andamio.
+destino declarado. Desde T35.3 el manifiesto es la fuente de verdad:
+`test.run`, `ci` y `env` lo leen antes de la única heurística por ficheros
+que queda (`stacks::detect_language_by_files`), `antos project adopt` lo
+escribe para los proyectos que antOS no creó, crear un proyecto termina con
+`project.run verify` (rojo = el paso falla y el andamio se deshace), y
+`project.*` está en el toolset del agente — incluido el compacto de los
+modelos pequeños, medido con el 7B (`scaffold-and-extend`, 10/10).

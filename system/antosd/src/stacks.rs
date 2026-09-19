@@ -29,6 +29,11 @@ pub const ALLOWED_PROGRAMS: &[&str] = &[
 
 /// Marcador que las plantillas sustituyen por el nombre del proyecto.
 pub const NAME_PLACEHOLDER: &str = "{{name}}";
+/// Marcador de `commands.test_filter` para el nombre del test.
+pub const FILTER_PLACEHOLDER: &str = "{{filter}}";
+
+/// Fichero del proyecto que dice qué stack es (T35.1/T35.3).
+pub const PROJECT_MANIFEST_PATH: &str = ".antos/project.toml";
 
 /// Los stacks que viajan con el binario. Mismo contenido que
 /// `system/stacks/`; un test lo comprueba.
@@ -60,6 +65,11 @@ pub struct Commands {
     pub install: Vec<String>,
     #[serde(default)]
     pub test: Vec<String>,
+    /// Argumentos que `test.run` añade a `test` para filtrar por nombre,
+    /// con `{{filter}}` como marcador (`["--", "-t", "{{filter}}"]` para
+    /// Jest, `["-k", "{{filter}}"]` para pytest). Vacío = el stack no filtra.
+    #[serde(default)]
+    pub test_filter: Vec<String>,
     #[serde(default)]
     pub dev: Vec<String>,
     #[serde(default)]
@@ -147,6 +157,7 @@ impl Stack {
             commands: Commands {
                 install: substitute_all(&self.commands.install, name),
                 test: substitute_all(&self.commands.test, name),
+                test_filter: self.commands.test_filter.clone(),
                 dev: substitute_all(&self.commands.dev, name),
                 build: substitute_all(&self.commands.build, name),
                 port: self.commands.port,
@@ -195,6 +206,12 @@ impl Stack {
             if f.content.is_none() && f.from.is_none() {
                 bail!("{source}: [[file]] «{}» sin `content` ni `from`", f.path);
             }
+        }
+        if self.commands.test_filter.iter().any(|a| {
+            a.chars()
+                .any(|c| matches!(c, ';' | '|' | '&' | '`' | '$' | '\n'))
+        }) {
+            bail!("{source}: commands.test_filter lleva metacaracteres de shell");
         }
         for (what, cmd) in [
             ("install", &self.commands.install),
@@ -253,6 +270,119 @@ pub struct ProjectManifest {
     pub network: Network,
     #[serde(default)]
     pub created_by: String,
+}
+
+impl ProjectManifest {
+    /// Lee el manifiesto de un proyecto; `None` si no lo tiene.
+    pub fn load(project_dir: &Path) -> Result<Option<Self>> {
+        let path = project_dir.join(PROJECT_MANIFEST_PATH);
+        if !path.is_file() {
+            return Ok(None);
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("leyendo {}", path.display()))?;
+        let m: Self =
+            toml::from_str(&text).with_context(|| format!("{} ilegible", path.display()))?;
+        Ok(Some(m))
+    }
+
+    /// Manifiesto deducido de los ficheros del proyecto (`Cargo.toml`,
+    /// `package.json`, `pyproject.toml`, `go.mod`), con el stack base del
+    /// lenguaje: lo que `antos project adopt` escribe y lo que `test.run`,
+    /// `ci` y `env` usan cuando el proyecto no lo creó antOS.
+    pub fn detect(project_dir: &Path, catalog: &StackCatalog) -> Option<Self> {
+        let language = match detect_language_by_files(project_dir)? {
+            "typescript" | "javascript" => {
+                // Un `package.json` sin `tsconfig.json` es JavaScript.
+                if project_dir.join("tsconfig.json").is_file() {
+                    "typescript"
+                } else {
+                    "javascript"
+                }
+            }
+            other => other,
+        };
+        // Base del lenguaje; JavaScript no tiene base propia: vale el
+        // primer stack de ese lenguaje (sus comandos npm son los mismos).
+        let stack = catalog
+            .find(language, "")
+            .or_else(|| catalog.stacks().iter().find(|s| s.language == language))?;
+        let name = project_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "proyecto".into());
+        let text = stack.project_manifest(&name).ok()?;
+        let mut m: Self = toml::from_str(&text).ok()?;
+        m.created_by = format!(
+            "antos project adopt (T35.3) · detectado por ficheros como {}",
+            stack.id
+        );
+        Some(m)
+    }
+
+    /// El manifiesto si existe; si no, el detectado (sin escribirlo).
+    pub fn load_or_detect(project_dir: &Path, catalog: &StackCatalog) -> Option<Self> {
+        Self::load(project_dir)
+            .ok()
+            .flatten()
+            .or_else(|| Self::detect(project_dir, catalog))
+    }
+
+    /// Escribe el manifiesto en el proyecto (`antos project adopt`).
+    pub fn save(&self, project_dir: &Path) -> Result<PathBuf> {
+        let path = project_dir.join(PROJECT_MANIFEST_PATH);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let body = toml::to_string_pretty(self).context("serializando project.toml")?;
+        std::fs::write(
+            &path,
+            format!(
+                "# Proyecto adoptado por antOS. Lo leen `test.run`, `ci` y los agentes\n\
+                 # para no adivinar el stack (T35.3). Editarlo a mano es correcto.\n{body}"
+            ),
+        )
+        .with_context(|| format!("escribiendo {}", path.display()))?;
+        Ok(path)
+    }
+
+    /// `commands.test` con el filtro aplicado (si el stack sabe filtrar).
+    pub fn test_argv(&self, filter: Option<&str>) -> Vec<String> {
+        let mut argv = self.commands.test.clone();
+        if let Some(f) = filter.filter(|f| !f.trim().is_empty()) {
+            if !self.commands.test_filter.is_empty() {
+                argv.extend(
+                    self.commands
+                        .test_filter
+                        .iter()
+                        .map(|a| a.replace(FILTER_PLACEHOLDER, f)),
+                );
+            }
+        }
+        argv
+    }
+}
+
+/// Lenguaje por los ficheros del proyecto. La única copia de esta
+/// heurística: `exec/fs.rs`, `ci.rs` y `env.rs` la llaman a través del
+/// manifiesto (T35.3).
+pub fn detect_language_by_files(dir: &Path) -> Option<&'static str> {
+    if dir.join("Cargo.toml").is_file() {
+        Some("rust")
+    } else if dir.join("package.json").is_file() || dir.join("tsconfig.json").is_file() {
+        Some("typescript")
+    } else if dir.join("pyproject.toml").is_file()
+        || dir.join("requirements.txt").is_file()
+        || dir.join("pytest.ini").is_file()
+        || dir.join("setup.py").is_file()
+        || dir.join("main.py").is_file()
+    {
+        Some("python")
+    } else if dir.join("go.mod").is_file() {
+        Some("go")
+    } else {
+        None
+    }
 }
 
 /// De dónde salió el catálogo, para decirlo en `antos project stacks`.
@@ -562,6 +692,54 @@ mod tests {
         let b = StackCatalog::parse_one("id = \"b\"\nlanguage = \"rust\"\naliases = [\"same\"]\n[[file]]\npath = \"f\"\ncontent = \"c\"\n", "b").unwrap();
         let err = StackCatalog::from_stacks(vec![a, b], CatalogSource::Embedded).unwrap_err();
         assert!(err.to_string().contains("alias «same» repetido"));
+    }
+
+    /// T35.3: `detect` deduce el stack base por los ficheros, `save` escribe
+    /// el manifiesto, `load` lo lee, y `test_argv` aplica el filtro del stack.
+    #[test]
+    fn manifest_is_detected_saved_loaded_and_filters_tests() {
+        let cat = StackCatalog::embedded().unwrap();
+        let dir = std::env::temp_dir().join(format!("antos_adopt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(ProjectManifest::detect(&dir, &cat).is_none(), "vacío: nada");
+
+        std::fs::write(dir.join("package.json"), "{}").unwrap();
+        let js = ProjectManifest::detect(&dir, &cat).unwrap();
+        assert_eq!(js.language, "javascript", "package.json sin tsconfig es JS");
+        std::fs::write(dir.join("tsconfig.json"), "{}").unwrap();
+        let ts = ProjectManifest::detect(&dir, &cat).unwrap();
+        assert_eq!(ts.stack, "typescript");
+        assert_eq!(ts.commands.test, vec!["npm", "test", "--silent"]);
+        assert_eq!(
+            ts.test_argv(Some("suma")),
+            vec!["npm", "test", "--silent", "--", "suma"]
+        );
+        assert_eq!(ts.test_argv(None), ts.commands.test);
+
+        assert!(ProjectManifest::load(&dir).unwrap().is_none());
+        let path = ts.save(&dir).unwrap();
+        assert!(path.ends_with(".antos/project.toml"));
+        let loaded = ProjectManifest::load(&dir).unwrap().unwrap();
+        assert_eq!(loaded.stack, "typescript");
+        assert!(loaded.created_by.contains("adopt"));
+
+        for (files, expected) in [
+            (vec!["Cargo.toml"], "rust"),
+            (vec!["pyproject.toml"], "python"),
+            (vec!["go.mod"], "go"),
+        ] {
+            let d = dir.join(expected);
+            std::fs::create_dir_all(&d).unwrap();
+            for f in files {
+                std::fs::write(d.join(f), "").unwrap();
+            }
+            assert_eq!(ProjectManifest::detect(&d, &cat).unwrap().stack, expected);
+        }
+        let py = ProjectManifest::detect(&dir.join("python"), &cat).unwrap();
+        assert_eq!(py.test_argv(Some("x")).last().unwrap(), "x");
+        assert!(py.test_argv(Some("x")).contains(&"-k".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Un TOML nuevo en un directorio queda disponible sin recompilar.

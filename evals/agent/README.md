@@ -33,7 +33,10 @@ files_allowed = ["src/lib.rs"]      # cualquier otra escritura es fallo
 ```
 
 Con `--live` no se exige el orden de herramientas (es del modelo); sí
-`tests_green`, `files_allowed` y `stop_reason`.
+`tests_green`, `files_allowed` y `stop_reason`. `files_allowed` acepta
+prefijos acabados en `/` (`demo/`: todo lo que cuelgue del proyecto nuevo) y
+`tests_dir` dice dónde ejecutar la suite si el run crea el proyecto en un
+subdirectorio (T35.3, `scaffold-and-extend`).
 
 ## Repeticiones (T34.4)
 

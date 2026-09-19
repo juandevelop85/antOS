@@ -13,6 +13,7 @@ binaries = ["cargo"]
 [commands]
 install = ["cargo", "fetch"]
 test = ["cargo", "test", "--quiet"]
+test_filter = ["{{filter}}"]
 dev = ["cargo", "run"]
 build = ["cargo", "build", "--release"]
 port = 3000

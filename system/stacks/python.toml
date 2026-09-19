@@ -13,6 +13,7 @@ binaries = ["python3"]
 [commands]
 install = ["uv", "sync"]
 test = ["pytest", "-q", "-p", "no:cacheprovider"]
+test_filter = ["-k", "{{filter}}"]
 dev = ["python3", "main.py"]
 
 [network]

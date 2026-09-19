@@ -24,12 +24,24 @@ pub const DEFAULT_TOOLSET: &[&str] = &[
     "test.run",
     "git.status",
     "memory.search",
+    // T35.3: crear proyectos e instalar/probar/compilar por el stack. Solo
+    // en el toolset completo: un modelo pequeño con el andamio delante se
+    // pierde (para él está la intención).
+    "project.scaffold",
+    "project.run",
 ];
 
 /// Toolset reducido para modelos pequeños (T34.4): un 7B con siete
 /// herramientas confunde `fs.write` con `fs.patch` y se pierde en
 /// `git.status`/`memory.search`. Lo justo para leer, corregir y verificar.
-pub const DEFAULT_TOOLSET_COMPACT: &[&str] = &["fs.read", "fs.list", "fs.patch", "test.run"];
+pub const DEFAULT_TOOLSET_COMPACT: &[&str] = &[
+    "fs.read",
+    "fs.list",
+    "fs.patch",
+    "test.run",
+    "project.scaffold",
+    "project.run",
+];
 
 /// Una herramienta tal como la ve el proveedor (esquema neutro; cada
 /// proveedor lo envuelve en su formato).

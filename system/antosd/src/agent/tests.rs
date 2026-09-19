@@ -681,7 +681,8 @@ fn identical_failing_calls_stop_the_run_as_looping() {
     assert!(provider.received[0].is_error);
     assert!(!provider.received[0].content.contains("No la repitas"));
     assert!(provider.received[1].content.contains("No la repitas"));
-    // Fallos distintos entre sí no cuentan como bucle.
+    // Fallos distintos entre sí no cuentan como bucle; pero el mismo fallo
+    // intercalado con lecturas sí (T35.3: read → patch ✗ → read → patch ✗…).
     let mut varied = FakeProvider::new(vec![
         ScriptedTurn {
             calls: vec![bad_patch()],
@@ -695,10 +696,6 @@ fn identical_failing_calls_stop_the_run_as_looping() {
             ..Default::default()
         },
         ScriptedTurn {
-            calls: vec![bad_patch()],
-            ..Default::default()
-        },
-        ScriptedTurn {
             calls: vec![call(FINISH_TOOL, json!({"resumen": "fin"}))],
             ..Default::default()
         },
@@ -709,5 +706,40 @@ fn identical_failing_calls_stop_the_run_as_looping() {
     };
     let report = run(&ctx, &catalog, &mut varied, &cfg, &mut handler2).unwrap();
     assert_eq!(report.stop_reason, AgentStopReason::Finished);
+
+    let read = || call("fs.read", json!({"path": "src/lib.rs"}));
+    let mut interleaved = FakeProvider::new(vec![
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![read()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![read()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![bad_patch()],
+            ..Default::default()
+        },
+        ScriptedTurn {
+            calls: vec![call(FINISH_TOOL, json!({"resumen": "no debería llegar"}))],
+            ..Default::default()
+        },
+    ]);
+    let mut handler3 = RecordingHandler {
+        approve: true,
+        ..Default::default()
+    };
+    let report = run(&ctx, &catalog, &mut interleaved, &cfg, &mut handler3).unwrap();
+    assert_eq!(report.stop_reason, AgentStopReason::Looping);
+    assert_eq!(report.steps, 5);
     let _ = std::fs::remove_dir_all(temp);
 }

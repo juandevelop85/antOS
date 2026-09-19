@@ -13,6 +13,7 @@ binaries = ["uv"]
 [commands]
 install = ["uv", "sync"]
 test = ["uv", "run", "pytest", "-q", "-p", "no:cacheprovider"]
+test_filter = ["-k", "{{filter}}"]
 dev = ["uv", "run", "fastapi", "dev", "app/main.py"]
 port = 8000
 
