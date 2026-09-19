@@ -14,12 +14,14 @@ rustPlatform.buildRustPackage {
   # `builder` entra solo por su manifiesto: es miembro del workspace, así que
   # cargo necesita poder leerlo aunque no se compile.
   #
-  # `recipes/` y `system/desktop/rc.xml` NO son opcionales: `antosd` los
-  # embebe con `include_str!` (`pkg/recipes.rs`, `desktop.rs`), así que sin
-  # ellos en el conjunto el binario no compila dentro del recinto de Nix. Se
+  # `recipes/`, `system/desktop/rc.xml` y `system/llm/models.toml` NO son
+  # opcionales: `antosd` los embebe con `include_str!` (`pkg/recipes.rs`,
+  # `desktop.rs`, `llm/doctor.rs`), así que sin ellos en el conjunto el
+  # binario no compila dentro del recinto de Nix. Los dos primeros se
   # quedaron fuera al pasar de `src = ../..` al conjunto explícito (T31.12);
-  # el hueco no se notaba porque la CI no construye este paquete, solo el
-  # workspace del anfitrión con `cargo` y el árbol entero a mano.
+  # el tercero al añadirlo T34.2 sin tocar esta lista — `cargo` en el
+  # anfitrión ve el árbol entero y no avisa. Antes de añadir un
+  # `include_str!` que salga de `system/antosd/src`, la ruta va aquí.
   src = lib.fileset.toSource {
     root = ../..;
     fileset = lib.fileset.unions [
@@ -29,6 +31,7 @@ rustPlatform.buildRustPackage {
       ../../system/antosd
       ../../system/capabilities
       ../../system/desktop/rc.xml
+      ../../system/llm
       ../../recipes
       ../../builder/Cargo.toml
       ../../builder/src
