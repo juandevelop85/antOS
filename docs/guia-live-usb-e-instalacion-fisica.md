@@ -204,5 +204,33 @@ terminal). A partir de ahí se evoluciona el sistema de forma declarativa:
 
 ```bash
 sudo nixos-rebuild switch --flake /etc/nixos#<hostname>
-antos doctor            # verifica el recinto y que antosd/antos-barra levantan
+antos doctor --desktop  # recinto, sesión Wayland, demonio por el socket, antos-barra
 ```
+
+## 5. Primer arranque: `antos setup` (T36.5)
+
+La primera sesión abre una terminal con `antos setup`. En pocos minutos deja
+lo que un puesto de desarrollo necesita, y se puede repetir cuando se
+quiera (cada paso se salta solo si ya está hecho):
+
+1. **Identidad git** (nombre y correo de los commits).
+2. **Clave SSH** ed25519; te muestra la pública para pegarla en GitHub/GitLab.
+3. **Flathub**, para `antos app install <flatpak>`.
+4. **Modelos**: perfil `local` (solo Ollama), `hybrid` (Ollama + nube) o
+   `cloud`; la descarga del modelo local (varios GB) solo si la confirmas
+   (`antos llm setup` después, si prefieres).
+5. **Claves API** (Anthropic / OpenAI) a la bóveda cifrada, tecleadas sin
+   eco. Nunca a un fichero en claro.
+6. **`gh auth login`**, si quieres.
+7. **`antos doctor --desktop`**, el resumen: recinto del usuario, sesión
+   Wayland, demonio respondiendo por el socket, barra viva, Ollama,
+   Flathub, identidad git.
+
+`antos setup --status` muestra qué quedó hecho; `antos setup --yes --config
+setup.toml` lo hace sin preguntas (las claves API nunca van en el TOML:
+`antos secrets set ANTHROPIC_API_KEY`). El marcador es
+`$ANTOS_STATE/setup.toml`.
+
+> antOS Linux es **monousuario** en esta versión: el usuario del escritorio
+> es el dueño del recinto y del demonio. Otro usuario del sistema no tiene
+> barra ni socket; `antos doctor --desktop` lo dice.

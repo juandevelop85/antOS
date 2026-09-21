@@ -242,6 +242,27 @@ fn daemon_speaks_the_bar_protocol_over_the_ipc_socket() {
         "salida inesperada de `antos ping`: {stdout}"
     );
 
+    // ── 4. `antos doctor --desktop` (T36.5): con el demonio vivo, la
+    // comprobación del socket pasa; fuera de una sesión Wayland el doctor
+    // falla (y lo dice), que es lo honesto.
+    let doctor = Command::new(env!("CARGO_BIN_EXE_antos"))
+        .args(["doctor", "--desktop"])
+        .current_dir(&repo)
+        .env("ANTOS_WORKSPACE", &daemon.workspace)
+        .env("ANTOS_STATE", daemon.socket.parent().unwrap())
+        .env("ANTOS_CAPABILITIES", repo.join("system/capabilities"))
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .expect("no pude lanzar `antos doctor --desktop`");
+    let text = String::from_utf8_lossy(&doctor.stdout);
+    assert!(text.contains("doctor --desktop"), "{text}");
+    assert!(text.contains("responde (QueryGitStatus"), "{text}");
+    assert!(text.contains("sin WAYLAND_DISPLAY"), "{text}");
+    assert!(
+        !doctor.status.success(),
+        "fuera de la sesión gráfica debe fallar"
+    );
+
     // Sin demonio (estado vacío) `antos ping` falla con código distinto de
     // cero: es lo que hace útil al smoke.
     let empty = daemon.root.join("empty-state");

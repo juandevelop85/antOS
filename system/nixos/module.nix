@@ -59,6 +59,20 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    # antOS Linux es monousuario en esta fase (T36.5): el demonio corre como
+    # el usuario de la sesión y el socket es `0600`. Una configuración que
+    # separe ambos no funcionaría y no debe evaluar en silencio.
+    assertions = [{
+      assertion = !config.services.antos.desktop.enable
+        || cfg.user == config.services.antos.desktop.autologinUser;
+      message = ''
+        services.antos.user (${cfg.user}) tiene que ser el usuario del escritorio
+        (services.antos.desktop.autologinUser = ${config.services.antos.desktop.autologinUser}):
+        antOS Linux es monousuario en esta versión; el socket IPC es 0600 y solo
+        habla con quien lo abrió. Un demonio por usuario es un ticket futuro.
+      '';
+    }];
+
     environment.systemPackages = [ cfg.package ];
 
     # Las rutas van en el entorno de todo el sistema para que `antos` haga lo

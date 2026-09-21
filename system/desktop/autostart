@@ -75,3 +75,19 @@ if command -v antos-barra >/dev/null 2>&1; then
 elif [ -x "./system/barra/target/debug/antos-barra" ]; then
     _running antos-barra || ./system/barra/target/debug/antos-barra >> "$LOG" 2>&1 &
 fi
+
+# 5. Primer arranque (T36.5): si `antos setup` nunca se ha completado en este
+#    recinto (no hay `$ANTOS_STATE/setup.toml`), se abre una terminal con el
+#    asistente. Solo una vez: al cerrarla sin terminar, la próxima sesión no
+#    la vuelve a abrir sola (queda `antos setup` a mano). `system/nixos/
+#    desktop.nix` sustituye la marca por su terminal; sobre un Linux sin el
+#    módulo se usa `$TERMINAL` o `foot`.
+# @antos:firstboot@
+if command -v antos >/dev/null 2>&1 && [ -n "${ANTOS_STATE:-}" ] \
+   && [ ! -f "$ANTOS_STATE/setup.toml" ] && [ ! -f "$ANTOS_STATE/.setup-offered" ]; then
+    touch "$ANTOS_STATE/.setup-offered" 2>/dev/null || true
+    _term="${TERMINAL:-foot}"
+    if command -v "$_term" >/dev/null 2>&1; then
+        _running "$_term" || "$_term" -e antos setup >> "$LOG" 2>&1 &
+    fi
+fi

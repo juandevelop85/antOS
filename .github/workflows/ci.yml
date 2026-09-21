@@ -688,3 +688,29 @@ jobs:
           # Las VM no cambian: siguen con root con sesión abierta (vm-common.nix).
           test "$(nix eval --json .#nixosConfigurations.antos-vm.config.services.getty.autologinUser)" = '"root"'
           echo "antos-installed-x86_64: NM, PipeWire, bluetooth, sudo con contraseña, teclado coherente; sin root autologin"
+
+      # T36.5: primer arranque y modelo monousuario. El servicio de usuario
+      # `antos-flathub` y la entrada de autostart de `antos setup` están en
+      # la máquina instalada; y una configuración que separe el usuario del
+      # demonio del usuario del escritorio no evalúa (assertion).
+      - name: Primer arranque y monousuario · aserciones (T36.5)
+        run: |
+          set -eu
+          cfg=".#nixosConfigurations.antos-installed-x86_64.config"
+          test "$(nix eval --json "$cfg.systemd.user.services.antos-flathub.enable")" = "true"
+          nix eval --raw "$cfg.environment.etc.\"xdg/autostart/antos-first-boot.desktop\".text" | grep -q 'setup'
+          nix eval --raw "$cfg.environment.etc.\"antos/desktop/autostart\".text" 2>/dev/null | grep -q 'antos setup' \
+            || nix eval --raw "$cfg.services.greetd.settings.default_session.command" >/dev/null
+          if nix eval --impure --expr '
+            let flake = builtins.getFlake (toString ./.);
+                sys = flake.inputs.nixpkgs.lib.nixosSystem {
+                  system = "x86_64-linux";
+                  modules = [ flake.nixosModules.default flake.nixosModules.desktop flake.nixosModules.llm flake.nixosModules.machine
+                              { nixpkgs.overlays = [ flake.overlays.default ]; }
+                              ./system/nixos/installed.nix
+                              { services.antos.user = "root"; } ];
+                };
+            in sys.config.system.build.toplevel.drvPath' >/dev/null 2>&1; then
+            echo "ERROR: services.antos.user = root con escritorio debería fallar (monousuario)"; exit 1
+          fi
+          echo "antos-installed-x86_64: antos-flathub, autostart de antos setup; usuario≠escritorio rechazado"

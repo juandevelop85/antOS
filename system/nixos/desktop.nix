@@ -72,10 +72,23 @@ let
     fi
 
     mkdir -p "$XDG_CONFIG_HOME/labwc"
-    cp -f /etc/antos/desktop/rc.xml "$XDG_CONFIG_HOME/labwc/rc.xml"
-    cp -f /etc/antos/desktop/autostart "$XDG_CONFIG_HOME/labwc/autostart"
+    # Los ficheros de Labwc se instalan si faltan o si el usuario no los ha
+    # tocado (son byte a byte iguales a la última copia, guardada en
+    # `.antos-orig-<fichero>`); una edición del usuario se respeta (T36.5).
+    # `antos doctor --desktop` avisa cuando hay una versión nueva sin aplicar.
+    _install_cfg() {
+      src="$1"; name="$2"
+      dst="$XDG_CONFIG_HOME/labwc/$name"
+      orig="$XDG_CONFIG_HOME/labwc/.antos-orig-$name"
+      if [ ! -f "$dst" ] || { [ -f "$orig" ] && cmp -s "$dst" "$orig"; }; then
+        cp -f "$src" "$dst"
+        cp -f "$src" "$orig"
+      fi
+    }
+    _install_cfg /etc/antos/desktop/rc.xml rc.xml
+    _install_cfg /etc/antos/desktop/autostart autostart
     ${lib.optionalString cfg.panel.enable ''
-      cp -f /etc/antos/desktop/labwc/menu.xml "$XDG_CONFIG_HOME/labwc/menu.xml"
+      _install_cfg /etc/antos/desktop/labwc/menu.xml menu.xml
     ''}
     chmod +x "$XDG_CONFIG_HOME/labwc/autostart"
 
@@ -270,9 +283,29 @@ let
   '';
 
   sessionAutostart = pkgs.writeShellScript "antos-autostart"
-    (builtins.replaceStrings [ "# @antos:outputs@" "# @antos:panel@" ]
-      [ outputScaleSnippet (lib.optionalString cfg.panel.enable panelAutostart) ]
+    (builtins.replaceStrings [ "# @antos:outputs@" "# @antos:panel@" "# @antos:firstboot@" ]
+      [ outputScaleSnippet (lib.optionalString cfg.panel.enable panelAutostart) firstBootSnippet ]
       (builtins.readFile ../desktop/autostart));
+
+  # ── Primer arranque (T36.5) ─────────────────────────────────────────
+  # La terminal declarada (`cfg.terminal`) en vez de `$TERMINAL`/`foot`.
+  firstBootSnippet = ''
+    TERMINAL="${lib.getExe cfg.terminal}"
+  '';
+
+  # Lo mismo para Plasma, como entrada de autostart XDG: abre `antos setup`
+  # en la terminal la primera vez que hay sesión y no existe el marcador.
+  firstBootScript = pkgs.writeShellScript "antos-first-boot" ''
+    if [ -f /etc/set-environment ]; then
+      set +u
+      . /etc/set-environment
+    fi
+    state="''${ANTOS_STATE:-${config.services.antos.state}}"
+    [ -f "$state/setup.toml" ] && exit 0
+    [ -f "$state/.setup-offered" ] && exit 0
+    touch "$state/.setup-offered" 2>/dev/null || true
+    exec ${lib.getExe cfg.terminal} -e ${lib.getExe config.services.antos.package} setup
+  '';
 
   # Panel superior: botón de menú (→ lanzador), reloj, CPU/RAM/red y bandeja.
   # Formatos de texto: sin dependencia de una fuente de iconos.
@@ -671,6 +704,15 @@ in
       OnlyShowIn=KDE;
       X-KDE-autostart-phase=2
     '';
+    # Primer arranque (T36.5): `antos setup` en la terminal si no hay marcador.
+    environment.etc."xdg/autostart/antos-first-boot.desktop".text = ''
+      [Desktop Entry]
+      Type=Application
+      Name=antOS · configura tu antOS
+      Exec=${firstBootScript}
+      OnlyShowIn=KDE;
+      X-KDE-autostart-phase=2
+    '';
   })
 
   # ── Userland de desarrollo (T30.3) ────────────────────────────────────
@@ -718,9 +760,24 @@ in
       nix-direnv.enable = true;
     };
 
-    # Flatpak para `antos app` (el remoto `flathub` se añade en el primer
-    # arranque: `flatpak remote-add --if-not-exists flathub …`).
+    # Flatpak para `antos app`. El remoto `flathub` del usuario lo añade el
+    # servicio de usuario de abajo en cuanto hay sesión (T36.5): antes de
+    # T36.5 este comentario lo delegaba «al primer arranque» y nadie lo
+    # hacía. Sin red, `Restart=on-failure` lo reintenta; `antos setup` lo
+    # comprueba también.
     services.flatpak.enable = true;
+    systemd.user.services.antos-flathub = {
+      description = "antOS · remoto flathub del usuario para `antos app`";
+      wantedBy = [ "default.target" ];
+      unitConfig.ConditionPathExists = "!%h/.local/share/flatpak/repo/config";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        Restart = "on-failure";
+        RestartSec = 60;
+        ExecStart = "${pkgs.flatpak}/bin/flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo";
+      };
+    };
 
     environment.systemPackages = with pkgs; [
       gh

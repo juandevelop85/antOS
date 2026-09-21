@@ -270,6 +270,45 @@ nix eval .#nixosConfigurations.antos-desktop.config.system.build.toplevel.drvPat
 nix build .#antos-barra          # -> result/bin/antos-barra
 ```
 
+##### Primer arranque: `antos setup` y `antos doctor --desktop` (T36.5)
+
+La primera sesión del escritorio abre una terminal con `antos setup`
+(autostart XDG bajo Plasma, paso 5 del `autostart` de Labwc; solo una vez,
+mientras no exista `$ANTOS_STATE/setup.toml`). Es idempotente: cada paso
+detecta si ya está hecho (`→ saltado (ya hecho)`) y una segunda pasada no
+cambia ningún fichero.
+
+| Paso | Qué hace | Cómo se salta |
+| :--- | :--- | :--- |
+| identidad git | `user.name` / `user.email` en `~/.config/git/config` | ya presentes (ahí o en `~/.gitconfig`) |
+| clave SSH | `ssh-keygen -t ed25519` en `~/.ssh/id_ed25519`; muestra la pública | ya existe, o «n» |
+| flathub | `flatpak remote-add --if-not-exists --user flathub …` (también lo hace el servicio de usuario `antos-flathub`) | sin `flatpak`, o ya presente |
+| modelos | perfil `local` / `hybrid` / `cloud` (T34.4); descarga del modelo solo con confirmación | «saltar» |
+| claves API | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` a la bóveda cifrada, tecleadas sin eco | ya en la bóveda, o «n» |
+| gh auth | `gh auth login` en primer plano | sin `gh`, ya autenticado, o «n» |
+
+```bash
+antos setup                          # interactivo
+antos setup --yes --config setup.toml   # sin preguntas: git_name, git_email, ssh_key, flathub,
+                                     # llm_profile, pull_model, gh_login (las claves API nunca van en el TOML)
+antos setup --status                 # qué quedó hecho la última vez
+antos doctor --desktop               # recinto del usuario, sesión Wayland, demonio por el socket,
+                                     # antos-barra, ollama (aviso), flathub (aviso), identidad git (aviso),
+                                     # rc.xml/autostart de Labwc editados con versión nueva pendiente (aviso)
+```
+
+> **antOS Linux es monousuario en esta versión.** El usuario del escritorio
+> es el dueño del recinto (`ANTOS_STATE`, `ANTOS_WORKSPACE`) y del socket
+> `0600` del demonio (`services.antos.user = autologinUser`, que el módulo
+> exige con una `assertion`). `antos doctor --desktop` lo comprueba: si lo
+> ejecuta otro usuario, lo dice en vez de fallar de forma críptica. Un
+> demonio por usuario es un ticket futuro.
+>
+> La sesión de Labwc instala `rc.xml` / `autostart` / `menu.xml` en
+> `~/.config/labwc` solo si faltan o si no los has tocado (guarda una copia
+> de lo que instaló en `.antos-orig-<fichero>`); una edición tuya se
+> respeta y `doctor --desktop` avisa cuando hay una versión nueva.
+
 ##### Máquina física vs VM de desarrollo (T36.4)
 
 `nixosConfigurations.antos-desktop` es **la máquina física**: `installed.nix`

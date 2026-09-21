@@ -42,6 +42,27 @@ wait_for 180 "sesión de $USER_NAME abierta por greetd" \
   bash -c "loginctl list-sessions --no-legend | grep -q ' $USER_NAME '"
 wait_for 120 "antos-barra en ejecución" pgrep -x antos-barra
 
+# 2b. Primer arranque (T36.5): `antos setup --yes` como el usuario es
+#     idempotente (segunda pasada: todo «ya hecho», nada cambia) y
+#     `antos doctor --desktop` pasa dentro de la sesión.
+UID_ANTOS="$(id -u "$USER_NAME")"
+WL="$(ls "/run/user/$UID_ANTOS"/wayland-* 2>/dev/null | head -n 1 | xargs -r basename)"
+as_user() { runuser -u "$USER_NAME" -- env HOME="/home/$USER_NAME" ANTOS_STATE="$STATE" ANTOS_WORKSPACE="$WORKSPACE" \
+  XDG_RUNTIME_DIR="/run/user/$UID_ANTOS" WAYLAND_DISPLAY="$WL" "$@"; }
+printf '%s\n' 'git_name = "antOS Smoke"' 'git_email = "smoke@antos.invalid"' 'ssh_key = true' 'flathub = false' > /tmp/setup.toml
+as_user antos setup --yes --config /tmp/setup.toml 2>&1 | tee "$SERIAL" || fail "antos setup --yes"
+[ -f "$STATE/setup.toml" ] || fail "sin marcador setup.toml"
+[ -f "/home/$USER_NAME/.ssh/id_ed25519.pub" ] || fail "antos setup no generó la clave SSH"
+grep -q 'smoke@antos.invalid' "/home/$USER_NAME/.config/git/config" || fail "antos setup no escribió la identidad git"
+home_fingerprint() { find "/home/$USER_NAME" -type f -printf '%p %s %T@\n' 2>/dev/null | sort | sha256sum; }
+BEFORE="$(home_fingerprint)"
+as_user antos setup --yes --config /tmp/setup.toml 2>&1 | tee "$SERIAL" | grep -q 'ya hecho' || fail "segunda pasada de antos setup sin «ya hecho»"
+AFTER="$(home_fingerprint)"
+[ "$BEFORE" = "$AFTER" ] || fail "la segunda pasada de antos setup cambió ficheros de \$HOME"
+say "✓ antos setup idempotente"
+as_user antos doctor --desktop 2>&1 | tee "$SERIAL" || fail "antos doctor --desktop"
+say "✓ antos doctor --desktop"
+
 # 3. El sistema se puede reconstruir sin red (todo está en el store).
 cd /root || fail "sin /root"
 rm -f /root/result
