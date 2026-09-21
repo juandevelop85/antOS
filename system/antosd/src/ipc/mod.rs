@@ -1820,8 +1820,16 @@ pub fn remote_intent(
                 term.on_note(&format!("  • Modo:          {}", rep.mode))?;
                 term.on_note(&format!("  • Partición ESP: {}", rep.efi_partition))?;
                 term.on_note(&format!("  • Partición /:   {}", rep.root_partition))?;
+                if rep.simulated {
+                    term.on_note("  • Simulación: nada escrito en el disco (○ = paso simulado)")?;
+                }
                 for s in rep.steps {
-                    term.on_note(&format!("  ✓ {}: {}", s.name, s.description))?;
+                    term.on_note(&format!(
+                        "  {} {}: {}",
+                        if s.executed { "✓" } else { "○" },
+                        s.name,
+                        s.description
+                    ))?;
                 }
             }
             Event::DetectedOperatingSystems(entries) => {

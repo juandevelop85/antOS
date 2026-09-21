@@ -1,5 +1,5 @@
 name = "install.deploy"
-summary = "Despliega el sistema base antOS en el disco de destino (instalación limpia o Dual Boot)"
+summary = "Genera la configuración de antOS Linux para el disco de destino (instalación limpia o Dual Boot); la instalación real a disco es T36.2 y hoy `dry_run = false` se detiene sin tocarlo"
 
 [params]
 target_device = { type = "text" }
@@ -7,6 +7,8 @@ clean = { type = "boolean", optional = true }
 dry_run = { type = "boolean", optional = true }
 username = { type = "text", optional = true }
 hostname = { type = "text", optional = true }
+keymap = { type = "text", optional = true }
+system = { type = "text", optional = true }
 
 [effects]
 writes = ["$WORKSPACE"]

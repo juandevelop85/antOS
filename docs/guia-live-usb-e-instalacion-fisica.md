@@ -137,21 +137,35 @@ Antes de arrancar desde el pendrive USB:
 
 ## 4-bis. Instalar antOS Linux (NixOS + escritorio antOS) — T30.5
 
+> **Estado real (T36.1, septiembre 2026): `antos install` todavía no instala.**
+> Sin `--apply`, simula: genera la configuración de la tabla de abajo en
+> `<workspace>/target/installer-staging/etc/nixos/` y marca cada paso
+> `○ simulado`; el disco no se toca. Con `--apply`, comprueba las
+> precondiciones (Linux, `root`, `parted`/`mkfs.*`/`blkid`/`nixos-install`
+> en `PATH`, `/mnt/target` montado) y se detiene con un error explícito: el
+> particionado, el formateo, `nixos-generate-config` y `nixos-install`
+> reales son **T36.2**; la ISO con la *closure* del sistema y el árbol
+> fuente, **T36.3**. Nada de lo que sigue se anuncia como «completado» sin
+> haberse ejecutado.
+
 Desde la **ISO gráfica** (`nix build .#iso`), `antos install` sigue el mismo
 asistente (inspección de hardware, selección de disco, Disco Completo / Dual-Boot
-seguro, hostname/usuario/timezone/**keymap**) pero el despliegue es NixOS:
+seguro, hostname/usuario/timezone/**keymap**) y el despliegue es NixOS:
 
-| Paso | Qué hace |
-| :--- | :--- |
-| Particionado | GPT limpio (512 MiB ESP + raíz) en Disco Completo; en **Dual-Boot** preserva la ESP y las particiones ajenas |
-| `/etc/nixos` | Genera `flake.nix` + `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, `networking.hostName`, `time.timeZone`, `console.keyMap` y `systemd-boot` (en Dual-Boot, `systemd-boot` encadena Windows/otros Linux **sin tocar sus entradas**) |
-| `hardware-configuration.nix` | Lo escribe `nixos-generate-config --root /mnt/target` |
-| Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd` (copia el *closure* del escritorio antOS) |
-| NVRAM UEFI | Entrada `antOS Linux` vía `systemd-boot` / `efibootmgr` |
+| Paso | Qué hace | Estado |
+| :--- | :--- | :--- |
+| Particionado | GPT limpio (512 MiB ESP + raíz) en Disco Completo; en **Dual-Boot** preserva la ESP y las particiones ajenas | simulado (T36.2) |
+| `/etc/nixos` | Genera `flake.nix` (nixpkgs fijado al `flake.lock` del árbol, `antos.nixosModules.{default,desktop,llm}`, `antos.overlays.default`, `system` detectado), `flake.lock`, `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, `networking.hostName`, `time.timeZone`, `console.keyMap` y `systemd-boot` (en Dual-Boot, `systemd-boot` encadena Windows/otros Linux **sin tocar sus entradas**), y copia el árbol de antOS a `antos/` | **real** (la CI lo evalúa con `nix eval`) |
+| `hardware-configuration.nix` | De relleno (raíz `antos-root` y ESP `ANTOS_ESP` por etiqueta); lo escribe de verdad `nixos-generate-config --root /mnt/target` | simulado (T36.2) |
+| Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd` (copia el *closure* del escritorio antOS) | simulado (T36.2) |
+| NVRAM UEFI | Entrada `antOS Linux` registrada por `systemd-boot` desde `nixos-install`; `antos install` **no** escribe ningún binario EFI ni llama a `efibootmgr` en esta vía | simulado (T36.2) |
 
-Tras `reboot`, el equipo entra **directo al escritorio antOS** (autologin
-Wayland, barra anclada, `antosd` vivo). A partir de ahí evolucionas el sistema
-de forma declarativa:
+La ESP se monta en `/boot` (lo que NixOS y `systemd-boot` esperan), no en
+`/boot/efi`.
+
+Cuando T36.2 cierre, tras `reboot` el equipo entrará **directo al escritorio
+antOS** (autologin Wayland, barra anclada, `antosd` vivo). A partir de ahí se
+evoluciona el sistema de forma declarativa:
 
 ```bash
 sudo nixos-rebuild switch --flake /etc/nixos#<hostname>

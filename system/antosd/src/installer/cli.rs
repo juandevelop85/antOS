@@ -1,18 +1,27 @@
 //! Interfaz Interactiva en Línea de Comandos para Instalación de antOS (`antos install`).
 //!
-//! Guía al usuario paso a paso durante la sesión Live USB:
+//! Guía al usuario paso a paso durante la sesión en vivo:
 //! - Inspecciona hardware (procesador, RAM, firmware UEFI).
 //! - Lista y permite seleccionar discos de almacenamiento físicos.
 //! - Soporta modos de Instalación Limpia (con confirmación destructiva explícita) o Dual-Boot.
 //! - Configura parámetros de sistema (hostname, timezone, keymap, usuario).
-//! - Muestra barra de progreso durante la copia y despliegue del sistema base.
-//! - Registra la entrada UEFI con `efibootmgr` ("antOS Linux").
-//! - Desmonta particiones y ofrece confirmación de reinicio.
+//! - Llama a [`DeployEngine::deploy_system`] y muestra **lo que el informe
+//!   dice que pasó**, paso a paso, distinguiendo simulación de ejecución.
+//!
+//! ## Estado de implementación (T36.1)
+//!
+//! Sin `--apply` todo es simulación: se genera la configuración de antOS
+//! Linux en un directorio de *staging* y el disco no se toca. Con `--apply`,
+//! `deploy_system` comprueba las precondiciones y **aborta**: la instalación
+//! real (particionado, `mkfs`, `nixos-install`) es T36.2. El asistente
+//! nunca anuncia «instalación completada» sobre un informe `simulated`.
+//! Hasta T36.1 dibujaba barras de progreso de pasos que no ejecutaba y
+//! terminaba con «retira el USB y reinicia» también en modo real.
 
 use super::{BootloaderEngine, DeployEngine, DiskManager};
 use crate::ctx::Ctx;
 use crate::terminal::{paint, BOLD, CYAN, GREEN, RED, YELLOW};
-use antos_protocol::{BootloaderConfig, InstallConfig, InstallReport};
+use antos_protocol::{default_system, BootTarget, BootloaderConfig, InstallConfig, InstallReport};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -134,6 +143,10 @@ pub struct InstallTomlConfig {
     pub timezone: String,
     #[serde(default = "default_keymap")]
     pub keymap: String,
+    /// Sistema Nix (`x86_64-linux` / `aarch64-linux`); por defecto el de la
+    /// máquina donde corre el instalador (T36.1).
+    #[serde(default = "default_system")]
+    pub system: String,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -176,6 +189,7 @@ impl InstallTomlConfig {
             username: self.username.clone(),
             timezone: self.timezone.clone(),
             keymap: self.keymap.clone(),
+            system: self.system.clone(),
             dry_run: self.dry_run,
         }
     }
@@ -556,7 +570,7 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         bail!("Instalación cancelada por el usuario.");
     }
 
-    // ── Paso 4: Ejecución y Despliegue con Barra de Progreso ───────────────────
+    // ── Paso 4: Ejecución (o simulación) del despliegue ────────────────────────
     writeln!(
         writer,
         "\n{}",
@@ -574,94 +588,38 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         username: username.clone(),
         timezone: timezone.clone(),
         keymap: keymap.clone(),
+        system: default_system(),
         dry_run: dry_run_default,
     };
 
-    let total_steps = 6;
-
-    // Subpaso 1: Particionamiento
-    render_progress_bar(writer, 1, total_steps, "Creando particiones GPT", 30)?;
-    let _plan = DiskManager::plan_partitioning(
-        &install_config.target_device,
-        install_config.clean_install,
-    )?;
-    render_progress_bar(writer, 1, total_steps, "Creando particiones GPT", 100)?;
-    writeln!(writer, " ✓")?;
-
-    // Subpaso 2: Formateo de sistemas de archivos
-    render_progress_bar(writer, 2, total_steps, "Formateando particiones (mkfs)", 30)?;
-    render_progress_bar(
-        writer,
-        2,
-        total_steps,
-        "Formateando particiones (mkfs)",
-        100,
-    )?;
-    writeln!(writer, " ✓")?;
-
-    // Subpaso 3: Montaje en /mnt/target
-    render_progress_bar(
-        writer,
-        3,
-        total_steps,
-        "Montando destino en /mnt/target",
-        50,
-    )?;
-    render_progress_bar(
-        writer,
-        3,
-        total_steps,
-        "Montando destino en /mnt/target",
-        100,
-    )?;
-    writeln!(writer, " ✓")?;
-
-    // Subpaso 4: Despliegue y copia del sistema base con barra de progreso simulada
-    for p in (10..=100).step_by(15) {
-        render_progress_bar(
-            writer,
-            4,
-            total_steps,
-            "Copiando sistema base (/bin, /etc)",
-            p,
-        )?;
-    }
-    render_progress_bar(
-        writer,
-        4,
-        total_steps,
-        "Copiando sistema base (/bin, /etc)",
-        100,
-    )?;
+    // Primero se ejecuta (o se simula) de verdad; después se muestra lo que
+    // el informe dice que pasó. Nada de barras de progreso sobre pasos que
+    // no se han dado: cada línea sale del `InstallStep` correspondiente.
     let report = DeployEngine::deploy_system(&install_config, workspace)?;
-    writeln!(writer, " ✓")?;
+    let total_steps = report.steps.len();
+    for (i, step) in report.steps.iter().enumerate() {
+        render_progress_bar(writer, i + 1, total_steps, &step.name, 100)?;
+        writeln!(
+            writer,
+            " {}",
+            if step.executed {
+                paint("✓ ejecutado", GREEN)
+            } else {
+                paint("○ simulado", YELLOW)
+            }
+        )?;
+        writeln!(writer, "      {}", step.description)?;
+    }
 
-    // Subpaso 5: Configuración de fstab y servicios
-    render_progress_bar(
-        writer,
-        5,
-        total_steps,
-        "Generando /etc/fstab y servicios",
-        60,
-    )?;
-    render_progress_bar(
-        writer,
-        5,
-        total_steps,
-        "Generando /etc/fstab y servicios",
-        100,
-    )?;
-    writeln!(writer, " ✓")?;
-
-    // Subpaso 6: Bootloader UEFI y registro NVRAM
-    render_progress_bar(writer, 6, total_steps, "Instalando UEFI y efibootmgr", 50)?;
+    // Gestor de arranque: en antOS Linux lo instala `nixos-install`
+    // (`systemd-boot`). Aquí solo se sondea la ESP para el informe.
     let esp_mount = if install_config.dry_run {
         workspace
-            .join("target/installer-staging/boot/efi")
+            .join("target/installer-staging/boot")
             .to_string_lossy()
             .to_string()
     } else {
-        format!("{}/boot/efi", install_config.target_mount)
+        format!("{}/boot", install_config.target_mount)
     };
     let boot_cfg = BootloaderConfig {
         esp_mount,
@@ -671,56 +629,115 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         default_os: "antos".into(),
         detected_os: Vec::new(),
         dry_run: install_config.dry_run,
+        target: BootTarget::NixOs,
+        efi_binary: None,
     };
-    let _boot_report = BootloaderEngine::install_bootloader(&boot_cfg)?;
-    render_progress_bar(writer, 6, total_steps, "Instalando UEFI y efibootmgr", 100)?;
-    writeln!(writer, " ✓\n")?;
+    let boot_report = BootloaderEngine::install_bootloader(&boot_cfg)?;
+    writeln!(writer, "  • Gestor de arranque: {}", boot_report.summary)?;
 
-    // ── Paso 5: Finalización y Limpieza ───────────────────────────────────────
-    writeln!(
-        writer,
-        "{}",
-        paint(
-            "─── Paso 5: Finalización y Limpieza ────────────────────────────────────────",
-            CYAN
-        )
-    )?;
-    writeln!(
-        writer,
-        "  • Desmontando particiones (/mnt/target)... {}",
-        paint("✓ OK", GREEN)
-    )?;
+    // ── Paso 5: Resultado ──────────────────────────────────────────────────────
     writeln!(
         writer,
         "\n{}",
         paint(
-            "╔══════════════════════════════════════════════════════════════════════════╗",
-            GREEN
+            "─── Paso 5: Resultado ──────────────────────────────────────────────────────",
+            CYAN
         )
     )?;
-    writeln!(
-        writer,
-        "{}",
-        paint(
-            "║                  ✓ INSTALACIÓN COMPLETADA CON ÉXITO                     ║",
-            BOLD
-        )
-    )?;
-    writeln!(
-        writer,
-        "{}",
-        paint(
-            "╚══════════════════════════════════════════════════════════════════════════╝",
-            GREEN
-        )
-    )?;
-    writeln!(
-        writer,
-        "\n  {}\n",
-        paint("Instalación completada con éxito. Ya puedes retirar la memoria USB y reiniciar tu equipo.", BOLD)
-    )?;
+    if report.simulated {
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "╔══════════════════════════════════════════════════════════════════════════╗",
+                YELLOW
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "║                  ○ SIMULACIÓN COMPLETADA · disco intacto                ║",
+                BOLD
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "╚══════════════════════════════════════════════════════════════════════════╝",
+                YELLOW
+            )
+        )?;
+        writeln!(writer, "\n  {}", report.summary)?;
+        writeln!(
+            writer,
+            "  La configuración generada está en {}.\n  La instalación real a disco es T36.2; `--apply` hoy comprueba las precondiciones y se detiene.\n",
+            workspace.join("target/installer-staging/etc/nixos").display()
+        )?;
+    } else {
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "╔══════════════════════════════════════════════════════════════════════════╗",
+                GREEN
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "║                  ✓ INSTALACIÓN COMPLETADA                               ║",
+                BOLD
+            )
+        )?;
+        writeln!(
+            writer,
+            "{}",
+            paint(
+                "╚══════════════════════════════════════════════════════════════════════════╝",
+                GREEN
+            )
+        )?;
+        writeln!(
+            writer,
+            "\n  {}\n",
+            paint(
+                "Ya puedes retirar la memoria USB y reiniciar tu equipo.",
+                BOLD
+            )
+        )?;
+    }
 
     Ok(report)
+}
+
+/// Imprime un [`InstallReport`] paso a paso, sin marcar como hecho en el
+/// disco nada que el informe no diga que se ejecutó (T36.1).
+pub fn print_install_report(report: &InstallReport) {
+    println!(
+        "\n  {} {}",
+        if report.simulated {
+            paint("○ Simulación finalizada:", YELLOW)
+        } else {
+            paint("✓ Despliegue finalizado:", GREEN)
+        },
+        report.summary
+    );
+    for s in &report.steps {
+        println!(
+            "    {} {}: {}",
+            if s.executed {
+                paint("✓", GREEN)
+            } else {
+                paint("○", YELLOW)
+            },
+            s.name,
+            s.description
+        );
+    }
+    println!();
 }
 
 /// Punto de entrada del comando `antos install` invocado desde la CLI.
@@ -774,7 +791,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         println!("    --target, -t <dispositivo>    Selecciona disco destino (ej. /dev/nvme0n1, /dev/sda)");
         println!("    --clean                       Modo disco completo (instalación limpia)");
         println!("    --dual-boot                   Modo de convivencia segura (dual-boot)");
-        println!("    --apply                       Aplica cambios reales sobre el hardware (sin simulación)\n");
+        println!("    --apply                       Instalación real (T36.2, pendiente): hoy comprueba las precondiciones y se detiene sin tocar el disco\n");
         return Ok(());
     }
 
@@ -837,11 +854,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         );
 
         let report = DeployEngine::deploy_system(&install_cfg, &ctx.workspace)?;
-        println!(
-            "\n  {} {}",
-            paint("✓ Despliegue finalizado:", GREEN),
-            report.summary
-        );
+        print_install_report(&report);
         return Ok(());
     }
 
@@ -857,6 +870,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             username: "antos".into(),
             timezone: "UTC".into(),
             keymap: "us".into(),
+            system: default_system(),
             dry_run,
         };
         println!(
@@ -884,11 +898,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             }
         );
         let report = DeployEngine::deploy_system(&install_cfg, &ctx.workspace)?;
-        println!(
-            "  {} {}",
-            paint("✓ Despliegue finalizado:", GREEN),
-            report.summary
-        );
+        print_install_report(&report);
         return Ok(());
     }
 
@@ -941,6 +951,8 @@ dry_run = true
         let install_cfg = cfg.to_install_config();
         assert_eq!(install_cfg.target_device, "/dev/nvme0n1");
         assert_eq!(install_cfg.hostname, "workstation");
+        // `system` opcional en el TOML: por defecto el de la máquina.
+        assert!(install_cfg.system.ends_with("-linux"));
     }
 
     #[test]
@@ -961,9 +973,15 @@ dry_run = true
         assert!(output_str.contains("Paso 1: Selección del Disco Destino"));
         assert!(output_str.contains("Paso 2: Modo de Instalación"));
         assert!(output_str.contains("Dual-Boot"));
-        assert!(output_str.contains("INSTALACIÓN COMPLETADA CON ÉXITO"));
-        assert!(output_str.contains("Ya puedes retirar la memoria USB"));
+        // Honestidad (T36.1): una simulación no se anuncia como instalación.
+        assert!(output_str.contains("SIMULACIÓN COMPLETADA"));
+        assert!(!output_str.contains("INSTALACIÓN COMPLETADA"));
+        assert!(!output_str.contains("retirar la memoria USB"));
+        assert!(output_str.contains("○ simulado"));
+        assert!(!output_str.contains("✓ ejecutado"));
+        assert!(output_str.contains("nixos-install"));
         assert!(report.success);
+        assert!(report.simulated);
     }
 
     #[test]
@@ -982,9 +1000,33 @@ dry_run = true
         let output_str = String::from_utf8_lossy(&writer);
         assert!(output_str.contains("¡ADVERTENCIA! Se borrarán todos los datos"));
         assert!(output_str.contains("Confirmación recibida"));
-        assert!(output_str.contains("INSTALACIÓN COMPLETADA CON ÉXITO"));
+        assert!(output_str.contains("SIMULACIÓN COMPLETADA"));
+        assert!(!output_str.contains("INSTALACIÓN COMPLETADA"));
         assert!(report.success);
+        assert!(report.simulated);
         assert_eq!(report.mode, "clean");
+    }
+
+    /// `--apply` fuera de una ISO en vivo como root: el asistente llega al
+    /// paso 4 y `deploy_system` aborta con las precondiciones; ninguna caja
+    /// de «completada» se imprime.
+    #[test]
+    fn test_run_installer_wizard_apply_aborts_at_deploy() {
+        let input = "1\n2\nantos-apply\nUTC\nes\nantos\ns\n";
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut writer = Vec::new();
+        let temp_dir = std::env::temp_dir().join("antos-test-wizard-apply");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let res = run_installer_wizard(&mut reader, &mut writer, &temp_dir, false);
+        let output_str = String::from_utf8_lossy(&writer);
+        assert!(output_str.contains("Despliegue Real en Disco"));
+        assert!(!output_str.contains("COMPLETADA"));
+        let msg = res.unwrap_err().to_string();
+        assert!(
+            msg.contains("no puede continuar") || msg.contains("no está implementada"),
+            "mensaje inesperado: {msg}"
+        );
     }
 
     #[test]

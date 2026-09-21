@@ -1,5 +1,5 @@
 name = "bootloader.install"
-summary = "Instala y configura el cargador de arranque UEFI (systemd-boot) y entradas NVRAM"
+summary = "Gestor de arranque UEFI: en antOS Linux (por defecto) solo sondea la ESP porque systemd-boot lo instala nixos-install; con target = bare-metal escribe la ESP y la NVRAM (requiere efi_binary)"
 
 [params]
 target_device = { type = "text", optional = true }
@@ -7,6 +7,8 @@ esp_path = { type = "text", optional = true }
 efi_partition = { type = "integer", optional = true }
 timeout = { type = "integer", optional = true }
 dry_run = { type = "boolean", optional = true }
+target = { type = "text", optional = true }
+efi_binary = { type = "text", optional = true }
 
 [effects]
 writes = ["$WORKSPACE"]

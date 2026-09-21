@@ -599,6 +599,10 @@ pub fn changes_for(
                 .cloned()
                 .unwrap_or_else(|| "antos-box".into());
             let keymap = a.get("keymap").cloned().unwrap_or_else(|| "us".into());
+            let system = a
+                .get("system")
+                .cloned()
+                .unwrap_or_else(antos_protocol::default_system);
             let config = antos_protocol::InstallConfig {
                 target_device,
                 clean_install,
@@ -607,6 +611,7 @@ pub fn changes_for(
                 username,
                 timezone: "UTC".into(),
                 keymap,
+                system,
                 dry_run,
             };
             Ok(vec![Change::InstallDeploy {
@@ -628,10 +633,7 @@ pub fn changes_for(
                 .get("target_device")
                 .cloned()
                 .unwrap_or_else(|| "/dev/nvme0n1".into());
-            let esp_mount = a
-                .get("esp_path")
-                .cloned()
-                .unwrap_or_else(|| "/boot/efi".into());
+            let esp_mount = a.get("esp_path").cloned().unwrap_or_else(|| "/boot".into());
             let efi_partition = a
                 .get("efi_partition")
                 .and_then(|v| v.parse::<u32>().ok())
@@ -641,6 +643,14 @@ pub fn changes_for(
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(5);
             let dry_run = a.get("dry_run").map(|v| v == "true").unwrap_or(true);
+            // T36.1: por defecto la vía antOS Linux (solo sondeo); la
+            // disposición bare-metal se pide explícitamente y necesita el
+            // binario EFI real fuera de la simulación.
+            let target = match a.get("target").map(String::as_str) {
+                Some("bare-metal") | Some("bare_metal") => antos_protocol::BootTarget::BareMetal,
+                _ => antos_protocol::BootTarget::NixOs,
+            };
+            let efi_binary = a.get("efi_binary").cloned();
             let config = antos_protocol::BootloaderConfig {
                 esp_mount,
                 target_device,
@@ -649,6 +659,8 @@ pub fn changes_for(
                 timeout_seconds,
                 detected_os: Vec::new(),
                 dry_run,
+                target,
+                efi_binary,
             };
             Ok(vec![Change::BootloaderInstall {
                 workspace: ctx.workspace.clone(),
@@ -2246,9 +2258,18 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 lines.push(format!("  • Modo:          {}", report.mode));
                 lines.push(format!("  • Partición ESP: {}", report.efi_partition));
                 lines.push(format!("  • Partición /:   {}", report.root_partition));
-                lines.push("  • Pasos completados:".into());
+                lines.push(if report.simulated {
+                    "  • Pasos (○ = simulado, nada escrito en el disco):".into()
+                } else {
+                    "  • Pasos ejecutados:".into()
+                });
                 for s in &report.steps {
-                    lines.push(format!("    ✓ {}: {}", s.name, s.description));
+                    lines.push(format!(
+                        "    {} {}: {}",
+                        if s.executed { "✓" } else { "○" },
+                        s.name,
+                        s.description
+                    ));
                 }
                 output.push(lines.join("\n"));
             }
@@ -2256,7 +2277,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 let p = esp_path
                     .as_deref()
                     .map(Path::new)
-                    .unwrap_or_else(|| Path::new("/boot/efi"));
+                    .unwrap_or_else(|| Path::new("/boot"));
                 let entries = crate::installer::BootloaderEngine::probe_operating_systems(p)?;
                 let mut lines = Vec::new();
                 lines.push(format!(

@@ -362,7 +362,7 @@ pub struct PartitionPlan {
     pub warnings: Vec<String>,
 }
 
-/// Operating system installation configuration (T15.2 / T30.5).
+/// Operating system installation configuration (T15.2 / T30.5 / T36.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallConfig {
     pub target_device: String,
@@ -374,11 +374,27 @@ pub struct InstallConfig {
     /// Console keymap (`console.keyMap` in the generated NixOS config).
     #[serde(default = "default_keymap")]
     pub keymap: String,
+    /// Nix system of the machine being installed (`x86_64-linux` /
+    /// `aarch64-linux`). Goes verbatim into the generated `flake.nix`
+    /// (T36.1); before that it was hard-coded to `x86_64-linux`.
+    #[serde(default = "default_system")]
+    pub system: String,
     pub dry_run: bool,
 }
 
 fn default_keymap() -> String {
     "us".to_string()
+}
+
+/// Nix system string derived from the architecture this binary runs on.
+/// The installer runs on the live ISO of the same architecture it installs,
+/// so the host arch is the right default; anything unknown falls back to
+/// `x86_64-linux` rather than failing.
+pub fn default_system() -> String {
+    match std::env::consts::ARCH {
+        "aarch64" => "aarch64-linux".to_string(),
+        _ => "x86_64-linux".to_string(),
+    }
 }
 
 impl Default for InstallConfig {
@@ -391,17 +407,26 @@ impl Default for InstallConfig {
             username: "antos".into(),
             timezone: "UTC".into(),
             keymap: default_keymap(),
+            system: default_system(),
             dry_run: true,
         }
     }
 }
 
 /// Individual step in the installation pipeline.
+///
+/// `completed` means the step finished without error; `executed` (T36.1)
+/// means it actually ran against the machine. A step can be `completed`
+/// and not `executed` — a dry run, or a step that today only describes what
+/// a real installation would do. Consumers must not print a step as done
+/// on the disk unless `executed` is `true`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallStep {
     pub name: String,
     pub description: String,
     pub completed: bool,
+    #[serde(default)]
+    pub executed: bool,
 }
 
 /// Final completion or simulation report for system deployment (T15.2).
@@ -415,6 +440,10 @@ pub struct InstallReport {
     pub root_partition: String,
     pub fstab_entries: Vec<String>,
     pub summary: String,
+    /// `true` when at least one step did not run for real (T36.1): the
+    /// report describes a simulation, and nothing on the target disk changed.
+    #[serde(default)]
+    pub simulated: bool,
 }
 
 /// Detected operating system entry for dual-boot configurations (T15.3).
@@ -427,9 +456,33 @@ pub struct OsEntry {
     pub partition_number: u32,
 }
 
-/// Configuration for UEFI bootloader deployment (T15.3).
+/// What the bootloader installer is deploying for (T36.1).
+///
+/// The two paths of antOS need different things from the ESP:
+/// - `NixOs` (antOS Linux, the daily driver): `systemd-boot` is installed
+///   and registered in NVRAM by `nixos-install` from the generated
+///   configuration. The installer only probes the ESP for neighbouring
+///   systems; it writes no binary and calls no `efibootmgr`.
+/// - `BareMetal` (the `no_std` kernel, Vía B): the installer lays out
+///   `EFI/antOS/antos.efi`, `loader/entries/*.conf` and registers the NVRAM
+///   entry itself. It needs a real EFI binary to copy (`efi_binary`); it
+///   never fabricates one outside a dry run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum BootTarget {
+    /// antOS Linux: the bootloader belongs to `nixos-install`.
+    #[default]
+    NixOs,
+    /// Bare-metal kernel: the installer writes the ESP layout itself.
+    BareMetal,
+}
+
+/// Configuration for UEFI bootloader deployment (T15.3 / T36.1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BootloaderConfig {
+    /// ESP mount point. `/boot` is what NixOS (`boot.loader.efi.
+    /// efiSysMountPoint`) and `systemd-boot` expect; `/boot/efi` was the
+    /// bare-metal layout.
     pub esp_mount: String,
     pub target_device: String,
     pub efi_partition: u32,
@@ -437,18 +490,27 @@ pub struct BootloaderConfig {
     pub timeout_seconds: u32,
     pub detected_os: Vec<OsEntry>,
     pub dry_run: bool,
+    /// Which path this deployment serves (see [`BootTarget`]).
+    #[serde(default)]
+    pub target: BootTarget,
+    /// Real EFI binary to copy as `antos.efi` / `BOOTX64.EFI` on the
+    /// `BareMetal` path. Required outside a dry run; ignored for `NixOs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub efi_binary: Option<String>,
 }
 
 impl Default for BootloaderConfig {
     fn default() -> Self {
         Self {
-            esp_mount: "/boot/efi".into(),
+            esp_mount: "/boot".into(),
             target_device: "/dev/nvme0n1".into(),
             efi_partition: 1,
             default_os: "antos".into(),
             timeout_seconds: 5,
             detected_os: Vec::new(),
             dry_run: true,
+            target: BootTarget::default(),
+            efi_binary: None,
         }
     }
 }

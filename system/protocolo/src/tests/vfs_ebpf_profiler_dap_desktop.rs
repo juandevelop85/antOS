@@ -299,6 +299,7 @@ fn test_storage_installer_serialization() {
         username: "developer".into(),
         timezone: "America/Bogota".into(),
         keymap: "us".into(),
+        system: "x86_64-linux".into(),
         dry_run: true,
     };
     let req_install = Request::InstallSystem(cfg.clone());
@@ -314,11 +315,13 @@ fn test_storage_installer_serialization() {
             name: "mount".into(),
             description: "Partition mounting".into(),
             completed: true,
+            executed: false,
         }],
         efi_partition: "/dev/sda1".into(),
         root_partition: "/dev/sda3".into(),
         fstab_entries: vec!["UUID=123 / ext4 defaults 0 1".into()],
-        summary: "Installation completed".into(),
+        summary: "Installation simulated".into(),
+        simulated: true,
     };
     let ev_rep = Event::InstallReport(report);
     let json_rep = serde_json::to_string(&ev_rep).expect("serialize rep ev");
@@ -338,18 +341,62 @@ fn test_storage_installer_serialization() {
     assert_eq!(ev_os, des_os);
 
     let boot_cfg = BootloaderConfig {
-        esp_mount: "/boot/efi".into(),
+        esp_mount: "/boot".into(),
         target_device: "/dev/nvme0n1".into(),
         efi_partition: 1,
         default_os: "antos".into(),
         timeout_seconds: 5,
         detected_os: vec![os],
         dry_run: true,
+        target: BootTarget::BareMetal,
+        efi_binary: None,
     };
     let req_boot = Request::InstallBootloader(boot_cfg);
     let json_boot = serde_json::to_string(&req_boot).expect("serialize boot req");
     let des_boot: Request = serde_json::from_str(&json_boot).expect("deserialize boot req");
     assert_eq!(req_boot, des_boot);
+}
+
+/// T36.1 added `executed`, `simulated`, `system`, `target` and `efi_binary`
+/// with serde defaults: a report or config written before the change still
+/// parses, and the defaults are the honest ones (`executed = false`,
+/// `simulated = false`, `target = nix-os`).
+#[test]
+fn test_installer_types_pre_t36_1_wire_format_still_parses() {
+    let step: InstallStep = serde_json::from_str(
+        r#"{"name":"mount","description":"Partition mounting","completed":true}"#,
+    )
+    .expect("old InstallStep");
+    assert!(step.completed);
+    assert!(!step.executed);
+
+    let report: InstallReport = serde_json::from_str(
+        r#"{"target_device":"/dev/sda","mode":"clean","success":true,"steps":[],
+            "efi_partition":"/dev/sda1","root_partition":"/dev/sda2",
+            "fstab_entries":[],"summary":"ok"}"#,
+    )
+    .expect("old InstallReport");
+    assert!(!report.simulated);
+
+    let cfg: InstallConfig = serde_json::from_str(
+        r#"{"target_device":"/dev/sda","clean_install":true,"target_mount":"/mnt",
+            "hostname":"h","username":"u","timezone":"UTC","dry_run":true}"#,
+    )
+    .expect("old InstallConfig");
+    assert_eq!(cfg.keymap, "us");
+    assert!(cfg.system == "x86_64-linux" || cfg.system == "aarch64-linux");
+
+    let boot: BootloaderConfig = serde_json::from_str(
+        r#"{"esp_mount":"/boot","target_device":"/dev/sda","efi_partition":1,
+            "default_os":"antos","timeout_seconds":5,"detected_os":[],"dry_run":true}"#,
+    )
+    .expect("old BootloaderConfig");
+    assert_eq!(boot.target, BootTarget::NixOs);
+    assert!(boot.efi_binary.is_none());
+    assert_eq!(
+        serde_json::to_value(BootTarget::BareMetal).expect("json"),
+        serde_json::json!("bare-metal")
+    );
 }
 
 #[test]

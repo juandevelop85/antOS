@@ -66,6 +66,13 @@
         };
       });
 
+      # El overlay, exportado para que un flake ajeno (el `/etc/nixos/flake.nix`
+      # que escribe `antos install`, T36.1) obtenga `pkgs.antosd` y
+      # `pkgs.antos-barra` sin referenciar rutas internas de este árbol —
+      # `paquete.nix` se renombró en T31.12 y el instalador siguió apuntando
+      # al nombre viejo durante meses sin que nada lo detectara.
+      overlays.default = overlayAntos;
+
       nixosModules.default = import ./system/nixos/module.nix;
       nixosModules.desktop = import ./system/nixos/desktop.nix;
       # El motor de modelos locales (T34.3): `services.antos.llm` sobre

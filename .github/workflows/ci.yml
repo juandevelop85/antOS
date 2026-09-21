@@ -587,6 +587,32 @@ jobs:
       - name: Build · antosd
         run: nix build .#antosd --print-build-logs
 
+      # T36.1: el `/etc/nixos/flake.nix` que escribe `antos install` tiene
+      # que evaluar contra el árbol real de antOS. Antes referenciaba
+      # `paquete.nix` (renombrado en T31.12), no importaba el módulo `llm` y
+      # fijaba `x86_64-linux`, y nada lo detectaba porque solo se comprobaba
+      # con `contains()` sobre cadenas. Aquí se genera con el binario recién
+      # construido (simulación: el disco no se toca) y se evalúa el
+      # `toplevel` de la máquina resultante con `nix eval`, apuntando la
+      # entrada `antos` a la copia del árbol que el propio instalador dejó
+      # junto al flake (`/etc/nixos/antos` en una instalación real).
+      - name: Instalador · el flake generado evalúa (T36.1)
+        run: |
+          set -eu
+          export ANTOS_WORKSPACE="$PWD" ANTOS_STATE="$RUNNER_TEMP/antos-state" ANTOS_SOURCE="$PWD"
+          ./result/bin/antos install --target /dev/nvme0n1 --clean
+          gen="$PWD/target/installer-staging/etc/nixos"
+          test -f "$gen/flake.nix" && test -f "$gen/flake.lock" && test -f "$gen/antos/flake.nix"
+          # El nixpkgs del flake generado es el mismo rev que el de este árbol.
+          rev="$(jq -r .nodes.nixpkgs.locked.rev flake.lock)"
+          grep -q "github:NixOS/nixpkgs/$rev" "$gen/flake.nix"
+          # `antos-box` es el hostname del modo directo (`--target`).
+          nix eval --raw --no-write-lock-file \
+            --override-input antos "path:$gen/antos" \
+            "path:$gen#nixosConfigurations.antos-box.config.system.build.toplevel.drvPath"
+          echo
+          echo "flake generado por antos install: nixosConfigurations.antos-box evalúa"
+
       - name: Build · antos-barra
         run: nix build .#antos-barra --print-build-logs
 
