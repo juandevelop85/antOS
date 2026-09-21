@@ -179,6 +179,12 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 35** | [T35.1](T35.1-catalogo-declarativo-de-stacks-y-project-scaffold-con-framework.md) | Catálogo Declarativo de Stacks y `project.scaffold` con `framework` | ✅ Completado |
 | **Fase 35** | [T35.2](T35.2-ejecutor-confinado-de-comandos-de-stack-y-toolchains-por-proyecto-via-nix.md) | Ejecutor Confinado de Comandos de Stack y Toolchains por Proyecto vía Nix | ✅ Completado |
 | **Fase 35** | [T35.3](T35.3-test-run-por-stack-verificacion-del-andamio-y-scaffold-en-el-toolset-del-agente.md) | `test.run` por Stack, Verificación del Andamio y `project.scaffold` en el Toolset del Agente | ✅ Completado |
+| **Fase 36** | [T36.1](T36.1-honestidad-del-instalador-y-flake-generado-evaluable.md) | Honestidad del Instalador y `flake.nix` Generado Evaluable | ⏳ Pendiente |
+| **Fase 36** | [T36.2](T36.2-instalacion-real-a-disco-particionado-nixos-install-y-verificacion-en-qemu.md) | Instalación Real a Disco: Particionado, `nixos-install` y Verificación en QEMU | ⏳ Pendiente |
+| **Fase 36** | [T36.3](T36.3-iso-autosuficiente-release-con-checksums-y-cache-binario.md) | ISO Autosuficiente, Release con Checksums y Caché Binario | ⏳ Pendiente |
+| **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | ⏳ Pendiente |
+| **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | ⏳ Pendiente |
+| **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ⏳ Pendiente |
 
 ---
 
@@ -573,3 +579,59 @@ Orden: ~~T35.1~~ → ~~T35.2~~ → ~~T35.3~~. Fase 35 completa. T35.1 y T35.3 se
 `Launcher::Nix` de T35.2 en la VM de antOS. Nada de esto necesita un modelo
 grande: el andamio lo produce el catálogo, no el modelo; extender el proyecto
 después sí (7B como mínimo, T34.4).
+
+## Fase 36 · Instalable de Verdad (September 2026)
+
+Origen: revisión del proceso de instalación en una máquina nueva
+(2026-09-21), contrastada con el código. La Fase 30 dejó el escritorio
+antOS Linux **diseñado y evaluado** (los módulos Nix evalúan, la CI
+construye la VM), pero la cadena «ISO → disco → primer arranque → usuario
+listo» tiene tres cortes: `antos install --apply` no particiona, no
+formatea ni ejecuta `nixos-install` — imprime «INSTALACIÓN COMPLETADA» y su
+único efecto real es registrar en la NVRAM una entrada que apunta a un stub
+EFI que no arranca; el `flake.nix` que deja en `/etc/nixos` no evalúa
+(`paquete.nix` renombrado en T31.12, módulo `llm` sin importar, `system`
+fijo, fuente que nadie copia); la ISO nunca se ha construido, no lleva la
+closure del sistema que instala ni se distribuye; y tras el primer arranque
+no hay nada: ni `flathub`, ni modelo, ni identidad git, ni contraseña
+elegida por el usuario. Todos los `nixosConfigurations` son de VM (root
+con autologin y contraseña `antos`, `qemu-guest.nix`, `/dev/vda`). Seis
+tickets, en el orden en que cada uno desbloquea al siguiente:
+
+- **T36.1** — dejar de mentir antes de construir: `InstallStep.executed` /
+  `InstallReport.simulated` en el protocolo, `--apply` aborta mientras no
+  exista la instalación real, el stub EFI y `efibootmgr` fuera de la vía
+  Linux, `flake.nix` generado que evalúa (`package.nix`, `nixosModules.llm`,
+  `system` detectado, `flake.lock` y fuente copiados, ESP en `/boot`) con
+  un `nix eval` en CI; T30.5, la guía y el manual dicen lo que hay.
+- **T36.2** — la instalación real: `parted` + `mkfs` + `mount` +
+  `nixos-generate-config` + `nixos-install --flake` desde Rust (sin
+  `disko`, sin `sh -c`), dual-boot que reutiliza la ESP ajena sin
+  tocarla, y un smoke en QEMU/OVMF que instala desde la ISO, reinicia desde
+  el disco y comprueba `greetd` + socket + barra. Cierra T30.5.
+- **T36.3** — que alguien pueda descargarlo: la ISO lleva dentro la
+  closure del sistema instalado y el árbol fuente (`nixos-install`
+  offline), se construye en CI para x86_64 y aarch64, se publica en una
+  GitHub Release con `SHA256SUMS` firmado (`ssh-keygen -Y`), y un caché
+  binario estático en GitHub Pages (`nix copy`) para que `nixos-rebuild`
+  no recompile antOS. Cierra T30.2.
+- **T36.4** — un perfil de máquina física separado de la VM
+  (`services.antos.machine`: NetworkManager, PipeWire, bluetooth,
+  firmware, XKB, locale, zona horaria, `sudo` con contraseña, `zram`), sin
+  `initialPassword = "antos"` por defecto, y un asistente que pide
+  contraseña, teclado, locale y zona horaria.
+- **T36.5** — el primer arranque: `antos setup` idempotente (identidad
+  git, clave SSH, `flathub`, `antos llm setup` con perfil, claves API a la
+  bóveda, `gh auth`), lanzado en la primera sesión y desde la barra;
+  `antos doctor --desktop` que verifica lo que T30.5 prometía; el modelo
+  monousuario del escritorio hecho explícito y comprobado.
+- **T36.6** — mantenerlo: `antos system update` con diff de closures,
+  aprobación y `nixos-rebuild switch`; `antos system rollback` integrado
+  con `undo` y la bitácora; indicador de actualización en la barra sin
+  descargas automáticas.
+
+Orden: T36.1 → T36.2 → T36.3 → T36.4 → T36.5 → T36.6. T36.1 se prueba en el
+Mac (`dry_run` y `nix eval` en CI); T36.2–T36.6 necesitan la ISO en QEMU con
+KVM (CI x86_64) o un Linux. Hasta que T36.3 cierre, la única instalación
+que se puede seguir de principio a fin es la de **modo host** (`cargo
+install --path system/antosd` + variables `ANTOS_*` del README).
