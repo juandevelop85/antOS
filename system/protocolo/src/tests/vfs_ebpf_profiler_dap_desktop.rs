@@ -301,6 +301,8 @@ fn test_storage_installer_serialization() {
         keymap: "us".into(),
         system: "x86_64-linux".into(),
         password_hash: None,
+        locale: "en_US.UTF-8".into(),
+        encrypt: false,
         dry_run: true,
     };
     let req_install = Request::InstallSystem(cfg.clone());
@@ -387,6 +389,8 @@ fn test_installer_types_pre_t36_1_wire_format_still_parses() {
     assert_eq!(cfg.keymap, "us");
     assert!(cfg.system == "x86_64-linux" || cfg.system == "aarch64-linux");
     assert!(cfg.password_hash.is_none());
+    assert_eq!(cfg.locale, "en_US.UTF-8");
+    assert!(!cfg.encrypt);
     // Sin hash no se serializa el campo: el formato no cambia para nadie.
     assert!(!serde_json::to_string(&cfg)
         .expect("json")

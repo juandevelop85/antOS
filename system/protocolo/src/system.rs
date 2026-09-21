@@ -386,11 +386,23 @@ pub struct InstallConfig {
     /// wizard (T36.4) and is not part of the wire format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password_hash: Option<String>,
+    /// `i18n.defaultLocale` of the installed machine (T36.4).
+    #[serde(default = "default_locale")]
+    pub locale: String,
+    /// Encrypt the root partition with LUKS. Declared for T36.4 so the
+    /// wizard and the TOML can carry it; the installer refuses it until the
+    /// `cryptsetup` path exists (a later ticket), it never silently ignores it.
+    #[serde(default)]
+    pub encrypt: bool,
     pub dry_run: bool,
 }
 
 fn default_keymap() -> String {
     "us".to_string()
+}
+
+fn default_locale() -> String {
+    "en_US.UTF-8".to_string()
 }
 
 /// Nix system string derived from the architecture this binary runs on.
@@ -416,6 +428,8 @@ impl Default for InstallConfig {
             keymap: default_keymap(),
             system: default_system(),
             password_hash: None,
+            locale: default_locale(),
+            encrypt: false,
             dry_run: true,
         }
     }

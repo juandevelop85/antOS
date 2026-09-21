@@ -184,6 +184,18 @@ gestor de aplicaciones gráficas.
 > autologin Wayland (`greetd`), reutilizando los `rc.xml`/`autostart`/
 > `environment` de `system/desktop/` (T13.0). Activarlo es
 > `services.antos.desktop.enable = true` en el `configuration.nix`.
+>
+> **Máquina física vs VM (T36.4):** `system/nixos/machine.nix`
+> (`services.antos.machine`) describe lo que un portátil necesita y una VM
+> no —NetworkManager, PipeWire, bluetooth, firmware, teclado/locale/zona
+> horaria coherentes, `sudo` con contraseña, energía, `zram`,
+> `systemd-boot`— y lo activan `installed.nix` (la máquina de referencia
+> cuya closure viaja en la ISO) y el `configuration.nix` que escribe
+> `antos install`. Lo que solo tiene sentido en QEMU (`qemu-guest.nix`,
+> consola serie, `root` con sesión abierta) vive en `vm-common.nix` y solo
+> lo heredan las VM de desarrollo. La contraseña del usuario la elige el
+> asistente y viaja como hash (`mkpasswd -m yescrypt`); `desktop.nix` no
+> pone ninguna por defecto.
 
 ```mermaid
 graph TD

@@ -16,7 +16,7 @@
 # evaluación fuera del flake), la ISO se construye igual pero no es
 # autosuficiente, y `antos install --apply` lo dirá al no encontrar
 # `/etc/antos/source`.
-{ lib, pkgs, modulesPath
+{ config, lib, pkgs, modulesPath
 , antosSource ? null
 , nixpkgsFlake ? null
 , installedSystem ? null
@@ -135,6 +135,10 @@ in
   # `system/nixos/install-smoke.sh`) le pasa un guion por `fw_cfg`; sin QEMU
   # el servicio no hace nada.
   services.antos.smoke.enable = true;
+  # La sesión en vivo corre desde RAM: contraseña de desarrollo para poder
+  # usar `sudo` (el instalador corre como root). La del sistema instalado la
+  # elige el asistente (T36.4).
+  users.users.${config.services.antos.desktop.autologinUser}.initialPassword = "antos";
   # La ISO en vivo trae el escritorio completo (T30.9): KDE Plasma 6 Wayland
   # con `antos-barra` arriba. `"labwc"` devuelve la sesión ligera de T30.6.
   services.antos.desktop.flavor = "plasma";
@@ -195,6 +199,9 @@ in
     util-linux
     efibootmgr
     nixos-install-tools
+    # `mkpasswd -m yescrypt --stdin`: el asistente convierte la contraseña
+    # en hash con él (T36.4); la contraseña en claro no sale de la memoria.
+    mkpasswd
   ];
 
   # La base gráfica del instalador ya trae su propio compositor de rescate; el

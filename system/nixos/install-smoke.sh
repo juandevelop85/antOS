@@ -103,7 +103,9 @@ hostname = "antos-smoke"
 username = "antos"
 timezone = "UTC"
 keymap = "us"
+locale = "en_US.UTF-8"
 system = "$NIX_SYSTEM"
+# password_hash lo añade el invitado con mkpasswd (T36.4)
 EOF
 echo "$MODE" > "$WORK/mode"
 

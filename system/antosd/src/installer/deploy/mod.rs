@@ -59,6 +59,7 @@ const REAL_INSTALL_TOOLS: &[&str] = &[
     "sync",
     "nixos-generate-config",
     "nixos-install",
+    "mkpasswd",
 ];
 
 /// Lo que se copia del árbol de antOS a `/etc/nixos/antos` (T36.1): el
@@ -420,24 +421,25 @@ WantedBy=multi-user.target
         }
 
         // ── configuration.nix ────────────────────────────────────────────
+        // El gestor de arranque (`systemd-boot`), la red, el audio, el
+        // teclado, el locale y la zona horaria los pone
+        // `services.antos.machine` (T36.4); aquí solo van los valores que
+        // el usuario eligió y, en dual-boot, el menú con los demás SO.
+        Self::validate_machine_settings(config)?;
         let bootloader = if config.clean_install {
-            // Disco completo: systemd-boot es el único gestor.
-            "  boot.loader.systemd-boot.enable = true;\n  boot.loader.efi.canTouchEfiVariables = true;\n"
-                .to_string()
+            String::new()
         } else {
             // Dual-boot: systemd-boot en la ESP compartida; detecta y encadena
             // Windows y otros Linux automáticamente, sin reescribir sus entradas.
-            "  # Dual-boot: la ESP es compartida. systemd-boot encadena los demás\n  \
+            "\n  # Dual-boot: la ESP es compartida. systemd-boot encadena los demás\n  \
              # SO automáticamente; NO se tocan sus entradas.\n  \
-             boot.loader.systemd-boot.enable = true;\n  \
-             boot.loader.efi.canTouchEfiVariables = true;\n  \
              boot.loader.systemd-boot.configurationLimit = 10;\n  \
              boot.loader.timeout = 5;\n"
                 .to_string()
         };
 
         let configuration = format!(
-            r#"# antOS Linux · configuración de la máquina (generada por `antos install`, T30.5/T36.1).
+            r#"# antOS Linux · configuración de la máquina (generada por `antos install`, T30.5/T36.1/T36.4).
 #
 # Es antOS Linux (NixOS + escritorio antOS), NO el kernel bare-metal.
 # Evoluciónala y aplica con:  sudo nixos-rebuild switch --flake /etc/nixos#{hostname}
@@ -446,17 +448,23 @@ WantedBy=multi-user.target
 {{
   imports = [ ./hardware-configuration.nix ];
 
-{bootloader}
   networking.hostName = "{hostname}";
-  time.timeZone = "{timezone}";
-  console.keyMap = "{keymap}";
-  i18n.defaultLocale = "en_US.UTF-8";
 
   # El escritorio antOS: Wayland + antos-barra + Neovim/Git + autologin.
   services.antos.enable = true;
   services.antos.desktop.enable = true;
   services.antos.desktop.autologinUser = "{username}";
 
+  # La máquina física: NetworkManager, PipeWire, bluetooth, firmware,
+  # teclado (consola + Wayland + Plasma), locale, zona horaria, sudo con
+  # contraseña, energía, zram y systemd-boot (system/nixos/machine.nix).
+  services.antos.machine = {{
+    enable = true;
+    keyboardLayout = "{keymap}";
+    locale = "{locale}";
+    timeZone = "{timezone}";
+  }};
+{bootloader}
   users.users."{username}" = {{
     isNormalUser = true;
     description = "antOS";
@@ -464,9 +472,6 @@ WantedBy=multi-user.target
     {password}
   }};
 
-  networking.networkmanager.enable = true;
-  # Swap comprimido en RAM: sin partición de swap en disco.
-  zramSwap.enable = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   system.stateVersion = "25.05";
@@ -475,9 +480,10 @@ WantedBy=multi-user.target
             hostname = config.hostname,
             timezone = config.timezone,
             keymap = config.keymap,
+            locale = config.locale,
             username = config.username,
             password = Self::password_line(config)?,
-            bootloader = bootloader.trim_end(),
+            bootloader = bootloader.trim_end_matches('\n'),
         );
         fs::write(etc_nixos_dir.join("configuration.nix"), configuration)
             .context("Escribiendo /etc/nixos/configuration.nix")?;
@@ -526,9 +532,90 @@ WantedBy=multi-user.target
     /// Línea de contraseña del `configuration.nix`: `initialHashedPassword`
     /// si hay hash (validado: solo `[A-Za-z0-9./$]`, lo que produce
     /// `mkpasswd`), `initialPassword = "antos"` si no.
+    /// Valida lo que va entre comillas al `configuration.nix` (T36.4): son
+    /// las mismas expresiones que `machine.nix` exige con `strMatching`,
+    /// comprobadas aquí para fallar con un mensaje claro antes de escribir
+    /// nada, y para que ninguna comilla o `$` entre en la cadena Nix.
+    pub fn validate_machine_settings(config: &InstallConfig) -> Result<()> {
+        let layout_ok = config
+            .keymap
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_lowercase())
+            .unwrap_or(false)
+            && config
+                .keymap
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c == '-');
+        if !layout_ok {
+            bail!(
+                "teclado «{}»: solo minúsculas y guiones (us, es, latam, de, fr, gb, pt-br, it, …)",
+                config.keymap
+            );
+        }
+        if config.locale.is_empty()
+            || !config
+                .locale
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '@' | '.' | '-'))
+        {
+            bail!(
+                "locale «{}»: formato esperado como es_ES.UTF-8",
+                config.locale
+            );
+        }
+        if config.timezone.is_empty()
+            || !config
+                .timezone
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '/' | '-'))
+        {
+            bail!(
+                "zona horaria «{}»: formato esperado como Europe/Madrid",
+                config.timezone
+            );
+        }
+        let host_ok = !config.hostname.is_empty()
+            && config
+                .hostname
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-');
+        if !host_ok {
+            bail!(
+                "hostname «{}»: solo letras, dígitos y guiones",
+                config.hostname
+            );
+        }
+        let user_ok = config
+            .username
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_lowercase() || c == '_')
+            .unwrap_or(false)
+            && config
+                .username
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-'));
+        if !user_ok {
+            bail!(
+                "usuario «{}»: minúsculas, dígitos, `_` y `-`, empezando por letra",
+                config.username
+            );
+        }
+        Ok(())
+    }
+
+    /// Línea de contraseña del `configuration.nix`: `initialHashedPassword`
+    /// con el hash del asistente (`mkpasswd -m yescrypt`) o de
+    /// `password_hash` del TOML. Sin hash solo se admite en simulación
+    /// (`install` lo rechaza en real): queda la contraseña de desarrollo,
+    /// marcada como tal.
     fn password_line(config: &InstallConfig) -> Result<String> {
         match config.password_hash.as_deref() {
-            None => Ok(r#"initialPassword = "antos";"#.to_string()),
+            None => Ok(
+                "# SIMULACIÓN sin contraseña: la instalación real exige una (asistente o password_hash).\n    initialPassword = \"antos\";"
+                    .to_string(),
+            ),
             Some(hash) => {
                 if hash.is_empty()
                     || !hash
@@ -582,6 +669,18 @@ WantedBy=multi-user.target
             .collect();
         if !tools.is_empty() {
             missing.push(format!("faltan en PATH: {}", tools.join(", ")));
+        }
+        if config.password_hash.is_none() {
+            missing.push(
+                "sin contraseña para el usuario: el asistente la pide; con --config, `password_hash` (mkpasswd -m yescrypt)"
+                    .into(),
+            );
+        }
+        if config.encrypt {
+            missing.push(
+                "cifrado LUKS (`encrypt = true`): todavía no implementado; instala sin cifrar o espera al ticket de cifrado"
+                    .into(),
+            );
         }
         if Self::locate_antos_source(workspace).is_none() {
             missing.push(
@@ -637,6 +736,62 @@ WantedBy=multi-user.target
         runner: &mut dyn InstallRunner,
         on_line: &mut dyn FnMut(&str),
     ) -> Result<InstallReport> {
+        Self::install_with_password(config, workspace, runner, on_line, None)
+    }
+
+    /// Como [`DeployEngine::install`], con la contraseña en claro que el
+    /// asistente acaba de pedir (T36.4). Se convierte en hash con
+    /// `mkpasswd -m yescrypt --stdin` a través del `runner` (la contraseña
+    /// solo viaja por la entrada estándar de ese proceso) y entra en la
+    /// configuración como `initialHashedPassword`; nunca se escribe en
+    /// claro ni forma parte de `InstallConfig`.
+    pub fn install_with_password(
+        config: &InstallConfig,
+        workspace: &Path,
+        runner: &mut dyn InstallRunner,
+        on_line: &mut dyn FnMut(&str),
+        password: Option<&crate::crypto::SecretValue>,
+    ) -> Result<InstallReport> {
+        // Las precondiciones se comprueban ANTES de tocar la contraseña:
+        // un `--apply` fuera de la ISO tiene que fallar por lo que falta
+        // (root, herramientas…), no por un `mkpasswd` ausente.
+        if runner.is_real() {
+            let probe = InstallConfig {
+                password_hash: password
+                    .map(|_| "pendiente".to_string())
+                    .or(config.password_hash.clone()),
+                ..config.clone()
+            };
+            let missing = Self::real_install_preconditions(&probe, workspace);
+            if !missing.is_empty() {
+                bail!(
+                    "La instalación real no puede continuar:\n  - {}",
+                    missing.join("\n  - ")
+                );
+            }
+        }
+        let hashed;
+        let config = match password {
+            Some(secret) => {
+                let hash = runner
+                    .run(
+                        "mkpasswd",
+                        &args(&["-m", "yescrypt", "--stdin"]),
+                        Some(secret.expose()),
+                    )
+                    .context("mkpasswd (hash de la contraseña)")?;
+                let hash = hash.trim().to_string();
+                if hash.is_empty() {
+                    bail!("mkpasswd no devolvió ningún hash");
+                }
+                hashed = InstallConfig {
+                    password_hash: Some(hash),
+                    ..config.clone()
+                };
+                &hashed
+            }
+            None => config,
+        };
         Self::inspect_target(config)?;
         let real = runner.is_real();
 

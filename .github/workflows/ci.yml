@@ -647,3 +647,44 @@ jobs:
             test "$(nix eval --json "$cfg.services.antos.binaryCache.enable")" = "false"
           done
           echo "antos-iso-{x86_64,aarch64}: fuente, closure instalada y nixpkgs declarados; caché apagado sin clave"
+
+      # T36.4: la máquina física (`installed.nix` + `machine.nix`, la que
+      # `antos install` genera y la ISO lleva en su closure) trae red, audio,
+      # bluetooth, teclado coherente y sudo con contraseña, y NADA de la VM
+      # de desarrollo (root con sesión abierta, contraseña «antos»).
+      - name: Máquina física (services.antos.machine) · aserciones (T36.4)
+        run: |
+          set -eu
+          cfg=".#nixosConfigurations.antos-installed-x86_64.config"
+          ev() { nix eval --json "$cfg.$1"; }
+          test "$(ev services.antos.machine.enable)" = "true"
+          test "$(ev networking.networkmanager.enable)" = "true"
+          test "$(ev services.pipewire.enable)" = "true"
+          test "$(ev hardware.bluetooth.enable)" = "true"
+          test "$(ev security.sudo.wheelNeedsPassword)" = "true"
+          test "$(ev boot.loader.systemd-boot.enable)" = "true"
+          test "$(ev zramSwap.enable)" = "true"
+          test "$(ev services.getty.autologinUser)" = "null"
+          test "$(ev users.users.root.initialPassword)" = "null"
+          test "$(ev users.users.antos.initialPassword)" = "null"
+          # Teclado coherente entre consola, Labwc (XKB_DEFAULT_LAYOUT) y Plasma (xkb).
+          layout="$(ev services.antos.machine.keyboardLayout)"
+          test "$(ev services.xserver.xkb.layout)" = "$layout"
+          test "$(ev environment.sessionVariables.XKB_DEFAULT_LAYOUT)" = "$layout"
+          test "$(ev console.keyMap)" = "$layout"
+          # Un layout cuyo keymap de consola difiere: gb → uk.
+          nix eval --json --impure --expr '
+            let flake = builtins.getFlake (toString ./.);
+                sys = flake.inputs.nixpkgs.lib.nixosSystem {
+                  system = "x86_64-linux";
+                  modules = [ flake.nixosModules.default flake.nixosModules.desktop flake.nixosModules.llm flake.nixosModules.machine
+                              { nixpkgs.overlays = [ flake.overlays.default ]; }
+                              ./system/nixos/installed.nix
+                              { services.antos.machine.keyboardLayout = "gb"; } ];
+                };
+            in { xkb = sys.config.services.xserver.xkb.layout; console = sys.config.console.keyMap; }'             | tee /dev/stderr | grep -q '"console":"uk"'
+          # Ni machine.nix ni installed.nix ni el generador llevan la contraseña de desarrollo.
+          ! grep -n 'initialPassword = "antos"' system/nixos/machine.nix system/nixos/installed.nix
+          # Las VM no cambian: siguen con root con sesión abierta (vm-common.nix).
+          test "$(nix eval --json .#nixosConfigurations.antos-vm.config.services.getty.autologinUser)" = '"root"'
+          echo "antos-installed-x86_64: NM, PipeWire, bluetooth, sudo con contraseña, teclado coherente; sin root autologin"

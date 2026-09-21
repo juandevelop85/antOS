@@ -117,7 +117,7 @@ in
       wants = [ "antos.service" ];
       path = with pkgs; [
         bash coreutils util-linux gnugrep gnused findutils procps systemd
-        parted dosfstools e2fsprogs nixos-install-tools cfg.package
+        parted dosfstools e2fsprogs nixos-install-tools mkpasswd cfg.package
       ];
       environment = config.environment.variables;
       serviceConfig = {

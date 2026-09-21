@@ -405,6 +405,14 @@ impl InstallRunner for SimulatedRunner {
                     format!("00000000-0000-4000-8000-{n:012x}\n")
                 })
             }
+            "mkpasswd" => {
+                // Un hash con la forma de yescrypt, marcado como simulado;
+                // la contraseña recibida por stdin no se conserva.
+                Ok(
+                    "$y$j9T$SIMULADO.antos.smoke$0000000000000000000000000000000000000000000\n"
+                        .into(),
+                )
+            }
             "mount" => {
                 if let Some(target) = args.last() {
                     self.mounted.insert(PathBuf::from(target));

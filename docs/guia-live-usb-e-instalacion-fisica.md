@@ -177,15 +177,20 @@ Antes de arrancar desde el pendrive USB:
 > ella.
 
 Desde la **ISO gráfica** (`nix build .#iso`), `antos install` sigue el mismo
-asistente (inspección de hardware, selección de disco, Disco Completo / Dual-Boot
-seguro, hostname/usuario/timezone/**keymap**) y el despliegue es NixOS:
+asistente —inspección de hardware, selección de disco, Disco Completo /
+Dual-Boot seguro— y pide (T36.4): **hostname**, **zona horaria**, **teclado**
+(`us`, `es`, `latam`, `de`, `fr`, `gb`, `pt-br`, `it` u otro layout XKB),
+**idioma** (`locale`, por defecto el del live), **usuario** y su
+**contraseña** (dos veces, sin eco, mínimo 8 caracteres; se convierte en
+hash con `mkpasswd -m yescrypt` y solo el hash llega al disco). Todo se
+valida antes de tocar nada. El despliegue es NixOS:
 
 | Paso | Qué hace (`--apply`) |
 | :--- | :--- |
 | Particionado | **Disco Completo:** `parted -s <disco> mklabel gpt mkpart ESP fat32 1MiB 513MiB set 1 esp on mkpart antos-root ext4 513MiB 100%`. **Dual-Boot:** se reutiliza la primera partición con flag `esp` y la raíz se crea en el mayor hueco libre (`parted … print free`; ≥ 20 GiB o se dice cuánto falta; nada se redimensiona). Después `partprobe` + `udevadm settle`. |
 | Formateo | `mkfs.vfat -F32 -n ANTOS_ESP` **solo** sobre una ESP nueva (nunca sobre una ajena); `mkfs.ext4 -F -L antos-root`; UUIDs reales por `blkid`. |
 | Montaje | Raíz en `/mnt/target`, ESP en `/mnt/target/boot` (lo que NixOS y `systemd-boot` esperan). |
-| `/etc/nixos` | `nixos-generate-config --root /mnt/target` (el `hardware-configuration.nix` real) y después `flake.nix` (nixpkgs fijado al `flake.lock` del árbol, `antos.nixosModules.{default,desktop,llm}`, `antos.overlays.default`, `nix.registry` con ambas fuentes para que `nixos-rebuild` funcione sin red, `system` detectado), `flake.lock`, `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, hostname, timezone, keymap, `initialHashedPassword` si se dio `password_hash`, `zramSwap` y `systemd-boot` (en Dual-Boot encadena Windows/otros Linux **sin tocar sus entradas**); copia del árbol de antOS a `antos/`. |
+| `/etc/nixos` | `nixos-generate-config --root /mnt/target` (el `hardware-configuration.nix` real) y después `flake.nix` (nixpkgs fijado al `flake.lock` del árbol, `antos.nixosModules.{default,desktop,llm,machine}`, `antos.overlays.default`, `nix.registry` con ambas fuentes para que `nixos-rebuild` funcione sin red, `system` detectado), `flake.lock`, `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, hostname, `services.antos.machine` (teclado, locale, zona horaria; y con él red, audio, bluetooth, firmware, sudo, energía, zram y `systemd-boot` — en Dual-Boot encadena Windows/otros Linux **sin tocar sus entradas**) y `initialHashedPassword` con el hash de la contraseña elegida; copia del árbol de antOS a `antos/`. |
 | Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd --no-channel-copy --override-input antos path:/mnt/target/etc/nixos/antos --no-write-lock-file`, con su salida en directo. Si falla, el error son sus últimas 50 líneas. |
 | Gestor de arranque | Lo instala y registra `systemd-boot` desde `nixos-install`; `antos install` **no** escribe ningún binario EFI ni llama a `efibootmgr` en esta vía. |
 | Cierre | `sync`, `umount -R /mnt/target`, informe con cada paso `✓ ejecutado` (o `○ simulado`). |

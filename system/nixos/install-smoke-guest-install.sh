@@ -15,6 +15,13 @@ run() { say "+ $*"; "$@" 2>&1 | tee "$SERIAL"; return "${PIPESTATUS[0]}"; }
 FW=/sys/firmware/qemu_fw_cfg/by_name/opt/antos
 MODE="$(tr -d '[:space:]' < "$FW/mode/raw" 2>/dev/null || echo clean)"
 install -m 0600 "$FW/install.toml/raw" /tmp/install.toml || fail "sin install.toml en fw_cfg"
+# La contraseña del usuario (T36.4): el modo no interactivo exige
+# `password_hash`; se genera aquí con el mismo `mkpasswd` que usa el
+# asistente. «antos» es la contraseña de la máquina del smoke.
+if ! grep -q '^password_hash' /tmp/install.toml; then
+  HASH="$(printf '%s' antos | mkpasswd -m yescrypt --stdin)" || fail "mkpasswd"
+  printf 'password_hash = "%s"\n' "$HASH" >> /tmp/install.toml
+fi
 DEV=/dev/vda
 HOST=antos-smoke
 

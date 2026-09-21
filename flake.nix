@@ -25,11 +25,13 @@
         self.nixosModules.default
         self.nixosModules.desktop
         self.nixosModules.llm
+        self.nixosModules.machine
         { nixpkgs.overlays = [ overlayAntos ]; }
       ];
 
-      # Lo común a las variantes que SÍ son "la máquina antOS".
-      base = [ ./system/nixos/configuration.nix ] ++ nucleo;
+      # Lo común a las variantes que SÍ son "la máquina antOS" DE DESARROLLO:
+      # las VM. La máquina física es `instaladaPara` (T36.4).
+      base = [ ./system/nixos/configuration.nix ./system/nixos/vm-common.nix ] ++ nucleo;
 
       maquina = extra: maquinaPara "aarch64-linux" extra;
       maquinaPara = system: extra: nixpkgs.lib.nixosSystem {
@@ -107,6 +109,8 @@
       # El motor de modelos locales (T34.3): `services.antos.llm` sobre
       # `services.ollama` de nixpkgs, solo loopback.
       nixosModules.llm = import ./system/nixos/llm.nix;
+      # El perfil de máquina física (T36.4): `services.antos.machine`.
+      nixosModules.machine = import ./system/nixos/machine.nix;
 
       # La máquina entera, definida como un valor. Esto es lo que hace posible
       # que "deshacer" a nivel de sistema sea volver a la generación anterior
@@ -116,12 +120,11 @@
       # La misma máquina, arrancable en QEMU.
       nixosConfigurations.antos-vm = maquina [ ./system/nixos/vm.nix ];
 
-      # La máquina con el escritorio antOS Linux activado (T30.1). Sirve para
-      # evaluar el camino `services.antos.desktop.enable = true` en hardware.
-      nixosConfigurations.antos-desktop = maquina [
-        ./system/nixos/boot.nix
-        { services.antos.desktop.enable = true; }
-      ];
+      # La máquina física con el escritorio antOS Linux (T30.1 / T36.4): es la
+      # instalada de referencia (`installed.nix` + `machine.nix`), sin nada de
+      # VM. Hasta T36.4 heredaba `qemu-guest.nix`, la consola serie y el
+      # autologin de root de `configuration.nix`.
+      nixosConfigurations.antos-desktop = instaladaPara "aarch64-linux";
 
       # La VM gráfica: arranca directa al escritorio antOS (T30.2).
       # `system/arrancar-vm.sh --grafica` construye y lanza esta.

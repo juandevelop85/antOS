@@ -23,8 +23,6 @@
 
   boot.initrd.availableKernelModules = [ "nvme" "ahci" "xhci_pci" "usbhid" "sd_mod" "virtio_pci" "virtio_blk" ];
   boot.loader.grub.enable = lib.mkDefault false;
-  boot.loader.systemd-boot.enable = true;
-  boot.loader.efi.canTouchEfiVariables = true;
 
   fileSystems."/" = {
     device = "/dev/disk/by-label/antos-root";
@@ -37,23 +35,30 @@
   };
 
   networking.hostName = lib.mkDefault "antos-box";
-  time.timeZone = lib.mkDefault "UTC";
-  console.keyMap = lib.mkDefault "us";
-  i18n.defaultLocale = "en_US.UTF-8";
 
   services.antos.enable = true;
   services.antos.desktop.enable = true;
   services.antos.desktop.autologinUser = lib.mkDefault "antos";
 
+  # El perfil de máquina física (T36.4): red, audio, bluetooth, firmware,
+  # teclado, locale, zona horaria, sudo, energía, systemd-boot.
+  services.antos.machine = {
+    enable = true;
+    keyboardLayout = lib.mkDefault "us";
+    locale = lib.mkDefault "en_US.UTF-8";
+    timeZone = lib.mkDefault "UTC";
+  };
+
   users.users.antos = {
     isNormalUser = true;
     description = "antOS";
     extraGroups = [ "wheel" "video" "input" "networkmanager" ];
-    initialPassword = "antos";
+    # Sin contraseña utilizable: esta máquina es la referencia cuya closure
+    # viaja en la ISO, no algo que se instale tal cual. La real la escribe
+    # el instalador (`initialHashedPassword` del hash del asistente).
+    initialHashedPassword = "!";
   };
 
-  networking.networkmanager.enable = true;
-  zramSwap.enable = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   system.stateVersion = "25.05";

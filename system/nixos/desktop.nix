@@ -583,11 +583,13 @@ in
       };
     };
 
+    # Sin contraseña por defecto (T36.4): la elige el asistente de
+    # instalación (`initialHashedPassword` en el `configuration.nix`
+    # generado); la VM de desarrollo y la ISO en vivo ponen la suya.
     users.users.${cfg.autologinUser} = {
       isNormalUser = lib.mkDefault true;
       description = lib.mkDefault "antOS";
       extraGroups = lib.mkDefault [ "wheel" "video" "input" ];
-      initialPassword = lib.mkDefault "antos";
     };
 
     # Pila gráfica para el compositor Wayland.

@@ -1,9 +1,12 @@
-# La máquina, definida como un valor.
-{ modulesPath, ... }:
+# La máquina, definida como un valor: lo común a TODAS las variantes que
+# son «la máquina antOS» de desarrollo (headless, VM gráfica). Lo que es
+# propio de una VM (perfil de invitado QEMU, consola serie, root con sesión
+# abierta) está en `vm-common.nix`; lo que es propio de una máquina física
+# (red, audio, teclado, energía) en `machine.nix`, que activa `installed.nix`.
+{ ... }:
 
 {
   imports = [
-    "${modulesPath}/profiles/qemu-guest.nix"
     # Aquí está el remate de todo el diseño: lo que antOS declara ES parte de
     # la definición del sistema. No hay un paso intermedio en el que alguien
     # traduzca la intención a comandos — la intención se convierte en una
@@ -24,14 +27,6 @@
   # aquí (los modelos se descargan después con `antos llm setup`).
   # services.antos.llm.enable = true;
 
-  # La consola en el puerto serie: es lo que permite ver el arranque entero
-  # sin ventana gráfica, igual que hacemos con el kernel de la Vía B.
-  boot.kernelParams = [ "console=ttyAMA0,115200" ];
-
-  # Sin contraseña y con sesión abierta: es una máquina de desarrollo para
-  # verla arrancar, no algo que dejar en una red.
-  users.users.root.initialPassword = "antos";
-  services.getty.autologinUser = "root";
   networking.hostName = "antos";
 
   system.stateVersion = "25.05";

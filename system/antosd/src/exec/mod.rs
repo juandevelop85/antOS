@@ -613,6 +613,11 @@ pub fn changes_for(
                 keymap,
                 system,
                 password_hash: a.get("password_hash").cloned(),
+                locale: a
+                    .get("locale")
+                    .cloned()
+                    .unwrap_or_else(|| "en_US.UTF-8".into()),
+                encrypt: a.get("encrypt").map(|v| v == "true").unwrap_or(false),
                 dry_run,
             };
             Ok(vec![Change::InstallDeploy {

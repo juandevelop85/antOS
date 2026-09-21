@@ -158,6 +158,12 @@ pub struct InstallTomlConfig {
     /// instalación limpia real desde TOML se rechaza (T36.2).
     #[serde(default)]
     pub confirm_wipe: bool,
+    /// `i18n.defaultLocale` (T36.4).
+    #[serde(default = "default_locale")]
+    pub locale: String,
+    /// Cifrado LUKS de la raíz: declarado, todavía no ejecutable (T36.4).
+    #[serde(default)]
+    pub encrypt: bool,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -176,6 +182,9 @@ fn default_timezone() -> String {
 }
 fn default_keymap() -> String {
     "es".to_string()
+}
+fn default_locale() -> String {
+    "en_US.UTF-8".to_string()
 }
 
 impl InstallTomlConfig {
@@ -202,9 +211,101 @@ impl InstallTomlConfig {
             keymap: self.keymap.clone(),
             system: self.system.clone(),
             password_hash: self.password_hash.clone(),
+            locale: self.locale.clone(),
+            encrypt: self.encrypt,
             dry_run: self.dry_run,
         }
     }
+}
+
+/// Layouts que el asistente ofrece; cualquier otro se acepta si cumple
+/// `[a-z][a-z-]*` (lo mismo que exige `machine.nix`).
+pub const KEYBOARD_LAYOUTS: &[&str] = &["us", "es", "latam", "de", "fr", "gb", "pt-br", "it"];
+
+/// Longitud mínima de la contraseña del usuario (T36.4).
+pub const MIN_PASSWORD_LEN: usize = 8;
+
+/// Lee una línea sin eco cuando la entrada estándar es un terminal (la
+/// contraseña del asistente, T36.4). Con `libc::tcgetattr`/`tcsetattr`
+/// sobre el descriptor 0 — sin `stty` ni intérprete (T31.4). Si la entrada
+/// no es un terminal (tests, tuberías) se lee tal cual: no hay eco que
+/// apagar. El eco se restaura aunque la lectura falle.
+pub fn read_hidden_line<R: BufRead, W: Write>(reader: &mut R, writer: &mut W) -> Result<String> {
+    let mut line = String::new();
+    // SAFETY: `isatty`, `tcgetattr` y `tcsetattr` son llamadas POSIX sobre
+    // el descriptor 0 con una estructura `termios` inicializada a cero que
+    // `tcgetattr` rellena antes de que nadie la lea; no hay punteros que
+    // sobrevivan a esta función.
+    let saved = unsafe {
+        if libc::isatty(0) != 1 {
+            None
+        } else {
+            let mut term: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(0, &mut term) != 0 {
+                None
+            } else {
+                let original = term;
+                term.c_lflag &= !libc::ECHO;
+                if libc::tcsetattr(0, libc::TCSANOW, &term) != 0 {
+                    None
+                } else {
+                    Some(original)
+                }
+            }
+        }
+    };
+    let read = reader.read_line(&mut line);
+    if let Some(original) = saved {
+        // SAFETY: `original` es la estructura que `tcgetattr` rellenó arriba.
+        unsafe {
+            libc::tcsetattr(0, libc::TCSANOW, &original);
+        }
+        // Sin eco, el Intro del usuario no baja de línea: se hace aquí.
+        let _ = writeln!(writer);
+    }
+    read.context("Leyendo la contraseña")?;
+    Ok(line.trim_end_matches(['\n', '\r']).to_string())
+}
+
+/// Pide la contraseña dos veces, sin eco, con mínimo
+/// [`MIN_PASSWORD_LEN`] y comprobación de que coinciden; hasta tres
+/// intentos. Devuelve el valor en memoria como [`crate::crypto::SecretValue`]
+/// (se limpia al soltarse y no se imprime por `{:?}`).
+pub fn prompt_password<R: BufRead, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    username: &str,
+) -> Result<crate::crypto::SecretValue> {
+    for attempt in 1..=3 {
+        write!(
+            writer,
+            "Contraseña para «{username}» (mínimo {MIN_PASSWORD_LEN} caracteres, no se muestra): "
+        )?;
+        writer.flush()?;
+        let first = read_hidden_line(reader, writer)?;
+        if first.chars().count() < MIN_PASSWORD_LEN {
+            writeln!(
+                writer,
+                "  {} demasiado corta ({} de {MIN_PASSWORD_LEN} caracteres); intento {attempt} de 3",
+                paint("✗", RED),
+                first.chars().count()
+            )?;
+            continue;
+        }
+        write!(writer, "Repite la contraseña: ")?;
+        writer.flush()?;
+        let second = read_hidden_line(reader, writer)?;
+        if first != second {
+            writeln!(
+                writer,
+                "  {} no coinciden; intento {attempt} de 3",
+                paint("✗", RED)
+            )?;
+            continue;
+        }
+        return Ok(crate::crypto::SecretValue::new(first));
+    }
+    bail!("Instalación cancelada: no se pudo fijar una contraseña en tres intentos.");
 }
 
 /// Dibuja la pantalla de bienvenida con información del hardware detectado.
@@ -508,13 +609,32 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
 
     write!(
         writer,
-        "Distribución de teclado [keymap] (predeterminado: es): "
+        "Distribución de teclado [{}] (predeterminado: es): ",
+        KEYBOARD_LAYOUTS.join(", ")
     )?;
     writer.flush()?;
     line.clear();
     reader.read_line(&mut line)?;
     let keymap = if line.trim().is_empty() {
         "es".to_string()
+    } else {
+        line.trim().to_string()
+    };
+
+    // Locale: el del live si está definido (`LANG`), si no en_US.UTF-8.
+    let locale_default = std::env::var("LANG")
+        .ok()
+        .filter(|l| l.contains('.') && l != "C.UTF-8")
+        .unwrap_or_else(|| "en_US.UTF-8".to_string());
+    write!(
+        writer,
+        "Idioma del sistema [locale] (predeterminado: {locale_default}): "
+    )?;
+    writer.flush()?;
+    line.clear();
+    reader.read_line(&mut line)?;
+    let locale = if line.trim().is_empty() {
+        locale_default
     } else {
         line.trim().to_string()
     };
@@ -531,6 +651,20 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     } else {
         line.trim().to_string()
     };
+
+    // Los valores van entre comillas al configuration.nix: se validan aquí,
+    // antes de pedir la contraseña, con las mismas reglas que machine.nix.
+    DeployEngine::validate_machine_settings(&InstallConfig {
+        hostname: hostname.clone(),
+        username: username.clone(),
+        timezone: timezone.clone(),
+        keymap: keymap.clone(),
+        locale: locale.clone(),
+        ..InstallConfig::default()
+    })?;
+
+    // Contraseña del usuario (T36.4): dos veces, sin eco, solo en memoria.
+    let password = prompt_password(reader, writer, &username)?;
 
     // ── Resumen y Confirmación Final ──────────────────────────────────────────
     writeln!(
@@ -560,6 +694,8 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
     writeln!(writer, "  • Usuario inicial:      {}", username)?;
     writeln!(writer, "  • Zona horaria:         {}", timezone)?;
     writeln!(writer, "  • Teclado:              {}", keymap)?;
+    writeln!(writer, "  • Idioma:               {}", locale)?;
+    writeln!(writer, "  • Contraseña:           fijada (no se muestra)")?;
     writeln!(
         writer,
         "  • Modo de ejecución:    {}\n",
@@ -602,6 +738,8 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         keymap: keymap.clone(),
         system: default_system(),
         password_hash: None,
+        locale: locale.clone(),
+        encrypt: false,
         dry_run: dry_run_default,
     };
 
@@ -615,9 +753,21 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         };
         if install_config.dry_run {
             let mut runner = SimulatedRunner::for_disk(chosen_disk);
-            DeployEngine::install(&install_config, workspace, &mut runner, &mut on_line)?
+            DeployEngine::install_with_password(
+                &install_config,
+                workspace,
+                &mut runner,
+                &mut on_line,
+                Some(&password),
+            )?
         } else {
-            DeployEngine::install(&install_config, workspace, &mut SystemRunner, &mut on_line)?
+            DeployEngine::install_with_password(
+                &install_config,
+                workspace,
+                &mut SystemRunner,
+                &mut on_line,
+                Some(&password),
+            )?
         }
     };
     let total_steps = report.steps.len();
@@ -816,8 +966,9 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         println!("    --clean                       Modo disco completo (instalación limpia)");
         println!("    --dual-boot                   Modo de convivencia segura (dual-boot)");
         println!("    --apply                       Instalación REAL a disco (desde la ISO en vivo, como root); sin él, simulación");
-        println!("\n  TOML (--config): target_device, clean_install, hostname, username, timezone, keymap, system,");
-        println!("                   password_hash (mkpasswd -m yescrypt), confirm_wipe = true (obligatorio con clean_install + --apply)\n");
+        println!("\n  TOML (--config): target_device, clean_install, hostname, username, timezone, keymap, locale, system,");
+        println!("                   password_hash (mkpasswd -m yescrypt; obligatorio con --apply), confirm_wipe = true (obligatorio con clean_install + --apply),");
+        println!("                   encrypt (declarado; el cifrado LUKS aún no se ejecuta)\n");
         return Ok(());
     }
 
@@ -909,6 +1060,8 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             keymap: "us".into(),
             system: default_system(),
             password_hash: None,
+            locale: "en_US.UTF-8".into(),
+            encrypt: false,
             dry_run,
         };
         println!(
@@ -996,8 +1149,9 @@ dry_run = true
     #[test]
     fn test_run_installer_wizard_simulation_dual_boot() {
         // Simular respuestas del usuario para Dual-Boot:
-        // Disco 1 -> Modo 2 (Dual-boot) -> Hostname -> Timezone -> Keymap -> Username -> Confirmar ('s')
-        let input = "1\n2\nantos-test\nUTC\nes\nantos\ns\n";
+        // Disco 1 -> Modo 2 (Dual-boot) -> Hostname -> Timezone -> Keymap -> Locale
+        // -> Username -> Contraseña x2 -> Confirmar ('s')
+        let input = "1\n2\nantos-test\nUTC\nes\nes_ES.UTF-8\nantos\nsecreto123\nsecreto123\ns\n";
         let mut reader = Cursor::new(input.as_bytes());
         let mut writer = Vec::new();
         let temp_dir = std::env::temp_dir().join("antos-test-wizard-dual");
@@ -1018,15 +1172,27 @@ dry_run = true
         assert!(output_str.contains("○ simulado"));
         assert!(!output_str.contains("✓ ejecutado"));
         assert!(output_str.contains("nixos-install"));
+        assert!(output_str.contains("Idioma:               es_ES.UTF-8"));
+        assert!(output_str.contains("Contraseña:           fijada"));
+        assert!(!output_str.contains("secreto123"));
         assert!(report.success);
         assert!(report.simulated);
+        // El hash (simulado) llegó al configuration.nix; la contraseña no.
+        let conf = fs::read_to_string(
+            temp_dir.join("target/installer-staging/etc/nixos/configuration.nix"),
+        )
+        .unwrap();
+        assert!(conf.contains("initialHashedPassword"));
+        assert!(conf.contains(r#"locale = "es_ES.UTF-8";"#));
+        assert!(!conf.contains("secreto123"));
     }
 
     #[test]
     fn test_run_installer_wizard_simulation_clean_install() {
         // Simular respuestas del usuario para Instalación Limpia:
-        // Disco 1 -> Modo 1 -> Confirmación destructiva ('SI') -> Hostname -> Timezone -> Keymap -> Username -> Confirmar ('S')
-        let input = "1\n1\nSI\nantos-clean\nUTC\nus\nadmin\nS\n";
+        // Disco 1 -> Modo 1 -> Confirmación destructiva ('SI') -> Hostname -> Timezone
+        // -> Keymap -> Locale -> Username -> Contraseña x2 -> Confirmar ('S')
+        let input = "1\n1\nSI\nantos-clean\nUTC\nus\n\nadmin\nsecreto123\nsecreto123\nS\n";
         let mut reader = Cursor::new(input.as_bytes());
         let mut writer = Vec::new();
         let temp_dir = std::env::temp_dir().join("antos-test-wizard-clean");
@@ -1050,7 +1216,7 @@ dry_run = true
     /// de «completada» se imprime.
     #[test]
     fn test_run_installer_wizard_apply_aborts_at_deploy() {
-        let input = "1\n2\nantos-apply\nUTC\nes\nantos\ns\n";
+        let input = "1\n2\nantos-apply\nUTC\nes\n\nantos\nsecreto123\nsecreto123\ns\n";
         let mut reader = Cursor::new(input.as_bytes());
         let mut writer = Vec::new();
         let temp_dir = std::env::temp_dir().join("antos-test-wizard-apply");
@@ -1065,6 +1231,45 @@ dry_run = true
             msg.contains("no puede continuar") || msg.contains("no está implementada"),
             "mensaje inesperado: {msg}"
         );
+    }
+
+    /// La contraseña (T36.4): corta → reintento; distinta → reintento; a
+    /// la tercera buena se acepta. Nunca aparece en la salida.
+    #[test]
+    fn test_prompt_password_retries_short_and_mismatch_then_accepts() {
+        let input = "corta\nsecreto123\notracosa1\nsecreto123\nsecreto123\n";
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut writer = Vec::new();
+        let secret = prompt_password(&mut reader, &mut writer, "juan").expect("tercer intento");
+        assert_eq!(secret.expose(), "secreto123");
+        let out = String::from_utf8_lossy(&writer);
+        assert!(out.contains("demasiado corta"));
+        assert!(out.contains("no coinciden"));
+        assert!(out.contains("Contraseña para «juan»"));
+        assert!(!out.contains("secreto123"));
+        assert!(!out.contains("otracosa1"));
+
+        // Tres fallos seguidos: se cancela.
+        let input = "a\nb\nc\n";
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut writer = Vec::new();
+        let err = prompt_password(&mut reader, &mut writer, "juan").unwrap_err();
+        assert!(err.to_string().contains("tres intentos"));
+    }
+
+    /// Un teclado con caracteres fuera de `[a-z-]` se rechaza antes de
+    /// pedir la contraseña y de tocar nada.
+    #[test]
+    fn test_run_installer_wizard_rejects_invalid_keyboard_layout() {
+        let input = "1\n2\nantos-test\nUTC\nES!\n\nantos\nsecreto123\nsecreto123\ns\n";
+        let mut reader = Cursor::new(input.as_bytes());
+        let mut writer = Vec::new();
+        let temp_dir = std::env::temp_dir().join("antos-test-wizard-badkb");
+        let _ = fs::create_dir_all(&temp_dir);
+        let err = run_installer_wizard(&mut reader, &mut writer, &temp_dir, true).unwrap_err();
+        assert!(err.to_string().contains("teclado"));
+        let out = String::from_utf8_lossy(&writer);
+        assert!(!out.contains("Contraseña para"));
     }
 
     #[test]

@@ -69,6 +69,8 @@ fn test_system_config_generation_files() {
         keymap: "es".into(),
         system: "x86_64-linux".into(),
         password_hash: None,
+        locale: "en_US.UTF-8".into(),
+        encrypt: false,
         dry_run: true,
     };
 
@@ -112,6 +114,8 @@ fn test_generate_nixos_config_clean_install() {
         keymap: "es".into(),
         system: "aarch64-linux".into(),
         password_hash: None,
+        locale: "en_US.UTF-8".into(),
+        encrypt: false,
         dry_run: true,
     };
     let etc_nixos = temp.join("etc/nixos");
@@ -121,9 +125,16 @@ fn test_generate_nixos_config_clean_install() {
     assert!(conf.contains("services.antos.desktop.enable = true;"));
     assert!(conf.contains(r#"services.antos.desktop.autologinUser = "juan";"#));
     assert!(conf.contains(r#"networking.hostName = "antos-laptop";"#));
-    assert!(conf.contains(r#"time.timeZone = "Europe/Madrid";"#));
-    assert!(conf.contains(r#"console.keyMap = "es";"#));
-    assert!(conf.contains("boot.loader.systemd-boot.enable = true;"));
+    // Teclado, locale y zona horaria van por `services.antos.machine` (T36.4),
+    // que también pone systemd-boot, red, audio, etc.
+    assert!(conf.contains("services.antos.machine = {"));
+    assert!(conf.contains(r#"keyboardLayout = "es";"#));
+    assert!(conf.contains(r#"locale = "en_US.UTF-8";"#));
+    assert!(conf.contains(r#"timeZone = "Europe/Madrid";"#));
+    assert!(!conf.contains("time.timeZone ="));
+    assert!(!conf.contains("console.keyMap ="));
+    assert!(!conf.contains("boot.loader.systemd-boot.enable"));
+    assert!(!conf.contains("networking.networkmanager.enable"));
     assert!(conf.contains(r#"users.users."juan""#));
     assert!(conf.contains(r#"system.stateVersion = "25.05";"#));
     // Disco completo: sin la nota de dual-boot.
@@ -265,8 +276,8 @@ fn test_generate_nixos_config_dual_boot_preserves_esp() {
     let conf = fs::read_to_string(etc_nixos.join("configuration.nix")).unwrap();
     // Dual-boot: systemd-boot en la ESP compartida, sin tocar los demás SO.
     assert!(conf.contains("Dual-boot: la ESP es compartida"));
-    assert!(conf.contains("boot.loader.systemd-boot.enable = true;"));
     assert!(conf.contains("configurationLimit = 10;"));
+    assert!(conf.contains("boot.loader.timeout = 5;"));
     let _ = fs::remove_dir_all(&temp);
 }
 
@@ -306,6 +317,8 @@ fn test_install_dual_boot_command_sequence() {
         keymap: "us".into(),
         system: "x86_64-linux".into(),
         password_hash: None,
+        locale: "en_US.UTF-8".into(),
+        encrypt: false,
         dry_run: true,
     };
     let (report, runner) = run_simulated(&cfg, &temp);
@@ -564,7 +577,6 @@ fn test_password_hash_goes_to_configuration_nix() {
     let conf = fs::read_to_string(etc.join("configuration.nix")).unwrap();
     assert!(conf.contains(&format!(r#"initialHashedPassword = "{hash}";"#)));
     assert!(!conf.contains("initialPassword"));
-    assert!(conf.contains("zramSwap.enable = true;"));
 
     let bad = InstallConfig {
         password_hash: Some("$y$j9T$abc\"; evil = true; # ".into()),
@@ -579,7 +591,9 @@ fn test_password_hash_goes_to_configuration_nix() {
     };
     DeployEngine::generate_nixos_config(&stock, &temp.join("stock"), None).expect("generate");
     let conf = fs::read_to_string(temp.join("stock/configuration.nix")).unwrap();
+    // Sin hash solo en simulación, y marcado como tal.
     assert!(conf.contains(r#"initialPassword = "antos";"#));
+    assert!(conf.contains("SIMULACIÓN sin contraseña"));
     let _ = fs::remove_dir_all(&temp);
 }
 
@@ -631,13 +645,9 @@ fn test_generated_configuration_matches_installed_nix() {
     for line in [
         "services.antos.enable = true;",
         "services.antos.desktop.enable = true;",
-        "boot.loader.systemd-boot.enable = true;",
-        "boot.loader.efi.canTouchEfiVariables = true;",
-        r#"i18n.defaultLocale = "en_US.UTF-8";"#,
+        "services.antos.machine = {",
+        "enable = true;",
         r#"extraGroups = [ "wheel" "video" "input" "networkmanager" ];"#,
-        r#"initialPassword = "antos";"#,
-        "networking.networkmanager.enable = true;",
-        "zramSwap.enable = true;",
         r#"nix.settings.experimental-features = [ "nix-command" "flakes" ];"#,
         r#"system.stateVersion = "25.05";"#,
     ] {
@@ -660,5 +670,156 @@ fn test_generated_configuration_matches_installed_nix() {
         );
         assert!(installed.contains(&l), "installed.nix sin {line}");
     }
+    // Nada de lo que `machine.nix` ya aporta se duplica en ninguno de los dos.
+    for dup in [
+        "networking.networkmanager.enable",
+        "boot.loader.systemd-boot.enable",
+        "zramSwap.enable",
+        "i18n.defaultLocale",
+    ] {
+        let d = squash(dup);
+        assert!(
+            !generated.contains(&d),
+            "configuration.nix generado duplica {dup}"
+        );
+        assert!(!installed.contains(&d), "installed.nix duplica {dup}");
+    }
+    // Y la contraseña de desarrollo no está en la máquina física de referencia.
+    assert!(!installed.contains(&squash(r#"initialPassword = "antos";"#)));
+    let _ = fs::remove_dir_all(&temp);
+}
+
+/// La contraseña del asistente (T36.4) se convierte en hash con `mkpasswd`
+/// a través del runner: la simulación graba el comando (sin la contraseña,
+/// que solo va por stdin) y el `configuration.nix` lleva el hash. Y sin
+/// contraseña la instalación real se rechaza en las precondiciones.
+#[test]
+fn test_install_with_password_hashes_through_mkpasswd() {
+    let temp = make_temp_test_dir("pw-wizard");
+    let cfg = InstallConfig {
+        target_device: "/dev/sda".into(),
+        clean_install: true,
+        hostname: "antos-pw".into(),
+        ..InstallConfig::default()
+    };
+    let secret = crate::crypto::SecretValue::new("contraseña-larga".into());
+    let mut runner = simulated("/dev/sda");
+    let report =
+        DeployEngine::install_with_password(&cfg, &temp, &mut runner, &mut |_| {}, Some(&secret))
+            .expect("install con contraseña");
+    assert!(report.simulated);
+    assert_eq!(runner.commands[0], "mkpasswd -m yescrypt --stdin");
+    assert!(!runner
+        .commands
+        .iter()
+        .any(|c| c.contains("contraseña-larga")));
+    let conf =
+        fs::read_to_string(temp.join("target/installer-staging/etc/nixos/configuration.nix"))
+            .unwrap();
+    assert!(conf.contains(r#"initialHashedPassword = "$y$j9T$SIMULADO"#));
+    assert!(!conf.contains("contraseña-larga"));
+    assert!(!conf.contains("SIMULACIÓN sin contraseña"));
+
+    let missing = DeployEngine::real_install_preconditions(&cfg, &temp);
+    assert!(missing.iter().any(|m| m.contains("sin contraseña")));
+    let with_hash = InstallConfig {
+        password_hash: Some("$y$j9T$x$y".into()),
+        ..cfg.clone()
+    };
+    let missing = DeployEngine::real_install_preconditions(&with_hash, &temp);
+    assert!(!missing.iter().any(|m| m.contains("sin contraseña")));
+    let _ = fs::remove_dir_all(&temp);
+}
+
+/// Lo que va entre comillas al `configuration.nix` se valida antes de
+/// escribir nada (T36.4): teclado, locale, zona horaria, hostname, usuario.
+#[test]
+fn test_validate_machine_settings_rejects_bad_values() {
+    let ok = InstallConfig {
+        keymap: "pt-br".into(),
+        locale: "pt_BR.UTF-8".into(),
+        timezone: "America/Sao_Paulo".into(),
+        hostname: "meu-pc-1".into(),
+        username: "ana_1".into(),
+        ..InstallConfig::default()
+    };
+    DeployEngine::validate_machine_settings(&ok).expect("valores correctos");
+    let bad_cases = [
+        (
+            "keymap",
+            InstallConfig {
+                keymap: "es\"; x = 1".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "keymap",
+            InstallConfig {
+                keymap: "ES".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "locale",
+            InstallConfig {
+                locale: "es ES".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "timezone",
+            InstallConfig {
+                timezone: "Europe/Madrid\"".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "hostname",
+            InstallConfig {
+                hostname: "mi pc".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "username",
+            InstallConfig {
+                username: "Juan".into(),
+                ..ok.clone()
+            },
+        ),
+        (
+            "username",
+            InstallConfig {
+                username: "".into(),
+                ..ok.clone()
+            },
+        ),
+    ];
+    for (field, bad) in bad_cases {
+        assert!(
+            DeployEngine::validate_machine_settings(&bad).is_err(),
+            "{field} inválido debería fallar"
+        );
+        let etc = make_temp_test_dir("validate");
+        assert!(
+            DeployEngine::generate_nixos_config(&bad, &etc, None).is_err(),
+            "{field} inválido no debe llegar al configuration.nix"
+        );
+        let _ = fs::remove_dir_all(&etc);
+    }
+}
+
+/// `encrypt = true` está declarado pero no ejecutable: la instalación
+/// real lo rechaza en las precondiciones en vez de ignorarlo.
+#[test]
+fn test_encrypt_is_refused_until_implemented() {
+    let temp = make_temp_test_dir("encrypt");
+    let cfg = InstallConfig {
+        encrypt: true,
+        password_hash: Some("$y$j9T$x$y".into()),
+        ..InstallConfig::default()
+    };
+    let missing = DeployEngine::real_install_preconditions(&cfg, &temp);
+    assert!(missing.iter().any(|m| m.contains("LUKS")));
     let _ = fs::remove_dir_all(&temp);
 }

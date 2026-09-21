@@ -182,7 +182,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.1](T36.1-honestidad-del-instalador-y-flake-generado-evaluable.md) | Honestidad del Instalador y `flake.nix` Generado Evaluable | ✅ Completado |
 | **Fase 36** | [T36.2](T36.2-instalacion-real-a-disco-particionado-nixos-install-y-verificacion-en-qemu.md) | Instalación Real a Disco: Particionado, `nixos-install` y Verificación en QEMU | 🔄 En Progreso |
 | **Fase 36** | [T36.3](T36.3-iso-autosuficiente-release-con-checksums-y-cache-binario.md) | ISO Autosuficiente, Release con Checksums y Caché Binario | 🔄 En Progreso |
-| **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | ⏳ Pendiente |
+| **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | 🔄 En Progreso |
 | **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | ⏳ Pendiente |
 | **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ⏳ Pendiente |
 
@@ -633,6 +633,7 @@ tickets, en el orden en que cada uno desbloquea al siguiente:
 Orden: ~~T36.1~~ → T36.2 (tubería real y smoke escritos; el smoke
 espera la ISO) → T36.3 (ISO autosuficiente, release y caché escritos;
 se confirman en CI con el primer push y las claves del mantenedor) → T36.4
+(perfil de máquina y asistente hechos; la evaluación Nix se confirma en CI)
 → T36.5 → T36.6. T36.1 se prueba en el
 Mac (`dry_run` y `nix eval` en CI); T36.2–T36.6 necesitan la ISO en QEMU con
 KVM (CI x86_64) o un Linux. Hasta que T36.3 cierre, la única instalación

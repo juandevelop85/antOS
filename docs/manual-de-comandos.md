@@ -263,12 +263,30 @@ Opciones (`services.antos.desktop.*`): `compositor` (por defecto `pkgs.labwc`),
 `barra` (`pkgs.antos-barra`).
 
 ```bash
-# Evaluar la configuración con el escritorio activado (sin construir la imagen)
+# Evaluar la máquina física con el escritorio (sin construir la imagen)
 nix eval .#nixosConfigurations.antos-desktop.config.system.build.toplevel.drvPath
 
 # Construir el paquete de la barra por separado
 nix build .#antos-barra          # -> result/bin/antos-barra
 ```
+
+##### Máquina física vs VM de desarrollo (T36.4)
+
+`nixosConfigurations.antos-desktop` es **la máquina física**: `installed.nix`
+(lo que `antos install` genera) + `services.antos.machine`
+([`machine.nix`](../system/nixos/machine.nix)): NetworkManager, firmware
+propietario, PipeWire (+ `rtkit`), bluetooth (+ `blueman` con Labwc),
+teclado coherente en consola / Labwc (`XKB_DEFAULT_LAYOUT`) / Plasma
+(`services.xserver.xkb`), `i18n.defaultLocale`, `time.timeZone`, `sudo`
+con contraseña, `power-profiles-daemon`, `fstrim`, `zramSwap` y
+`systemd-boot`. Opciones: `keyboardLayout` (`us`), `keyboardVariant`,
+`locale` (`en_US.UTF-8`), `timeZone` (`UTC`); las escribe el asistente.
+Nada de VM: lo que solo tiene sentido en QEMU (`qemu-guest.nix`, consola
+serie, `root` con sesión abierta y contraseña `antos`) está en
+[`vm-common.nix`](../system/nixos/vm-common.nix) y solo lo heredan
+`antos`, `antos-vm` y `antos-desktop-vm`. `desktop.nix` ya **no** pone
+ninguna contraseña por defecto: la VM y la ISO en vivo ponen la suya, la
+máquina instalada lleva la que el usuario eligió.
 
 Sobre un Linux **no-NixOS** (desarrollo), la sesión se lanza con el guion
 equivalente, que instala la misma configuración de Labwc:
