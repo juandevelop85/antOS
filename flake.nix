@@ -37,11 +37,40 @@
         modules = base ++ extra;
       };
 
+      # La máquina instalada de referencia (T36.3): lo que `antos install`
+      # deja en el disco (`system/nixos/installed.nix`). Su closure viaja en
+      # la ISO para que `nixos-install` no construya nada, y la CI la evalúa
+      # y construye por arquitectura.
+      instaladaPara = system: nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = nucleo ++ [
+          ./system/nixos/installed.nix
+          # Igual que en el `flake.nix` generado: las fuentes de nixpkgs y de
+          # antOS en el registro, y con ello en la closure.
+          { nix.registry.nixpkgs.flake = nixpkgs; nix.registry.antos.flake = self; }
+        ];
+      };
+
+      # Versión que la ISO y la release llevan en el nombre: el tag o el
+      # commit corto; «dirty» si el árbol tiene cambios sin confirmar.
+      version = self.shortRev or self.dirtyShortRev or "dirty";
+
       # La ISO parte de `nucleo` (sin `configuration.nix`): el perfil del
-      # instalador aporta arranque, particiones y autologin propios.
+      # instalador aporta arranque, particiones y autologin propios. Recibe
+      # por `_module.args` lo que la hace autosuficiente (T36.3).
       isoPara = system: nixpkgs.lib.nixosSystem {
         inherit system;
-        modules = nucleo ++ [ ./system/nixos/iso.nix ];
+        modules = nucleo ++ [
+          ./system/nixos/iso.nix
+          {
+            _module.args = {
+              antosSource = /. + self.outPath;
+              nixpkgsFlake = nixpkgs;
+              installedSystem = (instaladaPara system).config.system.build.toplevel;
+              antosVersion = version;
+            };
+          }
+        ];
       };
     in
     {
@@ -98,7 +127,14 @@
       # `system/arrancar-vm.sh --grafica` construye y lanza esta.
       nixosConfigurations.antos-desktop-vm = maquina [ ./system/nixos/vm-grafica.nix ];
 
-      # La ISO instalable de antOS Linux (T30.2). `nix build .#iso`.
+      # La ISO instalable de antOS Linux (T30.2 / T36.3), por arquitectura.
+      # `nix build .#iso` construye la del sistema anfitrión.
       nixosConfigurations.antos-iso = isoPara "aarch64-linux";
+      nixosConfigurations.antos-iso-aarch64 = isoPara "aarch64-linux";
+      nixosConfigurations.antos-iso-x86_64 = isoPara "x86_64-linux";
+
+      # La máquina instalada de referencia (T36.3), por arquitectura.
+      nixosConfigurations.antos-installed-aarch64 = instaladaPara "aarch64-linux";
+      nixosConfigurations.antos-installed-x86_64 = instaladaPara "x86_64-linux";
     };
 }

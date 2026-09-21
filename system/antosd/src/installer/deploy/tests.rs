@@ -608,3 +608,57 @@ fn test_partition_device_follows_kernel_naming() {
     );
     assert_eq!(DeployEngine::partition_device("/dev/sda", 3), "/dev/sda3");
 }
+
+/// `system/nixos/installed.nix` (la máquina de referencia cuya closure viaja
+/// en la ISO, T36.3) y el `configuration.nix` que genera el instalador tienen
+/// que pedir los mismos paquetes: si divergen, la instalación deja de ser
+/// offline. Se fijan las líneas que determinan la closure.
+#[test]
+fn test_generated_configuration_matches_installed_nix() {
+    let temp = make_temp_test_dir("installed-sync");
+    let cfg = InstallConfig {
+        clean_install: true,
+        ..InstallConfig::default()
+    };
+    let etc = temp.join("etc/nixos");
+    DeployEngine::generate_nixos_config(&cfg, &etc, None).expect("generate");
+    let generated = fs::read_to_string(etc.join("configuration.nix")).unwrap();
+    let hw = fs::read_to_string(etc.join("hardware-configuration.nix")).unwrap();
+    let installed = fs::read_to_string(repo_root().join("system/nixos/installed.nix")).unwrap();
+
+    let squash = |s: &str| s.split_whitespace().collect::<String>();
+    let (generated, hw, installed) = (squash(&generated), squash(&hw), squash(&installed));
+    for line in [
+        "services.antos.enable = true;",
+        "services.antos.desktop.enable = true;",
+        "boot.loader.systemd-boot.enable = true;",
+        "boot.loader.efi.canTouchEfiVariables = true;",
+        r#"i18n.defaultLocale = "en_US.UTF-8";"#,
+        r#"extraGroups = [ "wheel" "video" "input" "networkmanager" ];"#,
+        r#"initialPassword = "antos";"#,
+        "networking.networkmanager.enable = true;",
+        "zramSwap.enable = true;",
+        r#"nix.settings.experimental-features = [ "nix-command" "flakes" ];"#,
+        r#"system.stateVersion = "25.05";"#,
+    ] {
+        let l = squash(line);
+        assert!(
+            generated.contains(&l),
+            "configuration.nix generado sin {line}"
+        );
+        assert!(installed.contains(&l), "installed.nix sin {line}");
+    }
+    for line in [
+        r#"device = "/dev/disk/by-label/antos-root";"#,
+        r#"device = "/dev/disk/by-label/ANTOS_ESP";"#,
+        r#"boot.initrd.availableKernelModules = [ "nvme" "ahci" "xhci_pci" "usbhid" "sd_mod" "virtio_pci" "virtio_blk" ];"#,
+    ] {
+        let l = squash(line);
+        assert!(
+            hw.contains(&l),
+            "hardware-configuration.nix de relleno sin {line}"
+        );
+        assert!(installed.contains(&l), "installed.nix sin {line}");
+    }
+    let _ = fs::remove_dir_all(&temp);
+}

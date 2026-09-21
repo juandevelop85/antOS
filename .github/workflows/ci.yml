@@ -625,3 +625,25 @@ jobs:
 
       - name: Build · sistema con escritorio (antos-desktop-vm)
         run: nix build .#nixosConfigurations.antos-desktop-vm.config.system.build.toplevel --print-build-logs
+
+      # T36.3: la máquina instalada de referencia (`installed.nix`), cuya
+      # closure viaja en la ISO para que `nixos-install` no construya nada.
+      # Se construye aquí (comparte casi toda la closure con
+      # `antos-desktop-vm`) y se comprueba que las ISO de las dos
+      # arquitecturas la referencian y llevan la fuente de antOS.
+      - name: Build · máquina instalada de referencia (antos-installed-x86_64)
+        run: nix build .#nixosConfigurations.antos-installed-x86_64.config.system.build.toplevel --print-build-logs
+
+      - name: ISO autosuficiente · aserciones (T36.3)
+        run: |
+          set -eu
+          for arch in x86_64 aarch64; do
+            cfg=".#nixosConfigurations.antos-iso-$arch.config"
+            test "$(nix eval --json "$cfg.environment.etc.\"antos/source\".enable")" = "true"
+            test "$(nix eval --json "$cfg.isoImage.storeContents" | jq 'length')" = "1"
+            test "$(nix eval --json "$cfg.services.antos.smoke.enable")" = "true"
+            nix eval --raw "$cfg.nix.registry.nixpkgs.flake.outPath" | grep -q '^/nix/store/'
+            # El caché binario solo entra con clave pública conocida (vacía hoy).
+            test "$(nix eval --json "$cfg.services.antos.binaryCache.enable")" = "false"
+          done
+          echo "antos-iso-{x86_64,aarch64}: fuente, closure instalada y nixpkgs declarados; caché apagado sin clave"

@@ -1265,6 +1265,17 @@ mod tests {
     /// los reparte en orden, y otro test que haga `bind(:0)` en paralelo
     /// (los de servicios y proveedores, T34.x) recibía justo el que este
     /// acababa de soltar. Se prueba un puerto alto pseudoaleatorio.
+    /// Los dos tests que levantan un servidor real eligen el puerto con
+    /// `t31_2_free_local_port` y lo enlazan un instante después: en paralelo
+    /// podían coincidir (misma fórmula a partir del reloj) y `start()` fallaba
+    /// con «address in use» una de cada tres ejecuciones completas del
+    /// workspace. Se serializan entre sí; el resto del workspace sigue en
+    /// paralelo (T36.3, ampliación de alcance por la CI en rojo).
+    fn t31_2_serialize_server_tests() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn t31_2_free_local_port() -> u16 {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1302,6 +1313,7 @@ mod tests {
 
     #[test]
     fn test_stop_frees_the_port() {
+        let _serial = t31_2_serialize_server_tests();
         let state_dir = t31_1_temp_state_dir("stop_frees_port");
         let workspace_dir = state_dir.parent().unwrap().join("workspace");
         fs::create_dir_all(&workspace_dir).unwrap();
@@ -1404,6 +1416,7 @@ mod tests {
 
     #[test]
     fn test_connection_limit_rejects_excess_beyond_the_configured_maximum() {
+        let _serial = t31_2_serialize_server_tests();
         let state_dir = t31_1_temp_state_dir("conn_limit");
         let workspace_dir = state_dir.parent().unwrap().join("workspace");
         fs::create_dir_all(&workspace_dir).unwrap();

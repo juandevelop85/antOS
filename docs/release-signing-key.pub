@@ -1,0 +1,10 @@
+# Clave pública ed25519 con la que la CI firma `SHA256SUMS` de cada release
+# (`ssh-keygen -Y sign -n antos-release`, workflow `release.yml`). Hasta que el
+# mantenedor genere el par (`ssh-keygen -t ed25519 -f release.key -C antos-release`)
+# y suba la privada a `secrets.RELEASE_SIGNING_KEY`, este fichero no contiene
+# ninguna clave y las releases se publican sin firma (el workflow lo avisa).
+#
+# Sustituir las líneas de comentario por la línea `ssh-ed25519 AAAA… antos-release`.
+# Verificar una release:
+#   printf 'antos-release %s\n' "$(grep -v '^#' docs/release-signing-key.pub)" > allowed
+#   ssh-keygen -Y verify -f allowed -I antos-release -n antos-release -s SHA256SUMS.sig < SHA256SUMS

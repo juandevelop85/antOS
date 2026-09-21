@@ -17,7 +17,35 @@ Esta guía describe el procedimiento paso a paso para generar un medio de instal
 
 ## 2. Métodos para Crear el Live USB
 
-### Método A: Utilidad Nativa de antOS (`antos usb`) [Recomendado]
+### Método 0: Descargar la ISO de antOS Linux de la release (T36.3)
+
+Para instalar **antOS Linux** (NixOS + escritorio antOS, el sistema de uso
+diario) en una máquina nueva no hace falta compilar nada: cada tag `v*`
+publica en [GitHub Releases](https://github.com/juandevelop85/antOS/releases)
+`antos-linux-<versión>-x86_64.iso` y `…-aarch64.iso`, con `SHA256SUMS` (y
+`SHA256SUMS.sig` cuando la release va firmada). La ISO es **autosuficiente**:
+lleva dentro la closure del sistema que instala, el árbol fuente de antOS y
+la fuente de `nixpkgs`, así que `antos install --apply` funciona sin red.
+
+```bash
+sha256sum -c SHA256SUMS
+# Si hay firma (clave pública en docs/release-signing-key.pub del repositorio):
+printf 'antos-release %s\n' "$(grep -v '^#' release-signing-key.pub)" > allowed
+ssh-keygen -Y verify -f allowed -I antos-release -n antos-release -s SHA256SUMS.sig < SHA256SUMS
+```
+
+Después se graba como cualquier ISO: `antos usb flash --image <iso> --target
+/dev/sdX --apply` (Método A, paso 3), Ventoy, Rufus, Etcher o `dd` (Métodos
+B–D). Requisitos de esta ISO: firmware UEFI, **≥ 4 GiB de RAM** para la
+sesión en vivo (escritorio Plasma) y un disco con **≥ 20 GiB libres** para
+la raíz (Disco Completo o hueco sin particionar en Dual-Boot). El tamaño de
+la ISO lo imprime el workflow `release.yml` en cada construcción; se
+anotará aquí con la primera release.
+
+Sin release a mano, la ISO se construye con Nix en cualquier Linux:
+`nix build .#iso` (Método 5 del [manual](manual-de-comandos.md)).
+
+### Método A: Utilidad Nativa de antOS (`antos usb`) [Recomendado para el Live bare-metal]
 
 Si ya dispones de una instalación de antOS o del entorno de desarrollo:
 

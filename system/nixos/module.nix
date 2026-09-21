@@ -5,6 +5,10 @@ let
   cfg = config.services.antos;
 in
 {
+  # El caché binario (T36.3) va con el módulo base para que la máquina que
+  # `antos install` genera (`nixosModules.default`) lo herede sin más.
+  imports = [ ./cache.nix ];
+
   options.services.antos = {
     enable = lib.mkEnableOption "antOS como capa de sistema";
 

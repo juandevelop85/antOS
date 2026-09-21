@@ -1,0 +1,217 @@
+# ISO, release y caché binario de antOS Linux (T36.3).
+#
+# - `iso`: construye `nix build .#iso` por arquitectura (x86_64 en
+#   `ubuntu-latest`, aarch64 en `ubuntu-24.04-arm`), comprueba que la ISO
+#   es autosuficiente (lleva `/etc/antos/source`, la closure de la máquina
+#   instalada y la fuente de nixpkgs), calcula `SHA256SUMS` y sube ambas
+#   como artefacto (7 días). Corre en cada push a `master`, en los tags
+#   `v*` y a mano.
+# - `release` (solo tags `v*`): junta las ISO, firma `SHA256SUMS` con
+#   `ssh-keygen -Y sign` si hay `secrets.RELEASE_SIGNING_KEY` (sin clave, la
+#   release se publica sin firma y lo dice) y crea la GitHub Release.
+# - `nix-cache` (push a `master`): firma y publica las closures de `antosd` y
+#   `antos-barra` como caché estático en la rama `nix-cache`, si hay
+#   `secrets.NIX_CACHE_SIGNING_KEY`. Sin clave, el job termina sin publicar:
+#   un caché sin firma no vale para nada (ver `system/nixos/cache.nix`).
+#
+# Va aparte de `ci.yml`: construir la ISO tarda y no es una puerta de
+# calidad de cada commit.
+name: release
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  NIX_CONFIG: |
+    experimental-features = nix-command flakes
+    accept-flake-config = true
+
+jobs:
+  iso:
+    name: "ISO · ${{ matrix.arch }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar disco del runner
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup || true
+          df -h /
+
+      - name: Instalar Nix (nix-command + flakes)
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: ${{ env.NIX_CONFIG }}
+
+      - name: Construir la ISO
+        run: |
+          nix build .#iso --print-build-logs -o iso-result
+          ls -la iso-result/iso/
+          du -sh iso-result/iso/*.iso
+
+      # Autosuficiencia (T36.3): sin abrir la ISO, se comprueba sobre la
+      # configuración que la produjo que lleva lo que el instalador
+      # necesita para trabajar sin red.
+      - name: Comprobar que la ISO es autosuficiente
+        run: |
+          set -eu
+          cfg=".#nixosConfigurations.antos-iso-${{ matrix.arch }}.config"
+          test "$(nix eval --json "$cfg.environment.etc.\"antos/source\".enable")" = "true"
+          test "$(nix eval --json "$cfg.isoImage.storeContents" | jq 'length')" -ge 1
+          nix eval --raw "$cfg.nix.registry.nixpkgs.flake.outPath" | grep -q '^/nix/store/'
+          # Las herramientas que `DeployEngine::real_install_preconditions` exige,
+          # en el PATH del sistema de la ISO (ya construido: es parte de la ISO).
+          syspath="$(nix build --print-out-paths --no-link "$cfg.system.path")"
+          for t in parted partprobe udevadm mkfs.vfat mkfs.ext4 blkid mount umount sync nixos-generate-config nixos-install efibootmgr; do
+            test -x "$syspath/bin/$t" || test -x "$syspath/sbin/$t" || { echo "falta $t en la ISO"; exit 1; }
+          done
+          echo "ISO ${{ matrix.arch }}: fuente de antOS, closure instalada, nixpkgs y herramientas presentes"
+
+      - name: SHA256SUMS
+        run: |
+          mkdir -p dist
+          cp iso-result/iso/*.iso dist/
+          cd dist && sha256sum *.iso > "SHA256SUMS.${{ matrix.arch }}" && cat "SHA256SUMS.${{ matrix.arch }}"
+
+      - name: Subir ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: antos-linux-iso-${{ matrix.arch }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: "GitHub Release"
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: iso
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: antos-linux-iso-*
+          path: dist
+          merge-multiple: true
+
+      - name: SHA256SUMS conjunto
+        run: |
+          cd dist
+          cat SHA256SUMS.* > SHA256SUMS
+          rm -f SHA256SUMS.*
+          sha256sum -c SHA256SUMS
+          ls -la
+
+      # Firma con `ssh-keygen -Y` (ninguna herramienta nueva). La clave
+      # privada ed25519 vive en `secrets.RELEASE_SIGNING_KEY`; la pública se
+      # publica en `docs/release-signing-key.pub` para `ssh-keygen -Y verify`.
+      - name: Firmar SHA256SUMS
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::warning::sin secrets.RELEASE_SIGNING_KEY: la release se publica SIN firma"
+            exit 0
+          fi
+          umask 077
+          printf '%s\n' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          ssh-keygen -Y sign -f "$RUNNER_TEMP/release.key" -n antos-release dist/SHA256SUMS
+          rm -f "$RUNNER_TEMP/release.key"
+          # Verificación con la pública del árbol: si no coincide, no se publica.
+          printf 'antos-release %s\n' "$(grep -v '^#' docs/release-signing-key.pub | cut -d' ' -f1-2)" > "$RUNNER_TEMP/allowed"
+          ssh-keygen -Y verify -f "$RUNNER_TEMP/allowed" -I antos-release -n antos-release \
+            -s dist/SHA256SUMS.sig < dist/SHA256SUMS
+
+      - name: Publicar la release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes="antOS Linux ${tag}: ISO instalable por arquitectura (arranca al escritorio en vivo; \`antos install\` instala sin red). Verifica con \`sha256sum -c SHA256SUMS\`"
+          if [ -f dist/SHA256SUMS.sig ]; then
+            notes="$notes y \`ssh-keygen -Y verify\` (clave en docs/release-signing-key.pub)."
+          else
+            notes="$notes. (Esta release no lleva firma: no había clave configurada.)"
+          fi
+          gh release create "$tag" --title "antOS Linux $tag" --notes "$notes" dist/* \
+            || gh release upload "$tag" dist/* --clobber
+
+  nix-cache:
+    name: "Caché binario · ${{ matrix.arch }}"
+    if: github.ref == 'refs/heads/master'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Nix (nix-command + flakes)
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: ${{ env.NIX_CONFIG }}
+
+      - name: Construir antosd y antos-barra
+        run: nix build .#antosd .#antos-barra --print-build-logs --no-link
+
+      # `nix copy` firma cada narinfo con la clave privada; sin ella no hay
+      # nada que publicar (`cache.nix` no acepta un caché sin clave).
+      - name: Publicar en la rama nix-cache
+        env:
+          NIX_CACHE_SIGNING_KEY: ${{ secrets.NIX_CACHE_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "$NIX_CACHE_SIGNING_KEY" ]; then
+            echo "::notice::sin secrets.NIX_CACHE_SIGNING_KEY: el caché no se publica (system/nixos/cache.nix)"
+            exit 0
+          fi
+          expected="$(tr -d '[:space:]' < system/nixos/cache-public-key.txt)"
+          umask 077
+          printf '%s\n' "$NIX_CACHE_SIGNING_KEY" > "$RUNNER_TEMP/cache.key"
+          actual="$(nix key convert-secret-to-public < "$RUNNER_TEMP/cache.key")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::la clave privada no corresponde a system/nixos/cache-public-key.txt"
+            exit 1
+          fi
+          git fetch origin nix-cache:nix-cache 2>/dev/null || true
+          work="$RUNNER_TEMP/nix-cache"
+          rm -rf "$work"
+          git worktree add "$work" nix-cache 2>/dev/null || git worktree add --orphan -b nix-cache "$work"
+          mkdir -p "$work/cache"
+          nix copy --to "file://$work/cache?secret-key=$RUNNER_TEMP/cache.key&compression=zstd" \
+            .#antosd .#antos-barra
+          rm -f "$RUNNER_TEMP/cache.key"
+          # Poda: nada de la caché con más de 90 días (por fecha del fichero);
+          # lo que aún se usa vuelve a copiarse en el siguiente push.
+          find "$work/cache" -type f -mtime +90 -delete || true
+          du -sh "$work/cache"
+          cd "$work"
+          touch .nojekyll
+          git add -A
+          git -c user.name="antos-ci" -c user.email="ci@antos.invalid" \
+            commit -q -m "cache: ${{ matrix.arch }} $(git -C "$GITHUB_WORKSPACE" rev-parse --short HEAD)" || echo "sin cambios"
+          # Las dos arquitecturas publican en la misma rama: si la otra llegó
+          # antes, se rebasa y se reintenta.
+          git push origin nix-cache || { git pull --rebase origin nix-cache && git push origin nix-cache; }

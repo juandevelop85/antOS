@@ -3,7 +3,25 @@
 # Es "antOS Linux" (Método 5), NO el Live del kernel bare-metal que produce
 # `antos usb build` (Método 6). Arranca a la sesión gráfica de antOS y trae el
 # instalador de NixOS disponible.
-{ lib, pkgs, modulesPath, ... }:
+#
+# ## Autosuficiente (T36.3)
+#
+# La ISO lleva dentro (a) la closure de la máquina instalada de referencia
+# (`installed.nix`: lo mismo que `antos install` genera) para que
+# `nixos-install` no construya ni descargue nada, (b) el árbol fuente de
+# antOS en `/etc/antos/source` (lo que el instalador copia a
+# `/etc/nixos/antos` del destino) y (c) la fuente de `nixpkgs` en el store
+# (`nix.registry`), para que el `flake.nix` generado evalúe sin red. Los
+# tres llegan por `_module.args` desde `flake.nix`; si falta alguno (una
+# evaluación fuera del flake), la ISO se construye igual pero no es
+# autosuficiente, y `antos install --apply` lo dirá al no encontrar
+# `/etc/antos/source`.
+{ lib, pkgs, modulesPath
+, antosSource ? null
+, nixpkgsFlake ? null
+, installedSystem ? null
+, antosVersion ? "unknown"
+, ... }:
 
 let
   # ── Marca de arranque (T30.9, seguimiento) ────────────────────────────
@@ -125,8 +143,59 @@ in
   services.antos.llm.enable = false;
 
   # `isoImage.isoName` se renombró a `image.fileName` en nixpkgs recientes.
-  image.fileName = lib.mkForce "antos-linux-${lib.version}.iso";
+  # El nombre lleva la arquitectura: la release publica una ISO por cada una.
+  image.fileName = lib.mkForce "antos-linux-${antosVersion}-${pkgs.stdenv.hostPlatform.uname.processor}.iso";
   isoImage.volumeID = lib.mkForce "ANTOS_LINUX";
+  # Compresión fija: el tamaño de la ISO es una cifra que se documenta y se
+  # compara entre releases; no puede depender del valor por defecto del día.
+  isoImage.squashfsCompression = "zstd -Xcompression-level 15";
+
+  # ── Autosuficiencia (T36.3) ───────────────────────────────────────────
+  # La closure de la máquina instalada de referencia viaja en el store de la
+  # ISO: `nixos-install` copia de ahí y no construye nada.
+  isoImage.storeContents = lib.optional (installedSystem != null) installedSystem;
+
+  # El árbol fuente de antOS, en la forma exacta que `antos install` copia al
+  # destino (`DeployEngine::copy_antos_source`, T36.1). Sin `docs/`, sin
+  # `target/`: solo lo que el flake necesita para evaluar y construir.
+  environment.etc = lib.mkMerge [
+    (lib.mkIf (antosSource != null) {
+      "antos/source".source = lib.fileset.toSource {
+        root = antosSource;
+        # `maybeMissing`: `rust-toolchain.toml` o `builder/` pueden faltar
+        # en un árbol recortado, igual que en `copy_antos_source`.
+        fileset = lib.fileset.unions (map lib.fileset.maybeMissing [
+          (antosSource + "/flake.nix")
+          (antosSource + "/flake.lock")
+          (antosSource + "/Cargo.toml")
+          (antosSource + "/Cargo.lock")
+          (antosSource + "/rust-toolchain.toml")
+          (antosSource + "/recipes")
+          (antosSource + "/builder/Cargo.toml")
+          (antosSource + "/builder/src")
+          (antosSource + "/system")
+        ]);
+      };
+    })
+    { "antos/VERSION".text = "${antosVersion}\n"; }
+  ];
+
+  # La fuente de nixpkgs en el store: el `flake.nix` generado la fija por
+  # `rev`+`narHash` y nix la encuentra ahí sin salir a la red.
+  nix.registry = lib.mkIf (nixpkgsFlake != null) {
+    nixpkgs.flake = nixpkgsFlake;
+  };
+
+  # Las herramientas del instalador, declaradas y no heredadas del perfil:
+  # son las que `DeployEngine::real_install_preconditions` exige.
+  environment.systemPackages = with pkgs; [
+    parted
+    dosfstools
+    e2fsprogs
+    util-linux
+    efibootmgr
+    nixos-install-tools
+  ];
 
   # La base gráfica del instalador ya trae su propio compositor de rescate; el
   # de antOS (Labwc + antos-barra) es el que se autoinicia por `greetd`.

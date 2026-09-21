@@ -285,7 +285,8 @@ Tres variantes de máquina (flake):
 | :--- | :--- | :--- |
 | `nixosConfigurations.antos-vm` | VM headless (serie), para CI | `./system/arrancar-vm.sh` |
 | `nixosConfigurations.antos-desktop-vm` | VM **gráfica**: arranca directa al escritorio antOS (`virtio-gpu` + `usb-tablet`, 3 GiB). Por VNC en el contenedor (TCG) o con HVF si se usa `system.build.vm` en un host con aceleración | `./system/arrancar-vm.sh --grafica` |
-| `packages.<arch>.iso` / `nixosConfigurations.antos-iso` | **ISO en vivo de antOS Linux** (`installation-cd-graphical-base` + `services.antos.desktop`). Es la que arranca `arrancar-vm-macos.sh` por HVF, y la que se importa en UTM/VirtualBox | `nix build .#iso` → `result/iso/antos-linux-*.iso` |
+| `packages.<arch>.iso` / `nixosConfigurations.antos-iso-{x86_64,aarch64}` | **ISO en vivo e instalable de antOS Linux** (`installation-cd-graphical-base` + `services.antos.desktop`). **Autosuficiente (T36.3):** lleva la closure de la máquina instalada de referencia (`installed.nix`), el árbol fuente de antOS en `/etc/antos/source` y la fuente de `nixpkgs` en el store, para que `antos install --apply` funcione **sin red**. Es la que arranca `arrancar-vm-macos.sh` por HVF, la que se importa en UTM/VirtualBox y la que publica la release | `nix build .#iso` → `result/iso/antos-linux-<versión>-<arch>.iso` |
+| `nixosConfigurations.antos-installed-{x86_64,aarch64}` | La **máquina instalada de referencia**: el espejo en Nix de lo que `antos install` genera (mismos paquetes; el test `test_generated_configuration_matches_installed_nix` los mantiene alineados) | `nix build .#nixosConfigurations.antos-installed-x86_64.config.system.build.toplevel` |
 
 ```bash
 # macOS, escritorio usable: construye la ISO y la arranca con HVF en el host
@@ -297,6 +298,50 @@ Tres variantes de máquina (flake):
 # Solo la ISO en vivo (NO es el Live del kernel bare-metal de `antos usb build`, Método 6)
 nix build .#iso
 ```
+
+##### ISO de la release, firma y caché binario (T36.3)
+
+El workflow [`release.yml`](../.github/workflows/release.yml) construye la
+ISO de las dos arquitecturas en cada push a `master` (artefacto de 7 días)
+y, en un tag `v*`, publica una **GitHub Release** con las ISO, `SHA256SUMS`
+y `SHA256SUMS.sig`. Verificación al descargar:
+
+```bash
+sha256sum -c SHA256SUMS
+# Firma (ssh-keygen -Y, sin herramienta nueva); la clave pública está en docs/release-signing-key.pub
+printf 'antos-release %s\n' "$(grep -v '^#' docs/release-signing-key.pub)" > allowed
+ssh-keygen -Y verify -f allowed -I antos-release -n antos-release -s SHA256SUMS.sig < SHA256SUMS
+```
+
+El mismo workflow (job `nix-cache`) firma y publica las closures de
+`antosd` y `antos-barra` como **caché binario estático** en la rama
+`nix-cache` (`nix copy --to file://…`), que GitHub Pages sirve bajo
+`https://juandevelop85.github.io/antOS/cache`; el módulo
+[`cache.nix`](../system/nixos/cache.nix) (`services.antos.binaryCache`) lo
+añade como *substituter* a toda máquina antOS — también a la que genera
+`antos install` — **solo si hay clave pública conocida**. Un
+`nixos-rebuild switch` con caché descarga `antosd`/`antos-barra`; sin caché
+los compila (varios minutos, ≥ 4 GiB de RAM).
+
+Puesta en marcha, una sola vez, por el mantenedor (los dos pares de claves
+son suyos; el repositorio solo lleva las públicas):
+
+```bash
+# Firma de releases
+ssh-keygen -t ed25519 -N '' -f release.key -C antos-release
+# → contenido de release.key  ⇒ secreto RELEASE_SIGNING_KEY del repositorio
+# → release.key.pub           ⇒ docs/release-signing-key.pub (sustituyendo los comentarios)
+
+# Caché binario
+nix key generate-secret --key-name antos-cache-1 > cache.key
+nix key convert-secret-to-public < cache.key
+# → contenido de cache.key    ⇒ secreto NIX_CACHE_SIGNING_KEY
+# → la línea pública          ⇒ system/nixos/cache-public-key.txt
+# y en Settings → Pages: servir la rama `nix-cache` (raíz).
+```
+
+Sin esos secretos el workflow lo avisa: la release sale sin firma y el
+caché no se publica; nada se rompe, solo falta.
 
 > ℹ️ Para el porqué de HVF vs. TCG y el bucle de `greetd`, ver el aviso al
 > principio del Método 5 y el hallazgo de T30.6. Resultado esperado del

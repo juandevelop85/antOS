@@ -74,6 +74,15 @@ Los sistemas operativos convencionales (macOS, Windows, Linux) fueron diseñados
 
 ## 🚀 Guía de Inicio y Puesta en Marcha
 
+> **¿Quieres instalar antOS Linux en una máquina?** Descarga la ISO de la
+> [release](https://github.com/juandevelop85/antOS/releases)
+> (`antos-linux-<versión>-<arch>.iso` + `SHA256SUMS`), grábala y arranca:
+> entra directo al escritorio en vivo y `antos install` la instala a disco
+> sin red. Guía completa en
+> [`docs/guia-live-usb-e-instalacion-fisica.md`](docs/guia-live-usb-e-instalacion-fisica.md)
+> (Método 0 y §4-bis). Lo que sigue es la puesta en marcha **en modo host**
+> (Mac/Linux de desarrollo).
+
 ### 1. Requisitos Previos y Herramientas
 
 * **Rust Toolchain:** `rustc` y `cargo` (1.75 o superior).
