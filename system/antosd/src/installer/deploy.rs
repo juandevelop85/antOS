@@ -1,42 +1,62 @@
-//! Motor de Instalación y Despliegue de Sistema Base (T15.2 / T30.5 / T36.1).
+//! Motor de Instalación y Despliegue de Sistema Base (T15.2 / T30.5 / T36.1 / T36.2).
 //!
 //! ## Estado de implementación
 //!
-//! - **Simulación (`dry_run = true`)**: es lo que hace todo el fichero hoy.
-//!   Planifica el particionado, genera `/etc/fstab`, la configuración
-//!   declarativa de antOS Linux (`/etc/nixos/{flake.nix,flake.lock,
-//!   configuration.nix,hardware-configuration.nix}` + copia del árbol
-//!   fuente de antOS) y un informe con cada paso. Todo se escribe en un
-//!   directorio de *staging* dentro del workspace; el disco no se toca.
-//!   Cada `InstallStep` sale con `executed = false` y el informe con
-//!   `simulated = true`.
-//! - **Instalación real (`dry_run = false`)**: **no implementada** (T36.2).
-//!   [`DeployEngine::deploy_system`] comprueba las precondiciones (Linux,
-//!   `root`, herramientas en `PATH`, destino montado) y, si todas se
-//!   cumplen, aborta con un error explícito antes de escribir nada. Hasta
-//!   T36.1 este camino escribía ficheros en un directorio sin montar, con
-//!   UUIDs inventados, y declaraba «`nixos-install` ejecutado» sin haber
-//!   lanzado ningún comando.
+//! La instalación real y la simulación recorren **la misma tubería**
+//! ([`DeployEngine::install`]) sobre un [`InstallRunner`]: particionado
+//! (`parted`), formateo (`mkfs.vfat` / `mkfs.ext4`), UUIDs (`blkid`),
+//! montaje en `target_mount` (raíz) y `target_mount/boot` (ESP),
+//! `nixos-generate-config`, la configuración declarativa de antOS Linux
+//! (`/etc/nixos/{flake.nix,flake.lock,configuration.nix}` + copia del árbol
+//! fuente), `nixos-install --flake` y desmontaje.
 //!
-//! Lo que sí es real en ambos modos es la **configuración generada**: el
-//! `flake.nix` evalúa contra el árbol de antOS (la CI lo comprueba con
-//! `nix eval`), y es exactamente lo que T36.2 pasará a `nixos-install`.
+//! - **Simulación (`dry_run = true`)**: [`SimulatedRunner`] graba cada
+//!   comando tal cual se lanzaría y contesta con salidas sintéticas; los
+//!   ficheros se escriben en `<workspace>/target/installer-staging` y el
+//!   disco no se toca. Cada `InstallStep` sale con `executed = false` y el
+//!   informe con `simulated = true`, y la descripción de cada paso es el
+//!   comando literal que la instalación real ejecutaría.
+//! - **Instalación real (`dry_run = false`)**: [`SystemRunner`] lanza los
+//!   procesos. Antes se comprueban las precondiciones (Linux, `root`,
+//!   herramientas en `PATH`, árbol fuente de antOS localizable, destino sin
+//!   montar); cualquier fallo posterior aborta con el error real del
+//!   comando y, si ya había algo montado, se desmonta (`umount -R`) antes
+//!   de devolver el error. Ningún «✓» sin comando ejecutado.
+//!
+//! Lo que **no** hace: redimensionar particiones ajenas (en dual-boot la
+//! raíz va al mayor hueco libre, y si no hay ≥ 20 GiB se dice cuánto
+//! falta), cifrar (LUKS), ni elegir otro sistema de ficheros. La
+//! contraseña del usuario entra como `password_hash` y va al
+//! `configuration.nix` (`initialHashedPassword`), no por `chpasswd`.
+//!
+//! La verificación end-to-end (ISO → disco → arranque al escritorio) es
+//! `system/nixos/install-smoke.sh` en QEMU; los tests de este módulo fijan
+//! la secuencia exacta de comandos con el runner simulado.
 
 use super::disk::DiskManager;
-use antos_protocol::{InstallConfig, InstallReport, InstallStep};
+use super::runner::{parse_parted_print_free, InstallRunner, SimulatedRunner, SystemRunner};
+use antos_protocol::{DiskDevice, InstallConfig, InstallReport, InstallStep};
 use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Tamaño mínimo del hueco libre para la raíz en dual-boot (20 GiB).
+pub const MIN_ROOT_MIB: u64 = 20 * 1024;
+/// Tamaño de la ESP que crea la instalación limpia.
+pub const ESP_MIB: u64 = 512;
 
 /// Herramientas que una instalación real necesita en `PATH` (T36.1). Se
 /// buscan recorriendo `PATH` a mano, sin `which` ni `sh -c` (T31.4).
 const REAL_INSTALL_TOOLS: &[&str] = &[
     "parted",
+    "partprobe",
+    "udevadm",
     "mkfs.vfat",
     "mkfs.ext4",
     "blkid",
     "mount",
     "umount",
+    "sync",
     "nixos-generate-config",
     "nixos-install",
 ];
@@ -68,6 +88,11 @@ pub struct DeployEngine;
 impl DeployEngine {
     /// Valida que el dispositivo destino cumpla los requisitos de instalación.
     pub fn prepare_target(config: &InstallConfig) -> Result<PathBuf> {
+        Self::inspect_target(config).map(|_| PathBuf::from(&config.target_mount))
+    }
+
+    /// Como [`DeployEngine::prepare_target`], devolviendo el disco.
+    pub fn inspect_target(config: &InstallConfig) -> Result<DiskDevice> {
         let dev = match DiskManager::inspect_disk(&config.target_device)? {
             Some(d) => d,
             None => bail!(
@@ -90,8 +115,7 @@ impl DeployEngine {
             );
         }
 
-        let mount_path = PathBuf::from(&config.target_mount);
-        Ok(mount_path)
+        Ok(dev)
     }
 
     /// Genera las entradas declarativas de `/etc/fstab` basadas en UUIDs
@@ -342,6 +366,10 @@ WantedBy=multi-user.target
         antos.nixosModules.desktop
         antos.nixosModules.llm
         {{ nixpkgs.overlays = [ antos.overlays.default ]; }}
+        # Las fuentes de nixpkgs y de antOS entran en la closure del sistema
+        # (el registro las referencia por ruta del store): `nixos-install`
+        # las copia al disco y `nixos-rebuild` evalúa después SIN red.
+        {{ nix.registry.nixpkgs.flake = nixpkgs; nix.registry.antos.flake = antos; }}
         ./configuration.nix
       ];
     }};
@@ -433,10 +461,12 @@ WantedBy=multi-user.target
     isNormalUser = true;
     description = "antOS";
     extraGroups = [ "wheel" "video" "input" "networkmanager" ];
-    initialPassword = "antos";
+    {password}
   }};
 
   networking.networkmanager.enable = true;
+  # Swap comprimido en RAM: sin partición de swap en disco.
+  zramSwap.enable = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   system.stateVersion = "25.05";
@@ -446,16 +476,19 @@ WantedBy=multi-user.target
             timezone = config.timezone,
             keymap = config.keymap,
             username = config.username,
+            password = Self::password_line(config)?,
             bootloader = bootloader.trim_end(),
         );
         fs::write(etc_nixos_dir.join("configuration.nix"), configuration)
             .context("Escribiendo /etc/nixos/configuration.nix")?;
 
         // ── hardware-configuration.nix de relleno ────────────────────────
-        // En la instalación real lo sobrescribe `nixos-generate-config
-        // --root <target>` (T36.2). Declara la raíz y la ESP por las
-        // etiquetas que T36.2 pone al formatear (`antos-root`, `ANTOS_ESP`),
-        // para que el flake evalúe completo sin ficheros extra.
+        // Solo si no existe: en la instalación real lo escribe antes
+        // `nixos-generate-config --root <target>` (T36.2) y ese es el que
+        // vale. El de relleno declara la raíz y la ESP por las etiquetas que
+        // el formateo pone (`antos-root`, `ANTOS_ESP`), para que el flake
+        // evalúe completo sin ficheros extra.
+        let hw_path = etc_nixos_dir.join("hardware-configuration.nix");
         let hw_stub = format!(
             r#"# PLACEHOLDER — lo reemplaza `nixos-generate-config --root <target>`.
 {{ lib, modulesPath, ... }}:
@@ -477,8 +510,10 @@ WantedBy=multi-user.target
 "#,
             system = config.system
         );
-        fs::write(etc_nixos_dir.join("hardware-configuration.nix"), hw_stub)
-            .context("Escribiendo /etc/nixos/hardware-configuration.nix")?;
+        if !hw_path.exists() {
+            fs::write(&hw_path, hw_stub)
+                .context("Escribiendo /etc/nixos/hardware-configuration.nix")?;
+        }
 
         // ── Copia del árbol de antOS ─────────────────────────────────────
         if let Some(src) = antos_source {
@@ -486,6 +521,27 @@ WantedBy=multi-user.target
         }
 
         Ok(())
+    }
+
+    /// Línea de contraseña del `configuration.nix`: `initialHashedPassword`
+    /// si hay hash (validado: solo `[A-Za-z0-9./$]`, lo que produce
+    /// `mkpasswd`), `initialPassword = "antos"` si no.
+    fn password_line(config: &InstallConfig) -> Result<String> {
+        match config.password_hash.as_deref() {
+            None => Ok(r#"initialPassword = "antos";"#.to_string()),
+            Some(hash) => {
+                if hash.is_empty()
+                    || !hash
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '/' | '$'))
+                {
+                    bail!(
+                        "password_hash no tiene el formato de `mkpasswd` (solo letras, dígitos, `.`, `/` y `$`)"
+                    );
+                }
+                Ok(format!(r#"initialHashedPassword = "{hash}";"#))
+            }
+        }
     }
 
     /// Busca un ejecutable recorriendo `PATH`, sin `which` ni intérprete.
@@ -496,29 +552,18 @@ WantedBy=multi-user.target
         std::env::split_paths(&path).any(|dir| dir.join(name).is_file())
     }
 
-    /// `true` si `path` aparece como punto de montaje en `/proc/mounts`.
-    fn is_mountpoint(path: &str) -> bool {
-        let Ok(mounts) = fs::read_to_string("/proc/mounts") else {
-            return false;
-        };
-        mounts
-            .lines()
-            .filter_map(|l| l.split_whitespace().nth(1))
-            .any(|mp| mp == path)
-    }
-
-    /// Precondiciones de una instalación real (T36.1): Linux, `root`, las
-    /// herramientas de [`REAL_INSTALL_TOOLS`] en `PATH` y el destino
-    /// montado. Devuelve la lista completa de lo que falta, no solo el
-    /// primer fallo, para que el usuario lo arregle de una vez.
-    pub fn real_install_preconditions(config: &InstallConfig) -> Vec<String> {
+    /// Precondiciones de una instalación real: Linux, `root`, las
+    /// herramientas de [`REAL_INSTALL_TOOLS`] en `PATH`, el árbol fuente de
+    /// antOS localizable y el destino **sin** montar todavía (lo monta la
+    /// tubería). Devuelve la lista completa de lo que falta.
+    pub fn real_install_preconditions(config: &InstallConfig, workspace: &Path) -> Vec<String> {
         let mut missing = Vec::new();
         if !cfg!(target_os = "linux") {
             missing
                 .push("la instalación a disco solo se ejecuta desde Linux (la ISO en vivo)".into());
         }
-        // `euid` por `/proc/self/status` (no hay `libc::geteuid` que
-        // justificar aquí; en macOS `/proc` no existe y ya falló arriba).
+        // `euid` por `/proc/self/status` (en macOS `/proc` no existe y ya
+        // falló arriba).
         let is_root = fs::read_to_string("/proc/self/status")
             .ok()
             .and_then(|s| {
@@ -538,221 +583,24 @@ WantedBy=multi-user.target
         if !tools.is_empty() {
             missing.push(format!("faltan en PATH: {}", tools.join(", ")));
         }
-        if !Self::is_mountpoint(&config.target_mount) {
+        if Self::locate_antos_source(workspace).is_none() {
+            missing.push(
+                "no se encuentra el árbol fuente de antOS (ANTOS_SOURCE, el workspace o /etc/antos/source)"
+                    .into(),
+            );
+        }
+        if SystemRunner.is_mountpoint(Path::new(&config.target_mount)) {
             missing.push(format!(
-                "«{}» no es un punto de montaje (la raíz del destino tiene que estar montada ahí)",
+                "ya hay algo montado en «{}»; desmóntalo antes (umount -R)",
                 config.target_mount
             ));
         }
         missing
     }
 
-    /// Ejecuta o simula el despliegue completo del sistema base.
-    ///
-    /// Con `dry_run = false` **no instala** (ver la cabecera del módulo):
-    /// verifica las precondiciones y aborta antes de tocar el disco. Con
-    /// `dry_run = true` escribe todo en `<workspace>/target/installer-staging`
-    /// y devuelve un informe `simulated = true` con cada paso
-    /// `executed = false`.
-    pub fn deploy_system(config: &InstallConfig, workspace: &Path) -> Result<InstallReport> {
-        let _mount_target = Self::prepare_target(config)?;
-
-        if !config.dry_run {
-            let missing = Self::real_install_preconditions(config);
-            if !missing.is_empty() {
-                bail!(
-                    "La instalación real no puede continuar:\n  - {}",
-                    missing.join("\n  - ")
-                );
-            }
-            // Todo está en su sitio y aun así no se hace nada: el
-            // particionado, el formateo y `nixos-install` reales son T36.2.
-            // Antes de T36.1 este camino escribía en un directorio sin
-            // montar y anunciaba el éxito.
-            bail!(
-                "La instalación a disco todavía no está implementada (T36.2). \
-                 Nada se ha escrito en «{}». Usa `antos install` sin `--apply` \
-                 para ver la simulación completa.",
-                config.target_device
-            );
-        }
-
-        // ── Simulación ───────────────────────────────────────────────────
-        // Ningún paso de aquí abajo toca el disco: `executed` es `false` en
-        // todos. T36.2 irá poniéndolo a `true` paso a paso, a medida que
-        // cada uno ejecute su comando de verdad.
-        let executed = false;
-        let mut steps = Vec::new();
-
-        // 1. Planificación de particiones
-        let plan = DiskManager::plan_partitioning(&config.target_device, config.clean_install)?;
-        steps.push(InstallStep {
-            name: "partitioning".into(),
-            description: if config.clean_install {
-                format!(
-                    "Simulación: tabla GPT limpia en {} (512 MiB ESP + raíz)",
-                    config.target_device
-                )
-            } else {
-                format!(
-                    "Simulación: se preserva la ESP existente y se asigna la raíz en el hueco libre de {}",
-                    config.target_device
-                )
-            },
-            completed: true,
-            executed,
-        });
-
-        // 2. Formateo (UUIDs de ejemplo: los reales los da `blkid` en T36.2)
-        let efi_uuid = "C12A-7328";
-        let root_uuid = "3a8d8e62-f72b-4e1b-9721-a1e4c7d81234";
-        let swap_uuid = if plan.swap_partition_bytes > 0 {
-            Some("b2c3d4e5-6789-0123-4567-89abcdef0123")
-        } else {
-            None
-        };
-        steps.push(InstallStep {
-            name: "filesystem_format".into(),
-            description: "Simulación: ESP (mkfs.vfat -F32 -n ANTOS_ESP), raíz (mkfs.ext4 -L antos-root); UUIDs de ejemplo".into(),
-            completed: true,
-            executed,
-        });
-
-        // 3. Montaje
-        let (efi_part, root_part) = Self::partition_names(&config.target_device);
-        steps.push(InstallStep {
-            name: "mount_hierarchy".into(),
-            description: format!(
-                "Simulación: raíz en {mnt} y ESP en {mnt}/boot",
-                mnt = config.target_mount
-            ),
-            completed: true,
-            executed,
-        });
-
-        // 4. Staging del sistema base (siempre dentro del workspace)
-        let staging_dir = workspace.join("target/installer-staging");
-        if staging_dir.exists() {
-            fs::remove_dir_all(&staging_dir).context("Limpiando el staging anterior")?;
-        }
-        fs::create_dir_all(&staging_dir)?;
-        for d in &[
-            "bin",
-            "etc",
-            "usr/local/bin",
-            "etc/antos/capabilities",
-            "boot",
-            "var/log/antos",
-        ] {
-            let _ = fs::create_dir_all(staging_dir.join(d));
-        }
-        let caps_src = workspace.join("system/capabilities");
-        if caps_src.exists() {
-            let caps_dst = staging_dir.join("etc/antos/capabilities");
-            if let Ok(entries) = fs::read_dir(&caps_src) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("toml") {
-                        let _ = fs::copy(&path, caps_dst.join(entry.file_name()));
-                    }
-                }
-            }
-        }
-        steps.push(InstallStep {
-            name: "base_system_copy".into(),
-            description: format!(
-                "Simulación: capacidades declarativas y utilidades base en {}",
-                staging_dir.display()
-            ),
-            completed: true,
-            executed,
-        });
-
-        // 5. fstab, hostname, timezone
-        let fstab_content = Self::generate_fstab(root_uuid, efi_uuid, swap_uuid);
-        fs::write(staging_dir.join("etc/fstab"), &fstab_content)?;
-        Self::generate_system_config(config, &staging_dir)?;
-        steps.push(InstallStep {
-            name: "system_configuration".into(),
-            description: format!(
-                "Simulación: fstab (UUIDs de ejemplo), hostname ({}), usuario ({})",
-                config.hostname, config.username
-            ),
-            completed: true,
-            executed,
-        });
-
-        // 6. Configuración declarativa de antOS Linux (NixOS) en /etc/nixos.
-        // Esto sí es lo real: es el flake que T36.2 pasará a `nixos-install`.
-        let antos_source = Self::locate_antos_source(workspace);
-        let etc_nixos = staging_dir.join("etc/nixos");
-        Self::generate_nixos_config(config, &etc_nixos, antos_source.as_deref())?;
-        steps.push(InstallStep {
-            name: "nixos_configuration".into(),
-            description: format!(
-                "flake.nix + configuration.nix en {} (services.antos.desktop, autologin «{}», keymap «{}», sistema «{}», systemd-boot{}; fuente de antOS: {})",
-                etc_nixos.display(),
-                config.username,
-                config.keymap,
-                config.system,
-                if config.clean_install { "" } else { ", dual-boot" },
-                antos_source
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "NO ENCONTRADA".into()),
-            ),
-            completed: true,
-            executed,
-        });
-
-        // 7. nixos-generate-config + nixos-install: solo descripción (T36.2).
-        let host = &config.hostname;
-        let mnt = &config.target_mount;
-        steps.push(InstallStep {
-            name: "nixos_install".into(),
-            description: format!(
-                "Simulación: `nixos-generate-config --root {mnt}` + `nixos-install --root {mnt} --flake {mnt}/etc/nixos#{host} --no-root-passwd` (no implementado: T36.2)"
-            ),
-            completed: true,
-            executed,
-        });
-
-        let mode = if config.clean_install {
-            "clean"
-        } else {
-            "dual-boot"
-        };
-        let simulated = steps.iter().any(|s| !s.executed);
-        let summary = if simulated {
-            format!(
-                "Simulación de instalación de antOS en «{}» completada (Modo: {}); el disco no se ha tocado",
-                config.target_device, mode
-            )
-        } else {
-            format!(
-                "Instalación de antOS completada en «{}» (Modo: {})",
-                config.target_device, mode
-            )
-        };
-
-        let fstab_entries: Vec<String> = fstab_content.lines().map(String::from).collect();
-
-        Ok(InstallReport {
-            target_device: config.target_device.clone(),
-            mode: mode.into(),
-            success: true,
-            steps,
-            efi_partition: efi_part,
-            root_partition: root_part,
-            fstab_entries,
-            summary,
-            simulated,
-        })
-    }
-
-    /// Nombres de la ESP y la raíz para un dispositivo: `p1`/`p2` si el
-    /// nombre acaba en dígito (`nvme0n1`, `mmcblk0`), `1`/`2` si no (`sda`).
-    pub fn partition_names(device: &str) -> (String, String) {
+    /// Nombre de la partición `n` de `device` (`p<n>` si el nombre acaba en
+    /// dígito: `nvme0n1p1`, `mmcblk0p1`; `<n>` si no: `sda1`).
+    pub fn partition_device(device: &str, n: u32) -> String {
         let sep = if device
             .chars()
             .last()
@@ -763,8 +611,375 @@ WantedBy=multi-user.target
         } else {
             ""
         };
-        (format!("{device}{sep}1"), format!("{device}{sep}2"))
+        format!("{device}{sep}{n}")
     }
+
+    /// Ejecuta o simula el despliegue completo: simulación con
+    /// [`SimulatedRunner`] (`dry_run`), real con [`SystemRunner`]. Las
+    /// líneas de salida de los comandos largos van a `stdout`.
+    pub fn deploy_system(config: &InstallConfig, workspace: &Path) -> Result<InstallReport> {
+        let mut on_line = |line: &str| println!("      {line}");
+        if config.dry_run {
+            let disk = Self::inspect_target(config)?;
+            let mut runner = SimulatedRunner::for_disk(&disk);
+            Self::install(config, workspace, &mut runner, &mut on_line)
+        } else {
+            Self::install(config, workspace, &mut SystemRunner, &mut on_line)
+        }
+    }
+
+    /// La tubería de instalación de antOS Linux, real o simulada según el
+    /// `runner` (ver la cabecera del módulo). `on_line` recibe la salida de
+    /// `nixos-install` según llega.
+    pub fn install(
+        config: &InstallConfig,
+        workspace: &Path,
+        runner: &mut dyn InstallRunner,
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<InstallReport> {
+        Self::inspect_target(config)?;
+        let real = runner.is_real();
+
+        if real {
+            let missing = Self::real_install_preconditions(config, workspace);
+            if !missing.is_empty() {
+                bail!(
+                    "La instalación real no puede continuar:\n  - {}",
+                    missing.join("\n  - ")
+                );
+            }
+        }
+
+        // Raíz del destino: el punto de montaje real, o el staging del
+        // workspace en simulación (nunca `target_mount` sin montar).
+        let root_dir = if real {
+            PathBuf::from(&config.target_mount)
+        } else {
+            let staging = workspace.join("target/installer-staging");
+            if staging.exists() {
+                fs::remove_dir_all(&staging).context("Limpiando el staging anterior")?;
+            }
+            staging
+        };
+        fs::create_dir_all(&root_dir).with_context(|| format!("Creando {}", root_dir.display()))?;
+
+        let mut state = PipelineState {
+            steps: Vec::new(),
+            mounted: false,
+            executed: real,
+        };
+        let result = Self::run_pipeline(config, workspace, &root_dir, runner, on_line, &mut state);
+
+        match result {
+            Ok(report) => Ok(report),
+            Err(err) => {
+                // Dejar el disco desmontado antes de devolver el error, con
+                // lo que haya fallado por delante.
+                if state.mounted {
+                    let _ = runner.run("umount", &args(&["-R", &root_dir.to_string_lossy()]), None);
+                }
+                Err(err)
+            }
+        }
+    }
+
+    fn run_pipeline(
+        config: &InstallConfig,
+        workspace: &Path,
+        root_dir: &Path,
+        runner: &mut dyn InstallRunner,
+        on_line: &mut dyn FnMut(&str),
+        state: &mut PipelineState,
+    ) -> Result<InstallReport> {
+        let dev = config.target_device.as_str();
+        let root_str = root_dir.to_string_lossy().to_string();
+        let boot_dir = root_dir.join("boot");
+        let boot_str = boot_dir.to_string_lossy().to_string();
+
+        // ── 1. Particionado ──────────────────────────────────────────────
+        let (esp_dev, root_dev, esp_is_new, partition_desc) = if config.clean_install {
+            let cmd = args(&[
+                "-s",
+                dev,
+                "mklabel",
+                "gpt",
+                "mkpart",
+                "ESP",
+                "fat32",
+                "1MiB",
+                &format!("{}MiB", ESP_MIB + 1),
+                "set",
+                "1",
+                "esp",
+                "on",
+                "mkpart",
+                "antos-root",
+                "ext4",
+                &format!("{}MiB", ESP_MIB + 1),
+                "100%",
+            ]);
+            runner.run("parted", &cmd, None)?;
+            (
+                Self::partition_device(dev, 1),
+                Self::partition_device(dev, 2),
+                true,
+                format!("parted {}", cmd.join(" ")),
+            )
+        } else {
+            let print = args(&["-s", "-m", dev, "unit", "MiB", "print", "free"]);
+            let regions = parse_parted_print_free(&runner.run("parted", &print, None)?);
+            let esp = regions.iter().find(|r| r.is_esp()).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "«{dev}» no tiene partición ESP: el dual-boot reutiliza la existente. \
+                     Si el disco está vacío, usa Disco Completo."
+                )
+            })?;
+            let esp_number = esp
+                .number
+                .ok_or_else(|| anyhow::anyhow!("la ESP de «{dev}» no tiene número de partición"))?;
+            let free = regions
+                .iter()
+                .filter(|r| r.is_free())
+                .max_by_key(|r| r.size_mib)
+                .cloned();
+            let free = match free {
+                Some(f) if f.size_mib >= MIN_ROOT_MIB => f,
+                Some(f) => bail!(
+                    "el mayor hueco libre de «{dev}» mide {} MiB y la raíz de antOS necesita {} MiB: \
+                     faltan {} MiB. Libera espacio desde el otro sistema (antOS no redimensiona particiones ajenas).",
+                    f.size_mib,
+                    MIN_ROOT_MIB,
+                    MIN_ROOT_MIB - f.size_mib
+                ),
+                None => bail!(
+                    "«{dev}» no tiene espacio libre sin particionar: la raíz de antOS necesita {} MiB. \
+                     Libera espacio desde el otro sistema (antOS no redimensiona particiones ajenas).",
+                    MIN_ROOT_MIB
+                ),
+            };
+            let mkpart = args(&[
+                "-s",
+                dev,
+                "mkpart",
+                "antos-root",
+                "ext4",
+                &format!("{}MiB", free.start_mib),
+                &format!("{}MiB", free.end_mib),
+            ]);
+            runner.run("parted", &mkpart, None)?;
+            runner.run("partprobe", &args(&[dev]), None)?;
+            runner.run("udevadm", &args(&["settle"]), None)?;
+            let after = parse_parted_print_free(&runner.run("parted", &print, None)?);
+            let root_number = after
+                .iter()
+                .filter(|r| !r.is_free())
+                .find(|r| r.name == "antos-root" || r.start_mib.abs_diff(free.start_mib) <= 2)
+                .and_then(|r| r.number)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "parted no muestra la partición antos-root recién creada en «{dev}»"
+                    )
+                })?;
+            (
+                Self::partition_device(dev, esp_number),
+                Self::partition_device(dev, root_number),
+                false,
+                format!(
+                    "ESP existente #{esp_number} preservada; parted {} (hueco libre de {} MiB)",
+                    mkpart.join(" "),
+                    free.size_mib
+                ),
+            )
+        };
+        if config.clean_install {
+            runner.run("partprobe", &args(&[dev]), None)?;
+            runner.run("udevadm", &args(&["settle"]), None)?;
+        }
+        state.push("partitioning", partition_desc);
+
+        // ── 2. Formateo y UUIDs ──────────────────────────────────────────
+        let mut format_desc = Vec::new();
+        if esp_is_new {
+            let cmd = args(&["-F32", "-n", "ANTOS_ESP", &esp_dev]);
+            runner.run("mkfs.vfat", &cmd, None)?;
+            format_desc.push(format!("mkfs.vfat {}", cmd.join(" ")));
+        } else {
+            format_desc.push(format!("ESP ajena {esp_dev} sin formatear"));
+        }
+        let cmd = args(&["-F", "-L", "antos-root", &root_dev]);
+        runner.run("mkfs.ext4", &cmd, None)?;
+        format_desc.push(format!("mkfs.ext4 {}", cmd.join(" ")));
+        let esp_uuid = runner
+            .run(
+                "blkid",
+                &args(&["-s", "UUID", "-o", "value", &esp_dev]),
+                None,
+            )?
+            .trim()
+            .to_string();
+        let root_uuid = runner
+            .run(
+                "blkid",
+                &args(&["-s", "UUID", "-o", "value", &root_dev]),
+                None,
+            )?
+            .trim()
+            .to_string();
+        if esp_uuid.is_empty() || root_uuid.is_empty() {
+            bail!("blkid no devolvió UUID para {esp_dev} / {root_dev}");
+        }
+        format_desc.push(format!("UUIDs: ESP {esp_uuid}, raíz {root_uuid}"));
+        state.push("filesystem_format", format_desc.join("; "));
+
+        // ── 3. Montaje ───────────────────────────────────────────────────
+        runner.run("mount", &args(&[&root_dev, &root_str]), None)?;
+        state.mounted = true;
+        fs::create_dir_all(&boot_dir).with_context(|| format!("Creando {}", boot_dir.display()))?;
+        runner.run("mount", &args(&[&esp_dev, &boot_str]), None)?;
+        if !runner.is_mountpoint(root_dir) || !runner.is_mountpoint(&boot_dir) {
+            bail!("tras `mount`, {root_str} o {boot_str} no aparecen como puntos de montaje");
+        }
+        state.push(
+            "mount_hierarchy",
+            format!("mount {root_dev} {root_str}; mount {esp_dev} {boot_str}"),
+        );
+
+        // ── 4. Configuración ─────────────────────────────────────────────
+        runner.run("nixos-generate-config", &args(&["--root", &root_str]), None)?;
+        let antos_source = Self::locate_antos_source(workspace);
+        if runner.is_real() && antos_source.is_none() {
+            bail!("no se encuentra el árbol fuente de antOS para copiar a /etc/nixos/antos");
+        }
+        let etc_nixos = root_dir.join("etc/nixos");
+        Self::generate_nixos_config(config, &etc_nixos, antos_source.as_deref())?;
+        state.push(
+            "nixos_configuration",
+            format!(
+                "nixos-generate-config --root {root_str}; flake.nix + configuration.nix en {} (services.antos.desktop, autologin «{}», keymap «{}», sistema «{}», systemd-boot{}; fuente de antOS: {})",
+                etc_nixos.display(),
+                config.username,
+                config.keymap,
+                config.system,
+                if config.clean_install { "" } else { ", dual-boot" },
+                antos_source
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "NO ENCONTRADA".into()),
+            ),
+        );
+
+        // ── 5. nixos-install ─────────────────────────────────────────────
+        // `antos.url` del flake es `path:/etc/nixos/antos`, que solo existe
+        // así tras el arranque; durante la instalación se apunta a la copia
+        // que acaba de dejarse bajo el destino. `--no-write-lock-file` para
+        // que el lock no guarde esa ruta temporal: el primer
+        // `nixos-rebuild` del sistema instalado añade el nodo `antos` con
+        // la ruta definitiva (local, sin red).
+        let flake_ref = format!("{}#{}", etc_nixos.display(), config.hostname);
+        let override_path = format!("path:{}", etc_nixos.join("antos").display());
+        let install_args = args(&[
+            "--root",
+            &root_str,
+            "--flake",
+            &flake_ref,
+            "--no-root-passwd",
+            "--no-channel-copy",
+            "--override-input",
+            "antos",
+            &override_path,
+            "--no-write-lock-file",
+        ]);
+        runner.run_streaming("nixos-install", &install_args, on_line)?;
+        state.push(
+            "nixos_install",
+            format!("nixos-install {}", install_args.join(" ")),
+        );
+
+        // ── 6. Gestor de arranque: lo puso nixos-install; se sondea la ESP ─
+        let neighbours =
+            super::BootloaderEngine::probe_operating_systems(&boot_dir).unwrap_or_default();
+        let neighbour_names: Vec<String> = neighbours.iter().map(|o| o.name.clone()).collect();
+
+        // ── 7. Cierre ────────────────────────────────────────────────────
+        runner.run("sync", &[], None)?;
+        runner.run("umount", &args(&["-R", &root_str]), None)?;
+        state.mounted = false;
+        state.push(
+            "unmount",
+            format!(
+                "sync; umount -R {root_str}; systemd-boot en la ESP con {} sistema(s) vecino(s){}",
+                neighbours.len(),
+                if neighbour_names.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", neighbour_names.join(", "))
+                }
+            ),
+        );
+
+        let mode = if config.clean_install {
+            "clean"
+        } else {
+            "dual-boot"
+        };
+        let simulated = state.steps.iter().any(|s| !s.executed);
+        let summary = if simulated {
+            format!(
+                "Simulación de instalación de antOS en «{dev}» completada (Modo: {mode}); el disco no se ha tocado"
+            )
+        } else {
+            format!(
+                "antOS Linux instalado en «{dev}» (Modo: {mode}): raíz {root_dev}, ESP {esp_dev}. Retira el medio y reinicia."
+            )
+        };
+        let fstab_entries: Vec<String> = Self::generate_fstab(&root_uuid, &esp_uuid, None)
+            .lines()
+            .map(String::from)
+            .collect();
+
+        Ok(InstallReport {
+            target_device: config.target_device.clone(),
+            mode: mode.into(),
+            success: true,
+            steps: std::mem::take(&mut state.steps),
+            efi_partition: esp_dev,
+            root_partition: root_dev,
+            fstab_entries,
+            summary,
+            simulated,
+        })
+    }
+
+    /// Nombres de la ESP (1) y la raíz (2) de una instalación limpia.
+    pub fn partition_names(device: &str) -> (String, String) {
+        (
+            Self::partition_device(device, 1),
+            Self::partition_device(device, 2),
+        )
+    }
+}
+
+/// Estado que la tubería arrastra entre pasos.
+struct PipelineState {
+    steps: Vec<InstallStep>,
+    mounted: bool,
+    executed: bool,
+}
+
+impl PipelineState {
+    fn push(&mut self, name: &str, description: String) {
+        self.steps.push(InstallStep {
+            name: name.into(),
+            description,
+            completed: true,
+            executed: self.executed,
+        });
+    }
+}
+
+/// `&[&str]` → `Vec<String>` para los runners.
+fn args(items: &[&str]) -> Vec<String> {
+    items.iter().map(|s| s.to_string()).collect()
 }
 
 #[cfg(test)]
@@ -836,6 +1051,7 @@ mod tests {
             timezone: "Europe/Madrid".into(),
             keymap: "es".into(),
             system: "x86_64-linux".into(),
+            password_hash: None,
             dry_run: true,
         };
 
@@ -878,6 +1094,7 @@ mod tests {
             timezone: "Europe/Madrid".into(),
             keymap: "es".into(),
             system: "aarch64-linux".into(),
+            password_hash: None,
             dry_run: true,
         };
         let etc_nixos = temp.join("etc/nixos");
@@ -934,6 +1151,10 @@ mod tests {
         let flake = fs::read_to_string(etc_nixos.join("flake.nix")).unwrap();
 
         assert!(flake.contains("antos.overlays.default"));
+        // nixpkgs y antos en el registro: sus fuentes viajan en la closure
+        // y `nixos-rebuild` funciona sin red (T36.2).
+        assert!(flake.contains("nix.registry.nixpkgs.flake = nixpkgs;"));
+        assert!(flake.contains("nix.registry.antos.flake = antos;"));
         assert!(!flake.contains("callPackage"));
         assert!(!flake.contains("system/nixos/"));
 
@@ -1033,76 +1254,239 @@ mod tests {
         let _ = fs::remove_dir_all(&temp);
     }
 
+    fn simulated(disk_path: &str) -> SimulatedRunner {
+        let disk = DiskManager::inspect_disk(disk_path)
+            .expect("inspect")
+            .expect("disco sintético");
+        SimulatedRunner::for_disk(&disk)
+    }
+
+    fn run_simulated(cfg: &InstallConfig, workspace: &Path) -> (InstallReport, SimulatedRunner) {
+        let mut runner = simulated(&cfg.target_device);
+        let mut lines = Vec::new();
+        let report = DeployEngine::install(cfg, workspace, &mut runner, &mut |l| {
+            lines.push(l.to_string())
+        })
+        .expect("install simulada");
+        assert!(
+            lines.iter().any(|l| l.contains("nixos-install")),
+            "nixos-install debe emitir salida por on_line"
+        );
+        (report, runner)
+    }
+
+    /// Simulación en dual-boot sobre el NVMe sintético (ESP + NTFS + hueco):
+    /// la secuencia exacta de comandos que la instalación real lanzaría.
     #[test]
-    fn test_deploy_system_dry_run_dual_boot() {
+    fn test_install_dual_boot_command_sequence() {
         let temp = make_temp_test_dir("dual");
         let cfg = InstallConfig {
             target_device: "/dev/nvme0n1".into(),
             clean_install: false,
-            target_mount: temp.display().to_string(),
+            target_mount: "/mnt/target".into(),
             hostname: "antos-dual".into(),
             username: "developer".into(),
             timezone: "UTC".into(),
             keymap: "us".into(),
             system: "x86_64-linux".into(),
+            password_hash: None,
             dry_run: true,
         };
+        let (report, runner) = run_simulated(&cfg, &temp);
+        let staging = temp.join("target/installer-staging");
+        let root = staging.display().to_string();
 
-        let report = DeployEngine::deploy_system(&cfg, &temp).expect("deploy");
         assert!(report.success);
-        assert_eq!(report.mode, "dual-boot");
-        assert_eq!(report.steps.len(), 7);
-        assert!(report.steps.iter().any(|s| s.name == "nixos_configuration"));
-        assert!(report.steps.iter().any(|s| s.name == "nixos_install"));
-        assert!(report.steps.iter().all(|s| s.completed));
-        // Honestidad (T36.1): una simulación no ejecuta nada y lo dice.
         assert!(report.simulated);
-        assert!(report.steps.iter().all(|s| !s.executed));
-        assert!(report.summary.contains("Simulación"));
-        assert!(report.summary.contains("dual-boot"));
-        assert!(!report.summary.contains("éxito"));
-        assert!(report
-            .steps
-            .iter()
-            .all(|s| !s.description.contains("ejecutado")));
+        assert_eq!(report.mode, "dual-boot");
+        assert!(report.steps.iter().all(|s| s.completed && !s.executed));
+        let names: Vec<&str> = report.steps.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "partitioning",
+                "filesystem_format",
+                "mount_hierarchy",
+                "nixos_configuration",
+                "nixos_install",
+                "unmount"
+            ]
+        );
+        // La ESP ajena (#1) se preserva y la raíz cae en el hueco libre (#3).
         assert_eq!(report.efi_partition, "/dev/nvme0n1p1");
-        assert_eq!(report.root_partition, "/dev/nvme0n1p2");
-        // Todo el staging cae dentro del workspace, nunca en target_mount.
+        assert_eq!(report.root_partition, "/dev/nvme0n1p3");
+
+        let c = &runner.commands;
+        assert_eq!(c[0], "parted -s -m /dev/nvme0n1 unit MiB print free");
+        assert!(c[1].starts_with("parted -s /dev/nvme0n1 mkpart antos-root ext4 "));
+        assert_eq!(c[2], "partprobe /dev/nvme0n1");
+        assert_eq!(c[3], "udevadm settle");
+        assert_eq!(c[4], "parted -s -m /dev/nvme0n1 unit MiB print free");
+        // Nunca mkfs.vfat sobre una ESP ajena.
+        assert!(!c.iter().any(|x| x.starts_with("mkfs.vfat")));
+        assert_eq!(c[5], "mkfs.ext4 -F -L antos-root /dev/nvme0n1p3");
+        assert_eq!(c[6], "blkid -s UUID -o value /dev/nvme0n1p1");
+        assert_eq!(c[7], "blkid -s UUID -o value /dev/nvme0n1p3");
+        assert_eq!(c[8], format!("mount /dev/nvme0n1p3 {root}"));
+        assert_eq!(c[9], format!("mount /dev/nvme0n1p1 {root}/boot"));
+        assert_eq!(c[10], format!("nixos-generate-config --root {root}"));
+        assert_eq!(
+            c[11],
+            format!(
+                "nixos-install --root {root} --flake {root}/etc/nixos#antos-dual --no-root-passwd --no-channel-copy --override-input antos path:{root}/etc/nixos/antos --no-write-lock-file"
+            )
+        );
+        assert_eq!(c[12], "sync");
+        assert_eq!(c[13], format!("umount -R {root}"));
+        assert_eq!(c.len(), 14);
+
+        // UUIDs del `blkid` (simulado), no constantes inventadas.
+        assert!(report.fstab_entries.iter().any(|l| l.contains("SIM1-ESP0")));
+        assert!(!report.fstab_entries.iter().any(|l| l.contains("C12A-7328")));
+        // El staging tiene la configuración; el hardware stub porque
+        // `nixos-generate-config` simulado no escribe.
+        assert!(staging.join("etc/nixos/flake.nix").exists());
+        assert!(staging
+            .join("etc/nixos/hardware-configuration.nix")
+            .exists());
+        assert!(!Path::new("/mnt/target").join("etc/nixos").exists());
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Disco completo sobre el SATA sintético: tabla nueva, ESP formateada.
+    #[test]
+    fn test_install_clean_command_sequence() {
+        let temp = make_temp_test_dir("clean");
+        let cfg = InstallConfig {
+            target_device: "/dev/sda".into(),
+            clean_install: true,
+            hostname: "antos-primary".into(),
+            ..InstallConfig::default()
+        };
+        let (report, runner) = run_simulated(&cfg, &temp);
+        assert!(report.simulated);
+        assert_eq!(report.mode, "clean");
+        assert_eq!(report.efi_partition, "/dev/sda1");
+        assert_eq!(report.root_partition, "/dev/sda2");
+        let c = &runner.commands;
+        assert_eq!(
+            c[0],
+            "parted -s /dev/sda mklabel gpt mkpart ESP fat32 1MiB 513MiB set 1 esp on mkpart antos-root ext4 513MiB 100%"
+        );
+        assert_eq!(c[1], "partprobe /dev/sda");
+        assert_eq!(c[2], "udevadm settle");
+        assert_eq!(c[3], "mkfs.vfat -F32 -n ANTOS_ESP /dev/sda1");
+        assert_eq!(c[4], "mkfs.ext4 -F -L antos-root /dev/sda2");
+        assert!(report.summary.contains("Simulación"));
+        assert!(report.summary.contains("clean"));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Dual-boot sobre un disco sin ESP: se rechaza antes de tocar nada.
+    #[test]
+    fn test_install_dual_boot_without_esp_is_refused() {
+        let temp = make_temp_test_dir("noesp");
+        let cfg = InstallConfig {
+            target_device: "/dev/sda".into(),
+            clean_install: false,
+            ..InstallConfig::default()
+        };
+        let mut runner = simulated("/dev/sda");
+        let err = DeployEngine::install(&cfg, &temp, &mut runner, &mut |_| {}).unwrap_err();
+        assert!(err.to_string().contains("no tiene partición ESP"));
+        assert_eq!(runner.commands.len(), 1, "solo el print free");
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Dual-boot sin hueco suficiente: dice cuánto falta y no particiona.
+    #[test]
+    fn test_install_dual_boot_without_enough_free_space_says_how_much() {
+        let temp = make_temp_test_dir("nospace");
+        let mut disk = DiskManager::inspect_disk("/dev/nvme0n1")
+            .unwrap()
+            .expect("nvme sintético");
+        // Rellenar el disco casi entero con la NTFS: queda ~8 GiB libres.
+        let used: u64 = disk.partitions.iter().map(|p| p.size_bytes).sum();
+        let ntfs = disk.partitions.iter_mut().find(|p| !p.is_efi).unwrap();
+        ntfs.size_bytes += disk.size_bytes - used - 8 * 1024 * 1024 * 1024;
+        let mut runner = SimulatedRunner::for_disk(&disk);
+        let cfg = InstallConfig {
+            target_device: "/dev/nvme0n1".into(),
+            clean_install: false,
+            ..InstallConfig::default()
+        };
+        let err = DeployEngine::install(&cfg, &temp, &mut runner, &mut |_| {}).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("faltan"), "{msg}");
+        assert!(msg.contains("no redimensiona"), "{msg}");
+        assert!(!runner.commands.iter().any(|c| c.contains("mkpart")));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Si `nixos-install` falla, el error es el del comando y el destino
+    /// queda desmontado.
+    #[test]
+    fn test_install_failure_after_mount_unmounts_and_propagates() {
+        let temp = make_temp_test_dir("fail");
+        let cfg = InstallConfig {
+            target_device: "/dev/sda".into(),
+            clean_install: true,
+            ..InstallConfig::default()
+        };
+        let mut runner = simulated("/dev/sda").fail_on("nixos-install");
+        let err = DeployEngine::install(&cfg, &temp, &mut runner, &mut |_| {}).unwrap_err();
+        assert!(err.to_string().contains("nixos-install"));
+        let root = temp.join("target/installer-staging").display().to_string();
+        assert_eq!(
+            runner.commands.last().unwrap(),
+            &format!("umount -R {root}"),
+            "tras el fallo se desmonta"
+        );
+        assert!(!runner.is_mountpoint(&temp.join("target/installer-staging")));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Un `mkfs.ext4` que falla aborta antes de montar: sin `umount`.
+    #[test]
+    fn test_install_failure_before_mount_does_not_unmount() {
+        let temp = make_temp_test_dir("fail-early");
+        let cfg = InstallConfig {
+            target_device: "/dev/sda".into(),
+            clean_install: true,
+            ..InstallConfig::default()
+        };
+        let mut runner = simulated("/dev/sda").fail_on("mkfs.ext4");
+        let err = DeployEngine::install(&cfg, &temp, &mut runner, &mut |_| {}).unwrap_err();
+        assert!(err.to_string().contains("mkfs.ext4"));
+        assert!(!runner.commands.iter().any(|c| c.starts_with("mount ")));
+        assert!(!runner.commands.iter().any(|c| c.starts_with("umount")));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// `deploy_system` con `dry_run` sigue siendo la simulación (lo que usan
+    /// `--config`, `--target` e `install.deploy`).
+    #[test]
+    fn test_deploy_system_dry_run_is_the_simulation() {
+        let temp = make_temp_test_dir("deploy-dry");
+        let cfg = InstallConfig {
+            target_device: "/dev/nvme0n1".into(),
+            clean_install: false,
+            hostname: "antos-dual".into(),
+            ..InstallConfig::default()
+        };
+        let report = DeployEngine::deploy_system(&cfg, &temp).expect("deploy");
+        assert!(report.simulated);
+        assert_eq!(report.steps.len(), 6);
+        assert!(report.steps.iter().all(|s| !s.executed));
+        assert!(report.summary.contains("el disco no se ha tocado"));
         assert!(temp
             .join("target/installer-staging/etc/nixos/flake.nix")
             .exists());
         let _ = fs::remove_dir_all(&temp);
     }
 
-    #[test]
-    fn test_deploy_system_dry_run_clean_install() {
-        let temp = make_temp_test_dir("clean");
-        let cfg = InstallConfig {
-            target_device: "/dev/sda".into(),
-            clean_install: true,
-            target_mount: temp.display().to_string(),
-            hostname: "antos-primary".into(),
-            username: "developer".into(),
-            timezone: "UTC".into(),
-            keymap: "us".into(),
-            system: "x86_64-linux".into(),
-            dry_run: true,
-        };
-
-        let report = DeployEngine::deploy_system(&cfg, &temp).expect("deploy clean");
-        assert!(report.success);
-        assert!(report.simulated);
-        assert_eq!(report.mode, "clean");
-        assert!(report.summary.contains("clean"));
-        assert_eq!(report.efi_partition, "/dev/sda1");
-        assert_eq!(report.root_partition, "/dev/sda2");
-        let _ = fs::remove_dir_all(&temp);
-    }
-
-    /// `--apply` en cualquier máquina que no sea una ISO en vivo como root
-    /// aborta ANTES de escribir nada, con la lista de lo que falta. Y aunque
-    /// todo estuviera, la instalación real es T36.2: nunca se llega a un
-    /// informe con `dry_run = false`.
+    /// `--apply` fuera de una ISO en vivo como root aborta ANTES de tocar
+    /// nada, con la lista de lo que falta.
     #[test]
     fn test_deploy_system_apply_aborts_before_touching_anything() {
         let temp = make_temp_test_dir("apply");
@@ -1115,10 +1499,10 @@ mod tests {
         let err = DeployEngine::deploy_system(&cfg, &temp).unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("no puede continuar") || msg.contains("no está implementada"),
+            msg.contains("no puede continuar"),
             "mensaje inesperado: {msg}"
         );
-        // Nada escrito: ni staging, ni /etc en el destino.
+        // Nada escrito: ni staging, ni el destino.
         assert!(!temp.join("target").exists());
         assert!(!temp.join("mnt").exists());
         let _ = fs::remove_dir_all(&temp);
@@ -1126,15 +1510,15 @@ mod tests {
 
     #[test]
     fn test_real_install_preconditions_list_everything_missing() {
+        let temp = make_temp_test_dir("precond");
         let cfg = InstallConfig {
             target_mount: "/definitivamente/no/montado".into(),
             dry_run: false,
             ..InstallConfig::default()
         };
-        let missing = DeployEngine::real_install_preconditions(&cfg);
-        assert!(missing
-            .iter()
-            .any(|m| m.contains("no es un punto de montaje")));
+        let missing = DeployEngine::real_install_preconditions(&cfg, &temp);
+        // Sin árbol de antOS localizable desde un workspace temporal.
+        assert!(missing.iter().any(|m| m.contains("árbol fuente de antOS")));
         if !cfg!(target_os = "linux") {
             assert!(missing
                 .iter()
@@ -1143,5 +1527,69 @@ mod tests {
             assert!(missing.iter().any(|m| m.contains("faltan en PATH")));
             assert!(missing.iter().any(|m| m.contains("root")));
         }
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// `password_hash` va al `configuration.nix` como `initialHashedPassword`;
+    /// sin él, la contraseña de serie. Un hash con caracteres fuera de
+    /// `mkpasswd` se rechaza (no puede romper la cadena Nix).
+    #[test]
+    fn test_password_hash_goes_to_configuration_nix() {
+        let temp = make_temp_test_dir("pw");
+        let hash = "$y$j9T$abc./DEF$0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
+        let cfg = InstallConfig {
+            hostname: "antos-pw".into(),
+            username: "juan".into(),
+            password_hash: Some(hash.into()),
+            ..InstallConfig::default()
+        };
+        let etc = temp.join("etc/nixos");
+        DeployEngine::generate_nixos_config(&cfg, &etc, None).expect("generate");
+        let conf = fs::read_to_string(etc.join("configuration.nix")).unwrap();
+        assert!(conf.contains(&format!(r#"initialHashedPassword = "{hash}";"#)));
+        assert!(!conf.contains("initialPassword"));
+        assert!(conf.contains("zramSwap.enable = true;"));
+
+        let bad = InstallConfig {
+            password_hash: Some("$y$j9T$abc\"; evil = true; # ".into()),
+            ..cfg.clone()
+        };
+        let err = DeployEngine::generate_nixos_config(&bad, &temp.join("bad"), None).unwrap_err();
+        assert!(err.to_string().contains("mkpasswd"));
+
+        let stock = InstallConfig {
+            password_hash: None,
+            ..cfg
+        };
+        DeployEngine::generate_nixos_config(&stock, &temp.join("stock"), None).expect("generate");
+        let conf = fs::read_to_string(temp.join("stock/configuration.nix")).unwrap();
+        assert!(conf.contains(r#"initialPassword = "antos";"#));
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    /// Un `hardware-configuration.nix` ya presente (el de
+    /// `nixos-generate-config`) no se pisa con el de relleno.
+    #[test]
+    fn test_generate_nixos_config_keeps_existing_hardware_configuration() {
+        let temp = make_temp_test_dir("hw-keep");
+        let etc = temp.join("etc/nixos");
+        fs::create_dir_all(&etc).unwrap();
+        fs::write(etc.join("hardware-configuration.nix"), "# real\n{ }\n").unwrap();
+        let cfg = InstallConfig::default();
+        DeployEngine::generate_nixos_config(&cfg, &etc, None).expect("generate");
+        assert_eq!(
+            fs::read_to_string(etc.join("hardware-configuration.nix")).unwrap(),
+            "# real\n{ }\n"
+        );
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn test_partition_device_follows_kernel_naming() {
+        assert_eq!(
+            DeployEngine::partition_device("/dev/nvme0n1", 3),
+            "/dev/nvme0n1p3"
+        );
+        assert_eq!(DeployEngine::partition_device("/dev/sda", 3), "/dev/sda3");
     }
 }

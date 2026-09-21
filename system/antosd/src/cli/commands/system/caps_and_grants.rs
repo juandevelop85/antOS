@@ -257,6 +257,21 @@ pub fn cmd_doctor(ctx: &Ctx) -> Result<()> {
 }
 
 /// `antos runtime info` — prints the full runtime diagnostic report.
+/// `antos ping`: ¿hay un demonio vivo que hable el protocolo de la barra?
+/// Sale con 0 y el evento recibido, o con error si no hay socket, no
+/// responde o responde algo que la barra no entendería (T36.2).
+pub fn cmd_ping(ctx: &Ctx) -> Result<()> {
+    let socket = crate::ipc::socket_path(ctx);
+    let event = crate::ipc::ping(ctx)?;
+    println!(
+        "{} demonio vivo en {} · QueryGitStatus → {}",
+        paint("✓", GREEN),
+        socket.display(),
+        paint(&event, BOLD)
+    );
+    Ok(())
+}
+
 pub fn cmd_runtime_info(ctx: &Ctx, args: &[String]) -> Result<()> {
     let rt = crate::runtime::detect();
     let info = rt.runtime_info(ctx);

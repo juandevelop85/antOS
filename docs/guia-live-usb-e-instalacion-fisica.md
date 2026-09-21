@@ -137,35 +137,37 @@ Antes de arrancar desde el pendrive USB:
 
 ## 4-bis. Instalar antOS Linux (NixOS + escritorio antOS) — T30.5
 
-> **Estado real (T36.1, septiembre 2026): `antos install` todavía no instala.**
-> Sin `--apply`, simula: genera la configuración de la tabla de abajo en
-> `<workspace>/target/installer-staging/etc/nixos/` y marca cada paso
-> `○ simulado`; el disco no se toca. Con `--apply`, comprueba las
-> precondiciones (Linux, `root`, `parted`/`mkfs.*`/`blkid`/`nixos-install`
-> en `PATH`, `/mnt/target` montado) y se detiene con un error explícito: el
-> particionado, el formateo, `nixos-generate-config` y `nixos-install`
-> reales son **T36.2**; la ISO con la *closure* del sistema y el árbol
-> fuente, **T36.3**. Nada de lo que sigue se anuncia como «completado» sin
-> haberse ejecutado.
+> **Estado real (T36.2, septiembre 2026):** `antos install` sin `--apply`
+> simula (cada paso `○ simulado` con el comando literal; la configuración
+> queda en `<workspace>/target/installer-staging/etc/nixos/`; el disco no se
+> toca). Con `--apply`, desde la ISO en vivo como root, ejecuta la tabla de
+> abajo de verdad; si algo falla, aborta con el error del comando y deja el
+> disco desmontado. Lo que aún falta para que funcione **sin red desde la
+> ISO** es que la ISO lleve la *closure* del sistema y el árbol fuente de
+> antOS (**T36.3**); la verificación end-to-end en QEMU
+> (`system/nixos/install-smoke.sh`) está escrita y se pondrá en verde con
+> ella.
 
 Desde la **ISO gráfica** (`nix build .#iso`), `antos install` sigue el mismo
 asistente (inspección de hardware, selección de disco, Disco Completo / Dual-Boot
 seguro, hostname/usuario/timezone/**keymap**) y el despliegue es NixOS:
 
-| Paso | Qué hace | Estado |
-| :--- | :--- | :--- |
-| Particionado | GPT limpio (512 MiB ESP + raíz) en Disco Completo; en **Dual-Boot** preserva la ESP y las particiones ajenas | simulado (T36.2) |
-| `/etc/nixos` | Genera `flake.nix` (nixpkgs fijado al `flake.lock` del árbol, `antos.nixosModules.{default,desktop,llm}`, `antos.overlays.default`, `system` detectado), `flake.lock`, `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, `networking.hostName`, `time.timeZone`, `console.keyMap` y `systemd-boot` (en Dual-Boot, `systemd-boot` encadena Windows/otros Linux **sin tocar sus entradas**), y copia el árbol de antOS a `antos/` | **real** (la CI lo evalúa con `nix eval`) |
-| `hardware-configuration.nix` | De relleno (raíz `antos-root` y ESP `ANTOS_ESP` por etiqueta); lo escribe de verdad `nixos-generate-config --root /mnt/target` | simulado (T36.2) |
-| Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd` (copia el *closure* del escritorio antOS) | simulado (T36.2) |
-| NVRAM UEFI | Entrada `antOS Linux` registrada por `systemd-boot` desde `nixos-install`; `antos install` **no** escribe ningún binario EFI ni llama a `efibootmgr` en esta vía | simulado (T36.2) |
+| Paso | Qué hace (`--apply`) |
+| :--- | :--- |
+| Particionado | **Disco Completo:** `parted -s <disco> mklabel gpt mkpart ESP fat32 1MiB 513MiB set 1 esp on mkpart antos-root ext4 513MiB 100%`. **Dual-Boot:** se reutiliza la primera partición con flag `esp` y la raíz se crea en el mayor hueco libre (`parted … print free`; ≥ 20 GiB o se dice cuánto falta; nada se redimensiona). Después `partprobe` + `udevadm settle`. |
+| Formateo | `mkfs.vfat -F32 -n ANTOS_ESP` **solo** sobre una ESP nueva (nunca sobre una ajena); `mkfs.ext4 -F -L antos-root`; UUIDs reales por `blkid`. |
+| Montaje | Raíz en `/mnt/target`, ESP en `/mnt/target/boot` (lo que NixOS y `systemd-boot` esperan). |
+| `/etc/nixos` | `nixos-generate-config --root /mnt/target` (el `hardware-configuration.nix` real) y después `flake.nix` (nixpkgs fijado al `flake.lock` del árbol, `antos.nixosModules.{default,desktop,llm}`, `antos.overlays.default`, `nix.registry` con ambas fuentes para que `nixos-rebuild` funcione sin red, `system` detectado), `flake.lock`, `configuration.nix` con `services.antos.desktop.enable = true`, `autologinUser`, hostname, timezone, keymap, `initialHashedPassword` si se dio `password_hash`, `zramSwap` y `systemd-boot` (en Dual-Boot encadena Windows/otros Linux **sin tocar sus entradas**); copia del árbol de antOS a `antos/`. |
+| Instalación | `nixos-install --root /mnt/target --flake /mnt/target/etc/nixos#<hostname> --no-root-passwd --no-channel-copy --override-input antos path:/mnt/target/etc/nixos/antos --no-write-lock-file`, con su salida en directo. Si falla, el error son sus últimas 50 líneas. |
+| Gestor de arranque | Lo instala y registra `systemd-boot` desde `nixos-install`; `antos install` **no** escribe ningún binario EFI ni llama a `efibootmgr` en esta vía. |
+| Cierre | `sync`, `umount -R /mnt/target`, informe con cada paso `✓ ejecutado` (o `○ simulado`). |
 
 La ESP se monta en `/boot` (lo que NixOS y `systemd-boot` esperan), no en
 `/boot/efi`.
 
-Cuando T36.2 cierre, tras `reboot` el equipo entrará **directo al escritorio
-antOS** (autologin Wayland, barra anclada, `antosd` vivo). A partir de ahí se
-evoluciona el sistema de forma declarativa:
+Tras `reboot`, el equipo entra **directo al escritorio antOS** (autologin
+Wayland, barra anclada, `antosd` vivo; `antos ping` lo confirma desde una
+terminal). A partir de ahí se evoluciona el sistema de forma declarativa:
 
 ```bash
 sudo nixos-rebuild switch --flake /etc/nixos#<hostname>

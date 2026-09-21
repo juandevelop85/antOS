@@ -38,6 +38,20 @@ in
         headless.
       '';
     };
+
+    smoke.enable = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = ''
+        Gancho de verificación automatizada (T36.2): si QEMU pasa un guion
+        por `-fw_cfg name=opt/antos/smoke,file=…`, el servicio
+        `antos-smoke` lo ejecuta como root tras el arranque y vuelca su
+        salida al journal y a la consola. Sin `fw_cfg` (hardware real, otra
+        VM) no hace nada. La ISO en vivo lo trae activado para
+        `system/nixos/install-smoke.sh`; una máquina instalada no, salvo
+        que el smoke lo pida.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -84,6 +98,39 @@ in
         StandardOutput = "journal+console";
         StandardError = "journal+console";
       };
+    };
+
+    # Gancho de smoke por QEMU `fw_cfg` (T36.2). `qemu_fw_cfg` expone el
+    # fichero en sysfs; sin él (o sin QEMU) el guion no existe y el servicio
+    # termina sin hacer nada. Ejecutar un guion es aquí la funcionalidad
+    # pedida (T31.4), y solo entra por un canal que controla quien arranca
+    # la VM.
+    boot.kernelModules = lib.mkIf cfg.smoke.enable [ "qemu_fw_cfg" ];
+    systemd.services.antos-smoke = lib.mkIf cfg.smoke.enable {
+      description = "antOS · smoke: ejecuta el guion que QEMU pasa por fw_cfg";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "antos.service" "systemd-modules-load.service" "greetd.service" ];
+      wants = [ "antos.service" ];
+      path = with pkgs; [
+        bash coreutils util-linux gnugrep gnused findutils procps systemd
+        parted dosfstools e2fsprogs nixos-install-tools cfg.package
+      ];
+      environment = config.environment.variables;
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        StandardOutput = "journal+console";
+        StandardError = "journal+console";
+      };
+      script = ''
+        f=/sys/firmware/qemu_fw_cfg/by_name/opt/antos/smoke/raw
+        if [ ! -r "$f" ]; then
+          echo "antos-smoke: sin guion en fw_cfg (opt/antos/smoke); nada que hacer"
+          exit 0
+        fi
+        install -m 0700 "$f" /run/antos-smoke.sh
+        exec bash /run/antos-smoke.sh
+      '';
     };
 
     # El demonio de intenciones: es quien hace `ipc::serve` y crea el socket

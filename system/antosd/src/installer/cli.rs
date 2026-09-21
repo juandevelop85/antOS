@@ -8,17 +8,20 @@
 //! - Llama a [`DeployEngine::deploy_system`] y muestra **lo que el informe
 //!   dice que pasó**, paso a paso, distinguiendo simulación de ejecución.
 //!
-//! ## Estado de implementación (T36.1)
+//! ## Estado de implementación (T36.1 / T36.2)
 //!
-//! Sin `--apply` todo es simulación: se genera la configuración de antOS
-//! Linux en un directorio de *staging* y el disco no se toca. Con `--apply`,
-//! `deploy_system` comprueba las precondiciones y **aborta**: la instalación
-//! real (particionado, `mkfs`, `nixos-install`) es T36.2. El asistente
-//! nunca anuncia «instalación completada» sobre un informe `simulated`.
-//! Hasta T36.1 dibujaba barras de progreso de pasos que no ejecutaba y
-//! terminaba con «retira el USB y reinicia» también en modo real.
+//! Sin `--apply` todo es simulación ([`super::SimulatedRunner`]): se genera
+//! la configuración de antOS Linux en un directorio de *staging*, cada paso
+//! muestra el comando literal que la instalación real lanzaría, y el disco
+//! no se toca. Con `--apply` (desde la ISO en vivo, como root) la misma
+//! tubería corre sobre [`super::SystemRunner`]: particiona, formatea,
+//! monta, `nixos-generate-config`, `nixos-install` (su salida en directo) y
+//! desmonta. El asistente nunca anuncia «instalación completada» sobre un
+//! informe `simulated`. Hasta T36.1 dibujaba barras de progreso de pasos
+//! que no ejecutaba y terminaba con «retira el USB y reinicia» también en
+//! modo real.
 
-use super::{BootloaderEngine, DeployEngine, DiskManager};
+use super::{BootloaderEngine, DeployEngine, DiskManager, SimulatedRunner, SystemRunner};
 use crate::ctx::Ctx;
 use crate::terminal::{paint, BOLD, CYAN, GREEN, RED, YELLOW};
 use antos_protocol::{default_system, BootTarget, BootloaderConfig, InstallConfig, InstallReport};
@@ -147,6 +150,14 @@ pub struct InstallTomlConfig {
     /// máquina donde corre el instalador (T36.1).
     #[serde(default = "default_system")]
     pub system: String,
+    /// Hash de la contraseña del usuario (`mkpasswd -m yescrypt`); sin él,
+    /// `initialPassword = "antos"` (T36.2).
+    #[serde(default)]
+    pub password_hash: Option<String>,
+    /// Sustituye al `SI` interactivo: sin `confirm_wipe = true`, una
+    /// instalación limpia real desde TOML se rechaza (T36.2).
+    #[serde(default)]
+    pub confirm_wipe: bool,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -190,6 +201,7 @@ impl InstallTomlConfig {
             timezone: self.timezone.clone(),
             keymap: self.keymap.clone(),
             system: self.system.clone(),
+            password_hash: self.password_hash.clone(),
             dry_run: self.dry_run,
         }
     }
@@ -589,13 +601,25 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         timezone: timezone.clone(),
         keymap: keymap.clone(),
         system: default_system(),
+        password_hash: None,
         dry_run: dry_run_default,
     };
 
     // Primero se ejecuta (o se simula) de verdad; después se muestra lo que
     // el informe dice que pasó. Nada de barras de progreso sobre pasos que
-    // no se han dado: cada línea sale del `InstallStep` correspondiente.
-    let report = DeployEngine::deploy_system(&install_config, workspace)?;
+    // no se han dado: cada línea sale del `InstallStep` correspondiente. La
+    // salida de `nixos-install` llega línea a línea por `on_line`.
+    let report = {
+        let mut on_line = |line: &str| {
+            let _ = writeln!(writer, "      {line}");
+        };
+        if install_config.dry_run {
+            let mut runner = SimulatedRunner::for_disk(chosen_disk);
+            DeployEngine::install(&install_config, workspace, &mut runner, &mut on_line)?
+        } else {
+            DeployEngine::install(&install_config, workspace, &mut SystemRunner, &mut on_line)?
+        }
+    };
     let total_steps = report.steps.len();
     for (i, step) in report.steps.iter().enumerate() {
         render_progress_bar(writer, i + 1, total_steps, &step.name, 100)?;
@@ -672,7 +696,7 @@ pub fn run_installer_wizard<R: BufRead, W: Write>(
         writeln!(writer, "\n  {}", report.summary)?;
         writeln!(
             writer,
-            "  La configuración generada está en {}.\n  La instalación real a disco es T36.2; `--apply` hoy comprueba las precondiciones y se detiene.\n",
+            "  La configuración generada está en {}.\n  Los comandos de arriba son los que `--apply` ejecuta de verdad (desde la ISO en vivo, como root).\n",
             workspace.join("target/installer-staging/etc/nixos").display()
         )?;
     } else {
@@ -791,7 +815,9 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
         println!("    --target, -t <dispositivo>    Selecciona disco destino (ej. /dev/nvme0n1, /dev/sda)");
         println!("    --clean                       Modo disco completo (instalación limpia)");
         println!("    --dual-boot                   Modo de convivencia segura (dual-boot)");
-        println!("    --apply                       Instalación real (T36.2, pendiente): hoy comprueba las precondiciones y se detiene sin tocar el disco\n");
+        println!("    --apply                       Instalación REAL a disco (desde la ISO en vivo, como root); sin él, simulación");
+        println!("\n  TOML (--config): target_device, clean_install, hostname, username, timezone, keymap, system,");
+        println!("                   password_hash (mkpasswd -m yescrypt), confirm_wipe = true (obligatorio con clean_install + --apply)\n");
         return Ok(());
     }
 
@@ -840,7 +866,18 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             cfg_path.display()
         );
         let toml_cfg = InstallTomlConfig::from_file(&cfg_path)?;
-        let install_cfg = toml_cfg.to_install_config();
+        let mut install_cfg = toml_cfg.to_install_config();
+        // `--apply` manda sobre `dry_run` del fichero; sin él, siempre
+        // simulación.
+        install_cfg.dry_run = !is_apply;
+        if install_cfg.clean_install && !install_cfg.dry_run && !toml_cfg.confirm_wipe {
+            bail!(
+                "Instalación limpia real desde «{}»: hace falta `confirm_wipe = true` en el TOML \
+                 (borra TODO el disco {}). Es el equivalente del «SI» del asistente.",
+                cfg_path.display(),
+                install_cfg.target_device
+            );
+        }
 
         println!(
             "  • Destino: {} | Modo: {} | Dry-Run: {}",
@@ -871,6 +908,7 @@ pub fn cmd_install(ctx: &Ctx, args: &[String]) -> Result<()> {
             timezone: "UTC".into(),
             keymap: "us".into(),
             system: default_system(),
+            password_hash: None,
             dry_run,
         };
         println!(

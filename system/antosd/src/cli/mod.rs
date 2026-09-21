@@ -34,6 +34,7 @@ pub fn dispatch(ctx: &Ctx, catalog: &Catalog, raw_args: Vec<String>) -> Result<(
         "caps" => commands::system::cmd_caps(catalog, ctx),
         "demonio" => ipc::serve(ctx, catalog),
         "doctor" => commands::system::cmd_doctor(ctx),
+        "ping" => commands::system::cmd_ping(ctx),
         "runtime" => commands::system::cmd_runtime_info(ctx, &rest[1..]),
         "escucha" => commands::run::cmd_listen(ctx, catalog, &rest[1..], &opts),
         "log" => commands::system::cmd_log(ctx),

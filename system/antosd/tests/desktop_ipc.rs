@@ -218,4 +218,44 @@ fn daemon_speaks_the_bar_protocol_over_the_ipc_socket() {
         matches!(event, Event::GitStatus(_) | Event::NotGitRepo),
         "se esperaba GitStatus o NotGitRepo, se recibió {event:?}"
     );
+
+    // ── 3. `antos ping` (T36.2): el mismo apretón de manos desde el CLI, que
+    // es lo que el smoke de instalación ejecuta dentro del sistema instalado.
+    let repo = repo_root();
+    let ping = Command::new(env!("CARGO_BIN_EXE_antos"))
+        .arg("ping")
+        .current_dir(&repo)
+        .env("ANTOS_WORKSPACE", &daemon.workspace)
+        .env("ANTOS_STATE", daemon.socket.parent().unwrap())
+        .env("ANTOS_CAPABILITIES", repo.join("system/capabilities"))
+        .output()
+        .expect("no pude lanzar `antos ping`");
+    let stdout = String::from_utf8_lossy(&ping.stdout);
+    assert!(
+        ping.status.success(),
+        "`antos ping` falló: {}\n{}",
+        stdout,
+        String::from_utf8_lossy(&ping.stderr)
+    );
+    assert!(
+        stdout.contains("GitStatus") || stdout.contains("NotGitRepo"),
+        "salida inesperada de `antos ping`: {stdout}"
+    );
+
+    // Sin demonio (estado vacío) `antos ping` falla con código distinto de
+    // cero: es lo que hace útil al smoke.
+    let empty = daemon.root.join("empty-state");
+    std::fs::create_dir_all(&empty).unwrap();
+    let ping = Command::new(env!("CARGO_BIN_EXE_antos"))
+        .arg("ping")
+        .current_dir(&repo)
+        .env("ANTOS_WORKSPACE", &daemon.workspace)
+        .env("ANTOS_STATE", &empty)
+        .env("ANTOS_CAPABILITIES", repo.join("system/capabilities"))
+        .output()
+        .expect("no pude lanzar `antos ping`");
+    assert!(
+        !ping.status.success(),
+        "`antos ping` sin demonio debería fallar"
+    );
 }

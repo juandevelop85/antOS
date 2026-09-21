@@ -1,0 +1,79 @@
+# Smoke de instalación de antOS Linux en QEMU (T36.2).
+#
+# Construye la ISO (`nix build .#iso`) y ejecuta
+# `system/nixos/install-smoke.sh` en los dos modos: Disco Completo y
+# Dual-Boot (ESP ajena preservada). Va aparte de `ci.yml` porque construir
+# la ISO y hacer dos instalaciones completas supera con mucho los 40 min de
+# una puerta de calidad; se lanza a mano (`workflow_dispatch`) y una vez
+# por semana. Los logs de la consola serie de cada fase se suben como
+# artefacto. Necesita KVM anidado (los runners x86_64 de GitHub lo tienen)
+# y la ISO autosuficiente de T36.3: hasta entonces, `nixos-install` dentro
+# del live no tiene la closure ni la fuente de antOS y el smoke lo dirá.
+name: install-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "clean, dual o both"
+        default: both
+        type: choice
+        options: [clean, dual, both]
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  install-smoke:
+    name: "antOS Linux · instalación en QEMU (x86_64)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Liberar disco del runner
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup || true
+          df -h /
+
+      - name: Instalar Nix (nix-command + flakes)
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Instalar QEMU y OVMF
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-x86 qemu-utils ovmf
+          test -r /dev/kvm && echo "KVM disponible" || echo "sin KVM: emulación TCG (lento)"
+
+      - name: Construir la ISO
+        run: |
+          nix build .#iso --print-build-logs -o iso-result
+          ls -la iso-result/iso/
+
+      - name: Smoke · Disco Completo
+        if: ${{ inputs.mode == 'clean' || inputs.mode == 'both' || github.event_name == 'schedule' }}
+        run: |
+          ISO="$(ls iso-result/iso/*.iso | head -n 1)"
+          WORK="$RUNNER_TEMP/smoke-clean" bash system/nixos/install-smoke.sh "$ISO" clean
+
+      - name: Smoke · Dual-Boot
+        if: ${{ inputs.mode == 'dual' || inputs.mode == 'both' || github.event_name == 'schedule' }}
+        run: |
+          ISO="$(ls iso-result/iso/*.iso | head -n 1)"
+          WORK="$RUNNER_TEMP/smoke-dual" bash system/nixos/install-smoke.sh "$ISO" dual
+
+      - name: Subir logs de la consola serie
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-smoke-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/smoke-*/serial-*.log
+            ${{ runner.temp }}/smoke-*/install.toml
+          if-no-files-found: ignore

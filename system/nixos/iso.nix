@@ -113,6 +113,10 @@ in
 
   services.antos.enable = true;
   services.antos.desktop.enable = true;
+  # La verificación automatizada de la instalación (T36.2,
+  # `system/nixos/install-smoke.sh`) le pasa un guion por `fw_cfg`; sin QEMU
+  # el servicio no hace nada.
+  services.antos.smoke.enable = true;
   # La ISO en vivo trae el escritorio completo (T30.9): KDE Plasma 6 Wayland
   # con `antos-barra` arriba. `"labwc"` devuelve la sesión ligera de T30.6.
   services.antos.desktop.flavor = "plasma";

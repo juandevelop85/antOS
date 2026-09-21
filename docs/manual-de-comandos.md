@@ -788,19 +788,34 @@ antos usb flash --image antos-live.iso --target /dev/sdb --apply
    ```
 5. Selecciona el disco de destino (`/dev/nvme0n1` o `/dev/sda`), elige entre instalación limpia en disco completo (escribiendo `SI`) o Dual-Boot seguro, y completa la configuración.
 
-> **Estado real de `antos install` (T36.1):** hoy el asistente **simula**.
-> Sin `--apply` genera la configuración de antOS Linux en
+> **Estado real de `antos install` (T36.1 / T36.2):** la simulación y la
+> instalación real recorren **la misma tubería**; lo único que cambia es
+> quién ejecuta los comandos. Sin `--apply`, cada paso sale marcado
+> `○ simulado` con el **comando literal** que la instalación real lanzaría
+> (`parted`, `mkfs.vfat`/`mkfs.ext4`, `blkid`, `mount`,
+> `nixos-generate-config`, `nixos-install --flake … --override-input antos …`,
+> `umount -R`), y la configuración de antOS Linux queda en
 > `<workspace>/target/installer-staging/etc/nixos/` (`flake.nix` con nixpkgs
-> fijado al `flake.lock` del árbol, `flake.lock`, `configuration.nix`,
-> `hardware-configuration.nix` de relleno y una copia del árbol de antOS en
-> `antos/`) y muestra cada paso marcado `○ simulado`; el disco no se toca.
-> Con `--apply` comprueba las precondiciones (Linux, `root`, `parted`/`mkfs`/
-> `nixos-install` en `PATH`, destino montado) y **se detiene con un error
-> explícito**: el particionado, el formateo y `nixos-install` reales son
-> **T36.2**. Ningún informe con `simulated = true` se anuncia como
-> instalación completada. Hasta T36.1 el modo real escribía en un directorio
-> sin montar, registraba en la NVRAM un stub EFI que no arranca y terminaba
-> con «retira el USB y reinicia».
+> fijado y `nix.registry` para que `nixos-rebuild` funcione sin red,
+> `flake.lock`, `configuration.nix`, `hardware-configuration.nix` de
+> relleno, copia del árbol de antOS en `antos/`); el disco no se toca. Con
+> `--apply` (desde la ISO en vivo, como root) se comprueban las
+> precondiciones y se ejecuta de verdad: en **Disco Completo** tabla GPT
+> nueva (ESP 512 MiB `ANTOS_ESP` + raíz `antos-root`), en **Dual-Boot** se
+> reutiliza la ESP existente sin formatearla y la raíz va al mayor hueco
+> libre (≥ 20 GiB; si no lo hay, dice cuánto falta — antOS no redimensiona
+> particiones ajenas). Cualquier fallo aborta con el error del comando y
+> deja el disco desmontado. Ningún informe con `simulated = true` se anuncia
+> como instalación completada. Hasta T36.1 el modo real escribía en un
+> directorio sin montar, registraba en la NVRAM un stub EFI que no arranca y
+> terminaba con «retira el USB y reinicia».
+>
+> **Verificación end-to-end:** `system/nixos/install-smoke.sh <iso> clean|dual`
+> (QEMU/OVMF: instala desde la ISO, reinicia desde el disco y comprueba
+> `greetd`, `antos-barra`, `antos ping` y `nixos-rebuild build` sin red;
+> workflow `install-smoke.yml`). Necesita la ISO autosuficiente de
+> **T36.3**: hasta entonces el `nixos-install` del live no tiene la closure
+> ni la fuente de antOS.
 >
 > **Dos destinos de `antos install`:**
 > - Desde la **Live del kernel bare-metal** (arriba): la disposición de la
@@ -810,14 +825,23 @@ antos usb flash --image antos-live.iso --target /dev/sdb --apply
 > - Desde la **ISO gráfica de antOS Linux** (`nix build .#iso`, T30.2): el
 >   asistente genera `/etc/nixos/{flake.nix,flake.lock,configuration.nix}`
 >   con `services.antos.desktop.enable = true` (autologin, hostname,
->   timezone, **keymap**, `system` detectado) + `systemd-boot` —que en
->   Dual-Boot encadena los demás SO sin tocar sus entradas—. El `flake.nix`
->   consume `antos.nixosModules.{default,desktop,llm}` y
->   `antos.overlays.default` (nunca rutas internas del árbol) y la CI
->   comprueba que evalúa. Cuando T36.2 ejecute `nixos-install`, tras
->   `reboot` arrancará al escritorio antOS y se evolucionará con
+>   timezone, **keymap**, `system` detectado, `password_hash` opcional →
+>   `initialHashedPassword`) + `systemd-boot` —que en Dual-Boot encadena los
+>   demás SO sin tocar sus entradas—, y con `--apply` ejecuta
+>   `nixos-install`. El `flake.nix` consume
+>   `antos.nixosModules.{default,desktop,llm}` y `antos.overlays.default`
+>   (nunca rutas internas del árbol) y la CI comprueba que evalúa. Tras
+>   `reboot` arranca al escritorio antOS y se evoluciona con
 >   `sudo nixos-rebuild switch --flake /etc/nixos#<hostname>`. Detalle en
 >   [`docs/guia-live-usb-e-instalacion-fisica.md`](guia-live-usb-e-instalacion-fisica.md) §4-bis.
+>
+> **No interactivo** (`antos install --config install.toml --apply`): las
+> claves son `target_device`, `clean_install`, `confirm_wipe` (obligatorio
+> `true` con `clean_install` real: es el «SI» del asistente), `hostname`,
+> `username`, `timezone`, `keymap`, `system` y `password_hash`
+> (`mkpasswd -m yescrypt`). `antos ping` comprueba desde cualquier shell que
+> el demonio responde por el socket (`QueryGitStatus`, lo mismo que hace la
+> barra al arrancar).
 
 ---
 

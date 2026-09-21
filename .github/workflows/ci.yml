@@ -544,6 +544,10 @@ jobs:
   # sin que la CI dijera nada. `cache.nixos.org` sirve prehecho casi todo, así
   # que este job descarga mucho pero compila poco (solo las derivaciones
   # propias de antOS).
+  # La verificación end-to-end de la instalación (ISO → disco → arranque al
+  # escritorio, T36.2) no cabe aquí: es `.github/workflows/install-smoke.yml`
+  # (`workflow_dispatch` + semanal), que construye la ISO y ejecuta
+  # `system/nixos/install-smoke.sh` en QEMU en los modos clean y dual.
   nix-build:
     name: "Nix · build del flake"
     runs-on: ubuntu-latest

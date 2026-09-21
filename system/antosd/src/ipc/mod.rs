@@ -1278,6 +1278,42 @@ pub fn daemon_is_running(ctx: &Ctx) -> bool {
     path.exists() && UnixStream::connect(&path).is_ok()
 }
 
+/// `antos ping` (T36.2): la comprobación mínima de que el demonio está
+/// vivo y habla el protocolo de la barra — conecta al socket, envía
+/// `QueryGitStatus` sobre el workspace (lo mismo que hace `antos-barra` al
+/// arrancar) y devuelve el nombre del primer evento recibido
+/// (`GitStatus` o `NotGitRepo`). Lo usa el smoke de instalación desde el
+/// sistema instalado, sin `socat` ni `python`.
+pub fn ping(ctx: &Ctx) -> Result<String> {
+    let path = socket_path(ctx);
+    let stream = UnixStream::connect(&path)
+        .with_context(|| format!("no hay demonio escuchando en {}", path.display()))?;
+    stream.set_read_timeout(Some(Duration::from_secs(15)))?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut writer = stream;
+    send(
+        &mut writer,
+        &Request::QueryGitStatus {
+            workspace_path: ctx.workspace.to_string_lossy().into_owned(),
+        },
+    )?;
+    let _ = writer.shutdown(std::net::Shutdown::Write);
+    let mut first = String::new();
+    let read = reader
+        .read_line(&mut first)
+        .context("leyendo la respuesta del demonio")?;
+    if read == 0 {
+        bail!("el demonio cerró la conexión sin responder a QueryGitStatus");
+    }
+    let event: Event = serde_json::from_str(first.trim())
+        .with_context(|| format!("respuesta que la barra no entendería: {}", first.trim()))?;
+    Ok(match event {
+        Event::GitStatus(_) => "GitStatus".to_string(),
+        Event::NotGitRepo => "NotGitRepo".to_string(),
+        other => format!("{other:?}").chars().take(40).collect(),
+    })
+}
+
 /// Sends an intent to the daemon and renders the response.
 ///
 /// Note that rendering uses the SAME `Terminal` as local mode:

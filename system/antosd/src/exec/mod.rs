@@ -612,6 +612,7 @@ pub fn changes_for(
                 timezone: "UTC".into(),
                 keymap,
                 system,
+                password_hash: a.get("password_hash").cloned(),
                 dry_run,
             };
             Ok(vec![Change::InstallDeploy {

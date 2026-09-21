@@ -300,6 +300,7 @@ fn test_storage_installer_serialization() {
         timezone: "America/Bogota".into(),
         keymap: "us".into(),
         system: "x86_64-linux".into(),
+        password_hash: None,
         dry_run: true,
     };
     let req_install = Request::InstallSystem(cfg.clone());
@@ -385,6 +386,11 @@ fn test_installer_types_pre_t36_1_wire_format_still_parses() {
     .expect("old InstallConfig");
     assert_eq!(cfg.keymap, "us");
     assert!(cfg.system == "x86_64-linux" || cfg.system == "aarch64-linux");
+    assert!(cfg.password_hash.is_none());
+    // Sin hash no se serializa el campo: el formato no cambia para nadie.
+    assert!(!serde_json::to_string(&cfg)
+        .expect("json")
+        .contains("password_hash"));
 
     let boot: BootloaderConfig = serde_json::from_str(
         r#"{"esp_mount":"/boot","target_device":"/dev/sda","efi_partition":1,

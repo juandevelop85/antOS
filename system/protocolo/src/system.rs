@@ -379,6 +379,13 @@ pub struct InstallConfig {
     /// (T36.1); before that it was hard-coded to `x86_64-linux`.
     #[serde(default = "default_system")]
     pub system: String,
+    /// Hashed password for `username` (`mkpasswd -m yescrypt` output). When
+    /// set, the generated `configuration.nix` uses
+    /// `initialHashedPassword` instead of the stock `initialPassword`
+    /// (T36.2). Never a plaintext password: that stays in memory in the
+    /// wizard (T36.4) and is not part of the wire format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password_hash: Option<String>,
     pub dry_run: bool,
 }
 
@@ -408,6 +415,7 @@ impl Default for InstallConfig {
             timezone: "UTC".into(),
             keymap: default_keymap(),
             system: default_system(),
+            password_hash: None,
             dry_run: true,
         }
     }
