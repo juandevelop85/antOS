@@ -234,3 +234,19 @@ setup.toml` lo hace sin preguntas (las claves API nunca van en el TOML:
 > antOS Linux es **monousuario** en esta versión: el usuario del escritorio
 > es el dueño del recinto y del demonio. Otro usuario del sistema no tiene
 > barra ni socket; `antos doctor --desktop` lo dice.
+
+## 6. Mantener el sistema: `antos system update` (T36.6)
+
+```bash
+antos system update          # diff de lo que cambia → confirmación → sudo nixos-rebuild switch
+antos system rollback        # vuelve a la generación anterior (también `antos undo`)
+antos system generations     # qué generaciones hay y cuál está activa
+```
+
+`update` trabaja sobre una copia de `/etc/nixos` y solo la devuelve al
+sitio si la activación fue bien; si algo falla, `/etc/nixos` y su
+`flake.lock` quedan como estaban. Un chequeo diario (`antos system update
+--check`) evalúa sin construir ni descargar; nada se aplica sin que lo
+apruebes viendo el diff. La fuente de antOS es `path:/etc/nixos/antos` (la
+copia que dejó la instalación); con red puedes pasar a una release con
+`--source github:juandevelop85/antOS/<tag>`.

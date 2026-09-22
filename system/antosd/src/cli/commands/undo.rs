@@ -132,6 +132,24 @@ pub fn cmd_undo(ctx: &Ctx, args: &[String]) -> Result<()> {
         return Ok(());
     }
 
+    // T36.6: si lo último ejecutado fue una actualización del sistema, se
+    // deshace con `nixos-rebuild --rollback` (no hay instantánea que
+    // restaurar: la generación anterior sigue en el perfil).
+    let last_executed = records
+        .iter()
+        .rposition(|r| r.outcome == Outcome::Executed && !r.reverted);
+    if let Some(i) = last_executed {
+        if records[i].intent == crate::cli::commands::system::INTENT_UPDATE {
+            println!();
+            println!(
+                "{} {}",
+                paint("deshaciendo", BOLD),
+                paint("«system.update» → antos system rollback", DIM)
+            );
+            return crate::cli::commands::system::cmd_system(ctx, &["rollback".into()], false);
+        }
+    }
+
     let idx = records
         .iter()
         .rposition(|r| r.outcome == Outcome::Executed && !r.reverted && r.snapshot.is_some());

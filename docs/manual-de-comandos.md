@@ -309,6 +309,41 @@ antos doctor --desktop               # recinto del usuario, sesión Wayland, dem
 > de lo que instaló en `.antos-orig-<fichero>`); una edición tuya se
 > respeta y `doctor --desktop` avisa cuando hay una versión nueva.
 
+##### Actualizar y deshacer: `antos system` (T36.6)
+
+Actualizar antOS Linux es una intención más: ver el diff, aprobar,
+aplicar, poder deshacer. Todo sobre `/etc/nixos` (el `flake.nix` que dejó
+`antos install`) y con lo que ya trae `nix` — `nix flake update`, `nix
+build`, `nix store diff-closures` (sin `nvd`), `nixos-rebuild switch` /
+`--rollback` / `list-generations`. `sudo` lo invoca el CLI en primer
+plano; el demonio nunca.
+
+```bash
+antos system update            # copia /etc/nixos a $ANTOS_STATE/system-update, refresca el flake.lock,
+                               # construye (del caché de T36.3 si lo hay), muestra el diff de closures,
+                               # pide confirmación, sudo nixos-rebuild switch, y devuelve el lock a /etc/nixos
+antos system update --check    # solo evalúa: salida 0 sin cambios, 10 con cambios; deja update-available.json
+antos system update --source github:juandevelop85/antOS/v0.2.0   # cambia la fuente de antOS (por defecto path:/etc/nixos/antos)
+antos system update --yes      # sin confirmación
+antos system rollback [N]      # sudo nixos-rebuild switch --rollback (o --switch-generation N), con bitácora
+antos system generations       # las generaciones del sistema, la actual marcada
+antos system status            # lo que dejó el último --check
+antos undo                     # si lo último ejecutado fue una actualización, la deshace con rollback
+```
+
+- Sin red a la fuente (`github:…`), `update` lo dice y no toca nada; con
+  `path:` no hace falta red.
+- Si `configuration.nix` cambió después de la última generación, el diff lo
+  avisa: «además de la actualización, se aplicarán tus cambios locales».
+  `antos-paquetes.nix` no se toca nunca.
+- Cada actualización queda en la bitácora (`antos log`) como
+  `system.update` con la generación anterior y la nueva y el resumen del
+  diff; el rollback como `system.rollback`.
+- Un temporizador de usuario (`antos-update-check`, diario) ejecuta
+  `--check`; la barra leerá `update-available.json` para mostrar
+  «actualización disponible» cuando un ticket de barra lo implemente.
+  Nada se descarga ni se aplica solo.
+
 ##### Máquina física vs VM de desarrollo (T36.4)
 
 `nixosConfigurations.antos-desktop` es **la máquina física**: `installed.nix`

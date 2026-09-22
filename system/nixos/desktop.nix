@@ -766,6 +766,30 @@ in
     # hacía. Sin red, `Restart=on-failure` lo reintenta; `antos setup` lo
     # comprueba también.
     services.flatpak.enable = true;
+    # Chequeo diario de actualizaciones (T36.6): `antos system update
+    # --check` solo evalúa (sin construir ni descargar) y deja
+    # `$ANTOS_STATE/update-available.json`; sale con 10 si hay algo nuevo,
+    # que aquí no es un fallo. Nada se aplica solo: la premisa de antOS es
+    # aprobar viendo el diff.
+    systemd.user.services.antos-update-check = {
+      description = "antOS · ¿hay una actualización del sistema? (solo comprueba)";
+      after = [ "network-online.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        SuccessExitStatus = "0 10";
+        ExecStart = "${lib.getExe config.services.antos.package} system update --check";
+      };
+    };
+    systemd.user.timers.antos-update-check = {
+      description = "antOS · chequeo diario de actualizaciones";
+      wantedBy = [ "timers.target" ];
+      timerConfig = {
+        OnBootSec = "15min";
+        OnUnitActiveSec = "1d";
+        Persistent = true;
+      };
+    };
+
     systemd.user.services.antos-flathub = {
       description = "antOS · remoto flathub del usuario para `antos app`";
       wantedBy = [ "default.target" ];

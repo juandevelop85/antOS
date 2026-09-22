@@ -63,6 +63,22 @@ say "✓ antos setup idempotente"
 as_user antos doctor --desktop 2>&1 | tee "$SERIAL" || fail "antos doctor --desktop"
 say "✓ antos doctor --desktop"
 
+# 2c. Actualización (T36.6): `--check` evalúa sin red (la fuente es
+#     path:/etc/nixos/antos y nixpkgs está en el store) y sale 0 o 10;
+#     `generations` lista la actual; `update --yes` sin cambios dice «al día»
+#     y no cambia de generación.
+say "+ antos system update --check"
+set +e
+as_user antos system update --check 2>&1 | tee "$SERIAL"
+rc=${PIPESTATUS[0]}
+set -e
+[ "$rc" = 0 ] || [ "$rc" = 10 ] || fail "antos system update --check salió con $rc"
+[ -f "$STATE/update-available.json" ] || fail "sin update-available.json"
+as_user antos system generations 2>&1 | tee "$SERIAL" | grep -q '●' || fail "antos system generations sin generación actual"
+GEN_BEFORE="$(nixos-rebuild list-generations --json | tr -d ' \n')"
+as_user antos system update --yes 2>&1 | tee "$SERIAL" | grep -q 'al día\|actualizado' || fail "antos system update --yes"
+say "✓ antos system update/generations"
+
 # 3. El sistema se puede reconstruir sin red (todo está en el store).
 cd /root || fail "sin /root"
 rm -f /root/result

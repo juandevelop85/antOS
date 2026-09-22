@@ -240,7 +240,7 @@ WantedBy=multi-user.target
     }
 
     /// Copia recursiva de un directorio saltando los de compilación.
-    fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
+    pub fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
         fs::create_dir_all(dst).with_context(|| format!("Creando {}", dst.display()))?;
         for entry in fs::read_dir(src).with_context(|| format!("Leyendo {}", src.display()))? {
             let entry = entry?;

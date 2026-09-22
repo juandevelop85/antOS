@@ -12,6 +12,7 @@ mod boot_plugin_disk;
 mod caps_and_grants;
 mod install_usb_bootloader;
 mod setup;
+mod update;
 mod vm;
 mod web;
 
@@ -21,5 +22,6 @@ pub use boot_plugin_disk::*;
 pub use caps_and_grants::*;
 pub use install_usb_bootloader::*;
 pub use setup::*;
+pub use update::*;
 pub use vm::*;
 pub use web::*;

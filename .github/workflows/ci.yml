@@ -713,4 +713,7 @@ jobs:
             in sys.config.system.build.toplevel.drvPath' >/dev/null 2>&1; then
             echo "ERROR: services.antos.user = root con escritorio debería fallar (monousuario)"; exit 1
           fi
-          echo "antos-installed-x86_64: antos-flathub, autostart de antos setup; usuario≠escritorio rechazado"
+          # T36.6: el chequeo diario de actualizaciones existe y no aplica nada solo.
+          test "$(nix eval --json "$cfg.systemd.user.timers.antos-update-check.enable")" = "true"
+          nix eval --raw "$cfg.systemd.user.services.antos-update-check.serviceConfig.ExecStart" | grep -q 'system update --check'
+          echo "antos-installed-x86_64: antos-flathub, autostart de antos setup, timer antos-update-check; usuario≠escritorio rechazado"

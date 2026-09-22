@@ -184,7 +184,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.3](T36.3-iso-autosuficiente-release-con-checksums-y-cache-binario.md) | ISO Autosuficiente, Release con Checksums y Caché Binario | 🔄 En Progreso |
 | **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | 🔄 En Progreso |
 | **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | 🔄 En Progreso |
-| **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ⏳ Pendiente |
+| **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | 🔄 En Progreso |
 
 ---
 
@@ -635,7 +635,8 @@ espera la ISO) → T36.3 (ISO autosuficiente, release y caché escritos;
 se confirman en CI con el primer push y las claves del mantenedor) → T36.4
 (perfil de máquina y asistente hechos; la evaluación Nix se confirma en CI)
 → T36.5 (`antos setup`, `doctor --desktop` y monousuario hechos; el flujo en
-la sesión lo prueba el smoke) → T36.6. T36.1 se prueba en el
+la sesión lo prueba el smoke) → T36.6 (`antos system update/rollback/generations`
+con secuencia fijada por tests; `nixos-rebuild` real, en el smoke). T36.1 se prueba en el
 Mac (`dry_run` y `nix eval` en CI); T36.2–T36.6 necesitan la ISO en QEMU con
 KVM (CI x86_64) o un Linux. Hasta que T36.3 cierre, la única instalación
 que se puede seguir de principio a fin es la de **modo host** (`cargo
