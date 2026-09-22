@@ -164,21 +164,24 @@ in
   # `target/`: solo lo que el flake necesita para evaluar y construir.
   environment.etc = lib.mkMerge [
     (lib.mkIf (antosSource != null) {
-      "antos/source".source = lib.fileset.toSource {
-        root = antosSource;
-        # `maybeMissing`: `rust-toolchain.toml` o `builder/` pueden faltar
-        # en un árbol recortado, igual que en `copy_antos_source`.
-        fileset = lib.fileset.unions (map lib.fileset.maybeMissing [
-          (antosSource + "/flake.nix")
-          (antosSource + "/flake.lock")
-          (antosSource + "/Cargo.toml")
-          (antosSource + "/Cargo.lock")
-          (antosSource + "/rust-toolchain.toml")
-          (antosSource + "/recipes")
-          (antosSource + "/builder/Cargo.toml")
-          (antosSource + "/builder/src")
-          (antosSource + "/system")
-        ]);
+      # `antosSource` es la ruta del store de `self` (una cadena): `lib.fileset`
+      # solo acepta rutas, y Nix prohíbe `/. + "<store>"`, así que se filtra
+      # con `builtins.path`. Mismas entradas que `copy_antos_source`; sin
+      # `target/` ni `.git/`.
+      "antos/source".source = builtins.path {
+        name = "antos-source";
+        path = antosSource;
+        filter = path: _type:
+          let
+            rel = lib.removePrefix (toString antosSource + "/") (toString path);
+            top = builtins.head (lib.splitString "/" rel);
+            base = baseNameOf path;
+          in
+          base != "target" && base != ".git" && base != "node_modules"
+          && builtins.elem top [
+            "flake.nix" "flake.lock" "Cargo.toml" "Cargo.lock" "rust-toolchain.toml"
+            "recipes" "builder" "system"
+          ];
       };
     })
     { "antos/VERSION".text = "${antosVersion}\n"; }

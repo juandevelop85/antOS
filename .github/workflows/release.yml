@@ -72,7 +72,7 @@ jobs:
           set -eu
           cfg=".#nixosConfigurations.antos-iso-${{ matrix.arch }}.config"
           test "$(nix eval --json "$cfg.environment.etc.\"antos/source\".enable")" = "true"
-          test "$(nix eval --json "$cfg.isoImage.storeContents" | jq 'length')" -ge 1
+          nix eval --json "$cfg.isoImage.storeContents" | jq -e 'map(test("nixos-system-antos-box")) | any' >/dev/null
           nix eval --raw "$cfg.nix.registry.nixpkgs.flake.outPath" | grep -q '^/nix/store/'
           # Las herramientas que `DeployEngine::real_install_preconditions` exige,
           # en el PATH del sistema de la ISO (ya construido: es parte de la ISO).

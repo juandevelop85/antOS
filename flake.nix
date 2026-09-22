@@ -66,7 +66,7 @@
           ./system/nixos/iso.nix
           {
             _module.args = {
-              antosSource = /. + self.outPath;
+              antosSource = self.outPath;
               nixpkgsFlake = nixpkgs;
               installedSystem = (instaladaPara system).config.system.build.toplevel;
               antosVersion = version;

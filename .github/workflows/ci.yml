@@ -640,7 +640,8 @@ jobs:
           for arch in x86_64 aarch64; do
             cfg=".#nixosConfigurations.antos-iso-$arch.config"
             test "$(nix eval --json "$cfg.environment.etc.\"antos/source\".enable")" = "true"
-            test "$(nix eval --json "$cfg.isoImage.storeContents" | jq 'length')" = "1"
+            # Dos closures: la del live (la añade el perfil de instalador) y la de la máquina instalada.
+            nix eval --json "$cfg.isoImage.storeContents" | jq -e 'map(test("nixos-system-antos-box")) | any' >/dev/null
             test "$(nix eval --json "$cfg.services.antos.smoke.enable")" = "true"
             nix eval --raw "$cfg.nix.registry.nixpkgs.flake.outPath" | grep -q '^/nix/store/'
             # El caché binario solo entra con clave pública conocida (vacía hoy).
@@ -698,9 +699,14 @@ jobs:
           set -eu
           cfg=".#nixosConfigurations.antos-installed-x86_64.config"
           test "$(nix eval --json "$cfg.systemd.user.services.antos-flathub.enable")" = "true"
-          nix eval --raw "$cfg.environment.etc.\"xdg/autostart/antos-first-boot.desktop\".text" | grep -q 'setup'
-          nix eval --raw "$cfg.environment.etc.\"antos/desktop/autostart\".text" 2>/dev/null | grep -q 'antos setup' \
-            || nix eval --raw "$cfg.services.greetd.settings.default_session.command" >/dev/null
+          flavor="$(nix eval --raw "$cfg.services.antos.desktop.flavor")"
+          if [ "$flavor" = plasma ]; then
+            nix eval --raw "$cfg.environment.etc.\"xdg/autostart/antos-first-boot.desktop\".text" | grep -q 'setup'
+          else
+            # Labwc: el primer arranque va en el autostart de la sesión (un guion del store, se construye y se lee).
+            autostart="$(nix build --no-link --print-out-paths "$cfg.environment.etc.\"antos/desktop/autostart\".source")"
+            grep -q 'antos setup' "$autostart"
+          fi
           if nix eval --impure --expr '
             let flake = builtins.getFlake (toString ./.);
                 sys = flake.inputs.nixpkgs.lib.nixosSystem {

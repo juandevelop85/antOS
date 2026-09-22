@@ -147,6 +147,7 @@ fn test_generate_nixos_config_clean_install() {
     // `desktop.nix` fija `services.antos.llm.enable`: sin el módulo `llm`
     // la evaluación falla con «option does not exist».
     assert!(flake.contains("antos.nixosModules.llm"));
+    assert!(flake.contains("antos.nixosModules.machine"));
     assert!(flake.contains(r#"antos.url = "path:/etc/nixos/antos";"#));
     // Sin fuente: se avisa en el propio flake y no hay lock que fije nada.
     assert!(flake.contains("nixos-unstable"));
@@ -188,7 +189,10 @@ fn test_generated_flake_uses_only_public_outputs_of_the_antos_flake() {
 
     let root_flake = fs::read_to_string(repo_root().join("flake.nix")).unwrap();
     assert!(root_flake.contains("overlays.default = overlayAntos;"));
-    for module in ["default", "desktop", "llm"] {
+    // `machine` (T36.4): el configuration.nix generado fija
+    // `services.antos.machine`; sin el módulo no evalúa — lo descubrió la
+    // evaluación real del flake generado en la podman-machine (2026-09-22).
+    for module in ["default", "desktop", "llm", "machine"] {
         assert!(
             root_flake.contains(&format!("nixosModules.{module} =")),
             "el flake raíz no exporta nixosModules.{module}"

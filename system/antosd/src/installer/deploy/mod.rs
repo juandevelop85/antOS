@@ -366,6 +366,7 @@ WantedBy=multi-user.target
         antos.nixosModules.default
         antos.nixosModules.desktop
         antos.nixosModules.llm
+        antos.nixosModules.machine
         {{ nixpkgs.overlays = [ antos.overlays.default ]; }}
         # Las fuentes de nixpkgs y de antOS entran en la closure del sistema
         # (el registro las referencia por ruta del store): `nixos-install`

@@ -42,8 +42,16 @@ in
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.ollama;
-      defaultText = lib.literalExpression "pkgs.ollama";
+      # nixpkgs retiró `services.ollama.acceleration`: ahora la GPU se elige
+      # por paquete. La opción `acceleration` de antOS se conserva y se
+      # traduce aquí (primer hallazgo de la evaluación real del flake en la
+      # podman-machine, 2026-09-22).
+      default =
+        if cfg.acceleration == "cuda" then pkgs.ollama-cuda
+        else if cfg.acceleration == "rocm" then pkgs.ollama-rocm
+        else if cfg.acceleration == false then pkgs.ollama-cpu
+        else pkgs.ollama;
+      defaultText = lib.literalExpression "pkgs.ollama (o ollama-cuda / ollama-rocm / ollama-cpu según `acceleration`)";
       description = "Paquete de Ollama (de la `nixpkgs` fijada en `flake.lock`).";
     };
 
@@ -66,8 +74,10 @@ in
       type = lib.types.nullOr (lib.types.enum [ false "rocm" "cuda" ]);
       default = null;
       description = ''
-        Se pasa tal cual a `services.ollama.acceleration`: `null` deja que
-        nixpkgs elija, `"cuda"`/`"rocm"` fuerzan una GPU, `false` solo CPU.
+        `null` deja el paquete genérico (`pkgs.ollama`), `"cuda"`/`"rocm"`
+        eligen `ollama-cuda`/`ollama-rocm`, `false` fuerza `ollama-cpu`.
+        (`services.ollama.acceleration` ya no existe en nixpkgs; esto fija
+        `package`.)
       '';
     };
 
@@ -95,7 +105,6 @@ in
       package = cfg.package;
       host = cfg.host;
       port = cfg.port;
-      acceleration = cfg.acceleration;
       loadModels = cfg.models;
       # Los modelos son del sistema, no de una sesión de antOS: el
       # directorio estable que nixpkgs usa. `antos llm doctor` lo muestra

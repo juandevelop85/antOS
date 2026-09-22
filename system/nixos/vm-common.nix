@@ -14,12 +14,18 @@
 
   # Sin contraseña y con sesión abierta: es una máquina de desarrollo para
   # verla arrancar, no algo que dejar en una red.
-  users.users.root.initialPassword = "antos";
   services.getty.autologinUser = "root";
 
   # El usuario del escritorio, si lo hay, con la contraseña de desarrollo.
   # `desktop.nix` ya no pone ninguna por defecto (T36.4): en una máquina
   # real la elige el asistente.
-  users.users.${config.services.antos.desktop.autologinUser}.initialPassword =
-    lib.mkIf config.services.antos.desktop.enable (lib.mkDefault "antos");
+  # El `mkIf` va en `users.users`, no dentro del atributo: si no, la VM
+  # headless (sin escritorio) definiría igualmente al usuario, sin
+  # `isNormalUser` ni grupo.
+  users.users = lib.mkMerge [
+    { root.initialPassword = "antos"; }
+    (lib.mkIf config.services.antos.desktop.enable {
+      ${config.services.antos.desktop.autologinUser}.initialPassword = lib.mkDefault "antos";
+    })
+  ];
 }
