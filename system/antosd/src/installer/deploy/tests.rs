@@ -366,7 +366,7 @@ fn test_install_dual_boot_command_sequence() {
     assert_eq!(
         c[11],
         format!(
-            "nixos-install --root {root} --flake {root}/etc/nixos#antos-dual --no-root-passwd --no-channel-copy --override-input antos path:{root}/etc/nixos/antos --no-write-lock-file"
+            "nixos-install --root {root} --flake {root}/etc/nixos#antos-dual --no-root-passwd --no-channel-copy --override-input antos path:{root}/etc/nixos/antos --no-write-lock-file --option substitute true"
         )
     );
     assert_eq!(c[12], "sync");
@@ -826,4 +826,33 @@ fn test_encrypt_is_refused_until_implemented() {
     let missing = DeployEngine::real_install_preconditions(&cfg, &temp);
     assert!(missing.iter().any(|m| m.contains("LUKS")));
     let _ = fs::remove_dir_all(&temp);
+}
+
+/// El `--override-input nixpkgs` de `nixos-install` (primer smoke real):
+/// entrada `path:` a la fuente que la ISO expone, con `rev` y
+/// `lastModified` del `flake.lock` del árbol para que el `toplevel`
+/// coincida con la closure de la ISO. Sin árbol, solo la ruta.
+#[test]
+fn test_nixpkgs_override_carries_rev_and_last_modified_from_the_lock() {
+    let root = repo_root();
+    let (rev, node) = DeployEngine::locked_nixpkgs(&root).expect("flake.lock real");
+    let lm = node["locked"]["lastModified"]
+        .as_u64()
+        .expect("lastModified");
+    let url = DeployEngine::nixpkgs_override(Path::new("/nix/store/abc-source"), Some(&root));
+    assert_eq!(
+        url,
+        format!("path:/nix/store/abc-source?rev={rev}&lastModified={lm}")
+    );
+    assert_eq!(
+        DeployEngine::nixpkgs_override(Path::new("/nix/store/abc-source"), None),
+        "path:/nix/store/abc-source"
+    );
+    // Sin `/etc/antos/nixpkgs-source` (esta máquina) no hay override, y la
+    // secuencia simulada no lo lleva.
+    if std::env::var_os("ANTOS_NIXPKGS_SOURCE").is_none()
+        && !Path::new("/etc/antos/nixpkgs-source").exists()
+    {
+        assert!(DeployEngine::locate_nixpkgs_source().is_none());
+    }
 }

@@ -148,7 +148,10 @@ in
 
   # `isoImage.isoName` se renombró a `image.fileName` en nixpkgs recientes.
   # El nombre lleva la arquitectura: la release publica una ISO por cada una.
-  image.fileName = lib.mkForce "antos-linux-${antosVersion}-${pkgs.stdenv.hostPlatform.uname.processor}.iso";
+  # El constructor de la ISO nombra el fichero con `image.baseName` (+
+  # `image.extension`); `image.fileName` solo se deriva de ahí — la primera
+  # ISO real salió como `nixos-0.1-aarch64-linux.iso` por forzar el derivado.
+  image.baseName = lib.mkForce "antos-linux-${antosVersion}-${pkgs.stdenv.hostPlatform.uname.processor}";
   isoImage.volumeID = lib.mkForce "ANTOS_LINUX";
   # Compresión fija: el tamaño de la ISO es una cifra que se documenta y se
   # compara entre releases; no puede depender del valor por defecto del día.
@@ -158,6 +161,61 @@ in
   # La closure de la máquina instalada de referencia viaja en el store de la
   # ISO: `nixos-install` copia de ahí y no construye nada.
   isoImage.storeContents = lib.optional (installedSystem != null) installedSystem;
+
+  # La closure de la máquina instalada trae los *resultados*, no las
+  # herramientas con las que se construyen las derivaciones de configuración
+  # (las ~266 específicas de la máquina: `etc`, unidades, activación, el
+  # instalador de systemd-boot…). Sin red esas derivaciones arrastraban el
+  # bootstrap de gcc: el `mypy` con el que systemd-boot comprueba su
+  # instalador, y `libcap` a través del generador de envoltorios suid.
+  # nixpkgs resuelve lo mismo en sus propios tests de instalación sin red
+  # (`nixos/tests/installer.nix`, `system.extraDependencies`); esta es esa
+  # lista, con lo que añade el arranque por `systemd-boot`. Mantenerla
+  # alineada con la de nixpkgs al subir de versión.
+  system.extraDependencies = with pkgs; [
+    # TODO(nixpkgs): sobra el día que se pueda instalar sin `stdenv`.
+    stdenv
+
+    bintools
+    brotli
+    brotli.dev
+    brotli.lib
+    desktop-file-utils
+    docbook5
+    docbook_xsl_ns
+    kbd.dev
+    kmod.dev
+    libarchive.dev
+    libcap-text-verifier
+    libxml2.bin
+    libxslt.bin
+    nixos-rebuild-ng
+    perlPackages.ConfigIniFiles
+    perlPackages.FileSlurp
+    perlPackages.JSON
+    perlPackages.ListCompare
+    perlPackages.XMLLibXML
+    # make-options-doc/default.nix
+    (python3.withPackages (p: [ p.mistune ]))
+    shared-mime-info
+    sudo
+    switch-to-configuration-ng
+    texinfo
+    unionfs-fuse
+    lndir
+    shellcheck-minimal
+
+    # Solo la salida `out`: es la que necesitan las reglas de udev de NixOS.
+    systemdMinimal.out
+
+    # Con `curl` dentro, un fallo por falta de red se ve como lo que es y no
+    # como «intenta descargar el tarball de curl».
+    curl
+
+    # Arranque por `systemd-boot` (machine.nix).
+    zstd.bin
+    mypy
+  ];
 
   # El árbol fuente de antOS, en la forma exacta que `antos install` copia al
   # destino (`DeployEngine::copy_antos_source`, T36.1). Sin `docs/`, sin
@@ -185,10 +243,19 @@ in
       };
     })
     { "antos/VERSION".text = "${antosVersion}\n"; }
+    (lib.mkIf (nixpkgsFlake != null) {
+      "antos/nixpkgs-source".source = nixpkgsFlake.outPath;
+    })
   ];
 
   # La fuente de nixpkgs en el store: el `flake.nix` generado la fija por
-  # `rev`+`narHash` y nix la encuentra ahí sin salir a la red.
+  # `rev`+`narHash` y nix la encuentra ahí sin salir a la red… salvo con
+  # `--store <destino>`, que es justo lo que hace `nixos-install` (primer
+  # smoke real, 2026-09-22): evaluando contra el store vacío del destino,
+  # nix ignora el atajo por `narHash` y sale a GitHub. Por eso la ruta se
+  # expone también en `/etc/antos/nixpkgs-source` y el instalador pasa
+  # `--override-input nixpkgs path:<esa ruta>` (con `rev` y `lastModified`
+  # del lock, para que el sistema instalado sea idéntico al de la closure).
   nix.registry = lib.mkIf (nixpkgsFlake != null) {
     nixpkgs.flake = nixpkgsFlake;
   };

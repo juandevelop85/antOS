@@ -239,6 +239,35 @@ WantedBy=multi-user.target
         Some((rev, node))
     }
 
+    /// La fuente de nixpkgs que la ISO expone en `/etc/antos/nixpkgs-source`
+    /// (T36.3; `ANTOS_NIXPKGS_SOURCE` la sobrescribe en desarrollo).
+    pub fn locate_nixpkgs_source() -> Option<PathBuf> {
+        let candidate = std::env::var_os("ANTOS_NIXPKGS_SOURCE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/antos/nixpkgs-source"));
+        let resolved = fs::canonicalize(&candidate).ok()?;
+        resolved.join("lib").is_dir().then_some(resolved)
+    }
+
+    /// El `--override-input nixpkgs …` de `nixos-install`: la fuente local
+    /// como entrada `path:`, con `rev` y `lastModified` del `flake.lock` del
+    /// árbol de antOS si lo hay, para que `system.nixos.versionSuffix` (y
+    /// con él el `toplevel`) coincida con la closure que la ISO ya trae.
+    pub fn nixpkgs_override(nixpkgs_source: &Path, antos_source: Option<&Path>) -> String {
+        let mut url = format!("path:{}", nixpkgs_source.display());
+        if let Some((rev, node)) = antos_source.and_then(Self::locked_nixpkgs) {
+            let last_modified = node
+                .get("locked")
+                .and_then(|l| l.get("lastModified"))
+                .and_then(|v| v.as_u64());
+            url.push_str(&format!("?rev={rev}"));
+            if let Some(lm) = last_modified {
+                url.push_str(&format!("&lastModified={lm}"));
+            }
+        }
+        url
+    }
+
     /// Copia recursiva de un directorio saltando los de compilación.
     pub fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
         fs::create_dir_all(dst).with_context(|| format!("Creando {}", dst.display()))?;
@@ -1033,7 +1062,7 @@ WantedBy=multi-user.target
         // la ruta definitiva (local, sin red).
         let flake_ref = format!("{}#{}", etc_nixos.display(), config.hostname);
         let override_path = format!("path:{}", etc_nixos.join("antos").display());
-        let install_args = args(&[
+        let mut install_args = args(&[
             "--root",
             &root_str,
             "--flake",
@@ -1044,7 +1073,31 @@ WantedBy=multi-user.target
             "antos",
             &override_path,
             "--no-write-lock-file",
+            // Sin red, nix «desactiva funciones dependientes de la red»,
+            // entre ellas TODOS los substituters — también el store local
+            // del live, que es de donde `nixos-install` copia la closure al
+            // destino — y se pone a construir el sistema desde
+            // `bootstrap-tools` (6277 derivaciones en el primer smoke real).
+            // El ajuste explícito se respeta y deja la sustitución activa.
+            "--option",
+            "substitute",
+            "true",
         ]);
+        // Primer smoke real (2026-09-22): `nixos-install` hace `nix build
+        // --store <destino>`, y con ello la resolución de `nixpkgs` ocurre
+        // contra el store VACÍO del destino: nix no la encuentra ahí por
+        // `narHash` y sale a GitHub aunque el live la tenga (sin `--store`,
+        // como hace `nixos-rebuild` después, el atajo sí funciona). La ISO
+        // expone la fuente en `/etc/antos/nixpkgs-source` y aquí se pasa como
+        // entrada `path:` con `rev`/`lastModified` del lock: mismo
+        // `toplevel` que la closure de la ISO, nada que construir ni bajar.
+        let nixpkgs_override = Self::locate_nixpkgs_source()
+            .map(|p| Self::nixpkgs_override(&p, antos_source.as_deref()));
+        if let Some(url) = &nixpkgs_override {
+            install_args.push("--override-input".into());
+            install_args.push("nixpkgs".into());
+            install_args.push(url.clone());
+        }
         runner.run_streaming("nixos-install", &install_args, on_line)?;
         state.push(
             "nixos_install",

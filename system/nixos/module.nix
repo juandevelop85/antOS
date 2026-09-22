@@ -129,8 +129,13 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "antos.service" "systemd-modules-load.service" "greetd.service" ];
       wants = [ "antos.service" ];
+      # `nix` va explícito: `nixos-install` lo invoca por nombre y un
+      # servicio de systemd no hereda el PATH del sistema — el primer smoke
+      # real (2026-09-22) llegó hasta `nixos-install` y murió ahí con
+      # «nix: command not found», con el disco ya particionado y montado.
       path = with pkgs; [
         bash coreutils util-linux gnugrep gnused findutils procps systemd
+        gnutar gzip xz jq config.nix.package
         parted dosfstools e2fsprogs nixos-install-tools mkpasswd cfg.package
       ];
       environment = config.environment.variables;

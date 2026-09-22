@@ -9,7 +9,27 @@ SERIAL=/dev/ttyS0
 [ -c /dev/ttyAMA0 ] && SERIAL=/dev/ttyAMA0
 say() { echo "$*"; echo "$*" > "$SERIAL"; }
 finish() { say "ANTOS-SMOKE-INSTALL: $*"; sync; sleep 2; systemctl poweroff -f || poweroff -f; exit 0; }
-fail() { finish "FAIL $*"; }
+# En un fallo, antes de apagar: lo que hace falta para entender por qué
+# `nixos-install` no resolvió algo sin red (registro de flakes, fuente de
+# nixpkgs en el store, y un `flake metadata --offline` sobre lo generado).
+diag() {
+  say "--- diag: /etc/nix/registry.json"
+  head -c 600 /etc/nix/registry.json 2>/dev/null | tee "$SERIAL"; echo
+  say "--- diag: fuentes en el store (path-info)"
+  for p in /nix/store/*-source; do nix --extra-experimental-features nix-command path-info "$p" 2>&1 | tail -n 1; done | tee "$SERIAL"
+  mkdir -p /mnt/target
+  if mountpoint -q /mnt/target || mount /dev/disk/by-label/antos-root /mnt/target 2>/dev/null; then
+    if [ -f /mnt/target/etc/nixos/flake.nix ]; then
+      say "--- diag: flake metadata --offline sobre lo generado"
+      nix --extra-experimental-features "nix-command flakes" flake metadata --offline --no-write-lock-file \
+        --override-input antos path:/mnt/target/etc/nixos/antos path:/mnt/target/etc/nixos 2>&1 | tail -n 25 | tee "$SERIAL"
+      say "--- diag: lock generado"
+      head -c 500 /mnt/target/etc/nixos/flake.lock 2>&1 | tee "$SERIAL"; echo
+    fi
+    umount -R /mnt/target 2>/dev/null || true
+  fi
+}
+fail() { diag; finish "FAIL $*"; }
 run() { say "+ $*"; "$@" 2>&1 | tee "$SERIAL"; return "${PIPESTATUS[0]}"; }
 
 FW=/sys/firmware/qemu_fw_cfg/by_name/opt/antos
@@ -71,9 +91,17 @@ EOF
 sed -i 's|imports = \[ ./hardware-configuration.nix \];|imports = [ ./hardware-configuration.nix ./smoke.nix ];|' \
   /mnt/target/etc/nixos/configuration.nix
 grep -q 'smoke.nix' /mnt/target/etc/nixos/configuration.nix || fail "no pude añadir smoke.nix a configuration.nix"
+NIXPKGS_SRC="$(readlink -f /etc/antos/nixpkgs-source 2>/dev/null || true)"
+NIXPKGS_OVERRIDE=()
+if [ -n "$NIXPKGS_SRC" ]; then
+  # Igual que el instalador: la fuente local con rev/lastModified del lock.
+  REV="$(jq -r .nodes.nixpkgs.locked.rev /etc/antos/source/flake.lock 2>/dev/null || true)"
+  LM="$(jq -r .nodes.nixpkgs.locked.lastModified /etc/antos/source/flake.lock 2>/dev/null || true)"
+  NIXPKGS_OVERRIDE=(--override-input nixpkgs "path:$NIXPKGS_SRC?rev=$REV&lastModified=$LM")
+fi
 run nixos-install --root /mnt/target --flake "/mnt/target/etc/nixos#$HOST" \
   --no-root-passwd --no-channel-copy \
-  --override-input antos path:/mnt/target/etc/nixos/antos --no-write-lock-file \
+  --override-input antos path:/mnt/target/etc/nixos/antos --no-write-lock-file --option substitute true "${NIXPKGS_OVERRIDE[@]}" \
   || fail "segundo nixos-install (gancho de smoke)"
 
 # ── Dual-boot: la ESP ajena sigue intacta y systemd-boot ve a Windows ─────
