@@ -131,10 +131,10 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 29** | [T29.2](T29.2-ejecucion-de-elf-y-coreutils-minimas-no-std.md) | Ejecución de ELF Externos y Coreutils Mínimas `no_std` | ⏳ Pendiente |
 | **Fase 29** | [T29.3](T29.3-edicion-de-linea-historial-y-autocompletado-en-el-shell-soberano.md) | Edición de Línea, Historial y Autocompletado en el Shell Soberano | ⏳ Pendiente |
 | **Fase 30** | [T30.1](T30.1-paquete-nix-de-antos-barra-y-modulo-de-sesion-wayland-declarativo.md) | Paquete Nix de `antos-barra` y Módulo de Sesión Wayland Declarativo | ✅ Completado |
-| **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | 🔄 En Progreso |
+| **Fase 30** | [T30.2](T30.2-imagen-grafica-de-vm-e-iso-de-antos-linux.md) | Imagen Gráfica de VM e ISO de antOS Linux | ✅ Completado |
 | **Fase 30** | [T30.3](T30.3-userland-de-desarrollo-en-la-imagen-neovim-git-y-antos-dev.md) | Userland de Desarrollo en la Imagen: Neovim, Git, Terminal y `antos dev` | 🔄 En Progreso |
 | **Fase 30** | [T30.4](T30.4-verificacion-end-to-end-del-escritorio-antos-linux-y-smoke-en-ci.md) | Verificación End-to-End del Escritorio antOS Linux y Smoke en CI | 🔄 En Progreso |
-| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | 🔄 En Progreso |
+| **Fase 30** | [T30.5](T30.5-instalacion-de-antos-linux-en-hardware-real-y-dual-boot.md) | Instalación de antOS Linux en Hardware Real y Dual-Boot | ✅ Completado |
 | **Fase 30** | [T30.6](T30.6-escritorio-tradicional-opcional-sobre-labwc.md) | Escritorio Tradicional Opcional sobre Labwc (panel, lanzador, fondo, notificaciones) | ✅ Completado |
 | **Fase 30** | [T30.7](T30.7-arranque-acelerado-de-la-vm-grafica-en-macos-hvf.md) | Arranque Acelerado de la VM Gráfica en macOS (HVF) | ✅ Completado |
 | **Fase 30** | [T30.8](T30.8-barra-compacta-con-expansion-bajo-demanda.md) | Barra Compacta con Expansión Bajo Demanda | ✅ Completado |
@@ -180,11 +180,11 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 35** | [T35.2](T35.2-ejecutor-confinado-de-comandos-de-stack-y-toolchains-por-proyecto-via-nix.md) | Ejecutor Confinado de Comandos de Stack y Toolchains por Proyecto vía Nix | ✅ Completado |
 | **Fase 35** | [T35.3](T35.3-test-run-por-stack-verificacion-del-andamio-y-scaffold-en-el-toolset-del-agente.md) | `test.run` por Stack, Verificación del Andamio y `project.scaffold` en el Toolset del Agente | ✅ Completado |
 | **Fase 36** | [T36.1](T36.1-honestidad-del-instalador-y-flake-generado-evaluable.md) | Honestidad del Instalador y `flake.nix` Generado Evaluable | ✅ Completado |
-| **Fase 36** | [T36.2](T36.2-instalacion-real-a-disco-particionado-nixos-install-y-verificacion-en-qemu.md) | Instalación Real a Disco: Particionado, `nixos-install` y Verificación en QEMU | 🔄 En Progreso |
+| **Fase 36** | [T36.2](T36.2-instalacion-real-a-disco-particionado-nixos-install-y-verificacion-en-qemu.md) | Instalación Real a Disco: Particionado, `nixos-install` y Verificación en QEMU | ✅ Completado |
 | **Fase 36** | [T36.3](T36.3-iso-autosuficiente-release-con-checksums-y-cache-binario.md) | ISO Autosuficiente, Release con Checksums y Caché Binario | 🔄 En Progreso |
-| **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | 🔄 En Progreso |
-| **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | 🔄 En Progreso |
-| **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | 🔄 En Progreso |
+| **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | ✅ Completado |
+| **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | ✅ Completado |
+| **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ✅ Completado |
 
 ---
 
