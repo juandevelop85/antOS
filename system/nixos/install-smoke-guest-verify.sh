@@ -35,6 +35,8 @@ wait_for() { # <segundos> <descripción> <comando…>
 
 USER_NAME=antos
 HOST=antos-smoke
+# El modo (clean|dual) entra por `fw_cfg`, igual que en la fase A.
+MODE="$(tr -d '[:space:]' < /sys/firmware/qemu_fw_cfg/by_name/opt/antos/mode/raw 2>/dev/null || echo clean)"
 # `/etc/set-environment` da por hecho que `$HOME` existe (lo escribe para
 # sesiones de usuario), y un servicio de systemd no la define: con `set -u`
 # el guion moría ahí antes de la primera comprobación (smoke real,
@@ -127,6 +129,20 @@ set -e
 GEN_AFTER="$(nixos-rebuild list-generations --json | tr -d ' \n')"
 [ "$GEN_BEFORE" = "$GEN_AFTER" ] || fail "update sin red cambió las generaciones"
 say "✓ antos system update/generations"
+
+# 2d. Dual-boot (T36.2): ya arrancados con systemd-boot, el gestor publica
+#     sus entradas en `LoaderEntries` y `bootctl list` las enumera — es el
+#     único sitio donde se puede comprobar que el vecino sigue arrancable,
+#     porque esa entrada la sintetiza el gestor, no está en disco.
+if [ "$MODE" = dual ]; then
+  say "+ bootctl list (dual: antOS y el vecino)"
+  BOOTCTL="$(bootctl list 2>&1 || true)"
+  say "$BOOTCTL"
+  echo "$BOOTCTL" | grep -qi 'nixos\|antos' || fail "bootctl list no muestra a antOS"
+  echo "$BOOTCTL" | grep -qi 'windows' || fail "bootctl list no muestra a Windows"
+  [ -f /boot/EFI/Microsoft/Boot/bootmgfw.efi ] || fail "el cargador del vecino desapareció"
+  say "✓ dual-boot: systemd-boot ofrece antOS y el vecino"
+fi
 
 # 3. El sistema se puede reconstruir sin red (todo está en el store).
 cd /root || fail "sin /root"

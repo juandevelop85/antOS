@@ -479,12 +479,27 @@ impl PartedRegion {
 
 /// Devuelve las regiones (particiones y huecos) en el orden del disco.
 pub fn parse_parted_print_free(output: &str) -> Vec<PartedRegion> {
-    let mib = |v: &str| -> u64 {
-        v.trim_end_matches("MiB")
-            .parse::<f64>()
-            .map(|f| f.round() as u64)
-            .unwrap_or(0)
-    };
+    let parse = |v: &str| v.trim_end_matches("MiB").parse::<f64>().ok();
+    let mib = |v: &str| -> u64 { parse(v).map(|f| f.round() as u64).unwrap_or(0) };
+    // Un hueco libre se mide con los redondeos que hacen que lo que se pida
+    // quepa siempre: el principio hacia arriba y el final hacia abajo.
+    let mib_start = |v: &str| -> u64 { parse(v).map(|f| f.ceil() as u64).unwrap_or(0) };
+    let mib_end = |v: &str| -> u64 { parse(v).map(|f| f.floor() as u64).unwrap_or(0) };
+    // El último MiB del disco no es utilizable: GPT guarda ahí su cabecera
+    // de respaldo. `parted … unit MiB print free` no lo descuenta —da el
+    // hueco final de un disco de 32 GiB como `32768MiB`— y
+    // `parted mkpart … 32768MiB` falla con «outside of the device». Lo vio
+    // el smoke de instalación en modo dual (2026-09-22), así que el final
+    // de cualquier región se recorta contra el tamaño que anuncia el propio
+    // disco (segunda línea de la salida: `<ruta>:<tamaño>MiB:…`).
+    let disk_end_mib = output
+        .lines()
+        .nth(1)
+        .and_then(|line| line.split(':').nth(1))
+        .and_then(parse)
+        .map(|f| f.floor() as u64)
+        .map(|size| size.saturating_sub(1));
+    let clamp = |end: u64| -> u64 { disk_end_mib.map_or(end, |last| end.min(last)) };
     output
         .lines()
         .skip(2) // `BYT;` y la línea del disco
@@ -495,11 +510,13 @@ pub fn parse_parted_print_free(output: &str) -> Vec<PartedRegion> {
                 return None;
             }
             if fields[4] == "free" {
+                let start_mib = mib_start(fields[1]);
+                let end_mib = clamp(mib_end(fields[2]));
                 return Some(PartedRegion {
                     number: None,
-                    start_mib: mib(fields[1]),
-                    end_mib: mib(fields[2]),
-                    size_mib: mib(fields[3]),
+                    start_mib,
+                    end_mib,
+                    size_mib: end_mib.saturating_sub(start_mib),
                     fs_type: "free".into(),
                     name: String::new(),
                     flags: String::new(),
@@ -541,7 +558,42 @@ mod tests {
         assert!(!regions[2].is_esp());
         let free = regions.iter().find(|r| r.is_free()).unwrap();
         assert_eq!(free.start_mib, 500000);
-        assert_eq!(free.size_mib, 453870);
+        // Un MiB menos de lo que dice `parted`: el último es de la cabecera
+        // de respaldo de GPT y `mkpart` lo rechaza.
+        assert_eq!(free.end_mib, 953869);
+        assert_eq!(free.size_mib, 453869);
+    }
+
+    /// El hueco del final de un disco real no acaba en un MiB exacto: GPT se
+    /// reserva el final para su cabecera de respaldo. Pedirle a `parted` una
+    /// partición que acabe un MiB más allá falla con «outside of the device»,
+    /// y eso tumbó el smoke en modo dual (2026-09-22).
+    #[test]
+    fn test_parse_parted_print_free_no_se_pasa_del_final_del_disco() {
+        const CON_DECIMALES: &str = "BYT;\n\
+/dev/vda:32768MiB:virtblk:512:512:gpt:Virtio Block Device:;\n\
+1:1.00MiB:4609MiB:4608MiB:fat32:EFI:boot, esp;\n\
+1:4609MiB:32767.98MiB:28158.98MiB:free;\n";
+        let hueco = parse_parted_print_free(CON_DECIMALES)
+            .into_iter()
+            .find(|r| r.is_free())
+            .expect("hueco libre");
+        assert_eq!(hueco.start_mib, 4609);
+        assert_eq!(hueco.end_mib, 32767, "el final se redondea hacia abajo");
+        assert_eq!(hueco.size_mib, 32767 - 4609);
+
+        // Y el caso que se dio de verdad: `parted` con `unit MiB` ya redondea
+        // al alza y da el final del hueco como el tamaño entero del disco.
+        const REDONDEADA: &str = "BYT;\n\
+/dev/vda:32768MiB:virtblk:512:512:gpt:Virtio Block Device:;\n\
+1:1.00MiB:4609MiB:4608MiB:fat32:EFI:boot, esp;\n\
+1:4609MiB:32768MiB:28159MiB:free;\n";
+        let hueco = parse_parted_print_free(REDONDEADA)
+            .into_iter()
+            .find(|r| r.is_free())
+            .expect("hueco libre");
+        assert_eq!(hueco.end_mib, 32767, "el último MiB es de la cabecera GPT");
+        assert_eq!(hueco.size_mib, 32767 - 4609);
     }
 
     #[test]

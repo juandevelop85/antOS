@@ -79,9 +79,28 @@ run antos install --config /tmp/install.toml --apply || fail "antos install --ap
 # recién escrito y se vuelve a pasar `nixos-install` — la closure ya está
 # en el disco, así que solo re-evalúa y activa.
 mkdir -p /mnt/target
-mount /dev/disk/by-label/antos-root /mnt/target || fail "montando la raíz instalada"
+# El instalador acaba de crear y desmontar esta partición: el enlace por
+# etiqueta puede no existir todavía (udev aún no ha procesado el cambio de
+# tabla). En modo dual, con la raíz creada al final del disco, el montaje
+# falló así con «Can't lookup blockdev» (2026-09-22). Se espera a udev y se
+# resuelve la etiqueta con `blkid`, que no depende de los enlaces de /dev.
+ROOT_DEV=""
+for intento in 1 2 3 4 5; do
+  udevadm settle --timeout=20 >/dev/null 2>&1 || true
+  ROOT_DEV="$(blkid -L antos-root 2>/dev/null || true)"
+  [ -n "$ROOT_DEV" ] && break
+  say "esperando a la raíz instalada (intento $intento)"
+  partprobe "$DEV" >/dev/null 2>&1 || true
+  sleep 2
+done
+[ -n "$ROOT_DEV" ] || fail "no encuentro la raíz instalada (etiqueta antos-root)"
+mount "$ROOT_DEV" /mnt/target || fail "montando la raíz instalada ($ROOT_DEV)"
 mkdir -p /mnt/target/boot
-if [ "$MODE" = dual ]; then ESP_DEV="${DEV}1"; else ESP_DEV=/dev/disk/by-label/ANTOS_ESP; fi
+if [ "$MODE" = dual ]; then
+  ESP_DEV="${DEV}1"
+else
+  ESP_DEV="$(blkid -L ANTOS_ESP 2>/dev/null || echo /dev/disk/by-label/ANTOS_ESP)"
+fi
 mount "$ESP_DEV" /mnt/target/boot || fail "montando la ESP"
 [ -f /mnt/target/etc/nixos/flake.nix ] || fail "el sistema instalado no tiene /etc/nixos/flake.nix"
 cat > /mnt/target/etc/nixos/smoke.nix <<'EOF'
@@ -110,9 +129,15 @@ if [ "$MODE" = dual ]; then
   [ "$ESP_SUM_AFTER" = "$ESP_SUM_BEFORE" ] || fail "la ESP ajena cambió ($ESP_SUM_BEFORE → $ESP_SUM_AFTER)"
   [ -f /mnt/target/boot/EFI/Microsoft/Boot/bootmgfw.efi ] || fail "bootmgfw.efi desapareció"
   [ -b /dev/disk/by-label/other ] || fail "la partición ajena desapareció"
+  # Lo que sí se puede afirmar desde aquí: que systemd-boot quedó instalado
+  # en la ESP compartida con su entrada, sin tocar la del vecino. Que el
+  # gestor *vea* a Windows no se comprueba aquí: esa entrada la sintetiza el
+  # propio systemd-boot al arrancar y la publica en `LoaderEntries`, y este
+  # live arrancó con GRUB desde la ISO — `bootctl list` solo enumera lo que
+  # hay en disco. La comprobación vive en la fase B, ya arrancados con
+  # systemd-boot (2026-09-23).
   BOOTCTL="$(bootctl --esp-path=/mnt/target/boot list 2>&1 || true)"
   say "$BOOTCTL"
-  echo "$BOOTCTL" | grep -qi 'windows' || fail "bootctl list no muestra a Windows"
   echo "$BOOTCTL" | grep -qi 'nixos\|antos' || fail "bootctl list no muestra a antOS"
 fi
 ls /mnt/target/boot/EFI/systemd/ >/dev/null 2>&1 || fail "systemd-boot no está en la ESP"
