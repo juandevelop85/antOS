@@ -9,7 +9,20 @@ SERIAL=/dev/ttyS0
 [ -c /dev/ttyAMA0 ] && SERIAL=/dev/ttyAMA0
 say() { echo "$*"; echo "$*" > "$SERIAL"; }
 finish() { say "ANTOS-SMOKE-VERIFY: $*"; sync; sleep 2; systemctl poweroff -f || poweroff -f; exit 0; }
-fail() { finish "FAIL $*"; }
+# Al fallar, antes de apagar: lo que hace falta para entender por qué no
+# arrancó lo gráfico (el diario de la sesión no sale por la serie, y el
+# compositor se reinicia en bucle sin dejar rastro en ella).
+diag() {
+  say "--- diag: dispositivos DRM"
+  ls -l /dev/dri 2>&1 | tee "$SERIAL"
+  say "--- diag: greetd"
+  journalctl -u greetd.service --no-pager -n 40 2>&1 | tail -n 40 | tee "$SERIAL"
+  say "--- diag: sesión del usuario"
+  journalctl _UID="$(id -u "$USER_NAME" 2>/dev/null || echo 1000)" --no-pager -n 40 2>&1 | tail -n 40 | tee "$SERIAL"
+  say "--- diag: procesos"
+  ps -eo pid,comm 2>&1 | grep -E "labwc|plasma|barra|greetd|antos" | tee "$SERIAL"
+}
+fail() { diag; finish "FAIL $*"; }
 wait_for() { # <segundos> <descripción> <comando…>
   local secs="$1" what="$2"; shift 2
   local deadline=$(( $(date +%s) + secs ))
@@ -22,7 +35,17 @@ wait_for() { # <segundos> <descripción> <comando…>
 
 USER_NAME=antos
 HOST=antos-smoke
-[ -f /etc/set-environment ] && . /etc/set-environment
+# `/etc/set-environment` da por hecho que `$HOME` existe (lo escribe para
+# sesiones de usuario), y un servicio de systemd no la define: con `set -u`
+# el guion moría ahí antes de la primera comprobación (smoke real,
+# 2026-09-22). Se corre como root, así que `HOME=/root`, y el sourcing va
+# sin `-u` por si el perfil vuelve a asumir otra variable de sesión.
+export HOME="${HOME:-/root}"
+if [ -f /etc/set-environment ]; then
+  set +u
+  . /etc/set-environment
+  set -u
+fi
 STATE="${ANTOS_STATE:-/var/lib/antos/estado}"
 WORKSPACE="${ANTOS_WORKSPACE:-/var/lib/antos/workspace}"
 
@@ -40,7 +63,11 @@ wait_for 60 "antos ping (QueryGitStatus por el socket)" \
 # 2. La sesión de escritorio: greetd abrió sesión al usuario y la barra vive.
 wait_for 180 "sesión de $USER_NAME abierta por greetd" \
   bash -c "loginctl list-sessions --no-legend | grep -q ' $USER_NAME '"
-wait_for 120 "antos-barra en ejecución" pgrep -x antos-barra
+# `pgrep -x antos-barra` no la encuentra nunca: el envoltorio de NixOS se
+# llama `.antos-barra-wrapped` y el kernel recorta `comm` a 15 caracteres
+# (`.antos-barra-wr`). Se busca por la línea de órdenes completa, que sí
+# lleva la ruta del store con el nombre entero.
+wait_for 120 "antos-barra en ejecución" pgrep -f "antos-barra"
 
 # 2b. Primer arranque (T36.5): `antos setup --yes` como el usuario es
 #     idempotente (segunda pasada: todo «ya hecho», nada cambia) y
@@ -63,20 +90,42 @@ say "✓ antos setup idempotente"
 as_user antos doctor --desktop 2>&1 | tee "$SERIAL" || fail "antos doctor --desktop"
 say "✓ antos doctor --desktop"
 
-# 2c. Actualización (T36.6): `--check` evalúa sin red (la fuente es
-#     path:/etc/nixos/antos y nixpkgs está en el store) y sale 0 o 10;
-#     `generations` lista la actual; `update --yes` sin cambios dice «al día»
-#     y no cambia de generación.
-say "+ antos system update --check"
-set +e
-as_user antos system update --check 2>&1 | tee "$SERIAL"
-rc=${PIPESTATUS[0]}
-set -e
-[ "$rc" = 0 ] || [ "$rc" = 10 ] || fail "antos system update --check salió con $rc"
-[ -f "$STATE/update-available.json" ] || fail "sin update-available.json"
-as_user antos system generations 2>&1 | tee "$SERIAL" | grep -q '●' || fail "antos system generations sin generación actual"
+# 2c. Actualización (T36.6). Esta VM no tiene red a propósito, y comprobar
+#     si hay algo nuevo exige salir a internet: `nix flake update` refresca
+#     TODAS las entradas del flake, también `nixpkgs` (github:), por mucho
+#     que la fuente de antOS sea `path:/etc/nixos/antos`. Lo que se exige
+#     aquí, entonces, es que lo diga — código 20 (EXIT_NO_NETWORK) y un
+#     mensaje claro — y no que invente un «estás al día» sin comprobarlo ni
+#     vomite el error crudo de nix. `generations` sí es local y debe
+#     funcionar, y la generación no puede cambiar.
 GEN_BEFORE="$(nixos-rebuild list-generations --json | tr -d ' \n')"
-as_user antos system update --yes 2>&1 | tee "$SERIAL" | grep -q 'al día\|actualizado' || fail "antos system update --yes"
+say "+ antos system update --check (sin red: debe decirlo, código 20)"
+set +e
+as_user antos system update --check 2>&1 | tee "$SERIAL" | grep -q 'sin acceso a la red'
+# `PIPESTATUS` solo sobrevive al primer mandato posterior: cualquier otra
+# cosa en medio (un `said=$?`) la reescribe y `rc` salía 0 aunque el mandato
+# hubiera salido 20.
+estado=("${PIPESTATUS[@]}")
+rc=${estado[0]}
+said=${estado[1]}
+set -e
+[ "$rc" = 20 ] || fail "antos system update --check salió con $rc (esperado 20, sin red)"
+[ "$said" = 0 ] || fail "antos system update --check no explicó la falta de red"
+as_user antos system generations 2>&1 | tee "$SERIAL" | grep -q '●' || fail "antos system generations sin generación actual"
+say "+ antos system update --yes (sin red: debe decirlo, código 20)"
+set +e
+as_user antos system update --yes 2>&1 | tee "$SERIAL" | grep -q 'sin acceso a la red'
+# `PIPESTATUS` solo sobrevive al primer mandato posterior: cualquier otra
+# cosa en medio (un `said=$?`) la reescribe y `rc` salía 0 aunque el mandato
+# hubiera salido 20.
+estado=("${PIPESTATUS[@]}")
+rc=${estado[0]}
+said=${estado[1]}
+set -e
+[ "$rc" = 20 ] || fail "antos system update --yes salió con $rc (esperado 20, sin red)"
+[ "$said" = 0 ] || fail "antos system update --yes no explicó la falta de red"
+GEN_AFTER="$(nixos-rebuild list-generations --json | tr -d ' \n')"
+[ "$GEN_BEFORE" = "$GEN_AFTER" ] || fail "update sin red cambió las generaciones"
 say "✓ antos system update/generations"
 
 # 3. El sistema se puede reconstruir sin red (todo está en el store).

@@ -15,7 +15,8 @@
 //!    copia; el original no se toca hasta aprobar.
 //! 2. `--check`: evalúa el `outPath` del sistema nuevo y lo compara con
 //!    `/run/current-system`. Sin construir ni descargar nada. Sale con `0`
-//!    si no hay cambios y con [`EXIT_UPDATE_AVAILABLE`] si los hay, y deja
+//!    si no hay cambios, con [`EXIT_UPDATE_AVAILABLE`] si los hay y con
+//!    [`EXIT_NO_NETWORK`] si no hay internet para averiguarlo, y deja
 //!    `$ANTOS_STATE/update-available.json` para la barra.
 //! 3. Construcción (`nix build`, descargando del caché de T36.3 si lo hay)
 //!    y diff de closures frente al sistema actual, presentado como el diff
@@ -55,6 +56,10 @@ use std::path::{Path, PathBuf};
 
 /// Código de salida de `--check` cuando hay una actualización.
 pub const EXIT_UPDATE_AVAILABLE: i32 = 10;
+/// Código de salida de `--check` cuando no hay red para comprobarlo. No es
+/// un error del sistema: comprobar si hay algo nuevo exige salir a internet,
+/// y quien llame (la barra, un guion) debe poder distinguirlo de un fallo.
+pub const EXIT_NO_NETWORK: i32 = 20;
 /// Fichero que deja `--check` para la barra.
 pub const UPDATE_AVAILABLE_FILE: &str = "update-available.json";
 /// Subdirectorio del estado con la copia de trabajo de `/etc/nixos`.
@@ -262,6 +267,22 @@ impl<'a> SystemUpdater<'a> {
         addrs.any(|a| {
             std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_secs(3)).is_ok()
         })
+    }
+
+    /// ¿Este fallo de `nix` es por falta de red? nix no distingue con un
+    /// código de salida, así que se reconoce por lo que escribe. El caso se
+    /// vio en el smoke de instalación (T36.2), que corre sin red: la fuente
+    /// de antOS es `path:` y `source_reachable` la da por buena, pero
+    /// `nix flake update` sale igualmente a GitHub a por `nixpkgs`.
+    pub fn looks_offline(text: &str) -> bool {
+        const SIGNS: [&str; 5] = [
+            "you don't have Internet access",
+            "Could not resolve host",
+            "unable to download",
+            "Temporary failure in name resolution",
+            "sin acceso a la fuente de actualizaciones",
+        ];
+        SIGNS.iter().any(|sign| text.contains(sign))
     }
 
     /// `outPath` del sistema nuevo sin construir nada.
@@ -790,7 +811,18 @@ pub fn cmd_system(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
                 paint(&host, DIM)
             );
             if check {
-                let r = updater.check(&host)?;
+                let r = match updater.check(&host) {
+                    Ok(r) => r,
+                    Err(err) if SystemUpdater::looks_offline(&format!("{err:#}")) => {
+                        println!(
+                            "  {} sin acceso a la red: no puedo comprobar si hay \
+                             actualizaciones (las entradas del flake se bajan de internet)",
+                            paint("?", YELLOW)
+                        );
+                        std::process::exit(EXIT_NO_NETWORK);
+                    }
+                    Err(err) => return Err(err),
+                };
                 if r.available {
                     println!(
                         "  {} actualización disponible ({} → {})",
@@ -807,7 +839,10 @@ pub fn cmd_system(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
             let stdout = std::io::stdout();
             let mut reader = stdin.lock();
             let mut writer = stdout.lock();
-            run_update(
+            // Igual que `--check`: sin red no se puede saber si hay algo
+            // nuevo, y decirlo es la respuesta correcta — no un error del
+            // sistema ni, peor, un «estás al día» que no se ha comprobado.
+            if let Err(err) = run_update(
                 &mut updater,
                 &ctx.journal_path(),
                 &host,
@@ -815,7 +850,17 @@ pub fn cmd_system(ctx: &Ctx, args: &[String], assume_yes: bool) -> Result<()> {
                 yes,
                 &mut reader,
                 &mut writer,
-            )?;
+            ) {
+                if SystemUpdater::looks_offline(&format!("{err:#}")) {
+                    println!(
+                        "  {} sin acceso a la red: no puedo comprobar si hay \
+                         actualizaciones (las entradas del flake se bajan de internet)",
+                        paint("?", YELLOW)
+                    );
+                    std::process::exit(EXIT_NO_NETWORK);
+                }
+                return Err(err);
+            }
             Ok(())
         }
         "rollback" | "deshacer" => {

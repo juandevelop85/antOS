@@ -449,3 +449,23 @@ fn test_source_reachable_needs_no_network_for_paths() {
     assert!(SystemUpdater::source_reachable("git+file:///srv/antos"));
     assert!(!SystemUpdater::source_reachable("https://"));
 }
+
+#[test]
+fn test_looks_offline_reconoce_los_fallos_de_red_de_nix() {
+    // Lo que `nix flake update` escribió en el smoke de instalación sin red.
+    assert!(SystemUpdater::looks_offline(
+        "warning: you don't have Internet access; disabling some network-dependent features"
+    ));
+    assert!(SystemUpdater::looks_offline(
+        "error: unable to download 'https://github.com/NixOS/nixpkgs/archive/34ab990.tar.gz': \
+         Could not resolve hostname (6) Could not resolve host: github.com"
+    ));
+    // Y la guarda propia, que salta antes de invocar a nix.
+    assert!(SystemUpdater::looks_offline(
+        "sin acceso a la fuente de actualizaciones (github:juan/antos); nada que comprobar"
+    ));
+    // Un fallo de verdad no se disfraza de falta de red.
+    assert!(!SystemUpdater::looks_offline(
+        "error: attribute 'nixosConfigurations.antos-box' missing"
+    ));
+}

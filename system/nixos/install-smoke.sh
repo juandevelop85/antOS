@@ -21,7 +21,12 @@
 # instalación necesita descargar algo, falla, y eso es lo que se quiere
 # saber (T36.3 mete la closure y la fuente en la ISO).
 #
-# Variables: ARCH (x86_64|aarch64), WORK (directorio de trabajo), DISK_GIB
+# La fase B lleva una GPU virtual (`virtio-gpu-pci`): sin un dispositivo DRM
+# el compositor de la sesión no arranca y `antos-barra` no llega a existir.
+# `-display none` mantiene la VM sin ventana en el anfitrión igualmente.
+#
+# Variables: SKIP_INSTALL=1 (repite solo la fase B sobre el disco ya
+# instalado), ARCH (x86_64|aarch64), WORK (directorio de trabajo), DISK_GIB
 # (32), MEM_MIB (4096), TIMEOUT_INSTALL (3600 s), TIMEOUT_VERIFY (900 s),
 # OVMF_CODE / OVMF_VARS (firmware UEFI; se buscan en las rutas habituales).
 set -euo pipefail
@@ -86,9 +91,15 @@ MACHINE=()
 mkdir -p "$WORK"
 DISK="$WORK/disk.qcow2"
 VARS="$WORK/vars.fd"
-cp "$OVMF_VARS" "$VARS"
-chmod u+w "$VARS"
-qemu-img create -q -f qcow2 "$DISK" "${DISK_GIB}G"
+if [ "${SKIP_INSTALL:-0}" = 1 ]; then
+  # Reutilizar el disco instalado exige conservar también la NVRAM UEFI: la
+  # entrada de arranque al sistema instalado la escribió la fase A ahí.
+  [ -f "$DISK" ] && [ -f "$VARS" ] || die "SKIP_INSTALL=1 pero falta $DISK o $VARS"
+else
+  cp "$OVMF_VARS" "$VARS"
+  chmod u+w "$VARS"
+  qemu-img create -q -f qcow2 "$DISK" "${DISK_GIB}G"
+fi
 
 # ── install.toml para el invitado ──────────────────────────────────────────
 CLEAN=true; [ "$MODE" = dual ] && CLEAN=false
@@ -146,8 +157,24 @@ run_phase() { # <nombre> <guion-invitado> <timeout> <log> <args-qemu…>
   fi
 }
 
-run_phase INSTALL "$HERE/install-smoke-guest-install.sh" "$TIMEOUT_INSTALL" "$WORK/serial-install.log" \
-  -cdrom "$ISO" -boot d
-run_phase VERIFY "$HERE/install-smoke-guest-verify.sh" "$TIMEOUT_VERIFY" "$WORK/serial-verify.log"
+if [ "${SKIP_INSTALL:-0}" = 1 ]; then
+  # Repetir solo la fase B sobre el disco ya instalado: la fase A tarda
+  # minutos y el guion de verificación entra por `fw_cfg` en cada arranque,
+  # así que iterar sobre ella no exige reinstalar.
+  echo "── Fase INSTALL omitida (SKIP_INSTALL=1): se reutiliza $DISK"
+else
+  run_phase INSTALL "$HERE/install-smoke-guest-install.sh" "$TIMEOUT_INSTALL" "$WORK/serial-install.log" \
+    -cdrom "$ISO" -boot d
+fi
+# La GPU virtual es solo de la fase B: sin un dispositivo DRM el compositor
+# de la sesión no arranca y `antos-barra` no llega a existir. En la fase A
+# estorba — con GPU el live renderiza Plasma por software y la instalación
+# pasó de 3 a más de 40 minutos en la misma máquina. La dirección PCI va
+# fijada y alta a propósito: el disco conserva la suya (`0x2`) y la entrada
+# de arranque que la fase A escribió en la NVRAM UEFI sigue resolviendo —
+# con la GPU en el primer hueco libre, el firmware no encontraba el disco y
+# caía a la shell EFI.
+run_phase VERIFY "$HERE/install-smoke-guest-verify.sh" "$TIMEOUT_VERIFY" "$WORK/serial-verify.log" \
+  -device virtio-gpu-pci,addr=0x9
 
 echo "SMOKE OK ($MODE, $ARCH) · $WORK"
