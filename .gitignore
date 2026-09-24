@@ -19,3 +19,12 @@ target/
 # archivos de sistema macOS
 .DS_Store
 **/.DS_Store
+
+# Claves de firma (T36.7). Nunca en el repositorio: la privada de release
+# vive en `~/.antos-keys/` y en `secrets.RELEASE_SIGNING_KEY`; la del caché
+# binario, en `~/.antos-keys/` y en `secrets.NIX_CACHE_SIGNING_KEY`. Las
+# públicas SÍ se publican, pero desde `docs/` y `system/nixos/cache.nix`.
+antos-release
+antos-release.pub
+antos-cache-*.key
+antos-cache-*.pub

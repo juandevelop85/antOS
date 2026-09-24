@@ -1,0 +1,8 @@
+antos-cache-1:F3cmreM1JmJebBDqqtgkoCSZJ0H42BhhdiOlKrH8kKE=
+# Clave pública del caché binario de antOS (T36.7).
+#
+# Está aquí y NO en `system/nixos/cache-public-key.txt` a propósito: ese
+# fichero es lo que enciende `services.antos.binaryCache`, y encenderlo
+# significa «hay un caché firmado sirviendo en la URL del módulo». Todavía
+# no lo hay — falta que la CI publique Pages (T31.10). El día que lo haya,
+# el paso es copiar la primera línea de este fichero allí; nada más.
