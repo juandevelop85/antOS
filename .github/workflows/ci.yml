@@ -15,6 +15,12 @@ on:
     branches: [master, main, develop]
   pull_request:
     branches: [master, main, develop]
+  # Disparo manual: hasta 2026-09-24 ninguna ejecución de este repositorio
+  # llegó a arrancar (`startup_failure` antes de leer el workflow, ver
+  # T31.10), y sin `workflow_dispatch` no había forma de reintentar sin
+  # inventar un commit. Con el repositorio ya público, es la palanca para
+  # comprobarlo.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
