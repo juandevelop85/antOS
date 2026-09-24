@@ -185,7 +185,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.4](T36.4-perfil-de-maquina-fisica-red-audio-teclado-y-contrasena-en-el-asistente.md) | Perfil de Máquina Física: Red, Audio, Teclado y Contraseña en el Asistente | ✅ Completado |
 | **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | ✅ Completado |
 | **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ✅ Completado |
-| **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | ⏳ Pendiente |
+| **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | 🔄 En Progreso |
 
 ---
 

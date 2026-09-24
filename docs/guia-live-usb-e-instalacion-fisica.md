@@ -48,9 +48,17 @@ Después se graba como cualquier ISO: `antos usb flash --image <iso> --target
 /dev/sdX --apply` (Método A, paso 3), Ventoy, Rufus, Etcher o `dd` (Métodos
 B–D). Requisitos de esta ISO: firmware UEFI, **≥ 4 GiB de RAM** para la
 sesión en vivo (escritorio Plasma) y un disco con **≥ 20 GiB libres** para
-la raíz (Disco Completo o hueco sin particionar en Dual-Boot). El tamaño de
-la ISO lo imprime el workflow `release.yml` en cada construcción; se
-anotará aquí con la primera release.
+la raíz (Disco Completo o hueco sin particionar en Dual-Boot). Tamaño
+medido en la primera release (`v0.2.0`, aarch64): **4,11 GiB** (4218 MiB),
+en tres partes de 1,9 GiB, 1,9 GiB y 417 MiB.
+
+> **Mientras el repositorio sea privado**, las descargas de la release
+> **exigen credenciales de GitHub**: una petición anónima devuelve `Not
+> Found`, tanto a la ISO como al `SHA256SUMS`. Con `gh` instalado,
+> `gh release download v0.2.0`; sin él, por la API con un token
+> (`Accept: application/octet-stream` sobre
+> `/repos/<owner>/<repo>/releases/assets/<id>`). Para que cualquiera pueda
+> descargarla sin cuenta, el repositorio tiene que ser público.
 
 Sin release a mano, la ISO se construye con Nix en cualquier Linux:
 `nix build .#iso` (Método 5 del [manual](manual-de-comandos.md)).
