@@ -27,9 +27,9 @@
   --grad: linear-gradient(95deg, #1fb8ff 0%, #5b6cff 55%, #a45cff 100%);
   --shadow: 0 1px 2px rgb(20 25 80 / .06), 0 16px 44px -14px rgb(30 35 120 / .25);
   --radius: 18px;
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --display: "Outfit", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --display: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   color-scheme: light;
 }
 
@@ -154,7 +154,7 @@ h3 { font-size: 1.12rem; font-weight: 600; letter-spacing: -.01em; }
 }
 .hero-bg {
   position: absolute; inset: 0; z-index: -1;
-  background: url("assets/wallpaper.webp") 62% 100% / cover no-repeat;
+  background: url("/assets/wallpaper.webp") 62% 100% / cover no-repeat;
 }
 .hero-bg::after {
   content: ""; position: absolute; inset: 0;
