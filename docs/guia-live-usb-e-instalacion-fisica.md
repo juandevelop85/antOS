@@ -27,12 +27,22 @@ publica en [GitHub Releases](https://github.com/juandevelop85/antOS/releases)
 lleva dentro la closure del sistema que instala, el árbol fuente de antOS y
 la fuente de `nixpkgs`, así que `antos install --apply` funciona sin red.
 
+La ISO viaja **troceada**: GitHub limita cada fichero de una release a
+2 GiB y la ISO pasa de 4 GiB. Se descargan las partes (`.part-aa`,
+`.part-ab`, …) y se recomponen con `cat`, que es exactamente lo que hizo
+`split` al trocearla:
+
 ```bash
-sha256sum -c SHA256SUMS
-# Si hay firma (clave pública en docs/release-signing-key.pub del repositorio):
+cat antos-linux-<versión>-<arch>.iso.part-* > antos-linux-<versión>-<arch>.iso
+sha256sum -c SHA256SUMS   # comprueba la ISO recompuesta y cada parte
+# Firma (clave pública en docs/release-signing-key.pub del repositorio):
 printf 'antos-release %s\n' "$(grep -v '^#' release-signing-key.pub)" > allowed
 ssh-keygen -Y verify -f allowed -I antos-release -n antos-release -s SHA256SUMS.sig < SHA256SUMS
 ```
+
+El orden importa y `*` lo da bien: las partes van con sufijo alfabético
+(`aa`, `ab`, `ac`). Si `sha256sum -c` falla en una parte, se vuelve a
+descargar solo esa.
 
 Después se graba como cualquier ISO: `antos usb flash --image <iso> --target
 /dev/sdX --apply` (Método A, paso 3), Ventoy, Rufus, Etcher o `dd` (Métodos
