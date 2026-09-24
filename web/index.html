@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>antOS · El sistema operativo para desarrolladores</title>
+  <meta name="description" content="antOS: sistema operativo personal para desarrolladores con orquestación multi-agente nativa, capacidades tipadas, sandbox del kernel y reversión atómica.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top" aria-label="antOS, inicio">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="9" r="4"/><ellipse cx="16" cy="17" rx="3.4" ry="4"/><ellipse cx="16" cy="25.5" rx="4.6" ry="5"/>
+          <path d="M13 7 9 2M19 7l4-5M13 16l-7-3M19 16l7-3M13 19l-7 4M19 19l7 4M12.5 24l-6 5M19.5 24l6 5" fill="none" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span>antOS</span>
+      </a>
+      <nav class="nav-links" aria-label="Secciones">
+        <a href="#como">Cómo funciona</a>
+        <a href="#agentes">Agentes</a>
+        <a href="#seguridad">Seguridad</a>
+        <a href="#estado">Estado</a>
+      </nav>
+      <div class="nav-actions">
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Cambiar tema">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+        </button>
+        <a class="btn btn-primary btn-sm" href="#descarga">Descargar</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- HERO ------------------------------------------------------------- -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="dot"></span> v0.2.0 · prerelease · x86_64 y AArch64</p>
+          <h1>La IA no ejecuta comandos <em>a ciegas</em>.</h1>
+          <p class="lede">
+            antOS es un sistema operativo para desarrolladores. Un equipo de agentes
+            trabaja en <strong>worktrees aislados</strong> y con <strong>capacidades tipadas</strong>
+            dentro de un <strong>recinto del kernel</strong>. Cada cambio se puede deshacer.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#descarga">Descargar la ISO</a>
+            <a class="btn btn-ghost" href="https://github.com/juandevelop85/antOS">Ver en GitHub →</a>
+          </div>
+          <p class="hint">Prueba la barra de intenciones del escritorio. Es una demostración guionizada, no un sistema en vivo.</p>
+        </div>
+
+        <!-- Escritorio simulado -->
+        <div class="desk" aria-label="Demostración interactiva del escritorio de antOS">
+          <div class="desk-top">
+            <span class="desk-badge">⎇ main · 2 worktrees</span>
+            <span class="desk-badge">⬡ 313 tests</span>
+            <span class="desk-clock" id="clock">09:41</span>
+          </div>
+
+          <form class="intent" id="intent-form" autocomplete="off">
+            <span class="intent-glyph" aria-hidden="true">❯</span>
+            <label class="sr-only" for="intent-input">Intención</label>
+            <input id="intent-input" placeholder="¿Qué quieres hacer?" value="">
+            <kbd>↵</kbd>
+          </form>
+          <div class="chips" id="chips">
+            <button type="button" data-intent="fix">arregla el test que falla en api-service</button>
+            <button type="button" data-intent="secret">sincroniza releases con GITHUB_TOKEN</button>
+            <button type="button" data-intent="db">levanta postgres para este proyecto</button>
+          </div>
+
+          <div class="board" id="board">
+            <div class="col"><h4>Plan</h4><div class="lane" data-lane="plan"></div></div>
+            <div class="col"><h4>En curso</h4><div class="lane" data-lane="run"></div></div>
+            <div class="col"><h4>QA</h4><div class="lane" data-lane="qa"></div></div>
+            <div class="col"><h4>Hecho</h4><div class="lane" data-lane="done"></div></div>
+          </div>
+
+          <pre class="log" id="log" aria-live="polite"><span class="muted"># Super + A · tablero de agentes</span>
+<span class="muted"># escribe una intención o elige una sugerencia ↑</span></pre>
+
+          <div class="toast" id="toast" hidden>
+            <div class="toast-body" id="toast-body"></div>
+            <div class="toast-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="toast-ok">Aprobar</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="toast-undo">antos undo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROBLEMA --------------------------------------------------------- -->
+    <section class="section">
+      <div class="wrap">
+        <p class="kicker">El problema</p>
+        <h2>Los sistemas operativos de hoy son de otra época.</h2>
+        <div class="problem-grid">
+          <article class="problem">
+            <span class="problem-num">01</span>
+            <h3>Autoridad ambiental total</h3>
+            <p>Un script o un agente de IA hereda todo lo que tú puedes hacer: leer tu <code>.env</code>, tus llaves SSH o tu carpeta personal.</p>
+          </article>
+          <article class="problem">
+            <span class="problem-num">02</span>
+            <h3>Solo entienden bytes</h3>
+            <p>El sistema no sabe qué es un repositorio, una rama, un test que falla ni un puerto ocupado. Todo ese contexto lo reconstruyes tú a mano.</p>
+          </article>
+          <article class="problem">
+            <span class="problem-num">03</span>
+            <h3>Sin marcha atrás</h3>
+            <p>Si un agente rompe algo, te toca arreglarlo con <code>git reflog</code> y paciencia. Nada está pensado para deshacerse.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CÓMO FUNCIONA ---------------------------------------------------- -->
+    <section class="section section-alt" id="como">
+      <div class="wrap">
+        <p class="kicker">Cómo funciona</p>
+        <h2>Tres capas, un contrato tipado entre ellas.</h2>
+        <div class="layers">
+          <div class="layer">
+            <div class="layer-tag">Superficie</div>
+            <div>
+              <h3>Escritorio Wayland · GTK4</h3>
+              <p>Barra de intenciones, tablero Kanban de agentes (<kbd>Super</kbd>+<kbd>A</kbd>), visor de diffs, terminal VTE y bandeja de aprobaciones.</p>
+            </div>
+          </div>
+          <div class="layer-link">IPC tipado · <code>antos-protocolo</code></div>
+          <div class="layer">
+            <div class="layer-tag">Contexto</div>
+            <div>
+              <h3>Motor multi-agente y de contexto</h3>
+              <p>Orquestador antFlow, parser de tickets Markdown, memoria semántica en SQLite, LLM local con Ollama o remoto, entornos Nix/Devbox y servicios efímeros.</p>
+            </div>
+          </div>
+          <div class="layer-link">Capacidades tipadas · sandbox</div>
+          <div class="layer layer-core">
+            <div class="layer-tag">Núcleo</div>
+            <div>
+              <h3><code>antosd</code>: ejecución aislada</h3>
+              <p>Cálculo del blast radius, recinto Landlock (Linux) o Seatbelt (macOS), cuotas de recursos, bitácora inmutable e instantáneas atómicas.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- AGENTES ---------------------------------------------------------- -->
+    <section class="section" id="agentes">
+      <div class="wrap">
+        <p class="kicker">antFlow</p>
+        <h2>Una colonia de agentes, cada uno con su oficio.</h2>
+        <p class="section-lede">Trabajan como demonios del sistema sobre <em>Git worktrees</em> efímeros. Nunca tocan tu rama directamente.</p>
+        <div class="agents">
+          <article class="agent" style="--c: var(--c-arch)">
+            <div class="agent-icon">📐</div>
+            <h3>Arquitecto</h3>
+            <p>Lee el ticket, planifica contra el catálogo de capacidades y calcula el radio de impacto.</p>
+            <code>antos agent do</code>
+          </article>
+          <article class="agent" style="--c: var(--c-code)">
+            <div class="agent-icon">💻</div>
+            <h3>Coder</h3>
+            <p>Implementa el plan en su propio worktree aislado, en paralelo con los demás.</p>
+            <code>antos swarm dispatch</code>
+          </article>
+          <article class="agent" style="--c: var(--c-qa)">
+            <div class="agent-icon">🧪</div>
+            <h3>QA</h3>
+            <p>Ejecuta los tests del proyecto. Si no pasan, el cambio no avanza.</p>
+            <code>antos ci run</code>
+          </article>
+          <article class="agent" style="--c: var(--c-audit)">
+            <div class="agent-icon">🛡️</div>
+            <h3>Auditor</h3>
+            <p>Revisa el diff consolidado y te pide la aprobación antes de fusionarlo.</p>
+            <code>antos diff</code>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEGURIDAD -------------------------------------------------------- -->
+    <section class="section section-alt" id="seguridad">
+      <div class="wrap">
+        <p class="kicker">Seguridad y reversibilidad</p>
+        <h2>Del «ejecuta esto» al «esto es lo que va a pasar».</h2>
+        <ol class="flow">
+          <li><span>1</span><div><h3>Intención</h3><p>Pides algo en lenguaje natural.</p></div></li>
+          <li><span>2</span><div><h3>Plan tipado</h3><p>Se traduce a capacidades con parámetros, efectos y nivel de riesgo declarados.</p></div></li>
+          <li><span>3</span><div><h3>Blast radius</h3><p>Ves qué ficheros, puertos y secretos se tocarán. Con <code>--dry-run</code> no se modifica nada.</p></div></li>
+          <li><span>4</span><div><h3>Recinto</h3><p>La ejecución queda confinada por el kernel, con acceso a secretos solo mediante <em>grants</em> temporales.</p></div></li>
+          <li><span>5</span><div><h3>Instantánea</h3><p>Antes de cada cambio se guarda una instantánea. <code>antos undo --ticket</code> lo revierte todo.</p></div></li>
+        </ol>
+
+        <div class="split">
+          <div class="term">
+            <div class="term-bar"><i></i><i></i><i></i><span>zsh — antos</span></div>
+<pre><span class="p">$</span> antos grant secret.GITHUB_TOKEN --minutos 15 \
+    --para "sincronizar releases"
+<span class="ok">✓</span> concesión g-7f2a válida hasta 09:56
+<span class="p">$</span> antos undo --ticket T3.2
+<span class="warn">↺</span> restaurando instantánea previa a T3.2
+<span class="ok">✓</span> 4 ficheros revertidos · worktree eliminado</pre>
+          </div>
+          <table class="compare">
+            <caption class="sr-only">Comparativa entre un SO convencional y antOS</caption>
+            <thead><tr><th></th><th>SO convencional</th><th>antOS</th></tr></thead>
+            <tbody>
+              <tr><th>Acceso de un agente</th><td>Todo lo que puede el usuario</td><td>Capacidades declaradas</td></tr>
+              <tr><th>Secretos</th><td>Legibles siempre</td><td>Grant con caducidad</td></tr>
+              <tr><th>Lecturas en Linux</th><td>Sin restricción</td><td>Confinadas con Landlock</td></tr>
+              <tr><th>Deshacer</th><td>Manual</td><td>Atómico, por ticket</td></tr>
+              <tr><th>Contexto del repo</th><td>Ninguno</td><td>Ramas, diffs, tests y tickets</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ARQUITECTURA ----------------------------------------------------- -->
+    <section class="section">
+      <div class="wrap">
+        <p class="kicker">Hecho en Rust, de arriba abajo</p>
+        <h2>Desde la barra de escritorio hasta el kernel <code>no_std</code>.</h2>
+        <div class="stack">
+          <div><strong>kernel</strong><span>Núcleo bare-metal para x86_64 y AArch64 con compositor 2D, VirtIO y cargador ELF64</span></div>
+          <div><strong>antos-init</strong><span>PID 1 y shell soberano, sin glibc ni musl</span></div>
+          <div><strong>antosd</strong><span>Demonio, CLI, planificador, sandbox y antFlow</span></div>
+          <div><strong>barra</strong><span>Shell Wayland con GTK4 Layer Shell</span></div>
+          <div><strong>builder</strong><span>Imágenes BIOS, UEFI e ISO híbridas</span></div>
+          <div><strong>capabilities</strong><span>Manifiestos TOML con contratos y riesgos</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ESTADO ----------------------------------------------------------- -->
+    <section class="section section-alt" id="estado">
+      <div class="wrap">
+        <p class="kicker">Estado honesto</p>
+        <h2>Lo que ya es real y lo que todavía no.</h2>
+        <p class="section-lede">Esta página aplica la misma regla que el código (T31.14): ninguna simulación se presenta como garantía.</p>
+        <div class="legend">
+          <span class="tag tag-real">Real</span>
+          <span class="tag tag-partial">Parcial</span>
+          <span class="tag tag-sim">Simulado</span>
+          <span class="tag tag-wip">En curso</span>
+        </div>
+        <ul class="status">
+          <li><span class="tag tag-real">Real</span><div><strong>Recinto Landlock / Seatbelt</strong><p>Syscalls de Landlock invocadas directamente, sin crate intermedio. Confina también las lecturas en Linux.</p></div></li>
+          <li><span class="tag tag-real">Real</span><div><strong>antFlow sobre worktrees</strong><p>Ejecución paralela, validación con tests y consolidación de diffs.</p></div></li>
+          <li><span class="tag tag-real">Real</span><div><strong>Undo por ticket e instantáneas</strong><p><code>antos undo</code> y <code>antos snapshot restore</code>.</p></div></li>
+          <li><span class="tag tag-real">Real</span><div><strong>Kernel bare-metal</strong><p>Arranca hasta el shell interactivo en UTM y en VirtualBox ARM64.</p></div></li>
+          <li><span class="tag tag-real">Real</span><div><strong>CRDT de edición colaborativa</strong><p>RGA propio con desempate determinista.</p></div></li>
+          <li><span class="tag tag-partial">Parcial</span><div><strong>Autopilot</strong><p>El escaneo del workspace y los incidentes son reales, pero no cubre todo el ciclo autónomo.</p></div></li>
+          <li><span class="tag tag-partial">Parcial</span><div><strong>Profiler</strong><p>Mide con <code>getrusage(2)</code> cuando puede. Parte de los datos todavía se fabrica y así se etiqueta.</p></div></li>
+          <li><span class="tag tag-sim">Simulado</span><div><strong>Supervisor eBPF</strong><p>Es un panel de auditoría en memoria. Todavía no carga ningún programa LSM.</p></div></li>
+          <li><span class="tag tag-sim">Simulado</span><div><strong>Depuración DAP</strong><p>Todavía no lanza ningún depurador.</p></div></li>
+          <li><span class="tag tag-wip">En curso</span><div><strong>Shell soberano (Fase 29)</strong><p>Parser, ejecución de ELF externos, historial y autocompletado.</p></div></li>
+        </ul>
+        <div class="progress" role="img" aria-label="152 de 158 tickets completados">
+          <div class="progress-bar" style="--p: 96.2%"></div>
+          <span><strong>152 / 158</strong> tickets completados · <a href="https://github.com/juandevelop85/antOS/blob/main/docs/tickets/README.md">ver backlog</a></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- DESCARGA --------------------------------------------------------- -->
+    <section class="section download" id="descarga">
+      <div class="wrap download-inner">
+        <h2>Pruébalo en una máquina virtual esta tarde.</h2>
+        <p class="section-lede">Descarga la ISO, verifica <code>SHA256SUMS</code> y arranca directamente en el escritorio en vivo. Cuando quieras instalarlo en disco, ejecuta <code>antos install</code>.</p>
+        <div class="dl-cards">
+          <a class="dl-card" href="https://github.com/juandevelop85/antOS/releases">
+            <strong>AArch64</strong><span>v0.2.0 · prerelease</span><em>Apple Silicon (UTM) · ARM64</em>
+          </a>
+          <a class="dl-card" href="https://github.com/juandevelop85/antOS/releases">
+            <strong>x86_64</strong><span>ver releases</span><em>BIOS / UEFI · VirtualBox · QEMU</em>
+          </a>
+        </div>
+        <p class="small">
+          <a href="https://github.com/juandevelop85/antOS/blob/main/docs/guia-emulacion-utm-virtualbox.md">Guía UTM y VirtualBox</a> ·
+          <a href="https://github.com/juandevelop85/antOS/blob/main/docs/guia-live-usb-e-instalacion-fisica.md">Live USB e instalación física</a> ·
+          <a href="https://github.com/juandevelop85/antOS/blob/main/docs/manual-de-comandos.md">Manual de comandos</a>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <span>🐜 antOS · hecho en Rust</span>
+      <a href="https://github.com/juandevelop85/antOS">github.com/juandevelop85/antOS</a>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
