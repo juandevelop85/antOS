@@ -7,18 +7,17 @@
   <meta name="description" content="antOS: sistema operativo personal para desarrolladores con orquestación multi-agente nativa, capacidades tipadas, sandbox del kernel y reversión atómica.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Manrope:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <meta name="theme-color" content="#070b24">
 </head>
 <body>
   <header class="nav">
     <div class="wrap nav-inner">
       <a class="brand" href="#top" aria-label="antOS, inicio">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-          <circle cx="16" cy="9" r="4"/><ellipse cx="16" cy="17" rx="3.4" ry="4"/><ellipse cx="16" cy="25.5" rx="4.6" ry="5"/>
-          <path d="M13 7 9 2M19 7l4-5M13 16l-7-3M19 16l7-3M13 19l-7 4M19 19l7 4M12.5 24l-6 5M19.5 24l6 5" fill="none" stroke-width="1.6" stroke-linecap="round"/>
-        </svg>
-        <span>antOS</span>
+        <img src="assets/icon.webp" alt="" width="34" height="34">
+        <span class="wordmark">ant<b>OS</b></span>
       </a>
       <nav class="nav-links" aria-label="Secciones">
         <a href="#como">Cómo funciona</a>
@@ -36,9 +35,10 @@
   </header>
 
   <main id="top">
-    <!-- HERO ------------------------------------------------------------- -->
+    <!-- HERO: wallpaper del sistema ----------------------------------- -->
     <section class="hero">
-      <div class="wrap hero-grid">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="wrap">
         <div class="hero-copy">
           <p class="eyebrow"><span class="dot"></span> v0.2.0 · prerelease · x86_64 y AArch64</p>
           <h1>La IA no ejecuta comandos <em>a ciegas</em>.</h1>
@@ -51,12 +51,17 @@
             <a class="btn btn-primary" href="#descarga">Descargar la ISO</a>
             <a class="btn btn-ghost" href="https://github.com/juandevelop85/antOS">Ver en GitHub →</a>
           </div>
-          <p class="hint">Prueba la barra de intenciones del escritorio. Es una demostración guionizada, no un sistema en vivo.</p>
+          <p class="hint">Prueba la barra de intenciones del escritorio que tienes justo debajo. Es una demostración guionizada, no un sistema en vivo.</p>
         </div>
+      </div>
+    </section>
 
-        <!-- Escritorio simulado -->
+    <!-- DEMO: el escritorio sobre las colinas --------------------------- -->
+    <section class="demo" aria-label="Demostración interactiva">
+      <div class="wrap">
         <div class="desk" aria-label="Demostración interactiva del escritorio de antOS">
           <div class="desk-top">
+            <img src="assets/icon.webp" alt="" width="20" height="20">
             <span class="desk-badge">⎇ main · 2 worktrees</span>
             <span class="desk-badge">⬡ 313 tests</span>
             <span class="desk-clock" id="clock">09:41</span>
@@ -74,6 +79,7 @@
             <button type="button" data-intent="db">levanta postgres para este proyecto</button>
           </div>
 
+          <div class="desk-body">
           <div class="board" id="board">
             <div class="col"><h4>Plan</h4><div class="lane" data-lane="plan"></div></div>
             <div class="col"><h4>En curso</h4><div class="lane" data-lane="run"></div></div>
@@ -83,6 +89,7 @@
 
           <pre class="log" id="log" aria-live="polite"><span class="muted"># Super + A · tablero de agentes</span>
 <span class="muted"># escribe una intención o elige una sugerencia ↑</span></pre>
+          </div>
 
           <div class="toast" id="toast" hidden>
             <div class="toast-body" id="toast-body"></div>
@@ -102,17 +109,14 @@
         <h2>Los sistemas operativos de hoy son de otra época.</h2>
         <div class="problem-grid">
           <article class="problem">
-            <span class="problem-num">01</span>
             <h3>Autoridad ambiental total</h3>
             <p>Un script o un agente de IA hereda todo lo que tú puedes hacer: leer tu <code>.env</code>, tus llaves SSH o tu carpeta personal.</p>
           </article>
           <article class="problem">
-            <span class="problem-num">02</span>
             <h3>Solo entienden bytes</h3>
             <p>El sistema no sabe qué es un repositorio, una rama, un test que falla ni un puerto ocupado. Todo ese contexto lo reconstruyes tú a mano.</p>
           </article>
           <article class="problem">
-            <span class="problem-num">03</span>
             <h3>Sin marcha atrás</h3>
             <p>Si un agente rompe algo, te toca arreglarlo con <code>git reflog</code> y paciencia. Nada está pensado para deshacerse.</p>
           </article>
@@ -211,6 +215,7 @@
 <span class="warn">↺</span> restaurando instantánea previa a T3.2
 <span class="ok">✓</span> 4 ficheros revertidos · worktree eliminado</pre>
           </div>
+          <div class="table-wrap">
           <table class="compare">
             <caption class="sr-only">Comparativa entre un SO convencional y antOS</caption>
             <thead><tr><th></th><th>SO convencional</th><th>antOS</th></tr></thead>
@@ -222,6 +227,7 @@
               <tr><th>Contexto del repo</th><td>Ninguno</td><td>Ramas, diffs, tests y tickets</td></tr>
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </section>
@@ -276,6 +282,7 @@
     <!-- DESCARGA --------------------------------------------------------- -->
     <section class="section download" id="descarga">
       <div class="wrap download-inner">
+        <img class="mascot" src="assets/mascot.webp" alt="La hormiga de antOS asomando sobre una colina" width="405" height="375">
         <h2>Pruébalo en una máquina virtual esta tarde.</h2>
         <p class="section-lede">Descarga la ISO, verifica <code>SHA256SUMS</code> y arranca directamente en el escritorio en vivo. Cuando quieras instalarlo en disco, ejecuta <code>antos install</code>.</p>
         <div class="dl-cards">
@@ -297,7 +304,7 @@
 
   <footer class="footer">
     <div class="wrap footer-inner">
-      <span>🐜 antOS · hecho en Rust</span>
+      <span class="footer-brand"><img src="assets/icon.webp" alt="" width="22" height="22"> antOS · hecho en Rust</span>
       <a href="https://github.com/juandevelop85/antOS">github.com/juandevelop85/antOS</a>
     </div>
   </footer>

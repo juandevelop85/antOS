@@ -1,6 +1,17 @@
 # web/ · Página de presentación de antOS (prototipo)
 
-Landing estática, sin build ni dependencias: `index.html` + `styles.css` + `app.js`.
+Landing estática, sin build ni dependencias: `index.html` + `styles.css` + `app.js` + `assets/`.
+
+## Identidad
+
+Sale del concepto de icono y wallpaper del sistema: noche azul (`#070b24`), degradado
+cian → violeta de las antenas y del «OS» del wordmark (`#1fb8ff → #5b6cff → #a45cff`),
+Outfit para titulares, Manrope para texto y JetBrains Mono para terminal y datos.
+El hero y la sección de descarga son siempre nocturnos; el resto sigue el tema claro/oscuro.
+
+- `assets/wallpaper.webp`: wallpaper del sistema, fondo del hero.
+- `assets/icon.webp`, `assets/favicon.png`: icono de la app (recortado del paquete de iconos).
+- `assets/mascot.webp`: la hormiga asomando sobre la colina, en la sección de descarga.
 
 ```sh
 # abrir directamente o servir en local

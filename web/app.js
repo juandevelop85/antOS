@@ -134,7 +134,7 @@
     reset();
     setBusy(true);
     input.value = typed ?? sc.text;
-    log.innerHTML = `<span class="warn">❯</span> ${escapeHtml(input.value)}`;
+    log.innerHTML = `<span class="p">❯</span> ${escapeHtml(input.value)}`;
     for (const [ms, line, move] of sc.steps) {
       await later(ms);
       if (line) write(line);
