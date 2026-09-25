@@ -750,3 +750,15 @@ button.notif-btn-reject:hover {
   color: @cyan;
   font-weight: 700;
 }
+
+/* Fila de decisión, anclada al pie de la barra y fuera del panel que se
+   desplaza (T37.2). Un plan largo dejaba «Aprobar» por debajo del pliegue
+   y había que ir a buscarlo con la rueda: una decisión que no se ve es una
+   decisión que no se toma. La separación superior la despega del panel
+   para que se lea como una acción sobre lo de arriba, no como más
+   contenido. */
+.decisiones {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid alpha(@line, 0.8);
+}

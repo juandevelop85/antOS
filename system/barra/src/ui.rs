@@ -213,6 +213,20 @@ pub(crate) fn build_ui(app: &Application) {
     content_scroll.set_visible(false);
     frame.append(&content_scroll);
 
+    // Fila de decisión, **fuera** del panel que se desplaza.
+    //
+    // Los botones de aprobar y descartar vivían dentro del contenido, y con
+    // el panel de altura fija un plan largo los dejaba por debajo del
+    // pliegue: había que buscarlos con la rueda para poder decidir
+    // (reportado, 2026-09-25). Una decisión que no se ve es una decisión
+    // que no se toma. Aquí están siempre al pie de la barra, y la fila solo
+    // existe mientras hay algo que decidir.
+    let decisions = GtkBox::new(Orientation::Horizontal, 10);
+    decisions.add_css_class("decisiones");
+    decisions.set_halign(Align::End);
+    decisions.set_visible(false);
+    frame.append(&decisions);
+
     // Seguir el final del panel cuando llega contenido nuevo, **solo** si el
     // usuario ya estaba abajo. Con la altura fija esto deja de ser un lujo:
     // el resultado de una aprobación se añade al final y, sin esto, caería
@@ -444,6 +458,7 @@ pub(crate) fn build_ui(app: &Application) {
         let launcher_box_activate_ref = launcher_box.clone();
         let window_activate_ref = window.clone();
         let content_scroll_ref = content_scroll.clone();
+        let decisions_ref = decisions.clone();
 
         input.connect_activate(move |entry| {
             let text = entry.text().to_string();
@@ -471,8 +486,12 @@ pub(crate) fn build_ui(app: &Application) {
             entry.set_text("");
 
             // A partir de aquí hay algo que enseñar: el área de respuestas
-            // aparece con su altura fija y ya no cambia de tamaño.
+            // aparece con su altura fija y ya no cambia de tamaño. La
+            // decisión pendiente de la intención anterior, si la había,
+            // deja de tener sentido.
             content_scroll_ref.set_visible(true);
+            empty_box(&decisions_ref);
+            decisions_ref.set_visible(false);
 
             if text_trimmed == "panel" || text_trimmed == "board" || text_trimmed == "tablero" {
                 empty_box(&content);
@@ -530,6 +549,7 @@ pub(crate) fn build_ui(app: &Application) {
                     listen_events(
                         events,
                         content.clone(),
+                        decisions_ref.clone(),
                         stream_writer.clone(),
                         input_ref.clone(),
                     );

@@ -109,9 +109,18 @@ pub(crate) fn start_session_request(
     Ok((writer, receiver))
 }
 
+/// Consume los eventos de una sesión y los pinta.
+///
+/// `decisions` es la fila de aprobar/descartar, y vive **fuera** del área
+/// que se desplaza: una decisión no puede quedar por debajo del pliegue de
+/// un plan largo. Se reportó con una propuesta de `project.scaffold` cuyos
+/// botones había que ir a buscar con la rueda (2026-09-25), y explica
+/// además el síntoma anterior —«el botón de aprobar no funciona»—: no
+/// estaba roto, estaba fuera de la vista.
 pub(crate) fn listen_events(
     events: Receiver<Event>,
     content: GtkBox,
+    decisions: GtkBox,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
     input: Entry,
 ) {
@@ -139,11 +148,11 @@ pub(crate) fn listen_events(
                 }
                 Event::Proposal(proposal) => {
                     empty_box(&content);
-                    render_proposal(&content, &proposal, stream_writer.clone());
+                    render_proposal(&content, &decisions, &proposal, stream_writer.clone());
                 }
                 Event::FlowStatus(Some(task)) => {
                     empty_box(&content);
-                    render_flow_task(&content, &task, stream_writer.clone());
+                    render_flow_task(&content, &decisions, &task, stream_writer.clone());
                 }
                 Event::FlowTransition {
                     new_state,
@@ -219,6 +228,7 @@ pub(crate) fn listen_events(
 
 fn render_proposal(
     content: &GtkBox,
+    decisions: &GtkBox,
     proposal: &Proposal,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
@@ -306,8 +316,11 @@ fn render_proposal(
         return;
     }
 
-    let button_box = GtkBox::new(Orientation::Horizontal, 10);
-    button_box.set_halign(Align::End);
+    // La fila de decisión vive fuera del panel que se desplaza y se rehace
+    // en cada propuesta.
+    let button_box = decisions.clone();
+    empty_box(&button_box);
+    button_box.set_visible(true);
 
     let discard_btn = action_button("Descartar", "descartar");
     let approve_btn = action_button("Aprobar", "aprobar");
@@ -328,7 +341,8 @@ fn render_proposal(
             };
             match sent {
                 Ok(()) => {
-                    box_ref.set_sensitive(false);
+                    empty_box(&box_ref);
+                    box_ref.set_visible(false);
                     let (marca, clase) = if decision {
                         ("✓ aprobado · ejecutando…", "ok")
                     } else {
@@ -348,7 +362,6 @@ fn render_proposal(
 
     button_box.append(&discard_btn);
     button_box.append(&approve_btn);
-    content.append(&button_box);
 }
 
 /// Manda la decisión por el socket de la sesión. Devuelve el error real en
@@ -362,6 +375,7 @@ fn send_decision(stream: &mut UnixStream, decision: bool) -> Result<(), String> 
 
 fn render_flow_task(
     content: &GtkBox,
+    decisions: &GtkBox,
     task: &FlowTask,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
 ) {
@@ -421,8 +435,11 @@ fn render_flow_task(
     content.append(&sheet);
 
     if task.state == FlowState::ReadyForApproval {
-        let button_box = GtkBox::new(Orientation::Horizontal, 10);
-        button_box.set_halign(Align::End);
+        // Misma regla que en una propuesta: la decisión no se esconde
+        // debajo del pliegue.
+        let button_box = decisions.clone();
+        empty_box(&button_box);
+        button_box.set_visible(true);
 
         let reject_btn = action_button("Rechazar Flow", "");
         reject_btn.add_css_class("descartar");
@@ -451,7 +468,6 @@ fn render_flow_task(
 
         button_box.append(&reject_btn);
         button_box.append(&approve_btn);
-        content.append(&button_box);
     }
 }
 
