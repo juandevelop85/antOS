@@ -32,7 +32,7 @@
 window.fondo {
   background-color: alpha(@night, 0.96);
   color: @ink;
-  font-family: "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
+  font-family: "Plus Jakarta Sans", "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
   border-radius: 22px;
   border: 1px solid @line;
   box-shadow: 0 24px 60px alpha(black, 0.65), 0 -12px 60px alpha(@indigo, 0.22);
@@ -59,7 +59,7 @@ window.fondo {
 
 .wordmark-ant,
 .wordmark-os {
-  font-family: "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
+  font-family: "Plus Jakarta Sans", "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.3px;
