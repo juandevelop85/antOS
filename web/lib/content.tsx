@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 export const REPO_URL = "https://github.com/juandevelop85/antOS";
 export const RELEASES_URL = `${REPO_URL}/releases`;
-export const docUrl = (path: string) => `${REPO_URL}/blob/main/${path}`;
+export const docUrl = (path: string) => `${REPO_URL}/blob/master/${path}`;
 
 /** Tickets completados / totales en docs/tickets/README.md. */
 export const TICKETS = { done: 152, total: 158 };
