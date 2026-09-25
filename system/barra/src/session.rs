@@ -2,10 +2,13 @@
 //! hilo lector de eventos y renderizado de propuestas / tareas de `antFlow`.
 
 use crate::socket_path;
-use crate::widgets::{empty_box, level_css_class, make_label, render_error, truncate_str};
+use crate::widgets::{
+    action_button, empty_box, level_css_class, make_label, make_selectable_label, render_error,
+    truncate_str,
+};
 use antos_protocol::{Event, FlowState, FlowTask, Line, Proposal, Request, Tier};
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Entry, Orientation, PolicyType, ScrolledWindow};
+use gtk4::{Align, Box as GtkBox, Entry, Orientation, PolicyType, ScrolledWindow};
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -121,7 +124,7 @@ pub(crate) fn listen_events(
                 Event::Start { .. } => {}
                 Event::Note(text) => {
                     empty_box(&content);
-                    content.append(&make_label(&format!("antOS: {text}"), "radio"));
+                    content.append(&make_selectable_label(&format!("antOS: {text}"), "radio"));
                 }
                 Event::Proposal(proposal) => {
                     empty_box(&content);
@@ -159,7 +162,7 @@ pub(crate) fn listen_events(
                     );
                     content.append(&make_label(&transition_text, "paso"));
                 }
-                Event::Output(text) => content.append(&make_label(&text, "paso")),
+                Event::Output(text) => content.append(&make_selectable_label(&text, "paso")),
                 Event::Result(result) => {
                     let class = if result.ok { "ok" } else { "error" };
                     content.append(&make_label(&result.message, class));
@@ -240,7 +243,7 @@ fn render_proposal(
             Line::Add(t) => (format!("+{t}"), "mas"),
             Line::Del(t) => (format!("-{t}"), "menos"),
         };
-        let l = make_label(&text, "diff");
+        let l = make_selectable_label(&text, "diff");
         l.add_css_class(css_class);
         diff_list.append(&l);
     }
@@ -299,10 +302,8 @@ fn render_proposal(
     let button_box = GtkBox::new(Orientation::Horizontal, 10);
     button_box.set_halign(Align::End);
 
-    let discard_btn = Button::with_label("Descartar");
-    discard_btn.add_css_class("descartar");
-    let approve_btn = Button::with_label("Aprobar");
-    approve_btn.add_css_class("aprobar");
+    let discard_btn = action_button("Descartar", "descartar");
+    let approve_btn = action_button("Aprobar", "aprobar");
 
     for (btn, decision) in [(&discard_btn, false), (&approve_btn, true)] {
         let stream_ref = stream_writer.clone();
@@ -369,7 +370,7 @@ fn render_flow_task(
             } else {
                 "info"
             };
-            let l = make_label(line, "diff");
+            let l = make_selectable_label(line, "diff");
             l.add_css_class(css_class);
             diff_box.append(&l);
         }
@@ -388,9 +389,9 @@ fn render_flow_task(
         let button_box = GtkBox::new(Orientation::Horizontal, 10);
         button_box.set_halign(Align::End);
 
-        let reject_btn = Button::with_label("Rechazar Flow");
+        let reject_btn = action_button("Rechazar Flow", "");
         reject_btn.add_css_class("descartar");
-        let approve_btn = Button::with_label("Aprobar (la rama del agente se conserva)");
+        let approve_btn = action_button("Aprobar (la rama del agente se conserva)", "");
         approve_btn.add_css_class("aprobar");
 
         let ticket_id_clone = task.ticket_id.clone();
@@ -427,7 +428,7 @@ fn build_timeline(content: &GtkBox, stream_writer: Rc<RefCell<Option<UnixStream>
     sheet.add_css_class("flow");
     let header = GtkBox::new(Orientation::Horizontal, 8);
     header.append(&make_label("AGENTE · PASOS EN VIVO", "etiqueta"));
-    let stop = Button::with_label("■ Detener");
+    let stop = action_button("■ Detener", "");
     stop.add_css_class("descartar");
     stop.set_halign(Align::End);
     stop.set_hexpand(true);
@@ -518,7 +519,7 @@ fn render_agent_report(content: &GtkBox, report: &antos_protocol::AgentReport, i
         sheet.append(&make_label(err, "error"));
     }
     if let Some(snapshot) = &report.snapshot_id {
-        let undo = Button::with_label("↶ Deshacer el run");
+        let undo = action_button("↶ Deshacer el run", "");
         undo.add_css_class("descartar");
         let snapshot = snapshot.clone();
         undo.connect_clicked(move |btn| {

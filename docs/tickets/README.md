@@ -187,6 +187,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ✅ Completado |
 | **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | 🔄 En Progreso |
 | **Fase 37** | [T37.1](T37.1-identidad-visual-de-la-barra-alineada-con-la-web.md) | Identidad Visual de la Barra Alineada con la Web | ✅ Completado |
+| **Fase 37** | [T37.2](T37.2-foco-y-cursor-en-la-barra.md) | Foco y Cursor en la Barra | 🔄 En Progreso |
 
 ---
 
@@ -664,3 +665,8 @@ la web y el escritorio que arranca el usuario no se parecían.
   de intención con `❯`, carriles y roles del tablero en su color, títulos
   de tarjeta en varias líneas y las fuentes en la imagen de NixOS. Solo
   presentación: ningún mensaje IPC ni atajo cambia.
+- **T37.2** — lo que T37.1 no tocaba porque era comportamiento y no
+  presentación: pulsar una opción dejaba el foco fuera de la `Entry` y el
+  cursor de escritura aparecía sobre filas pulsables. Etiquetas no
+  seleccionables por defecto, `action_button` con `focus_on_click(false)`
+  y cursor de puntero en las tarjetas del lanzador.

@@ -9,12 +9,12 @@ use crate::launcher::{
 };
 use crate::session::{listen_events, start_session, start_session_request};
 use crate::telemetry::query_telemetry_async;
-use crate::widgets::{empty_box, make_label, render_error, render_waiting};
+use crate::widgets::{action_button, empty_box, make_label, render_error, render_waiting};
 use crate::BAR_WIDTH;
 use antos_protocol::{is_app_query, match_applications, LauncherAppItem, Request};
 use gtk4::prelude::*;
 use gtk4::{
-    Align, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Image, Label, Orientation,
+    Align, Application, ApplicationWindow, Box as GtkBox, Entry, Image, Label, Orientation,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
@@ -112,16 +112,13 @@ pub(crate) fn build_ui(app: &Application) {
     mesh_badge.add_css_class("mesh-badge");
     header_bar.append(&mesh_badge);
 
-    let planner_btn = Button::with_label("⚡ local");
-    planner_btn.add_css_class("badge-button");
+    let planner_btn = action_button("⚡ local", "badge-button");
     header_bar.append(&planner_btn);
 
-    let dry_run_btn = Button::with_label("🛡️ live");
-    dry_run_btn.add_css_class("badge-button");
+    let dry_run_btn = action_button("🛡️ live", "badge-button");
     header_bar.append(&dry_run_btn);
 
-    let kanban_btn = Button::with_label("📊 tablero");
-    kanban_btn.add_css_class("badge-button");
+    let kanban_btn = action_button("📊 tablero", "badge-button");
     header_bar.append(&kanban_btn);
 
     frame.append(&header_bar);
@@ -175,13 +172,18 @@ pub(crate) fn build_ui(app: &Application) {
     ];
 
     for (pill_label, pill_query) in suggestions {
-        let pill = Button::with_label(pill_label);
-        pill.add_css_class("suggestion-pill");
+        let pill = action_button(pill_label, "suggestion-pill");
         let input_ref = input.clone();
         let query_str = pill_query.to_string();
         pill.connect_clicked(move |_| {
             input_ref.set_text(&query_str);
             input_ref.emit_activate();
+            // El botón ya no roba el foco (`action_button`), pero si venía
+            // de otro sitio —una tarjeta del lanzador, el teclado— esto
+            // deja el punto de inserción al final del texto que se acaba
+            // de poner, listo para seguir escribiendo.
+            input_ref.grab_focus();
+            input_ref.set_position(-1);
         });
         suggestions_box.append(&pill);
     }

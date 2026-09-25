@@ -3,7 +3,7 @@
 
 use antos_protocol::Tier;
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Label};
+use gtk4::{Align, Box as GtkBox, Button, Label};
 
 pub(crate) fn level_css_class(tier: Tier) -> &'static str {
     match tier {
@@ -13,13 +13,48 @@ pub(crate) fn level_css_class(tier: Tier) -> &'static str {
     }
 }
 
+/// Etiqueta corriente: **no** seleccionable.
+///
+/// Que no lo sea es el arreglo de dos síntomas que se notaron usando la
+/// barra (2026-09-25): una `Label` seleccionable de GTK4 es focusable y
+/// muestra el cursor de escritura, así que las filas pulsables construidas
+/// con ellas —las tarjetas del lanzador, por ejemplo— salían con cursor de
+/// texto y, al pulsarlas, le robaban el foco a la `Entry`; después ya no se
+/// podía escribir sin volver a pinchar en ella.
+///
+/// El texto que el usuario querrá copiar (la respuesta del sistema, los
+/// diffs, los errores) usa [`make_selectable_label`], que sí lo es —ahí la
+/// selección es la funcionalidad, no un efecto secundario.
 pub(crate) fn make_label(text: &str, class_name: &str) -> Label {
     let l = Label::new(Some(text));
     l.set_halign(Align::Start);
     l.set_xalign(0.0);
-    l.set_selectable(true);
     l.add_css_class(class_name);
     l
+}
+
+/// Etiqueta de salida que el usuario puede seleccionar y copiar. Solo para
+/// texto que se lee, nunca dentro de algo pulsable (ver [`make_label`]).
+pub(crate) fn make_selectable_label(text: &str, class_name: &str) -> Label {
+    let l = make_label(text, class_name);
+    l.set_selectable(true);
+    l
+}
+
+/// Botón de acción de la barra.
+///
+/// `focus_on_click(false)` es la razón de que esto exista: sin ello, pulsar
+/// cualquier botón —una píldora de sugerencia, «Aprobar», «Detener»— le
+/// pasaba el foco al botón y la `Entry` dejaba de recibir lo que se
+/// escribía (2026-09-25). La barra es una caja de escribir con botones
+/// alrededor: el foco es de la `Entry` y ahí se queda.
+pub(crate) fn action_button(label: &str, class_name: &str) -> Button {
+    let b = Button::with_label(label);
+    b.set_focus_on_click(false);
+    if !class_name.is_empty() {
+        b.add_css_class(class_name);
+    }
+    b
 }
 
 pub(crate) fn render_waiting(content: &GtkBox) {
@@ -29,7 +64,9 @@ pub(crate) fn render_waiting(content: &GtkBox) {
 pub(crate) fn render_error(content: &GtkBox, message: &str) {
     empty_box(content);
     for line in message.lines() {
-        content.append(&make_label(line, "error"));
+        // Un error es justo lo que uno quiere copiar para buscarlo o
+        // pegarlo en un ticket.
+        content.append(&make_selectable_label(line, "error"));
     }
 }
 

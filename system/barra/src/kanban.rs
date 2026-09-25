@@ -2,12 +2,12 @@
 
 use crate::session::run_offthread;
 use crate::socket_path;
-use crate::widgets::{empty_box, make_label};
+use crate::widgets::{action_button, empty_box, make_label};
 use antos_protocol::{
     AgentRole, Event, FlowBackend, FlowTask, Request, TicketStatus, TicketSummary,
 };
 use gtk4::prelude::*;
-use gtk4::{Box as GtkBox, Button, Entry, Orientation, ScrolledWindow};
+use gtk4::{Box as GtkBox, Entry, Orientation, ScrolledWindow};
 use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -262,7 +262,7 @@ where
         }
 
         if show_dispatch_btn {
-            let dispatch_btn = Button::with_label("🚀 Despachar");
+            let dispatch_btn = action_button("🚀 Despachar", "");
             dispatch_btn.add_css_class("dispatch-btn");
             dispatch_btn.set_halign(gtk4::Align::Start);
             let tid = t.id.clone();

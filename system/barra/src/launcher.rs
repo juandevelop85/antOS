@@ -67,6 +67,11 @@ pub(crate) fn render_launcher_results(
         };
         card.append(&hint_label);
 
+        // La tarjeta entera se pulsa: que el puntero lo diga. Sin esto, el
+        // cursor era el de escritura (las etiquetas eran seleccionables) y
+        // nada indicaba que la fila fuese pulsable (2026-09-25).
+        card.set_cursor_from_name(Some("pointer"));
+
         // Clicking a card directly launches it
         let gesture = GestureClick::new();
         let app_clone = app.clone();
