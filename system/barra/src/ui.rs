@@ -13,7 +13,9 @@ use crate::widgets::{empty_box, make_label, render_error, render_waiting};
 use crate::BAR_WIDTH;
 use antos_protocol::{is_app_query, match_applications, LauncherAppItem, Request};
 use gtk4::prelude::*;
-use gtk4::{Application, ApplicationWindow, Box as GtkBox, Button, Entry, Orientation};
+use gtk4::{
+    Align, Application, ApplicationWindow, Box as GtkBox, Button, Entry, Image, Label, Orientation,
+};
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
 use std::os::unix::net::UnixStream;
@@ -88,6 +90,8 @@ pub(crate) fn build_ui(app: &Application) {
     header_bar.add_css_class("header-bar");
     header_bar.set_hexpand(true);
 
+    header_bar.append(&build_brand());
+
     let git_badge = make_label("🌿 checking git...", "badge");
     git_badge.add_css_class("git-badge");
     header_bar.append(&git_badge);
@@ -127,7 +131,22 @@ pub(crate) fn build_ui(app: &Application) {
         .placeholder_text("¿Qué quieres que antOS haga? (ej. T5.1, libera 3000, crea rama auth)...")
         .build();
     input.add_css_class("intencion");
-    frame.append(&input);
+    input.set_hexpand(true);
+
+    // Fila de intención (T37.1): el mismo `❯` brillante y la pista `↵` que
+    // el escritorio simulado de la web. La `Entry` no cambia: solo se mete
+    // dentro de una caja que dibuja el marco.
+    let intent_row = GtkBox::new(Orientation::Horizontal, 10);
+    intent_row.add_css_class("intent");
+    let glyph = Label::new(Some("❯"));
+    glyph.add_css_class("intent-glyph");
+    intent_row.append(&glyph);
+    intent_row.append(&input);
+    let hint = Label::new(Some("↵"));
+    hint.add_css_class("intent-hint");
+    hint.set_valign(Align::Center);
+    intent_row.append(&hint);
+    frame.append(&intent_row);
 
     // App launcher floating results container (T25.4)
     let launcher_box = GtkBox::new(Orientation::Vertical, 6);
@@ -507,6 +526,39 @@ pub(crate) fn build_ui(app: &Application) {
         input.set_text(&text);
         input.emit_activate();
     }
+}
+
+/// Icono de la app embebido en el binario (T37.1): 64×64, derivado de
+/// `system/desktop/assets/antos-icon.png` con el recorte redondeado de
+/// `system/nixos/branding.nix`.
+const ICON_PNG: &[u8] = include_bytes!("icono.png");
+
+/// Marca de la cabecera (T37.1): icono + wordmark «ant» «OS». Si GTK no
+/// puede decodificar el icono, la marca sale solo con el texto.
+fn build_brand() -> GtkBox {
+    let brand = GtkBox::new(Orientation::Horizontal, 8);
+    brand.add_css_class("brand");
+    brand.set_valign(Align::Center);
+
+    match gtk4::gdk::Texture::from_bytes(&gtk4::glib::Bytes::from_static(ICON_PNG)) {
+        Ok(texture) => {
+            let icon = Image::from_paintable(Some(&texture));
+            icon.set_pixel_size(26);
+            icon.add_css_class("brand-icon");
+            brand.append(&icon);
+        }
+        Err(err) => eprintln!("antOS · aviso: no se pudo cargar el icono de la barra: {err}"),
+    }
+
+    let wordmark = GtkBox::new(Orientation::Horizontal, 0);
+    let ant = Label::new(Some("ant"));
+    ant.add_css_class("wordmark-ant");
+    let os = Label::new(Some("OS"));
+    os.add_css_class("wordmark-os");
+    wordmark.append(&ant);
+    wordmark.append(&os);
+    brand.append(&wordmark);
+    brand
 }
 
 /// `strip_prefix` sin distinguir mayúsculas ASCII y sin cortar un carácter

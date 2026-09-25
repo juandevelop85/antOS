@@ -15,7 +15,9 @@ path = "src/main.rs"
 # Los MISMOS tipos que habla el demonio, no una copia.
 antos-protocol = { path = "../protocolo" }
 serde_json = "1"
-gtk4 = "0.11"
+# `v4_6`: `gdk::Texture::from_bytes` para el icono embebido de la cabecera
+# (T37.1). La imagen de NixOS lleva GTK 4.14 o posterior.
+gtk4 = { version = "0.11", features = ["v4_6"] }
 gtk4-layer-shell = "0.8"
 # Icono de bandeja de sistema (StatusNotifierItem) para antos-barra —
 # "blocking" + "async-io" en vez del "tokio" por defecto: no hace falta

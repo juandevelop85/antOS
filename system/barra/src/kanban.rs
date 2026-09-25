@@ -111,15 +111,17 @@ fn render_kanban_view(
     agent_bar.add_css_class("agent-monitor-bar");
 
     let roles = [
-        ("📐 Arquitecto", AgentRole::Architect),
-        ("💻 Coder", AgentRole::Coder),
-        ("🧪 QA / Tester", AgentRole::QA),
-        ("🛡️ Auditor", AgentRole::Auditor),
+        ("📐 Arquitecto", AgentRole::Architect, "role-architect"),
+        ("💻 Coder", AgentRole::Coder, "role-coder"),
+        ("🧪 QA / Tester", AgentRole::QA, "role-qa"),
+        ("🛡️ Auditor", AgentRole::Auditor, "role-auditor"),
     ];
 
-    for (role_title, role) in roles {
+    for (role_title, role, role_class) in roles {
         let active = flows.iter().any(|f| f.current_role == Some(role));
         let badge = make_label(role_title, "agent-badge");
+        // Cada rol en su color cuando está activo (T37.1).
+        badge.add_css_class(role_class);
         if active {
             badge.add_css_class("active");
         } else {
@@ -143,6 +145,7 @@ fn render_kanban_view(
 
     let col_backlog = create_kanban_column(
         "⏳ BACKLOG",
+        "lane-backlog",
         tickets.iter().filter(|t| t.status == TicketStatus::Pending),
         input.clone(),
         flows,
@@ -150,6 +153,7 @@ fn render_kanban_view(
     );
     let col_progress = create_kanban_column(
         "🔄 EN PROGRESO",
+        "lane-progress",
         tickets
             .iter()
             .filter(|t| t.status == TicketStatus::InProgress),
@@ -159,6 +163,7 @@ fn render_kanban_view(
     );
     let col_review = create_kanban_column(
         "🔍 EN REVISIÓN",
+        "lane-review",
         tickets
             .iter()
             .filter(|t| t.status == TicketStatus::InReview),
@@ -168,6 +173,7 @@ fn render_kanban_view(
     );
     let col_done = create_kanban_column(
         "✅ COMPLETADO",
+        "lane-done",
         tickets
             .iter()
             .filter(|t| t.status == TicketStatus::Completed),
@@ -194,6 +200,7 @@ fn render_kanban_view(
 
 fn create_kanban_column<'a, I>(
     title: &str,
+    lane_class: &str,
     tickets: I,
     input: Entry,
     flows: &[FlowTask],
@@ -204,6 +211,8 @@ where
 {
     let col = GtkBox::new(Orientation::Vertical, 8);
     col.add_css_class("kanban-column");
+    // Carril en su color, como las columnas de la web (T37.1).
+    col.add_css_class(lane_class);
 
     let header = make_label(title, "kanban-column-header");
     col.append(&header);
@@ -216,6 +225,11 @@ where
 
         let id_lbl = make_label(&format!("{} · {}", t.id, t.phase), "kanban-card-id");
         let title_lbl = make_label(&t.title, "kanban-card-title");
+        // Títulos en varias líneas (T37.1): sin esto, un título largo
+        // ensancha su columna y el tablero deja de caber en la barra.
+        title_lbl.set_wrap(true);
+        title_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+        title_lbl.set_max_width_chars(18);
         card.append(&id_lbl);
         card.append(&title_lbl);
 
@@ -240,12 +254,17 @@ where
                 ),
                 (FlowBackend::Agent, None) => format!("agente · {}", flow.state.label()),
             };
-            card.append(&make_label(&text, "kanban-card-id"));
+            let flow_lbl = make_label(&text, "kanban-card-id");
+            flow_lbl.set_wrap(true);
+            flow_lbl.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
+            flow_lbl.set_max_width_chars(18);
+            card.append(&flow_lbl);
         }
 
         if show_dispatch_btn {
             let dispatch_btn = Button::with_label("🚀 Despachar");
             dispatch_btn.add_css_class("dispatch-btn");
+            dispatch_btn.set_halign(gtk4::Align::Start);
             let tid = t.id.clone();
             let input_ref = input.clone();
             dispatch_btn.connect_clicked(move |_| {

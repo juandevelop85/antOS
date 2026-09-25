@@ -186,6 +186,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.5](T36.5-primer-arranque-antos-setup-y-perfil-de-usuario.md) | Primer Arranque: `antos setup` y Perfil de Usuario | ✅ Completado |
 | **Fase 36** | [T36.6](T36.6-actualizacion-declarativa-antos-system-update-con-diff-y-undo.md) | Actualización Declarativa: `antos system update` con Diff y Undo | ✅ Completado |
 | **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | 🔄 En Progreso |
+| **Fase 37** | [T37.1](T37.1-identidad-visual-de-la-barra-alineada-con-la-web.md) | Identidad Visual de la Barra Alineada con la Web | ✅ Completado |
 
 ---
 
@@ -648,3 +649,18 @@ la ISO en QEMU/OVMF sobre el Mac (aarch64, `-accel hvf`), construida en el
 contenedor `nixos/nix` de la podman-machine. La instalación en máquina
 nueva ya se puede seguir de principio a fin desde esa ISO; lo que falta
 para que un tercero la use sin construirla es T36.7 (release firmada).
+
+---
+
+## Fase 37 · Identidad Visual (September 2026)
+
+Origen: la web de presentación (`web/`) se rehízo con el icono y el
+wallpaper del sistema (noche azul, degradado cian → violeta, Manrope /
+JetBrains Mono), y la barra real seguía con la paleta de T4.1: la demo de
+la web y el escritorio que arranca el usuario no se parecían.
+
+- **T37.1** — `antos-barra` con la identidad de la web: hoja de estilo
+  sobre colores con nombre, marca (icono + «antOS») en la cabecera, fila
+  de intención con `❯`, carriles y roles del tablero en su color, títulos
+  de tarjeta en varias líneas y las fuentes en la imagen de NixOS. Solo
+  presentación: ningún mensaje IPC ni atajo cambia.

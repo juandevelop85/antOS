@@ -17,7 +17,7 @@ npm run typecheck
 1. En Vercel: **Add New → Project** e importa `juandevelop85/antOS`.
 2. En **Root Directory** elige `web`. Vercel detecta Next.js solo; no hace falta
    `vercel.json` ni variables de entorno.
-3. **Deploy**. Cada push a la rama de producción vuelve a desplegar; las demás ramas
+3. **Deploy**. Cada push a la rama de producción (`master`) vuelve a desplegar; las demás ramas
    generan despliegues de vista previa.
 
 Las URLs absolutas de Open Graph salen de `VERCEL_PROJECT_PRODUCTION_URL`, que Vercel
