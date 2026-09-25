@@ -192,6 +192,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 38** | [T38.2](T38.2-selector-de-proyecto-en-la-barra.md) | Selector de Proyecto en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.3](T38.3-bandeja-de-notificaciones-y-acciones-en-la-barra.md) | Bandeja de Notificaciones y Acciones en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.4](T38.4-voz-en-antos-linux-y-en-la-barra.md) | Voz en antOS Linux y en la Barra | ⏳ Pendiente |
+| **Fase 38** | [T38.5](T38.5-el-demonio-ve-las-herramientas-del-sistema.md) | El Demonio Ve las Herramientas del Sistema | 🔄 En Progreso |
 
 ---
 
@@ -700,3 +701,8 @@ casualmente arrancó su proceso.
   macOS de desarrollo y **no** en antOS Linux: la captura pide
   `avfoundation`, ni `ffmpeg` ni `whisper` viajan en la imagen y no hay
   petición IPC, así que la barra no puede escuchar.
+- **T38.5** — el demonio corría con el `PATH` de cuatro paquetes que NixOS
+  pone por defecto: sin `git`, sin `node`, sin nada. NixOS sobrescribe el
+  `PATH` de cada unidad con su lista `path` y `environment.systemPackages`
+  no llega. Cualquier capacidad que lanzara un binario moría con
+  `os error 2`.

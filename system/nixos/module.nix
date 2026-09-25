@@ -109,6 +109,11 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "local-fs.target" ];
       environment = config.environment.variables;
+      # El mismo motivo que en `antos.service`: NixOS sobrescribe el `PATH`
+      # de la unidad. El `doctor` sondea con binarios externos (`flatpak`,
+      # entre otros) y sin el perfil del sistema no encuentra ninguno, así
+      # que informaba «no detectado» de cosas que sí están instaladas.
+      path = [ "/run/current-system/sw" ];
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
@@ -166,6 +171,35 @@ in
       after = [ "antos-doctor.service" "systemd-tmpfiles-setup.service" "local-fs.target" ];
       wants = [ "antos-doctor.service" ];
       environment = config.environment.variables;
+      # Las herramientas que el demonio lanza de verdad.
+      #
+      # NixOS **sobrescribe** el `PATH` de cada unidad con su lista `path`;
+      # `environment.systemPackages` no llega. Sin esto, el PATH del demonio
+      # eran los cuatro paquetes que NixOS añade por defecto (coreutils,
+      # findutils, gnugrep, gnused) y cualquier capacidad que lanzara `git`
+      # moría con «No such file or directory (os error 2)» — un `git init`
+      # al crear un proyecto, el estado de git de la barra, todo. Se vio
+      # creando un proyecto desde la barra (2026-09-25).
+      #
+      # `/run/current-system/sw` va al final a propósito: es el perfil del
+      # sistema, donde están las herramientas del desarrollador (node,
+      # cargo, python…) que un `antos project init` necesita según el
+      # stack. Va después para que los paquetes fijados aquí manden sobre
+      # lo que haya instalado encima.
+      path = with pkgs; [
+        git
+        openssh # git sobre ssh: clonar y empujar
+        bash
+        coreutils
+        findutils
+        gnugrep
+        gnused
+        gawk
+        gnutar
+        gzip
+        config.nix.package
+        "/run/current-system/sw"
+      ];
       serviceConfig = {
         Type = "simple";
         User = cfg.user;
