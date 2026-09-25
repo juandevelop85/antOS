@@ -51,6 +51,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+mod projects;
 mod transport;
 
 use transport::*;
@@ -61,6 +62,20 @@ pub use transport::{serve, socket_path};
 /// permitiendo a la vez que todas las consultas de solo lectura y telemetría se ejecuten
 /// concurrentemente sin bloqueo.
 pub static WORKSPACE_MUTATION_LOCK: Mutex<()> = Mutex::new(());
+
+/// El directorio sobre el que opera una petición con ámbito (T38.1).
+///
+/// Un `project` explícito manda: el demonio resuelve la ruta y el cliente
+/// no decide nada. Sin él se conserva la ruta que mandó el cliente, que es
+/// lo que hacía antOS antes de que el proyecto activo existiera en el
+/// protocolo — cambiarlo aquí en silencio movería el ámbito bajo los pies
+/// de todo el que ya llama a esto.
+fn scope_or_path(ctx: &Ctx, project: Option<&str>, fallback: &str) -> PathBuf {
+    match project {
+        Some(name) => crate::projects::scope_dir(&ctx.workspace, &ctx.state, Some(name)),
+        None => PathBuf::from(fallback),
+    }
+}
 
 fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -159,8 +174,15 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 &Event::Error("approval without prior proposal".into()),
             )?;
         }
-        Request::QueryGitStatus { workspace_path } => {
-            match crate::git::GitAnalyzer::global().consultar_estado(Path::new(&workspace_path)) {
+        Request::QueryGitStatus {
+            workspace_path,
+            project,
+        } => {
+            // Si la petición nombra un proyecto, el ámbito lo decide el
+            // demonio (T38.1); si no, se conserva el comportamiento de
+            // siempre y manda la ruta del cliente.
+            let target = scope_or_path(ctx, project.as_deref(), &workspace_path);
+            match crate::git::GitAnalyzer::global().consultar_estado(&target) {
                 Ok(Some(status)) => {
                     send(&mut writer, &Event::GitStatus(status))?;
                 }
@@ -172,8 +194,19 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
                 }
             }
         }
-        Request::ListTickets { workspace_path } => {
-            match crate::spec::SpecEngine::global().list_tickets(Path::new(&workspace_path)) {
+        // ── Proyecto activo (T38.1) ──────────────────────────────
+        // Los tres delegan en `ipc::projects`, que a su vez usa
+        // `crate::projects`: la misma resolución que `antos use`, para que
+        // la terminal y la barra no puedan contradecirse.
+        Request::ListProjects => projects::handle_list(ctx, &mut writer)?,
+        Request::QueryProjectStatus => projects::handle_status(ctx, &mut writer)?,
+        Request::UseProject { name } => projects::handle_use(ctx, &mut writer, name)?,
+        Request::ListTickets {
+            workspace_path,
+            project,
+        } => {
+            let target = scope_or_path(ctx, project.as_deref(), &workspace_path);
+            match crate::spec::SpecEngine::global().list_tickets(&target) {
                 Ok(tickets) => {
                     send(&mut writer, &Event::TicketList(tickets))?;
                 }
@@ -1075,8 +1108,11 @@ fn handle_connection(ctx: &Ctx, catalog: &Catalog, stream: UnixStream) -> Result
             Err(e) => send(&mut writer, &Event::Error(e.to_string()))?,
         },
         Request::GetDevWorkspaceStatus { project } => {
-            let status =
-                crate::dev_tui::DevWorkspaceManager::get_status(project.as_deref(), &ctx.workspace);
+            let status = crate::dev_tui::DevWorkspaceManager::get_status(
+                project.as_deref(),
+                &ctx.workspace,
+                Some(&ctx.state),
+            );
             send(&mut writer, &Event::DevWorkspaceStatus(status))?;
         }
         Request::ReproduceBug {
@@ -1295,6 +1331,9 @@ pub fn ping(ctx: &Ctx) -> Result<String> {
         &mut writer,
         &Request::QueryGitStatus {
             workspace_path: ctx.workspace.to_string_lossy().into_owned(),
+            // Sonda de vida del demonio: el ámbito es el workspace entero,
+            // no un proyecto.
+            project: None,
         },
     )?;
     let _ = writer.shutdown(std::net::Shutdown::Write);
@@ -1458,6 +1497,27 @@ pub fn remote_intent(
             }
             Event::TicketList(tickets) => {
                 term.on_note(&format!("tickets disponibles: {}", tickets.len()))?;
+            }
+            // Proyecto activo (T38.1). El motivo va siempre con el
+            // valor: saber *por qué* antOS opera donde opera era justo lo
+            // que faltaba.
+            Event::ProjectList(projects) => {
+                for project in &projects {
+                    let marca = if project.is_active { "●" } else { " " };
+                    let rama = project.branch.as_deref().unwrap_or("—");
+                    let sucio = if project.dirty { " *" } else { "" };
+                    term.on_note(&format!(
+                        "{marca} {} ({}) · {rama}{sucio}",
+                        project.name, project.language
+                    ))?;
+                }
+            }
+            Event::ProjectStatus(status) | Event::ProjectChanged(status) => {
+                let activo = status.active_name().unwrap_or("workspace");
+                term.on_note(&format!(
+                    "proyecto activo: {activo} — {}",
+                    status.origin.reason_es()
+                ))?;
             }
             Event::TicketDetail(detalle) => {
                 if let Some(t) = detalle {

@@ -188,7 +188,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | 🔄 En Progreso |
 | **Fase 37** | [T37.1](T37.1-identidad-visual-de-la-barra-alineada-con-la-web.md) | Identidad Visual de la Barra Alineada con la Web | ✅ Completado |
 | **Fase 37** | [T37.2](T37.2-foco-y-cursor-en-la-barra.md) | Foco y Cursor en la Barra | 🔄 En Progreso |
-| **Fase 38** | [T38.1](T38.1-ambito-de-proyecto-en-el-protocolo-y-el-demonio.md) | Ámbito de Proyecto en el Protocolo y el Demonio | ⏳ Pendiente |
+| **Fase 38** | [T38.1](T38.1-ambito-de-proyecto-en-el-protocolo-y-el-demonio.md) | Ámbito de Proyecto en el Protocolo y el Demonio | ✅ Completado |
 | **Fase 38** | [T38.2](T38.2-selector-de-proyecto-en-la-barra.md) | Selector de Proyecto en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.3](T38.3-bandeja-de-notificaciones-y-acciones-en-la-barra.md) | Bandeja de Notificaciones y Acciones en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.4](T38.4-voz-en-antos-linux-y-en-la-barra.md) | Voz en antOS Linux y en la Barra | ⏳ Pendiente |

@@ -1478,9 +1478,12 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                 action,
             } => {
                 if let Some("status") = action.as_deref() {
+                    // `apply` no recibe el `Ctx`; la resolución del
+                    // proyecto activo se apoya en `ANTOS_STATE` (T38.1).
                     let status = crate::dev_tui::DevWorkspaceManager::get_status(
                         project.as_deref(),
                         workspace,
+                        None,
                     );
                     output.push(format!(
                         "dev workspace: editor={} term={}x{}",
@@ -1490,6 +1493,7 @@ pub fn apply(changes: &[Change]) -> Result<Vec<String>> {
                     crate::dev_tui::DevWorkspaceManager::launch(
                         project.as_deref(),
                         workspace,
+                        None,
                         false,
                     )?;
                     output.push("dev workspace: blueprint renderizado exitosamente".into());

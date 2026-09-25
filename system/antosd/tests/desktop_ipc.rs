@@ -204,6 +204,7 @@ fn daemon_speaks_the_bar_protocol_over_the_ipc_socket() {
         .unwrap();
     let request = Request::QueryGitStatus {
         workspace_path: daemon.workspace.to_string_lossy().into_owned(),
+        project: None,
     };
     writeln!(stream, "{}", serde_json::to_string(&request).unwrap()).unwrap();
     stream.flush().unwrap();

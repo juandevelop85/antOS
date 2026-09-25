@@ -209,6 +209,7 @@ fn test_submodule_namespaces_and_roundtrips() {
     // 10. ipc
     let req = Request::QueryGitStatus {
         workspace_path: "/workspace".into(),
+        project: None,
     };
     let json_req = serde_json::to_string(&req).expect("req serde");
     let des_req: Request = serde_json::from_str(&json_req).expect("req deser");

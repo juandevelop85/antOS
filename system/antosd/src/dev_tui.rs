@@ -9,7 +9,7 @@
 use antos_protocol::{DevPanelKind, DevPanelRect, DevWorkspaceStatus};
 use anyhow::{bail, Context, Result};
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Manager for computing layouts and managing Dev TUI sessions.
@@ -100,7 +100,11 @@ impl DevWorkspaceManager {
     }
 
     /// Queries current workspace status and geometry.
-    pub fn get_status(project: Option<&str>, workspace: &Path) -> DevWorkspaceStatus {
+    pub fn get_status(
+        project: Option<&str>,
+        workspace: &Path,
+        state: Option<&Path>,
+    ) -> DevWorkspaceStatus {
         let (cols, rows) = get_terminal_dimensions();
         let side_visible = true;
         let terminal_open = false;
@@ -114,7 +118,7 @@ impl DevWorkspaceManager {
 
         let active_project = project
             .map(String::from)
-            .or_else(|| detect_active_project_name(workspace));
+            .or_else(|| detect_active_project_name(workspace, state));
 
         DevWorkspaceStatus {
             active_project,
@@ -166,8 +170,13 @@ impl DevWorkspaceManager {
     }
 
     /// Launches or renders the Dev TUI workspace session.
-    pub fn launch(project: Option<&str>, workspace: &Path, is_interactive: bool) -> Result<()> {
-        let status = Self::get_status(project, workspace);
+    pub fn launch(
+        project: Option<&str>,
+        workspace: &Path,
+        state: Option<&Path>,
+        is_interactive: bool,
+    ) -> Result<()> {
+        let status = Self::get_status(project, workspace, state);
 
         // In non-interactive mode (pipes, CI, scripts) render blueprint and return
         if !is_interactive {
@@ -246,10 +255,37 @@ fn get_terminal_dimensions() -> (u16, u16) {
 }
 
 /// Detects project name from directory structure or git status.
-fn detect_active_project_name(workspace: &Path) -> Option<String> {
+/// El proyecto activo para el Dev TUI.
+///
+/// Hasta T38.1 esta función era una **tercera** noción de proyecto activo,
+/// incompatible con las otras dos: miraba `ANTOS_ACTIVE_PROJECT` y, si no,
+/// devolvía el primer directorio de `workspace/proyectos/` —una ruta que
+/// ningún otro punto del sistema usa—, ignorando por completo lo que el
+/// usuario hubiera fijado con `antos use`. Quien abría el TUI podía estar
+/// mirando un proyecto distinto del que ejecutaban sus comandos.
+///
+/// Ahora consulta la misma selección que el resto (`crate::projects`), y
+/// las dos vías antiguas quedan detrás, por compatibilidad con quien las
+/// tuviera puestas.
+fn detect_active_project_name(workspace: &Path, state: Option<&Path>) -> Option<String> {
     if let Ok(active) = env::var("ANTOS_ACTIVE_PROJECT") {
         if !active.is_empty() {
             return Some(active);
+        }
+    }
+
+    // El estado: el que dé quien llama y, si no lo da, el que anuncia
+    // `ANTOS_STATE` —que es lo que el demonio siempre tiene puesto—. Sin
+    // ninguno de los dos, esta vía no ve la selección y se cae a las
+    // heurísticas antiguas de abajo.
+    let from_env = env::var_os("ANTOS_STATE").map(PathBuf::from);
+    let state_dir = state.map(Path::to_path_buf).or(from_env);
+    if let Some(name) = state_dir
+        .as_deref()
+        .and_then(crate::projects::read_selection)
+    {
+        if workspace.join(&name).is_dir() {
+            return Some(name);
         }
     }
 
@@ -327,7 +363,7 @@ mod tests {
         let temp_ws = env::temp_dir().join(format!("test_dev_ws_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_ws);
 
-        let status = DevWorkspaceManager::get_status(Some("demo-app"), &temp_ws);
+        let status = DevWorkspaceManager::get_status(Some("demo-app"), &temp_ws, None);
         assert_eq!(status.active_project.as_deref(), Some("demo-app"));
         assert_eq!(status.active_panel, DevPanelKind::Editor);
         assert!(!status.editor_command.is_empty());

@@ -37,6 +37,7 @@ fn test_git_repo_status_serialization() {
 fn test_query_git_status_request_serialization() {
     let request = Request::QueryGitStatus {
         workspace_path: "/Users/dev/workspace".into(),
+        project: None,
     };
 
     let json = serde_json::to_string(&request).expect("should serialize request");
@@ -124,6 +125,7 @@ fn test_tickets_protocol_serialization() {
 
     let list_request = Request::ListTickets {
         workspace_path: "/workspace".into(),
+        project: None,
     };
     let json_request = serde_json::to_string(&list_request).expect("serialize list request");
     let des_request: Request =
@@ -589,4 +591,63 @@ fn flow_task_saved_before_t33_1_loads_as_simulated() {
     let round: FlowTask =
         serde_json::from_str(&serde_json::to_string(&task).expect("ser")).expect("de");
     assert_eq!(round, task);
+}
+
+/// El ámbito de proyecto viaja entero por el socket (T38.1): si la barra y
+/// el demonio no coinciden en estos tipos, vuelven a gobernar cosas
+/// distintas, que es justo lo que el ticket arregla.
+#[test]
+fn test_project_scope_round_trips_over_the_wire() {
+    let summary = ProjectSummary {
+        name: "api-service".into(),
+        path: "/home/dev/workspace/api-service".into(),
+        language: "rust".into(),
+        branch: Some("main".into()),
+        dirty: true,
+        is_active: true,
+    };
+    let status = ProjectStatus {
+        active: Some(summary.clone()),
+        origin: ProjectOrigin::Selection,
+        workspace: "/home/dev/workspace".into(),
+    };
+
+    for event in [
+        Event::ProjectList(vec![summary]),
+        Event::ProjectStatus(status.clone()),
+        Event::ProjectChanged(status),
+    ] {
+        let round: Event =
+            serde_json::from_str(&serde_json::to_string(&event).expect("ser")).expect("de");
+        assert_eq!(round, event);
+    }
+
+    for request in [
+        Request::ListProjects,
+        Request::QueryProjectStatus,
+        Request::UseProject {
+            name: Some("api-service".into()),
+        },
+        Request::UseProject { name: None },
+    ] {
+        let round: Request =
+            serde_json::from_str(&serde_json::to_string(&request).expect("ser")).expect("de");
+        assert_eq!(round, request);
+    }
+}
+
+/// Un cliente antiguo no manda `project`; el campo tiene que entrar como
+/// `None` en vez de romper la deserialización. Es lo que permite desplegar
+/// el demonio nuevo con barras viejas.
+#[test]
+fn test_a_request_without_project_still_deserializes() {
+    let antiguo = r#"{"QueryGitStatus":{"workspace_path":"/w"}}"#;
+    let request: Request = serde_json::from_str(antiguo).expect("compatibilidad hacia atrás");
+    assert_eq!(
+        request,
+        Request::QueryGitStatus {
+            workspace_path: "/w".into(),
+            project: None,
+        }
+    );
 }

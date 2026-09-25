@@ -54,6 +54,7 @@ pub mod plan;
 pub mod planner;
 pub mod preview;
 pub mod profiler;
+pub mod projects;
 pub mod protocol;
 pub mod reproduce;
 pub mod runtime;

@@ -196,9 +196,7 @@ pub fn cmd_use(ctx: &Ctx, args: &[String]) -> Result<()> {
 
     if let Some(target) = args.first() {
         if target == "--clear" || target == "clear" || target == "none" || target == "system" {
-            if active_file.exists() {
-                let _ = std::fs::remove_file(&active_file);
-            }
+            crate::projects::select(&ctx.workspace, &ctx.state, None)?;
             println!(
                 "\n{} Selección de proyecto restablecida. antOS operará en ámbito global / automático.\n",
                 paint("antOS ·", BOLD)
@@ -233,8 +231,10 @@ pub fn cmd_use(ctx: &Ctx, args: &[String]) -> Result<()> {
         }
 
         // Guardar proyecto activo en state
-        std::fs::create_dir_all(&ctx.state)?;
-        std::fs::write(&active_file, target.trim())?;
+        // Una sola implementación de la selección (T38.1): la misma que usa
+        // `UseProject` por IPC, para que la terminal y la barra no puedan
+        // acabar diciendo cosas distintas.
+        crate::projects::select(&ctx.workspace, &ctx.state, Some(target))?;
 
         println!(
             "\n{} Proyecto activo fijado en: {}\n  Directorio: {}\n  Todos los comandos de antOS (tickets, git, agentes, panel, etc.) operarán sobre este proyecto por defecto.\n",

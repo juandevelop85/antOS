@@ -8,6 +8,7 @@ use crate::flow::*;
 use crate::git::*;
 use crate::mesh::*;
 use crate::plan::*;
+use crate::project::*;
 use crate::spec::*;
 use crate::system::*;
 use crate::vm::*;
@@ -35,11 +36,34 @@ pub enum Request {
     #[serde(alias = "Aprobacion")]
     Approval(bool),
     /// Query Git repository status for a workspace path.
+    ///
+    /// `project` (T38.1) names a project of `workspace/` and, when present,
+    /// decides the scope: the daemon resolves the directory itself instead
+    /// of trusting the caller's `workspace_path`, which for the bar is
+    /// merely the directory its process happened to start in.
     #[serde(alias = "ConsultarEstadoGit")]
-    QueryGitStatus { workspace_path: String },
+    QueryGitStatus {
+        workspace_path: String,
+        #[serde(default)]
+        project: Option<String>,
+    },
     /// List all available tickets in the workspace.
+    ///
+    /// `project` has the same meaning as in [`Request::QueryGitStatus`].
     #[serde(alias = "ListarTickets")]
-    ListTickets { workspace_path: String },
+    ListTickets {
+        workspace_path: String,
+        #[serde(default)]
+        project: Option<String>,
+    },
+    /// List the projects of `workspace/`, marking the active one (T38.1).
+    ListProjects,
+    /// Set the active project for the whole system, or clear it with `None`
+    /// (T38.1). It is the same selection that `antos use` writes, so the
+    /// terminal and the bar cannot disagree.
+    UseProject { name: Option<String> },
+    /// What antOS is operating on right now, and why (T38.1).
+    QueryProjectStatus,
     /// Get details of a specific ticket in the workspace.
     #[serde(alias = "ObtenerTicket")]
     GetTicket {
@@ -499,6 +523,12 @@ pub enum Event {
     /// List of technical tickets parsed from the workspace.
     #[serde(alias = "ListaTickets")]
     TicketList(Vec<TicketSummary>),
+    /// The projects of the workspace (T38.1).
+    ProjectList(Vec<ProjectSummary>),
+    /// What antOS is operating on, in answer to `QueryProjectStatus` (T38.1).
+    ProjectStatus(ProjectStatus),
+    /// The active project just changed, in answer to `UseProject` (T38.1).
+    ProjectChanged(ProjectStatus),
     /// Full detail of a specific ticket.
     #[serde(alias = "DetalleTicket")]
     TicketDetail(Option<TicketDetail>),

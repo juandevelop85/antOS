@@ -238,14 +238,15 @@ fn detect_current_project(workspace: &Path, state: &Path) -> Option<PathBuf> {
         }
     }
 
-    let active_file = state.join("active_project");
-    if let Ok(content) = std::fs::read_to_string(&active_file) {
-        let name = content.trim();
-        if !name.is_empty() && name != "none" && name != "system" {
-            let p = workspace.join(name);
-            if p.is_dir() && p != workspace {
-                return Some(p);
-            }
+    // La selección persistente la lee `crate::projects` (T38.1): es la
+    // misma que resuelve el demonio por IPC. Aquí solo se aplica el paso 3
+    // de la precedencia de la CLI, que además mira el `cwd` — cosa que el
+    // demonio no hace, porque su directorio de trabajo es el que le dejó
+    // systemd y no dice nada del proyecto del usuario.
+    if let Some(name) = crate::projects::read_selection(state) {
+        let p = workspace.join(name);
+        if p.is_dir() && p != workspace {
+            return Some(p);
         }
     }
 

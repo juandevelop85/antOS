@@ -40,7 +40,11 @@ pub fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
     }
 
     if is_status {
-        let status = crate::dev_tui::DevWorkspaceManager::get_status(project, &ctx.workspace);
+        let status = crate::dev_tui::DevWorkspaceManager::get_status(
+            project,
+            &ctx.workspace,
+            Some(&ctx.state),
+        );
         println!(
             "\n{}",
             paint("antOS · Espacio de Trabajo Integrado Dev TUI (T20.1)", BOLD)
@@ -90,7 +94,12 @@ pub fn cmd_dev(ctx: &Ctx, args: &[String]) -> Result<()> {
         && std::env::var("CI").is_err()
         && std::env::var("ANTOS_TEST").is_err();
 
-    crate::dev_tui::DevWorkspaceManager::launch(project, &ctx.workspace, is_interactive)
+    crate::dev_tui::DevWorkspaceManager::launch(
+        project,
+        &ctx.workspace,
+        Some(&ctx.state),
+        is_interactive,
+    )
 }
 
 // ------------------------------------------------------------------ reproduce / testgen (T20.2)
