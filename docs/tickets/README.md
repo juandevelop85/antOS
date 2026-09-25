@@ -194,6 +194,20 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 38** | [T38.4](T38.4-voz-en-antos-linux-y-en-la-barra.md) | Voz en antOS Linux y en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.5](T38.5-el-demonio-ve-las-herramientas-del-sistema.md) | El Demonio Ve las Herramientas del Sistema | 🔄 En Progreso |
 | **Fase 38** | [T38.6](T38.6-el-recinto-deja-escribir-en-los-sumideros-de-dev.md) | El Recinto Deja Escribir en los Sumideros de `/dev` | 🔄 En Progreso |
+| **Fase 39** | [T39.1](T39.1-el-recinto-alcanza-el-socket-del-demonio-y-se-aprueba-a-si-mismo.md) | El Recinto Alcanza el Socket del Demonio y Se Aprueba a Sí Mismo | ⏳ Pendiente |
+| **Fase 39** | [T39.2](T39.2-el-ci-local-ejecuta-shell-fuera-del-recinto.md) | El CI Local Ejecuta Shell Fuera del Recinto | ⏳ Pendiente |
+| **Fase 39** | [T39.3](T39.3-el-agente-lee-secretos-del-workspace-en-linux.md) | El Agente Lee Secretos del Workspace en Linux | ⏳ Pendiente |
+| **Fase 39** | [T39.4](T39.4-la-red-del-recinto-solo-bloquea-tcp.md) | La Red del Recinto Solo Bloquea TCP | ⏳ Pendiente |
+| **Fase 39** | [T39.5](T39.5-el-recinto-hereda-las-credenciales-del-entorno.md) | El Recinto Hereda las Credenciales del Entorno | ⏳ Pendiente |
+| **Fase 39** | [T39.6](T39.6-el-token-de-la-forja-viaja-a-cualquier-host.md) | El Token de la Forja Viaja a Cualquier Host | ⏳ Pendiente |
+| **Fase 39** | [T39.7](T39.7-cifrado-de-disco-y-sesion-bloqueada-en-el-sistema-instalado.md) | Cifrado de Disco y Sesión Bloqueada en el Sistema Instalado | ⏳ Pendiente |
+| **Fase 39** | [T39.8](T39.8-sin-recinto-no-hay-nivel-auto.md) | Sin Recinto No Hay Nivel `auto` | ⏳ Pendiente |
+| **Fase 39** | [T39.9](T39.9-la-raiz-de-antos-y-el-catalogo-no-se-toman-del-directorio-actual.md) | La Raíz de antOS y el Catálogo No Se Toman del Directorio Actual | ⏳ Pendiente |
+| **Fase 39** | [T39.10](T39.10-raiz-de-confianza-para-las-firmas-de-antpkg.md) | Raíz de Confianza para las Firmas de antpkg | ⏳ Pendiente |
+| **Fase 39** | [T39.11](T39.11-endurecimiento-de-la-unidad-systemd-del-demonio.md) | Endurecimiento de la Unidad systemd del Demonio | ⏳ Pendiente |
+| **Fase 39** | [T39.12](T39.12-las-claves-de-api-solo-en-la-boveda.md) | Las Claves de API Solo en la Bóveda | ⏳ Pendiente |
+| **Fase 39** | [T39.13](T39.13-peticiones-ipc-con-rutas-del-cliente-y-emparejamiento-sin-aprobacion.md) | Peticiones IPC con Rutas del Cliente y Emparejamiento sin Aprobación | ⏳ Pendiente |
+| **Fase 39** | [T39.14](T39.14-validacion-de-punteros-de-usuario-y-protecciones-de-cpu-en-el-kernel.md) | Validación de Punteros de Usuario y Protecciones de CPU en el Kernel | ⏳ Pendiente |
 
 ---
 
@@ -712,3 +726,38 @@ casualmente arrancó su proceso.
   `/dev/null` para escribir. El recinto de macOS ya lo contemplaba desde
   T33.5 y el de Linux no — arreglado en la máquina de desarrollo, abierto
   en el sistema que se instala.
+
+## Fase 39 · Seguridad del Recinto y del Demonio (September 2026)
+
+Origen: auditoría de seguridad del 2026-09-25, sobre el árbol posterior a
+la Fase 31. Lo que la Fase 31 cerró sigue cerrado (socket `0600` y
+acotado, consola web con token real, bóveda cifrada, identidad Ed25519);
+esta fase recoge lo que quedaba **alrededor del recinto**, que es la
+garantía central de un sistema en el que un agente ejecuta código ajeno.
+Los dos hallazgos principales se verificaron empíricamente en un kernel
+6.18 con Landlock ABI 7.
+
+- **Críticos — escape del recinto (T39.1, T39.2).** Un proceso confinado
+  conecta al socket del demonio (Landlock no media `connect()` sobre
+  sockets Unix), envía una intención y se la aprueba él mismo; `RunCi`
+  ejecuta después `sh -c` fuera de todo recinto. Juntos permiten que los
+  tests de un repositorio clonado —`test.run` es `auto`— salgan del recinto
+  sin una sola confirmación.
+- **Altos — fugas de credenciales (T39.3 – T39.7).** El agente lee `.env`
+  y la clave privada de antMesh sin concesión en Linux; «sin red» deja
+  pasar UDP; el recinto hereda `OPENAI_API_KEY`, `GITHUB_TOKEN`,
+  `SSH_AUTH_SOCK`…; el token de la forja se envía al host que diga el
+  remote y aparece en `ps`; el sistema instalado no cifra el disco y entra
+  sin contraseña.
+- **Medios — endurecimiento (T39.8 – T39.13).** Sin Landlock los pasos
+  `auto` corren sin confinar y sin aviso; el catálogo que decide los
+  niveles se toma del directorio actual; las firmas de antpkg se verifican
+  con la clave de la propia receta; la unidad systemd no usa ningún
+  aislamiento; `llm.json` puede guardar claves en claro; varias peticiones
+  IPC escriben en rutas elegidas por el cliente.
+- **Kernel soberano (T39.14).** `validate_user_ptr` solo comprueba el
+  rango, no el mapeo ni el bit de usuario, y no se activan SMAP/SMEP/NX.
+
+Orden recomendado: T39.1 y T39.2 juntos (cierran la cadena), después
+T39.3 – T39.5 (el perímetro del recinto), T39.6 y T39.7, y el resto como
+endurecimiento.
