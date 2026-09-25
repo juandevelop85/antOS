@@ -856,3 +856,78 @@ fn test_nixpkgs_override_carries_rev_and_last_modified_from_the_lock() {
         assert!(DeployEngine::locate_nixpkgs_source().is_none());
     }
 }
+
+/// Ejecutor que falla los primeros `fallos_de_mount` intentos de `mount` y
+/// delega el resto en el simulado. Reproduce lo que hizo el núcleo en el
+/// primer smoke de x86_64: rechazar la raíz recién formateada por no haber
+/// releído todavía la partición.
+struct RunnerConMountTardio {
+    inner: SimulatedRunner,
+    fallos_de_mount: usize,
+    intentos_de_mount: usize,
+}
+
+impl InstallRunner for RunnerConMountTardio {
+    fn run(&mut self, program: &str, args: &[String], stdin: Option<&str>) -> Result<String> {
+        if program == "mount" {
+            self.intentos_de_mount += 1;
+            if self.intentos_de_mount <= self.fallos_de_mount {
+                anyhow::bail!(
+                    "mount: wrong fs type, bad option, bad superblock on {}",
+                    args.first().map(String::as_str).unwrap_or("?")
+                );
+            }
+        }
+        self.inner.run(program, args, stdin)
+    }
+
+    fn run_streaming(
+        &mut self,
+        program: &str,
+        args: &[String],
+        on_line: &mut dyn FnMut(&str),
+    ) -> Result<()> {
+        self.inner.run_streaming(program, args, on_line)
+    }
+
+    fn is_mountpoint(&self, path: &Path) -> bool {
+        self.inner.is_mountpoint(path)
+    }
+
+    fn is_real(&self) -> bool {
+        self.inner.is_real()
+    }
+}
+
+#[test]
+fn test_mount_reintenta_cuando_el_nucleo_aun_no_ve_el_sistema_de_ficheros() {
+    let mut runner = RunnerConMountTardio {
+        inner: simulated("/dev/sda"),
+        fallos_de_mount: 1,
+        intentos_de_mount: 0,
+    };
+    DeployEngine::mount_with_retry(&mut runner, "/dev/vda2", "/mnt/target")
+        .expect("el segundo intento debe montar");
+    assert_eq!(runner.intentos_de_mount, 2, "tiene que haber reintentado");
+    assert!(
+        runner.inner.commands.iter().any(|c| c == "udevadm settle"),
+        "entre intentos hay que esperar a udev: {:?}",
+        runner.inner.commands
+    );
+}
+
+#[test]
+fn test_mount_se_rinde_con_el_error_real_tras_tres_intentos() {
+    let mut runner = RunnerConMountTardio {
+        inner: simulated("/dev/sda"),
+        fallos_de_mount: 99,
+        intentos_de_mount: 0,
+    };
+    let err = DeployEngine::mount_with_retry(&mut runner, "/dev/vda2", "/mnt/target")
+        .expect_err("tres fallos seguidos no se tragan");
+    assert_eq!(runner.intentos_de_mount, 3);
+    assert!(
+        format!("{err:#}").contains("bad superblock"),
+        "el error que se propaga es el de verdad: {err:#}"
+    );
+}

@@ -85,8 +85,12 @@ if [ "$HOST_ARCH" = "$ARCH" ]; then
 else
   ACCEL=(-cpu max)
 fi
-MACHINE=()
-[ "$ARCH" = aarch64 ] && MACHINE=(-M virt)
+# Cada arquitectura con su máquina explícita. No dejar el array vacío es
+# deliberado: el bash 3.2 de macOS, con `set -u`, aborta al expandir
+# `"${MACHINE[@]}"` cuando no tiene elementos — el camino x86_64 moría ahí
+# nada más arrancar (2026-09-25), la primera vez que se ejercitó. `q35` es
+# además el chipset que corresponde con firmware UEFI.
+if [ "$ARCH" = aarch64 ]; then MACHINE=(-M virt); else MACHINE=(-M q35); fi
 
 mkdir -p "$WORK"
 DISK="$WORK/disk.qcow2"

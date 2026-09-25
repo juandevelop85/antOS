@@ -13,6 +13,18 @@ finish() { say "ANTOS-SMOKE-INSTALL: $*"; sync; sleep 2; systemctl poweroff -f |
 # `nixos-install` no resolvió algo sin red (registro de flakes, fuente de
 # nixpkgs en el store, y un `flake metadata --offline` sobre lo generado).
 diag() {
+  # Estado de los bloques: el fallo de x86_64 (2026-09-25) fue un `mount`
+  # que no reconocía el sistema de ficheros recién creado, y sin esto no
+  # hay forma de saber si faltó el `mkfs`, si el nodo era otro o si la
+  # tabla no se había releído.
+  say "--- diag: bloques (lsblk -f)"
+  lsblk -f 2>&1 | tee "$SERIAL"
+  say "--- diag: blkid"
+  blkid 2>&1 | tee "$SERIAL"
+  say "--- diag: tabla de particiones"
+  parted -s "$DEV" unit MiB print 2>&1 | tee "$SERIAL"
+  say "--- diag: últimas líneas del kernel"
+  dmesg 2>/dev/null | tail -n 15 | tee "$SERIAL"
   say "--- diag: /etc/nix/registry.json"
   head -c 600 /etc/nix/registry.json 2>/dev/null | tee "$SERIAL"; echo
   say "--- diag: fuentes en el store (path-info)"
