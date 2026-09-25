@@ -628,7 +628,9 @@ in
     # Pila gráfica para el compositor Wayland.
     hardware.graphics.enable = lib.mkDefault true;
     programs.dconf.enable = lib.mkDefault true;
-    fonts.packages = [ pkgs.dejavu_fonts pkgs.noto-fonts ];
+    # Manrope y JetBrains Mono: la tipografía de `antos-barra` y de la web
+    # (T37.1). La hoja de la barra cae a DejaVu/monospace si faltan.
+    fonts.packages = [ pkgs.dejavu_fonts pkgs.noto-fonts pkgs.manrope pkgs.jetbrains-mono ];
 
   }
 

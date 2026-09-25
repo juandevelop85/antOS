@@ -1,487 +1,643 @@
-/* antOS Modern Wayland Shell & Mission Center Theme (T4.1 & T4.2) */
+/* antOS · barra de intenciones y centro de agentes (T4.1, T4.2, T37.1)
+ *
+ * Identidad de T37.1: la misma noche azul del icono y del wallpaper
+ * (`system/desktop/assets/`) y de la web de presentación (`web/`), con el
+ * degradado cian → violeta de las antenas. GTK 4.14 no tiene variables CSS,
+ * así que los colores van con nombre vía `@define-color`.
+ *
+ * Todas las clases que usa el código siguen aquí con el mismo nombre: esta
+ * hoja cambia cómo se ve la barra, no qué widgets existen.
+ */
+
+@define-color night #070b24;
+@define-color deep #060a22;
+@define-color surface #10173f;
+@define-color surface_2 #161e4d;
+@define-color surface_3 #1d2660;
+@define-color line #222a61;
+@define-color line_strong #323c86;
+@define-color ink #eef0ff;
+@define-color muted #9ba3d4;
+@define-color faint #6f78b0;
+@define-color cyan #3cc8ff;
+@define-color indigo #6d74ff;
+@define-color violet #a06bff;
+@define-color green #4fd6a0;
+@define-color amber #ffbf5c;
+@define-color pink #ff7ac3;
+@define-color red #ff6b86;
+
+/* ── Ventana y marco ─────────────────────────────────────────────────── */
 
 window.fondo {
-  background-color: rgba(15, 21, 28, 0.96);
-  color: #DEE6EE;
-  border-radius: 12px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
-  border: 1px solid #2C3944;
+  background-color: alpha(@night, 0.96);
+  color: @ink;
+  font-family: "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
+  border-radius: 22px;
+  border: 1px solid @line;
+  box-shadow: 0 24px 60px alpha(black, 0.65), 0 -12px 60px alpha(@indigo, 0.22);
 }
 
 .marco {
-  padding: 16px;
+  padding: 16px 18px 18px 18px;
 }
 
-/* Header context bar */
+/* ── Cabecera: marca + insignias de contexto ─────────────────────────── */
+
 .header-bar {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.brand {
+  margin-right: 6px;
+}
+
+.brand-icon {
+  border-radius: 8px;
+  box-shadow: 0 0 14px alpha(@indigo, 0.7);
+}
+
+.wordmark-ant,
+.wordmark-os {
+  font-family: "Manrope", "Cantarell", "DejaVu Sans", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.wordmark-ant {
+  color: @ink;
+}
+
+.wordmark-os {
+  color: @cyan;
 }
 
 .badge {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  background: #18212B;
-  color: #85AEDF;
-  border: 1px solid #2C3944;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: @surface_2;
+  color: @muted;
+  border: 1px solid @line;
 }
 
 .git-badge.clean {
-  color: #56BCA0;
-  border-color: #274D42;
+  color: @green;
+  border-color: alpha(@green, 0.35);
 }
 
 .git-badge.dirty {
-  color: #DBA451;
-  border-color: #5C431F;
+  color: @amber;
+  border-color: alpha(@amber, 0.35);
 }
 
 .git-badge.offline {
-  color: #8195A7;
+  color: @faint;
 }
 
 .ebpf-badge {
-  color: #56BCA0;
-  border-color: #274D42;
+  color: @muted;
+}
+
+.ebpf-badge.active {
+  color: @green;
+  border-color: alpha(@green, 0.35);
 }
 
 .ebpf-badge.alert {
-  color: #E06C75;
-  border-color: #7A262C;
+  color: @red;
+  border-color: alpha(@red, 0.45);
 }
 
 .profiler-badge {
-  color: #E5C07B;
-  border-color: #5C431F;
+  color: @amber;
+  border-color: alpha(@amber, 0.3);
 }
 
 .profiler-badge.alert {
-  color: #E06C75;
-  border-color: #7A262C;
+  color: @red;
+  border-color: alpha(@red, 0.45);
 }
 
 .pair-badge {
-  color: #C678DD;
-  border-color: #532C66;
+  color: @violet;
+  border-color: alpha(@violet, 0.35);
 }
 
 .pair-badge.active {
-  color: #61AFEF;
-  border-color: #264B6E;
+  color: @cyan;
+  border-color: alpha(@cyan, 0.45);
 }
 
 .mesh-badge {
-  color: #61AFEF;
-  border-color: #264B6E;
+  color: @indigo;
+  border-color: alpha(@indigo, 0.35);
 }
 
 .mesh-badge.active {
-  color: #56BCA0;
-  border-color: #274D42;
+  color: @green;
+  border-color: alpha(@green, 0.35);
 }
 
 button.badge-button {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  background: #18212B;
-  color: #8195A7;
-  border: 1px solid #2C3944;
+  padding: 4px 12px;
+  min-height: 0;
+  border-radius: 999px;
+  background: @surface_2;
+  color: @muted;
+  border: 1px solid @line;
+  box-shadow: none;
 }
 
 button.badge-button:hover {
-  background: #222E3C;
-  color: #DEE6EE;
+  background: @surface_3;
+  color: @ink;
+  border-color: @indigo;
 }
 
 button.badge-button.active {
-  background: #23374D;
-  color: #85AEDF;
-  border-color: #3B5F8A;
+  background: alpha(@cyan, 0.14);
+  color: @cyan;
+  border-color: alpha(@cyan, 0.5);
 }
 
-/* Main Intent Entry */
+/* ── Fila de intención ───────────────────────────────────────────────── */
+
+.intent {
+  background: @deep;
+  border-radius: 14px;
+  padding: 4px 14px;
+  border: 1px solid alpha(@indigo, 0.6);
+  box-shadow: 0 10px 30px alpha(@indigo, 0.35);
+  transition: border-color 150ms ease-in-out, box-shadow 150ms ease-in-out;
+}
+
+.intent:focus-within {
+  border-color: @cyan;
+  box-shadow: 0 0 0 2px alpha(@cyan, 0.2), 0 10px 34px alpha(@indigo, 0.5);
+}
+
+.intent-glyph {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 17px;
+  font-weight: 700;
+  color: @cyan;
+  text-shadow: 0 0 10px alpha(@cyan, 0.85);
+}
+
+.intent-hint {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: @faint;
+  padding: 1px 7px;
+  border-radius: 6px;
+  border: 1px solid @line;
+}
+
 entry.intencion {
-  font-size: 16px;
-  padding: 12px 14px;
-  background: #18212B;
-  color: #DEE6EE;
-  border: 1px solid #2C3944;
-  border-radius: 8px;
-  caret-color: #85AEDF;
-  transition: border-color 150ms ease-in-out;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 15px;
+  padding: 10px 2px;
+  min-height: 0;
+  background: transparent;
+  color: @ink;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  caret-color: @cyan;
 }
 
-entry.intencion:focus {
-  border-color: #85AEDF;
-  box-shadow: 0 0 0 2px rgba(133, 174, 223, 0.2);
+entry.intencion:focus,
+entry.intencion:focus-within {
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
-/* Quick suggestions pills */
+entry.intencion > text > placeholder {
+  color: @faint;
+}
+
+/* Chips de sugerencia */
 .suggestions-box {
-  margin-top: 2px;
-  margin-bottom: 4px;
+  margin-top: 0;
+  margin-bottom: 2px;
 }
 
 button.suggestion-pill {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: rgba(44, 57, 68, 0.4);
-  color: #8195A7;
-  border: 1px solid #2C3944;
+  padding: 4px 12px;
+  min-height: 0;
+  border-radius: 999px;
+  background: @surface_2;
+  color: @muted;
+  border: 1px solid @line;
+  box-shadow: none;
   transition: all 120ms ease-in-out;
 }
 
 button.suggestion-pill:hover {
-  background: #2C3944;
-  color: #DEE6EE;
-  border-color: #85AEDF;
+  background: @surface_3;
+  color: @ink;
+  border-color: @indigo;
 }
 
-/* Typography & Labels */
+/* ── Tipografía de resultados ────────────────────────────────────────── */
+
 .etiqueta {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px;
-  font-weight: bold;
-  letter-spacing: 1.4px;
-  color: #8195A7;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: @cyan;
   margin-top: 4px;
 }
 
 .paso {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  color: #B4C2CF;
+  color: @ink;
 }
 
 .diff {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   padding: 1px 0;
 }
 
 .diff.mas {
-  color: #56BCA0;
+  color: @green;
 }
 
 .diff.menos {
-  color: #E4785F;
+  color: @pink;
 }
 
 .diff.info {
-  color: #85AEDF;
+  color: @cyan;
 }
 
 .radio {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: #8195A7;
+  color: @muted;
 }
 
-/* Sheet & Permission Tiers */
+/* ── Hojas de propuesta y niveles de permiso ─────────────────────────── */
+
 .hoja {
-  border-left: 3px solid #2C3944;
-  padding-left: 14px;
-  margin-top: 6px;
+  background: @surface;
+  border: 1px solid @line;
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-top: 4px;
+  box-shadow: inset 3px 0 0 @line_strong;
 }
 
 .hoja.auto {
-  border-left-color: #56BCA0;
+  box-shadow: inset 3px 0 0 @green;
 }
 
 .hoja.confirm {
-  border-left-color: #DBA451;
+  box-shadow: inset 3px 0 0 @amber;
 }
 
 .hoja.grant {
-  border-left-color: #E4785F;
+  box-shadow: inset 3px 0 0 @pink;
 }
 
 .hoja.flow {
-  border-left-color: #85AEDF;
+  box-shadow: inset 3px 0 0 @cyan;
 }
 
 .nivel {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  font-weight: bold;
+  font-weight: 700;
 }
 
 .nivel.auto {
-  color: #56BCA0;
+  color: @green;
 }
 
 .nivel.confirm {
-  color: #DBA451;
+  color: @amber;
 }
 
 .nivel.grant {
-  color: #E4785F;
+  color: @pink;
 }
 
-/* Action Buttons */
+/* ── Botones de acción ───────────────────────────────────────────────── */
+
 button.aprobar {
-  background: #1B3A5C;
-  color: #DEE6EE;
-  border: 1px solid #2B4C74;
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-weight: bold;
+  background-image: linear-gradient(95deg, #1fb8ff 0%, #5b6cff 55%, #a45cff 100%);
+  background-color: @indigo;
+  color: white;
+  border: none;
+  padding: 8px 22px;
+  border-radius: 999px;
+  font-weight: 700;
   font-size: 13px;
-  transition: background 150ms ease-in-out;
+  box-shadow: 0 8px 22px alpha(#5b6cff, 0.55);
+  transition: box-shadow 150ms ease-in-out;
 }
 
 button.aprobar:hover {
-  background: #2B4C74;
+  box-shadow: 0 10px 28px alpha(#5b6cff, 0.8);
 }
 
 button.descartar {
   background: transparent;
-  color: #8195A7;
-  border: 1px solid #2C3944;
-  padding: 8px 18px;
-  border-radius: 6px;
+  color: @ink;
+  border: 1px solid @line_strong;
+  padding: 8px 20px;
+  border-radius: 999px;
   font-size: 13px;
+  box-shadow: none;
   transition: all 150ms ease-in-out;
 }
 
 button.descartar:hover {
-  background: #2C3944;
-  color: #DEE6EE;
+  background: @surface_2;
+  border-color: @indigo;
 }
 
 .error {
-  color: #E4785F;
+  color: @red;
   font-size: 13px;
 }
 
 .ok {
-  color: #56BCA0;
+  color: @green;
   font-size: 13px;
-  font-weight: bold;
+  font-weight: 700;
 }
 
-/* Agent Mission Center & Kanban Board (T4.2) */
+/* ── Centro de agentes y tablero Kanban (T4.2) ───────────────────────── */
+
 .agent-monitor-bar {
   padding: 8px 10px;
-  background: rgba(24, 33, 43, 0.7);
-  border-radius: 6px;
-  border: 1px solid #2C3944;
+  background: @surface_2;
+  border-radius: 12px;
+  border: 1px solid @line;
 }
 
 .agent-badge {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.agent-badge.active {
-  background: #1B3A5C;
-  color: #85AEDF;
-  font-weight: bold;
-  border: 1px solid #2B4C74;
+  padding: 4px 10px;
+  border-radius: 999px;
 }
 
 .agent-badge.idle {
-  color: #8195A7;
+  color: @faint;
+}
+
+.agent-badge.active {
+  font-weight: 700;
+  color: @cyan;
+  background: alpha(@cyan, 0.14);
+  border: 1px solid alpha(@cyan, 0.45);
+}
+
+.agent-badge.role-architect.active {
+  color: @cyan;
+  background: alpha(@cyan, 0.14);
+  border-color: alpha(@cyan, 0.45);
+}
+
+.agent-badge.role-coder.active {
+  color: @violet;
+  background: alpha(@violet, 0.14);
+  border-color: alpha(@violet, 0.45);
+}
+
+.agent-badge.role-qa.active {
+  color: @green;
+  background: alpha(@green, 0.14);
+  border-color: alpha(@green, 0.45);
+}
+
+.agent-badge.role-auditor.active {
+  color: @pink;
+  background: alpha(@pink, 0.14);
+  border-color: alpha(@pink, 0.45);
 }
 
 .kanban-columns {
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .kanban-column {
-  background: #121A22;
+  background: @surface_2;
   padding: 10px;
-  border-radius: 8px;
-  border: 1px solid #222E3C;
+  border-radius: 14px;
+  border: 1px solid @line;
 }
 
 .kanban-column-header {
-  font-family: monospace;
-  font-size: 11px;
-  font-weight: bold;
-  color: #85AEDF;
-  margin-bottom: 6px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: @muted;
+  margin-bottom: 4px;
 }
 
 .kanban-card {
-  background: #18212B;
+  background: @surface;
   padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid #2C3944;
-  margin-bottom: 4px;
+  border-radius: 10px;
+  border: 1px solid @line;
+  box-shadow: inset 0 2px 0 @indigo;
   transition: border-color 120ms ease-in-out;
 }
 
 .kanban-card:hover {
-  border-color: #85AEDF;
+  border-color: @indigo;
 }
 
+/* Cada carril en su color, como las tarjetas de la web. */
+.lane-backlog .kanban-column-header { color: @cyan; }
+.lane-backlog .kanban-card { box-shadow: inset 0 2px 0 @cyan; }
+.lane-progress .kanban-column-header { color: @violet; }
+.lane-progress .kanban-card { box-shadow: inset 0 2px 0 @violet; }
+.lane-review .kanban-column-header { color: @amber; }
+.lane-review .kanban-card { box-shadow: inset 0 2px 0 @amber; }
+.lane-done .kanban-column-header { color: @green; }
+.lane-done .kanban-card { box-shadow: inset 0 2px 0 @green; }
+
 .kanban-card-id {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px;
-  color: #DBA451;
-  font-weight: bold;
+  color: @muted;
+  font-weight: 700;
 }
 
 .kanban-card-title {
   font-size: 12px;
-  color: #DEE6EE;
+  color: @ink;
 }
 
 button.dispatch-btn {
   margin-top: 4px;
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px;
-  background: #1B3A5C;
-  color: #DEE6EE;
-  border: 1px solid #2B4C74;
-  border-radius: 4px;
-  padding: 3px 8px;
+  min-height: 0;
+  background-image: linear-gradient(95deg, #1fb8ff 0%, #5b6cff 55%, #a45cff 100%);
+  background-color: @indigo;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 10px;
+  box-shadow: none;
 }
 
 button.dispatch-btn:hover {
-  background: #2B4C74;
+  box-shadow: 0 6px 16px alpha(#5b6cff, 0.6);
 }
 
-/* Interactive Syntax-Highlighted Diff Viewer (T8.1) */
+/* ── Visor de diffs con resaltado (T8.1) ─────────────────────────────── */
+
 .diff-file-header {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
-  font-weight: bold;
-  color: #85AEDF;
-  background: #18212B;
+  font-weight: 700;
+  color: @cyan;
+  background: @surface_2;
   padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid #2C3944;
+  border-radius: 8px;
+  border: 1px solid @line;
   margin-top: 8px;
   margin-bottom: 4px;
 }
 
 .diff-hunk-header {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: #8195A7;
-  background: rgba(35, 55, 77, 0.4);
+  color: @muted;
+  background: alpha(@indigo, 0.14);
   padding: 3px 8px;
-  border-radius: 3px;
+  border-radius: 6px;
   margin-bottom: 2px;
 }
 
 .diff-row {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
   padding: 1px 4px;
 }
 
 .diff-row.add {
-  background-color: rgba(86, 188, 160, 0.12);
-  color: #56BCA0;
+  background-color: alpha(@green, 0.12);
+  color: @green;
 }
 
 .diff-row.del {
-  background-color: rgba(224, 108, 117, 0.12);
-  color: #E06C75;
+  background-color: alpha(@pink, 0.12);
+  color: @pink;
 }
 
 .diff-row.ctx {
-  color: #8195A7;
+  color: @muted;
 }
 
 .diff-line-number {
-  color: #5C6E7E;
+  color: @faint;
   margin-right: 8px;
   min-width: 35px;
 }
 
-/* Syntax Highlighting Tokens (T8.1) */
+/* Tokens de resaltado (T8.1) */
 .syn-keyword {
-  color: #C678DD;
-  font-weight: bold;
+  color: @violet;
+  font-weight: 700;
 }
 
 .syn-type {
-  color: #E5C07B;
+  color: @cyan;
 }
 
 .syn-string {
-  color: #98C379;
+  color: @green;
 }
 
 .syn-comment {
-  color: #5C6370;
+  color: @faint;
   font-style: italic;
 }
 
 .syn-number {
-  color: #D19A66;
+  color: @amber;
 }
 
-/* Floating Terminal Console / VTE (T8.1) */
+/* ── Consola flotante (T8.1) ─────────────────────────────────────────── */
+
 .terminal-frame {
-  background: #0D1218;
-  border: 1px solid #2C3944;
-  border-radius: 8px;
-  padding: 12px;
+  background: @deep;
+  border: 1px solid @line;
+  border-radius: 12px;
+  padding: 12px 14px;
   margin-top: 8px;
 }
 
 .terminal-buffer {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   line-height: 1.4;
-  color: #DEE6EE;
+  color: @ink;
 }
 
 .terminal-prompt {
-  color: #56BCA0;
-  font-weight: bold;
+  color: @cyan;
+  font-weight: 700;
 }
 
-/* Asynchronous Notification Tray & Agent Approvals (T8.2) */
+/* ── Bandeja de notificaciones y aprobaciones (T8.2) ─────────────────── */
+
 .notif-badge {
-  font-family: monospace;
+  font-family: "JetBrains Mono", monospace;
   font-size: 11px;
-  color: #DBA451;
-  background: rgba(219, 164, 81, 0.15);
-  border: 1px solid #DBA451;
-  border-radius: 12px;
-  padding: 2px 8px;
+  color: @amber;
+  background: alpha(@amber, 0.14);
+  border: 1px solid alpha(@amber, 0.5);
+  border-radius: 999px;
+  padding: 2px 9px;
 }
 
 .notif-card {
-  background: #18212B;
-  border: 1px solid #2C3944;
-  border-radius: 8px;
+  background: @surface;
+  border: 1px solid @line;
+  border-radius: 14px;
   padding: 10px 14px;
   margin-bottom: 6px;
   transition: border-color 150ms ease-in-out;
 }
 
 .notif-card:hover {
-  border-color: #85AEDF;
+  border-color: @indigo;
 }
 
 .notif-card.unread {
-  border-left: 3px solid #DBA451;
+  box-shadow: inset 3px 0 0 @cyan;
 }
 
 .notif-title {
   font-size: 13px;
-  font-weight: bold;
-  color: #DEE6EE;
+  font-weight: 700;
+  color: @ink;
   margin-bottom: 2px;
 }
 
 .notif-body {
   font-size: 12px;
-  color: #8195A7;
+  color: @muted;
   margin-bottom: 6px;
 }
 
@@ -490,59 +646,58 @@ button.dispatch-btn:hover {
 }
 
 button.notif-btn-approve {
-  background: #1B4D3E;
-  color: #56BCA0;
-  border: 1px solid #277960;
-  border-radius: 4px;
+  background-image: linear-gradient(95deg, #1fb8ff 0%, #5b6cff 55%, #a45cff 100%);
+  background-color: @indigo;
+  color: white;
+  border: none;
+  border-radius: 999px;
   font-size: 11px;
-  padding: 3px 10px;
+  padding: 3px 12px;
+  box-shadow: none;
 }
 
 button.notif-btn-approve:hover {
-  background: #277960;
-  color: #FFFFFF;
+  box-shadow: 0 6px 16px alpha(#5b6cff, 0.6);
 }
 
 button.notif-btn-reject {
-  background: #4D1B1B;
-  color: #E06C75;
-  border: 1px solid #792727;
-  border-radius: 4px;
+  background: transparent;
+  color: @pink;
+  border: 1px solid alpha(@pink, 0.5);
+  border-radius: 999px;
   font-size: 11px;
-  padding: 3px 10px;
+  padding: 3px 12px;
+  box-shadow: none;
 }
 
 button.notif-btn-reject:hover {
-  background: #792727;
-  color: #FFFFFF;
+  background: alpha(@pink, 0.14);
 }
 
-/* ==========================================================================
-   Application Launcher Floating Results (T25.4)
-   ========================================================================== */
+/* ── Lanzador de aplicaciones (T25.4) ────────────────────────────────── */
 
 .launcher-box {
-  margin-top: 4px;
-  margin-bottom: 6px;
+  margin-top: 2px;
+  margin-bottom: 4px;
 }
 
 .launcher-card {
   padding: 8px 12px;
-  background-color: #141C24;
-  border: 1px solid #23303C;
-  border-radius: 8px;
+  background-color: @surface;
+  border: 1px solid @line;
+  border-radius: 12px;
   transition: all 150ms ease-in-out;
 }
 
 .launcher-card:hover {
-  background-color: #1A2530;
-  border-color: #3B4B5A;
+  background-color: @surface_2;
+  border-color: @line_strong;
 }
 
 .launcher-card.selected {
-  background-color: #192C26;
-  border-color: #56BCA0;
-  box-shadow: 0 0 12px rgba(86, 188, 160, 0.15);
+  background-color: alpha(@cyan, 0.1);
+  border-color: @cyan;
+  box-shadow: 0 0 16px alpha(@cyan, 0.2);
 }
 
 .launcher-icon-box {
@@ -556,43 +711,42 @@ button.notif-btn-reject:hover {
 }
 
 .launcher-title {
-  font-weight: bold;
+  font-weight: 700;
   font-size: 13px;
-  color: #DEE6EE;
+  color: @ink;
 }
 
 .launcher-card.selected .launcher-title {
-  color: #56BCA0;
+  color: @cyan;
 }
 
 .launcher-source {
   font-size: 10px;
-  color: #8195A7;
-  font-family: monospace;
+  color: @muted;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .launcher-ws-badge {
   font-size: 10px;
-  color: #DBA451;
-  background-color: #2D2314;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid #5C431F;
+  color: @amber;
+  background-color: alpha(@amber, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid alpha(@amber, 0.4);
 }
 
 .launcher-subtitle {
   font-size: 11px;
-  color: #8195A7;
+  color: @muted;
 }
 
 .launcher-hint {
   font-size: 11px;
-  color: #556677;
-  font-family: monospace;
+  color: @faint;
+  font-family: "JetBrains Mono", monospace;
 }
 
 .launcher-hint.active {
-  color: #56BCA0;
-  font-weight: bold;
+  color: @cyan;
+  font-weight: 700;
 }
-
