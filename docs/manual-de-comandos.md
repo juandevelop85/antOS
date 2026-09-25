@@ -7,7 +7,7 @@ Este manual detalla **todos los métodos para arrancar y ejecutar antOS** (CLI, 
 ## 📑 Tabla de Contenidos
 1. [Métodos de Arranque del Sistema Operativo](#1-métodos-de-arranque-del-sistema-operativo)
    - [Método 1: CLI Directo y Centro de Control en Host (macOS y Linux)](#método-1-cli-directo-y-centro-de-control-en-host-macos-y-linux)
-   - [Método 2: Demonio en Segundo Plano y Socket IPC (`antos escucha`)](#método-2-demonio-en-segundo-plano-y-socket-ipc-antos-escucha)
+   - [Método 2: Demonio en Segundo Plano y Socket IPC (`antos demonio`)](#método-2-demonio-en-segundo-plano-y-socket-ipc-antos-demonio)
    - [Método 3: Shell Gráfico Wayland GTK4 (`antos-barra`)](#método-3-shell-gráfico-wayland-gtk4-antos-barra)
    - [Método 4: Confinamiento Kernel en Linux con Landlock y Cgroups v2](#método-4-confinamiento-kernel-en-linux-con-landlock-y-cgroups-v2)
    - [Método 5: Máquina Virtual antOS NixOS Completa en QEMU](#método-5-máquina-virtual-antos-nixos-completa-en-qemu)
@@ -110,22 +110,63 @@ antos <comando o intención>
 
 ---
 
-### Método 2: Demonio en Segundo Plano y Socket IPC (`antos escucha`)
+### Método 2: Demonio en Segundo Plano y Socket IPC (`antos demonio`)
 
 Permite ejecutar `antosd` como servicio persistente. Todos los clientes CLI y la barra Wayland se comunican con él a través del protocolo serializado `antos-protocolo` por socket UNIX:
 
 ```bash
 # Iniciar el demonio en la terminal actual (socket por defecto: .antos/antos.sock)
-antos escucha
+antos demonio
 
 # Iniciar indicando un socket y directorio de estado personalizado
-ANTOS_STATE=/tmp/antos_state antos escucha
+ANTOS_STATE=/tmp/antos_state antos demonio
 
 # Ejecutar en segundo plano con nohup o daemonizer
-nohup antos escucha > /tmp/antosd.log 2>&1 &
+nohup antos demonio > /tmp/antosd.log 2>&1 &
 ```
 
 Cualquier comando posterior (`antos status`, `antos agent run T1.1`) detectará el socket abierto y delegará la ejecución al demonio remoto de forma transparente.
+
+> **`antos escucha` es otra cosa.** Hasta 2026-09-25 este método decía
+> `antos escucha`, y quien lo siguiera no arrancaba ningún demonio: grababa
+> cinco segundos de micrófono. `escucha` es la captura de voz
+> ([`antos escucha`](#voz-antos-escucha)); el demonio es `antos demonio`.
+
+### Voz (`antos escucha`)
+
+Hablarle al sistema fue una de las primeras capacidades de antOS y el
+código está vivo: `antos escucha` graba del micrófono y transcribe **en
+local** con `whisper.cpp`; el texto transcrito sigue exactamente el mismo
+camino que si lo hubieras tecleado —plan, radio de impacto, nivel de
+permiso, diff y confirmación—, que es lo que hace aceptable la voz en un
+sistema que muta tu máquina.
+
+```bash
+antos escucha                      # graba 5 s y ejecuta lo transcrito
+antos escucha --segundos 8         # ventana más larga
+antos escucha --dispositivos       # lista las entradas de audio
+antos escucha --dispositivo 1      # elige una
+antos escucha --desde audio.wav    # transcribe un fichero en vez del micro
+```
+
+Necesita `ffmpeg` y `whisper-cli`/`whisper-cpp` en el `PATH` (o
+`ANTOS_WHISPER` apuntando al binario) y el modelo que descarga
+[`system/instalar-voz.sh`](../system/instalar-voz.sh).
+
+#### Estado de implementación
+
+- **Solo funciona en macOS.** La captura pide `ffmpeg -f avfoundation`
+  ([`voice.rs`](../system/antosd/src/voice.rs)), que es el backend de
+  macOS; en Linux habría que usar `alsa` o `pulse`. En antOS Linux —el
+  sistema que este proyecto instala— `antos escucha` **no graba**.
+- **No viaja en la imagen.** Ni `ffmpeg` ni `whisper` están en los módulos
+  de NixOS, así que el sistema instalado no trae con qué grabar ni con qué
+  transcribir.
+- **No está en el protocolo ni en la barra.** No hay ninguna petición IPC
+  de voz: hablarle al sistema es hoy exclusivamente de terminal, y el
+  micrófono de la barra no existe.
+
+Cerrar esas tres cosas es [T38.4](tickets/T38.4-voz-en-antos-linux-y-en-la-barra.md).
 
 ---
 

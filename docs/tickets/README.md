@@ -188,6 +188,10 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 36** | [T36.7](T36.7-release-firmada-y-cache-binario.md) | Release Firmada y Caché Binario | 🔄 En Progreso |
 | **Fase 37** | [T37.1](T37.1-identidad-visual-de-la-barra-alineada-con-la-web.md) | Identidad Visual de la Barra Alineada con la Web | ✅ Completado |
 | **Fase 37** | [T37.2](T37.2-foco-y-cursor-en-la-barra.md) | Foco y Cursor en la Barra | 🔄 En Progreso |
+| **Fase 38** | [T38.1](T38.1-ambito-de-proyecto-en-el-protocolo-y-el-demonio.md) | Ámbito de Proyecto en el Protocolo y el Demonio | ⏳ Pendiente |
+| **Fase 38** | [T38.2](T38.2-selector-de-proyecto-en-la-barra.md) | Selector de Proyecto en la Barra | ⏳ Pendiente |
+| **Fase 38** | [T38.3](T38.3-bandeja-de-notificaciones-y-acciones-en-la-barra.md) | Bandeja de Notificaciones y Acciones en la Barra | ⏳ Pendiente |
+| **Fase 38** | [T38.4](T38.4-voz-en-antos-linux-y-en-la-barra.md) | Voz en antOS Linux y en la Barra | ⏳ Pendiente |
 
 ---
 
@@ -670,3 +674,29 @@ la web y el escritorio que arranca el usuario no se parecían.
   cursor de escritura aparecía sobre filas pulsables. Etiquetas no
   seleccionables por defecto, `action_button` con `focus_on_click(false)`
   y cursor de puntero en las tarjetas del lanzador.
+
+## Fase 38 · Gobernanza del Workspace (September 2026)
+
+Origen: al preguntarse cómo llevar `antos use` a la barra (2026-09-25), el
+análisis encontró que no había dónde llevarlo. Hay **tres** nociones
+incompatibles de «proyecto activo» —la de `ctx.rs` (solo CLI), la de
+`dev_tui.rs` (`ANTOS_ACTIVE_PROJECT`, `workspace/proyectos/`) y la de la
+barra (su propio `current_dir()`)—, ningún manejador de IPC lee la
+primera, y el demonio congela su `Ctx` al arrancar, así que un `antos use`
+posterior no llega. La barra acaba gobernando el repositorio donde
+casualmente arrancó su proceso.
+
+- **T38.1** — un solo concepto de proyecto activo, que viva en el demonio,
+  se consulte y cambie por IPC (`ListProjects`, `UseProject`,
+  `QueryProjectStatus`), se resuelva por petición y se difunda a quien
+  esté conectado.
+- **T38.2** — la barra dice siempre sobre qué proyecto actúa, deja
+  cambiarlo (con `@nombre` desde el teclado) y manda ese ámbito en todas
+  sus peticiones.
+- **T38.3** — la bandeja: lo que el sistema tiene pendiente de ti, de
+  todos los proyectos, resuelto ahí mismo. El demonio expone 88 tipos de
+  petición y la barra usa 13; lo que falta no es capacidad, es interfaz.
+- **T38.4** — la voz, que fue de lo primero que tuvo antOS, funciona en el
+  macOS de desarrollo y **no** en antOS Linux: la captura pide
+  `avfoundation`, ni `ffmpeg` ni `whisper` viajan en la imagen y no hay
+  petición IPC, así que la barra no puede escuchar.
