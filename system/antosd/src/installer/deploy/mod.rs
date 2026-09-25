@@ -268,6 +268,33 @@ WantedBy=multi-user.target
         url
     }
 
+    /// `mount` con reintentos. Entre `mkfs` y `mount` el núcleo puede no
+    /// haber releído todavía la partición recién formateada: el primer
+    /// smoke de x86_64 (emulado, 2026-09-25) murió aquí con «wrong fs type,
+    /// bad option, bad superblock», y el intento siguiente, con el mismo
+    /// código, pasó — una carrera, no un error determinista. En una máquina
+    /// lenta de verdad pasaría igual, así que se espera a `udevadm settle`
+    /// y se reintenta antes de dar la instalación por perdida.
+    ///
+    /// Un fallo que no sea de sincronización (el dispositivo no existe, la
+    /// opción es inválida) se reintenta también, pero solo tres veces y el
+    /// error que se propaga es el último, con su mensaje real.
+    fn mount_with_retry(runner: &mut dyn InstallRunner, device: &str, target: &str) -> Result<()> {
+        let mut last = None;
+        for attempt in 0..3 {
+            if attempt > 0 {
+                // `settle` espera a que udev termine con los eventos
+                // pendientes del `mkfs`; si no está, no es fatal.
+                let _ = runner.run("udevadm", &args(&["settle"]), None);
+            }
+            match runner.run("mount", &args(&[device, target]), None) {
+                Ok(_) => return Ok(()),
+                Err(err) => last = Some(err),
+            }
+        }
+        Err(last.unwrap_or_else(|| anyhow::anyhow!("mount {device} {target} falló sin error")))
+    }
+
     /// Copia recursiva de un directorio saltando los de compilación.
     pub fn copy_tree(src: &Path, dst: &Path) -> Result<()> {
         fs::create_dir_all(dst).with_context(|| format!("Creando {}", dst.display()))?;
@@ -1017,10 +1044,10 @@ WantedBy=multi-user.target
         state.push("filesystem_format", format_desc.join("; "));
 
         // ── 3. Montaje ───────────────────────────────────────────────────
-        runner.run("mount", &args(&[&root_dev, &root_str]), None)?;
+        Self::mount_with_retry(runner, &root_dev, &root_str)?;
         state.mounted = true;
         fs::create_dir_all(&boot_dir).with_context(|| format!("Creando {}", boot_dir.display()))?;
-        runner.run("mount", &args(&[&esp_dev, &boot_str]), None)?;
+        Self::mount_with_retry(runner, &esp_dev, &boot_str)?;
         if !runner.is_mountpoint(root_dir) || !runner.is_mountpoint(&boot_dir) {
             bail!("tras `mount`, {root_str} o {boot_str} no aparecen como puntos de montaje");
         }
