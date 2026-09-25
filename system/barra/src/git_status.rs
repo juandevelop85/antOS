@@ -29,8 +29,12 @@ pub(crate) fn query_git_status_async(git_badge: Label) {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| ".".into());
 
+            // `project: None` = el proyecto activo que resuelva el demonio
+            // (T38.1), lo mismo que enviaba la barra antes de que existiera
+            // el campo. Elegirlo desde la barra es T38.2.
             let req = Request::QueryGitStatus {
                 workspace_path: current_dir,
+                project: None,
             };
 
             if let Ok(json) = serde_json::to_string(&req) {

@@ -36,8 +36,10 @@ pub(crate) fn load_kanban_board_async(
 
             if let Ok(mut stream) = UnixStream::connect(&path) {
                 // 1. Fetch tickets
+                // `project: None`: ver `git_status.rs` (T38.1; selector en T38.2).
                 let req_tickets = Request::ListTickets {
                     workspace_path: current_dir.clone(),
+                    project: None,
                 };
                 if let Ok(json) = serde_json::to_string(&req_tickets) {
                     let _ = writeln!(stream, "{json}");
