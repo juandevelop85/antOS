@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{channel, Receiver, TryRecvError};
 
 /// Ejecuta `work` en un hilo de trabajo —solo I/O de socket, su resultado debe
 /// ser `Send`— y aplica `apply` en el hilo principal de GTK con ese resultado.
@@ -119,7 +119,18 @@ pub(crate) fn listen_events(
     // primer paso y se reutiliza hasta `AgentDone`.
     let timeline: Rc<RefCell<Option<GtkBox>>> = Rc::new(RefCell::new(None));
     gtk4::glib::timeout_add_local(std::time::Duration::from_millis(35), move || {
-        while let Ok(event) = events.try_recv() {
+        loop {
+            let event = match events.try_recv() {
+                Ok(event) => event,
+                Err(TryRecvError::Empty) => break,
+                // El otro extremo se cerró: la sesión terminó y este
+                // temporizador no tiene ya nada que escuchar. Importa desde
+                // que el input dejó de bloquearse (T37.2): se puede lanzar
+                // una intención con otra en curso, y sin esto cada una
+                // dejaba un temporizador vivo sondeando un canal muerto
+                // cada 35 ms.
+                Err(TryRecvError::Disconnected) => return gtk4::glib::ControlFlow::Break,
+            };
             match event {
                 Event::Start { .. } => {}
                 Event::Note(text) => {
@@ -166,12 +177,9 @@ pub(crate) fn listen_events(
                 Event::Result(result) => {
                     let class = if result.ok { "ok" } else { "error" };
                     content.append(&make_label(&result.message, class));
-                    input.set_sensitive(true);
-                    input.set_text("");
                 }
                 Event::Error(err_msg) => {
                     render_error(&content, &err_msg);
-                    input.set_sensitive(true);
                 }
                 // T33.4: pasos en vivo, botón «detener» e informe con «deshacer».
                 Event::AgentStep(step) => {
@@ -201,7 +209,6 @@ pub(crate) fn listen_events(
                 Event::AgentDone(report) => {
                     *timeline.borrow_mut() = None;
                     render_agent_report(&content, &report, input.clone());
-                    input.set_sensitive(true);
                 }
                 _ => {}
             }

@@ -423,13 +423,27 @@ pub(crate) fn build_ui(app: &Application) {
                 }
             }
 
+            // La intención ya está capturada en `text_trimmed`: la caja se
+            // vacía en cuanto se envía, que es lo que uno espera de una
+            // línea de órdenes — al volver la respuesta, el input está
+            // listo para la siguiente sin tener que borrar la anterior.
+            entry.set_text("");
+
             if text_trimmed == "panel" || text_trimmed == "board" || text_trimmed == "tablero" {
                 empty_box(&content);
                 load_kanban_board_async(content.clone(), input_ref.clone(), stream_writer.clone());
                 return;
             }
 
-            input_ref.set_sensitive(false);
+            // Aquí se desactivaba el input mientras durase la sesión, y eso
+            // causaba dos fallos a la vez (2026-09-25): desactivar el widget
+            // que tiene el foco se lo quita, la ventana se queda sin foco y
+            // el `EventControllerFocus` de más arriba colapsa la barra —de
+            // ahí que al pulsar Enter se cerrara sola—; y la rama
+            // `Event::Proposal` nunca lo reactivaba, así que con un plan en
+            // pantalla el input quedaba muerto con el texto viejo dentro.
+            // El input se queda vivo: pulsar Enter otra vez abre una sesión
+            // nueva y la anterior se cierra al reemplazar su `stream`.
             empty_box(&content);
 
             let selected_planner = planner_ref.borrow().clone();
