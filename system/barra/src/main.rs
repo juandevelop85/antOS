@@ -5,9 +5,9 @@
 
 extern crate antos_protocol as antos_protocol;
 
-mod git_status;
 mod kanban;
 mod launcher;
+mod project;
 mod session;
 mod telemetry;
 mod tray;

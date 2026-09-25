@@ -762,3 +762,10 @@ button.notif-btn-reject:hover {
   padding-top: 10px;
   border-top: 1px solid alpha(@line, 0.8);
 }
+
+/* Chip de proyecto (T38.2): el contexto de todo lo demás. Mismo aspecto
+   que los botones de la cabecera, un punto más de peso para que se lea
+   primero: responde a «¿esto sobre qué actúa?». */
+button.project-chip {
+  font-weight: 700;
+}

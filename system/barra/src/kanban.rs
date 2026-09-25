@@ -1,15 +1,14 @@
 //! Tablero Kanban de tickets y Centro de Control de Agentes (`Super + A`).
 
-use crate::session::run_offthread;
-use crate::socket_path;
-use crate::widgets::{action_button, empty_box, make_label};
+use crate::project::{request_scope, Scope};
+use crate::session::{request_one, run_offthread};
+use crate::widgets::{action_button, empty_box, make_label, reveal_panel};
 use antos_protocol::{
     AgentRole, Event, FlowBackend, FlowTask, Request, TicketStatus, TicketSummary,
 };
 use gtk4::prelude::*;
 use gtk4::{Box as GtkBox, Entry, Orientation, ScrolledWindow};
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
 
@@ -18,64 +17,35 @@ pub(crate) fn load_kanban_board_async(
     content: GtkBox,
     input: Entry,
     stream_writer: Rc<RefCell<Option<UnixStream>>>,
+    scope: &Scope,
 ) {
+    reveal_panel(&content);
     content.append(&make_label(
         "Cargando Centro de Control y Tablero...",
         "radio",
     ));
 
+    // El ámbito se decide aquí, en el hilo principal (`Scope` es un `Rc` y
+    // no cruza hilos): tickets del proyecto activo, no del directorio donde
+    // arrancó la barra (T38.2).
+    let (workspace_path, project) = request_scope(scope.borrow().as_ref());
+
     run_offthread(
-        || -> (Vec<TicketSummary>, Vec<FlowTask>) {
-            let path = socket_path();
-            let current_dir = std::env::current_dir()
-                .map(|p| p.display().to_string())
-                .unwrap_or_else(|_| ".".into());
-
-            let mut tickets = Vec::new();
-            let mut flows = Vec::new();
-
-            if let Ok(mut stream) = UnixStream::connect(&path) {
-                // 1. Fetch tickets
-                // `project: None`: ver `git_status.rs` (T38.1; selector en T38.2).
-                let req_tickets = Request::ListTickets {
-                    workspace_path: current_dir.clone(),
-                    project: None,
-                };
-                if let Ok(json) = serde_json::to_string(&req_tickets) {
-                    let _ = writeln!(stream, "{json}");
-                    let _ = stream.flush();
-
-                    let mut reader = BufReader::new(&stream);
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).is_ok() {
-                        if let Ok(Event::TicketList(list)) =
-                            serde_json::from_str::<Event>(line.trim())
-                        {
-                            tickets = list;
-                        }
-                    }
-                }
-
-                // 2. Fetch flows
-                let req_flows = Request::ListFlows {
-                    workspace_path: current_dir,
-                };
-                if let Ok(json) = serde_json::to_string(&req_flows) {
-                    let _ = writeln!(stream, "{json}");
-                    let _ = stream.flush();
-
-                    let mut reader = BufReader::new(&stream);
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).is_ok() {
-                        if let Ok(Event::FlowList(list)) =
-                            serde_json::from_str::<Event>(line.trim())
-                        {
-                            flows = list;
-                        }
-                    }
-                }
-            }
-
+        move || -> (Vec<TicketSummary>, Vec<FlowTask>) {
+            // Una conexión por petición: el demonio atiende una y cierra.
+            // Antes ambas iban por el mismo socket y `ListFlows` nunca
+            // recibía respuesta — el tablero no ha cargado flows nunca.
+            let tickets = match request_one(&Request::ListTickets {
+                workspace_path: workspace_path.clone(),
+                project,
+            }) {
+                Ok(Event::TicketList(list)) => list,
+                _ => Vec::new(),
+            };
+            let flows = match request_one(&Request::ListFlows { workspace_path }) {
+                Ok(Event::FlowList(list)) => list,
+                _ => Vec::new(),
+            };
             (tickets, flows)
         },
         move |(tickets, flows)| {

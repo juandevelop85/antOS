@@ -3,7 +3,7 @@
 
 use antos_protocol::Tier;
 use gtk4::prelude::*;
-use gtk4::{Align, Box as GtkBox, Button, Label};
+use gtk4::{Align, Box as GtkBox, Button, Label, ScrolledWindow};
 
 pub(crate) fn level_css_class(tier: Tier) -> &'static str {
     match tier {
@@ -67,6 +67,19 @@ pub(crate) fn render_error(content: &GtkBox, message: &str) {
         // Un error es justo lo que uno quiere copiar para buscarlo o
         // pegarlo en un ticket.
         content.append(&make_selectable_label(line, "error"));
+    }
+}
+
+/// Muestra el panel de respuestas que contiene a `content`.
+///
+/// Desde que el panel tiene altura fija (T37.2) nace oculto, y mostrarlo
+/// era responsabilidad de cada punto de entrada. Solo lo hacía el de Enter:
+/// el botón «tablero», el atajo Super+A y `--panel` pintaban el tablero en
+/// un panel invisible, así que pulsarlos no hacía nada visible. Quien pinta
+/// en el panel lo muestra, y así no depende de acordarse en cada sitio.
+pub(crate) fn reveal_panel(content: &GtkBox) {
+    if let Some(scroll) = content.ancestor(ScrolledWindow::static_type()) {
+        scroll.set_visible(true);
     }
 }
 

@@ -1,8 +1,11 @@
 //! Ensamblado de la ventana principal (superficie Wayland Layer Shell) y
 //! cableado de todos los widgets de la barra.
 
-use crate::git_status::query_git_status_async;
 use crate::kanban::load_kanban_board_async;
+use crate::project::{
+    open_selector, parse_at_command, refresh_status, scope_dir, switch_from_input, ProjectUi,
+    Scope,
+};
 use crate::launcher::{
     launch_desktop_application_async, load_installed_apps_async, render_launcher_results,
     update_launcher_selection,
@@ -93,9 +96,18 @@ pub(crate) fn build_ui(app: &Application) {
 
     header_bar.append(&build_brand());
 
-    let git_badge = make_label("🌿 checking git...", "badge");
-    git_badge.add_css_class("git-badge");
-    header_bar.append(&git_badge);
+    // Chip de proyecto (T38.2): dice sobre qué actúa la barra y, al
+    // pulsarlo, deja cambiarlo. Sustituye al badge de git, que preguntaba
+    // por el directorio donde arrancó el proceso —en una sesión de greetd,
+    // `$HOME`— y por eso nunca mostró más que su texto de reserva.
+    let project_chip = action_button("🌿 …", "badge-button");
+    project_chip.add_css_class("git-badge");
+    project_chip.add_css_class("project-chip");
+    project_chip.set_tooltip_text(Some(
+        "Proyecto activo. Pulsa para cambiarlo, o escribe @nombre en la intención.",
+    ));
+    header_bar.append(&project_chip);
+    let scope: Scope = Rc::new(RefCell::new(None));
 
     let ebpf_badge = make_label("🛡️ eBPF", "badge");
     ebpf_badge.add_css_class("ebpf-badge");
@@ -375,9 +387,15 @@ pub(crate) fn build_ui(app: &Application) {
         let content_ref = content.clone();
         let input_ref = input.clone();
         let writer_ref = stream_writer.clone();
+        let scope_ref = scope.clone();
         kanban_btn.connect_clicked(move |_| {
             empty_box(&content_ref);
-            load_kanban_board_async(content_ref.clone(), input_ref.clone(), writer_ref.clone());
+            load_kanban_board_async(
+                content_ref.clone(),
+                input_ref.clone(),
+                writer_ref.clone(),
+                &scope_ref,
+            );
         });
     }
 
@@ -425,8 +443,22 @@ pub(crate) fn build_ui(app: &Application) {
         window.add_controller(focus_controller);
     }
 
-    // Query initial git status and system telemetry
-    query_git_status_async(git_badge.clone());
+    // El ámbito de la barra (T38.2): chip, selector y atajo `@nombre`.
+    let project_ui = ProjectUi {
+        scope: scope.clone(),
+        chip: project_chip.clone(),
+        content: content.clone(),
+        content_scroll: content_scroll.clone(),
+        decisions: decisions.clone(),
+        input: input.clone(),
+    };
+    {
+        let ui = project_ui.clone();
+        project_chip.connect_clicked(move |_| open_selector(&ui, String::new()));
+    }
+
+    // Query initial project scope and system telemetry
+    refresh_status(&project_ui);
     query_telemetry_async(
         ebpf_badge.clone(),
         profiler_badge.clone(),
@@ -440,8 +472,12 @@ pub(crate) fn build_ui(app: &Application) {
         let pb = profiler_badge.clone();
         let prb = pair_badge.clone();
         let mb = mesh_badge.clone();
+        let ui = project_ui.clone();
         gtk4::glib::timeout_add_local(std::time::Duration::from_secs(3), move || {
             query_telemetry_async(eb.clone(), pb.clone(), prb.clone(), mb.clone());
+            // Así se entera la barra de un `antos use` hecho en una
+            // terminal, sin suscripción ni reinicio (T38.1 / T38.2).
+            refresh_status(&ui);
             gtk4::glib::ControlFlow::Continue
         });
     }
@@ -459,11 +495,23 @@ pub(crate) fn build_ui(app: &Application) {
         let window_activate_ref = window.clone();
         let content_scroll_ref = content_scroll.clone();
         let decisions_ref = decisions.clone();
+        let scope_activate = scope.clone();
+        let project_ui_activate = project_ui.clone();
 
         input.connect_activate(move |entry| {
             let text = entry.text().to_string();
             let text_trimmed = text.trim();
             if text_trimmed.is_empty() {
+                return;
+            }
+
+            // `@nombre resto` (T38.2): cambia de proyecto sin soltar el
+            // teclado y, si hay resto, lo lanza sobre el proyecto nuevo.
+            // Va antes que todo lo demás: `@api` no es una aplicación ni una
+            // intención.
+            if let Some((name, rest)) = parse_at_command(text_trimmed) {
+                entry.set_text("");
+                switch_from_input(&project_ui_activate, name, rest);
                 return;
             }
 
@@ -495,7 +543,12 @@ pub(crate) fn build_ui(app: &Application) {
 
             if text_trimmed == "panel" || text_trimmed == "board" || text_trimmed == "tablero" {
                 empty_box(&content);
-                load_kanban_board_async(content.clone(), input_ref.clone(), stream_writer.clone());
+                load_kanban_board_async(
+                    content.clone(),
+                    input_ref.clone(),
+                    stream_writer.clone(),
+                    &scope_activate,
+                );
                 return;
             }
 
@@ -531,9 +584,9 @@ pub(crate) fn build_ui(app: &Application) {
                 .or_else(|| strip_prefix_ci(text_trimmed, "desarrolla ticket "))
                 .or_else(|| strip_prefix_ci(text_trimmed, "desarrolla el ticket "))
             {
-                let workspace_path = std::env::current_dir()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|_| ".".into());
+                // El ticket vive en el proyecto activo (T38.2), no en el
+                // directorio donde arrancó el proceso de la barra.
+                let workspace_path = scope_dir(scope_activate.borrow().as_ref());
                 start_session_request(Request::StartFlow {
                     workspace_path,
                     ticket_id: ticket.trim().to_uppercase(),
@@ -570,6 +623,7 @@ pub(crate) fn build_ui(app: &Application) {
     let input_ref = input.clone();
     let writer_ref = stream_writer.clone();
     let is_expanded_ref = is_expanded.clone();
+    let scope_key = scope.clone();
     key_controller.connect_key_pressed(move |_, key, _, modifier| {
         if key == gtk4::gdk::Key::Escape {
             set_bar_expanded(&window_ref, &input_ref, &is_expanded_ref, false);
@@ -579,7 +633,12 @@ pub(crate) fn build_ui(app: &Application) {
             && modifier.contains(gtk4::gdk::ModifierType::SUPER_MASK)
         {
             empty_box(&content_ref);
-            load_kanban_board_async(content_ref.clone(), input_ref.clone(), writer_ref.clone());
+            load_kanban_board_async(
+                content_ref.clone(),
+                input_ref.clone(),
+                writer_ref.clone(),
+                &scope_key,
+            );
             return gtk4::glib::Propagation::Stop;
         }
         gtk4::glib::Propagation::Proceed
@@ -602,7 +661,7 @@ pub(crate) fn build_ui(app: &Application) {
         set_bar_expanded(&window, &input, &is_expanded, true);
     }
     if wants_panel {
-        load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone());
+        load_kanban_board_async(content.clone(), input.clone(), stream_writer.clone(), &scope);
     } else if let Some(text) = initial_intent {
         input.set_text(&text);
         input.emit_activate();

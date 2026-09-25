@@ -47,6 +47,28 @@ where
     });
 }
 
+/// Una petición, una respuesta, una conexión.
+///
+/// El demonio atiende **una** petición por conexión y la cierra al
+/// responder (`ipc::handle_connection`). Mandar dos por el mismo socket —lo
+/// que hacía el tablero con `ListTickets` y `ListFlows`— deja la segunda sin
+/// contestar: el tablero llevaba sin cargar los flows desde entonces. Toda
+/// consulta pasa por aquí para que eso no se repita.
+pub(crate) fn request_one(req: &Request) -> Result<Event, String> {
+    let path = socket_path();
+    let mut stream = UnixStream::connect(&path)
+        .map_err(|e| format!("no hay demonio antOS en {}: {e}", path.display()))?;
+    let json = serde_json::to_string(req).map_err(|e| e.to_string())?;
+    writeln!(stream, "{json}").map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
+    let mut line = String::new();
+    BufReader::new(stream)
+        .read_line(&mut line)
+        .map_err(|e| e.to_string())?;
+    serde_json::from_str::<Event>(line.trim())
+        .map_err(|e| format!("respuesta ilegible del demonio: {e}"))
+}
+
 /// Connects to the daemon socket and starts the reader thread.
 pub(crate) fn start_session(
     text: &str,
