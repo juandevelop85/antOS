@@ -315,21 +315,49 @@ fn render_proposal(
     for (btn, decision) in [(&discard_btn, false), (&approve_btn, true)] {
         let stream_ref = stream_writer.clone();
         let box_ref = button_box.clone();
+        let content_ref = content.clone();
         btn.connect_clicked(move |_| {
-            if let Some(stream) = stream_ref.borrow_mut().as_mut() {
-                let response = Request::Approval(decision);
-                if let Ok(json) = serde_json::to_string(&response) {
-                    let _ = writeln!(stream, "{json}");
-                    let _ = stream.flush();
+            // Antes, todo fallo aquí era mudo: `let _ =` se tragaba el
+            // error de escritura y los botones se apagaban igual, que desde
+            // fuera es indistinguible de «el botón no hace nada»
+            // (reportado, 2026-09-25). Ahora una decisión que no sale por el
+            // socket se dice, y una que sí sale se acusa en pantalla.
+            let sent = match stream_ref.borrow_mut().as_mut() {
+                Some(stream) => send_decision(stream, decision),
+                None => Err("la sesión con el demonio ya no está abierta".to_string()),
+            };
+            match sent {
+                Ok(()) => {
+                    box_ref.set_sensitive(false);
+                    let (marca, clase) = if decision {
+                        ("✓ aprobado · ejecutando…", "ok")
+                    } else {
+                        ("✗ descartado", "descartar")
+                    };
+                    content_ref.append(&make_label(marca, clase));
+                }
+                Err(err) => {
+                    content_ref.append(&make_selectable_label(
+                        &format!("no pude enviar la decisión: {err}. Vuelve a lanzar la intención."),
+                        "error",
+                    ));
                 }
             }
-            box_ref.set_sensitive(false);
         });
     }
 
     button_box.append(&discard_btn);
     button_box.append(&approve_btn);
     content.append(&button_box);
+}
+
+/// Manda la decisión por el socket de la sesión. Devuelve el error real en
+/// vez de tragárselo: quien aprueba tiene derecho a saber si su decisión
+/// llegó.
+fn send_decision(stream: &mut UnixStream, decision: bool) -> Result<(), String> {
+    let json = serde_json::to_string(&Request::Approval(decision)).map_err(|e| e.to_string())?;
+    writeln!(stream, "{json}").map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())
 }
 
 fn render_flow_task(

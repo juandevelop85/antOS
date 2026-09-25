@@ -21,6 +21,15 @@ use std::path::PathBuf;
 
 pub(crate) const BAR_WIDTH: i32 = 820;
 
+/// Altura fija del área de respuestas.
+///
+/// La barra tiene dos tamaños y solo dos: compacta mientras no hay nada que
+/// enseñar, y esta altura en cuanto lo hay. Antes seguía al contenido, así
+/// que un plan largo la estiraba media pantalla y la respuesta siguiente la
+/// encogía; en una superficie de layer-shell anclada arriba eso es un salto
+/// visible en cada mensaje.
+pub(crate) const CONTENT_HEIGHT: i32 = 420;
+
 /// Reads an environment variable, falling back to its `SYSO_*` predecessor
 /// with a one-line deprecation notice on `stderr` (T31.11: retiring the
 /// `syso` compatibility layer over one soft-transition cycle instead of

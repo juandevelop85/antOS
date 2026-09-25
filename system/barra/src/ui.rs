@@ -10,11 +10,12 @@ use crate::launcher::{
 use crate::session::{listen_events, start_session, start_session_request};
 use crate::telemetry::query_telemetry_async;
 use crate::widgets::{action_button, empty_box, make_label, render_error, render_waiting};
-use crate::BAR_WIDTH;
+use crate::{BAR_WIDTH, CONTENT_HEIGHT};
 use antos_protocol::{is_app_query, match_applications, LauncherAppItem, Request};
 use gtk4::prelude::*;
 use gtk4::{
     Align, Application, ApplicationWindow, Box as GtkBox, Entry, Image, Label, Orientation,
+    PolicyType, ScrolledWindow,
 };
 use gtk4_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 use std::cell::{Cell, RefCell};
@@ -189,9 +190,48 @@ pub(crate) fn build_ui(app: &Application) {
     }
     frame.append(&suggestions_box);
 
-    // Dynamic response and proposals container
+    // Dynamic response and proposals container.
+    //
+    // Va dentro de un `ScrolledWindow` de altura fija: sin él, la superficie
+    // de layer-shell sigue al contenido y la barra cambiaba de tamaño con
+    // cada mensaje —un plan largo la estiraba media pantalla y el siguiente
+    // la encogía— (reportado usando el escritorio, 2026-09-25). Ahora la
+    // barra tiene dos tamaños y solo dos: compacta mientras no hay nada que
+    // enseñar, y `CONTENT_HEIGHT` en cuanto lo hay, pase lo que pase con el
+    // largo de la respuesta.
     let content = GtkBox::new(Orientation::Vertical, 10);
-    frame.append(&content);
+    let content_scroll = ScrolledWindow::builder()
+        .child(&content)
+        .hscrollbar_policy(PolicyType::Never)
+        .vscrollbar_policy(PolicyType::Automatic)
+        .min_content_height(CONTENT_HEIGHT)
+        .max_content_height(CONTENT_HEIGHT)
+        .build();
+    content_scroll.add_css_class("content-scroll");
+    // Oculto hasta que haya algo: una barra recién abierta no tiene por qué
+    // ocupar media pantalla en blanco.
+    content_scroll.set_visible(false);
+    frame.append(&content_scroll);
+
+    // Seguir el final del panel cuando llega contenido nuevo, **solo** si el
+    // usuario ya estaba abajo. Con la altura fija esto deja de ser un lujo:
+    // el resultado de una aprobación se añade al final y, sin esto, caería
+    // fuera de la vista y volvería a parecer que no ha pasado nada. Si el
+    // usuario ha subido a releer algo, no se le arrastra.
+    {
+        let at_bottom: Rc<Cell<bool>> = Rc::new(Cell::new(true));
+        let adjustment = content_scroll.vadjustment();
+        let seen = at_bottom.clone();
+        adjustment.connect_value_changed(move |adj| {
+            seen.set(adj.value() + adj.page_size() >= adj.upper() - 4.0);
+        });
+        let follow = at_bottom.clone();
+        adjustment.connect_changed(move |adj| {
+            if follow.get() {
+                adj.set_value(adj.upper() - adj.page_size());
+            }
+        });
+    }
 
     let stream_writer: Rc<RefCell<Option<UnixStream>>> = Rc::new(RefCell::new(None));
     let current_planner: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
@@ -403,6 +443,7 @@ pub(crate) fn build_ui(app: &Application) {
         let selected_activate_ref = selected_app_index.clone();
         let launcher_box_activate_ref = launcher_box.clone();
         let window_activate_ref = window.clone();
+        let content_scroll_ref = content_scroll.clone();
 
         input.connect_activate(move |entry| {
             let text = entry.text().to_string();
@@ -428,6 +469,10 @@ pub(crate) fn build_ui(app: &Application) {
             // línea de órdenes — al volver la respuesta, el input está
             // listo para la siguiente sin tener que borrar la anterior.
             entry.set_text("");
+
+            // A partir de aquí hay algo que enseñar: el área de respuestas
+            // aparece con su altura fija y ya no cambia de tamaño.
+            content_scroll_ref.set_visible(true);
 
             if text_trimmed == "panel" || text_trimmed == "board" || text_trimmed == "tablero" {
                 empty_box(&content);
