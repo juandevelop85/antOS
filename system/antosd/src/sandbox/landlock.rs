@@ -69,6 +69,29 @@ const SYSTEM_READ_ROOTS: &[&str] = &[
     "/nix",
 ];
 
+/// Nodos de `/dev` que un programa corriente abre para lectura **y**
+/// escritura.
+///
+/// `/dev` entra en [`SYSTEM_READ_ROOTS`] solo como lectura, y eso rompía
+/// cualquier herramienta de verdad: `git init` dentro del recinto moría con
+/// «fatal: could not open '/dev/null' for reading and writing: Permission
+/// denied» (visto al crear un proyecto desde la barra, 2026-09-25), porque
+/// git redirige ahí lo que no quiere mostrar.
+///
+/// Conceder escritura sobre estos nodos no abre nada: `/dev/null` descarta
+/// lo que se le escribe, `/dev/zero` y `/dev/random` solo producen, y
+/// `/dev/full` falla siempre. Ninguno guarda estado ni deja salir
+/// información del recinto. El resto de `/dev` sigue siendo de solo
+/// lectura.
+const SYSTEM_RW_DEVICES: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/full",
+    "/dev/random",
+    "/dev/urandom",
+    "/dev/tty",
+];
+
 #[repr(C)]
 struct RulesetAttr {
     handled_access_fs: u64,
@@ -211,6 +234,11 @@ pub fn restrict(policy: &Policy) -> Result<()> {
     for root in SYSTEM_READ_ROOTS {
         add_rule(ruleset, Path::new(root), read_only)?;
     }
+    // Los nodos de `/dev` que se abren para escribir (ver la constante).
+    let device_rw = (FS_READ_FILE | FS_WRITE_FILE | FS_TRUNCATE) & handled;
+    for device in SYSTEM_RW_DEVICES {
+        add_rule(ruleset, Path::new(device), device_rw)?;
+    }
     // El propio binario, para poder ejecutarse desde donde esté.
     if let Ok(exe) = std::env::current_exe() {
         add_rule(ruleset, &exe, read_only)?;
@@ -293,6 +321,37 @@ mod tests {
         assert_ne!(handled_fs(2) & FS_REFER, 0);
         assert_eq!(handled_fs(2) & FS_TRUNCATE, 0);
         assert_ne!(handled_fs(3) & FS_TRUNCATE, 0);
+    }
+
+    /// `/dev` entra como solo lectura, y sin esta excepción `git init`
+    /// moría dentro del recinto con «could not open '/dev/null' for reading
+    /// and writing». El recinto de macOS ya lo contemplaba (T33.5) y el de
+    /// Linux no: la lista existe para que no vuelvan a separarse.
+    #[test]
+    fn los_sumideros_de_dev_se_pueden_escribir() {
+        assert!(
+            SYSTEM_RW_DEVICES.contains(&"/dev/null"),
+            "escribir en /dev/null es descartar, no un efecto"
+        );
+        for device in SYSTEM_RW_DEVICES {
+            assert!(
+                device.starts_with("/dev/"),
+                "esta lista es solo para nodos de /dev: {device}"
+            );
+        }
+
+        // Y el derecho que se les concede tiene que incluir escritura de
+        // fichero, no solo lectura.
+        let todo = handled_fs(3);
+        let derecho = (FS_READ_FILE | FS_WRITE_FILE | FS_TRUNCATE) & todo;
+        let para_fichero = allowed_for(false, derecho);
+        assert_ne!(para_fichero & FS_WRITE_FILE, 0);
+        assert_ne!(para_fichero & FS_READ_FILE, 0);
+        assert_eq!(
+            para_fichero & FS_READ_DIR,
+            0,
+            "un nodo de /dev es un fichero, no un directorio"
+        );
     }
 
     #[test]

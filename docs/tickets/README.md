@@ -193,6 +193,7 @@ Este directorio contiene el desglose técnico y ordenado de tareas para transfor
 | **Fase 38** | [T38.3](T38.3-bandeja-de-notificaciones-y-acciones-en-la-barra.md) | Bandeja de Notificaciones y Acciones en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.4](T38.4-voz-en-antos-linux-y-en-la-barra.md) | Voz en antOS Linux y en la Barra | ⏳ Pendiente |
 | **Fase 38** | [T38.5](T38.5-el-demonio-ve-las-herramientas-del-sistema.md) | El Demonio Ve las Herramientas del Sistema | 🔄 En Progreso |
+| **Fase 38** | [T38.6](T38.6-el-recinto-deja-escribir-en-los-sumideros-de-dev.md) | El Recinto Deja Escribir en los Sumideros de `/dev` | 🔄 En Progreso |
 
 ---
 
@@ -706,3 +707,8 @@ casualmente arrancó su proceso.
   `PATH` de cada unidad con su lista `path` y `environment.systemPackages`
   no llega. Cualquier capacidad que lanzara un binario moría con
   `os error 2`.
+- **T38.6** — con el PATH arreglado, `git init` seguía muriendo: el
+  recinto de Landlock monta `/dev` como solo lectura y `git` abre
+  `/dev/null` para escribir. El recinto de macOS ya lo contemplaba desde
+  T33.5 y el de Linux no — arreglado en la máquina de desarrollo, abierto
+  en el sistema que se instala.
